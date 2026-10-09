@@ -11,6 +11,17 @@ from backend.apps.accounts_auth.models import (
     SensitiveAction,
     User,
 )
+from backend.apps.accounts_auth.phone_numbers import (
+    InvalidPhoneNumberError,
+    normalize_e164_phone_number,
+)
+
+
+def _validated_phone_number(value: str) -> str:
+    try:
+        return normalize_e164_phone_number(value)
+    except InvalidPhoneNumberError as exc:
+        raise serializers.ValidationError(str(exc)) from exc
 
 
 class UserSummarySerializer(serializers.Serializer[Any]):
@@ -54,10 +65,24 @@ class NaturalPersonRegistrationRequestSerializer(serializers.Serializer[Any]):
     )
     marketing_consent = serializers.BooleanField(default=False)
 
+    def validate_phone_number(self, value: str) -> str:
+        return _validated_phone_number(value)
+
 
 class NaturalPersonRegistrationResponseSerializer(serializers.Serializer[Any]):
-    user = UserSummarySerializer()
+    """The same answer for a new address and an address that already has an account."""
+
+    status = serializers.CharField()
     email_login_sent = serializers.BooleanField()
+
+
+class PhoneVerificationRequestSerializer(serializers.Serializer[Any]):
+    phone_number = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
+    def validate_phone_number(self, value: str) -> str:
+        if not value.strip():
+            return ""
+        return _validated_phone_number(value)
 
 
 class MagicLinkRequestSerializer(serializers.Serializer[Any]):

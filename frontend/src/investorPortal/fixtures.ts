@@ -12,6 +12,7 @@ import type {
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
+  PublicMarketplaceLoan,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
@@ -129,6 +130,7 @@ export const portalFixture: InvestorPortalFixture = {
     {
       id: "N1",
       tone: "warn",
+      label: "Balance reminder",
       title: "Balance ageing - day 57",
       body: "CHF 980.00 from a recovery distribution must be withdrawn within 3 days.",
       time: "2 days ago",
@@ -138,6 +140,7 @@ export const portalFixture: InvestorPortalFixture = {
     {
       id: "N2",
       tone: "bad",
+      label: "Loan status",
       title: "Loan in default",
       body: "GA-2201 is now 64 days past due.",
       time: "3 days ago",
@@ -374,7 +377,9 @@ export const balancesFixture: InvestorBalancePortal = {
       created_at: "2026-05-18T11:50:00+02:00"
     }
   ],
-  has_penalty_mode_balance: false
+  pending_withdrawals: [],
+  has_penalty_mode_balance: false,
+  penalty_bps_per_day: 100
 };
 
 type DirectMarketplaceFixtureInput = Omit<
@@ -552,6 +557,22 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
   ...directMarketplaceLoanPreviews,
   originatorMarketplaceLoanFixture
 ];
+
+// The public site sees only the MKT-DEC-002 fields of the open loans.
+export const publicMarketplaceLoansFixture: PublicMarketplaceLoan[] = marketplaceLoansFixture
+  .filter((loan) => loan.status === "published" && loan.remaining_capacity_minor > 0)
+  .map((loan) => ({
+    loan_id: loan.loan_id,
+    borrower_name: loan.borrower_display_name ?? loan.title,
+    borrower_country: loan.currency === "EUR" ? "DE" : "CH",
+    product_type: loan.product_type === "originator_claim" ? "originator_claim" : "direct",
+    is_refinancing: loan.is_refinancing,
+    currency: loan.currency,
+    principal_minor: loan.principal_minor,
+    interest_rate_bps: loan.yield_bps,
+    term_months: loan.term_months,
+    status: "open"
+  }));
 
 export const smartInvestFixture: SmartInvestResponse = {
   rule: {
@@ -1976,7 +1997,8 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     yield_bps: 940,
     projected_yield_bps: 959,
     collateral_type: "equipment",
-    remaining_term_months: 24
+    remaining_term_months: 24,
+    is_own_listing: false
   },
   {
     id: "SM-3298",
@@ -2008,7 +2030,8 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     yield_bps: 810,
     projected_yield_bps: 902,
     collateral_type: "real_estate",
-    remaining_term_months: 14
+    remaining_term_months: 14,
+    is_own_listing: false
   }
 ];
 
@@ -2200,5 +2223,11 @@ export const fxFixture: FxHistoryPortal = {
       status: "settled",
       executed_at: "2026-05-30T11:03:00+02:00"
     }
-  ]
+  ],
+  terms: {
+    daily_limit_chf_minor: amount(100000),
+    daily_limit_used_chf_minor: 0,
+    quote_ttl_seconds: 60,
+    platform_fee_bps: 150
+  }
 };

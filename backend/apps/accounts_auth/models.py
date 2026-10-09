@@ -168,6 +168,9 @@ class EmailLoginToken(TimestampedModel):
     encrypted_token = models.TextField(blank=True)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
+    # Set when a newer link for the same account is sent; a superseded link no longer
+    # logs in. Real (wall) clock, like expires_at and used_at.
+    superseded_at = models.DateTimeField(null=True, blank=True)
     requested_ip = models.GenericIPAddressField(null=True, blank=True)
     requested_user_agent = models.TextField(blank=True)
     consumed_ip = models.GenericIPAddressField(null=True, blank=True)

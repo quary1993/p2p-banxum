@@ -1191,6 +1191,17 @@ paths:
       operationId: v1_auth_phone_request_create
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationRequest'
       security:
       - cookieAuth: []
       responses:
@@ -1243,7 +1254,7 @@ paths:
               $ref: '#/components/schemas/NaturalPersonRegistrationRequest'
         required: true
       responses:
-        '201':
+        '202':
           content:
             application/json:
               schema:
@@ -2421,6 +2432,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerDisbursementFinalizeResponse'
           description: ''
+  /api/v1/ledger/admin/collection-accounts/:
+    get:
+      operationId: v1_ledger_admin_collection_accounts_list
+      description: Configured collection accounts, so admin forms do not retype them.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CollectionAccount'
+          description: ''
   /api/v1/ledger/admin/investor-balance-summary/:
     get:
       operationId: v1_ledger_admin_investor_balance_summary_retrieve
@@ -2476,6 +2504,63 @@ paths:
                 $ref: '#/components/schemas/LenderDepositDeclareResponse'
           description: ''
   /api/v1/ledger/admin/payout-instructions/:
+    get:
+      operationId: v1_ledger_admin_payout_instructions_list
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          maxLength: 3
+      - in: query
+        name: investor_user_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: state
+        schema:
+          enum:
+          - pending
+          - verified
+          - revoked
+          - rejected
+          - ''
+          type: string
+        description: |-
+          * `pending` - Pending verification
+          * `verified` - Verified
+          * `revoked` - Revoked
+          * `rejected` - Rejected
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPayoutInstructionListResponse'
+          description: ''
     post:
       operationId: v1_ledger_admin_payout_instructions_create
       tags:
@@ -2496,6 +2581,95 @@ paths:
       - cookieAuth: []
       responses:
         '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
+          description: ''
+  /api/v1/ledger/admin/payout-instructions/{instruction_id}/:
+    get:
+      operationId: v1_ledger_admin_payout_instructions_retrieve
+      parameters:
+      - in: path
+        name: instruction_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPayoutInstructionRow'
+          description: ''
+  /api/v1/ledger/admin/payout-instructions/{instruction_id}/revoke/:
+    post:
+      operationId: v1_ledger_admin_payout_instructions_revoke_create
+      description: Revoke a verified payout IBAN, or reject a pending request.
+      parameters:
+      - in: path
+        name: instruction_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRevokeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRevokeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRevokeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRevokeResponse'
+          description: ''
+  /api/v1/ledger/admin/payout-instructions/{instruction_id}/verify/:
+    post:
+      operationId: v1_ledger_admin_payout_instructions_verify_create
+      description: Verify an investor's pending payout-IBAN request with evidence.
+      parameters:
+      - in: path
+        name: instruction_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionVerifyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
           content:
             application/json:
               schema:
@@ -3174,6 +3348,7 @@ paths:
   /api/v1/marketplace/primary/loans/:
     get:
       operationId: v1_marketplace_primary_loans_list
+      description: 'Anonymous preview: only the MKT-DEC-002 public fields, for everyone.'
       parameters:
       - in: query
         name: limit
@@ -3194,7 +3369,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MarketplaceLoanPreview'
+                  $ref: '#/components/schemas/PublicMarketplaceLoan'
           description: ''
   /api/v1/marketplace/primary/loans/{loan_id}/:
     get:
@@ -3216,6 +3391,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MarketplaceLoanDetail'
+          description: ''
+  /api/v1/marketplace/primary/loans/{loan_id}/documents/{document_id}/:
+    get:
+      operationId: v1_marketplace_primary_loans_documents_retrieve
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceBorrowerDocumentDownload'
+          description: ''
+  /api/v1/marketplace/primary/opportunities/:
+    get:
+      operationId: v1_marketplace_primary_opportunities_list
+      description: Investor marketplace list with full preview data (registration
+        and KYC required).
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceLoanPreview'
           description: ''
   /api/v1/marketplace/primary/orders/:
     post:
@@ -3599,6 +3827,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketPurchase'
           description: ''
+  /api/v1/marketplace/secondary/listings/pricing-preview/:
+    get:
+      operationId: v1_marketplace_secondary_listings_pricing_preview_retrieve
+      description: Seller-side pricing of a holding at a price (the listing form's
+        net proceeds).
+      parameters:
+      - in: query
+        name: holding_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: price_bps
+        schema:
+          type: integer
+          minimum: 1
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketListingPricingPreview'
+          description: ''
   /api/v1/originator-claims/admin/loans/:
     post:
       operationId: originator_claims_admin_loans_create
@@ -3865,6 +4122,39 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/OriginatorSubscriptionCancellationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/subscription-resume/:
+    post:
+      operationId: originator_claims_admin_loans_subscription_resume
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionResume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionResume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionResume'
         required: true
       security:
       - cookieAuth: []
@@ -4851,6 +5141,103 @@ components:
       - queue_limit
       - queues
       - summary
+    AdminPayoutInstructionListResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPayoutInstructionRow'
+      required:
+      - count
+      - limit
+      - offset
+      - results
+    AdminPayoutInstructionRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        investor_name:
+          type: string
+        investor_email:
+          type: string
+        investor_reference:
+          type: string
+        currency:
+          type: string
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        state:
+          $ref: '#/components/schemas/StateEnum'
+        origin:
+          allOf:
+          - $ref: '#/components/schemas/OriginEnum'
+          description: |-
+            How the IBAN reached the account: investor request or incoming deposit.
+
+            * `investor_request` - Investor request
+            * `lender_deposit` - Lender deposit
+            * `admin` - Admin
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        verified_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        evidence_reference:
+          type: string
+        other_investor_count:
+          type: integer
+          description: Other investors for whom this IBAN is a verified payout account.
+        open_withdrawal_count:
+          type: integer
+        revocation_reason:
+          type: string
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - currency
+      - destination_account_name
+      - destination_iban
+      - evidence_reference
+      - id
+      - investor_email
+      - investor_name
+      - investor_reference
+      - investor_user_id
+      - open_withdrawal_count
+      - origin
+      - other_investor_count
+      - revocation_reason
+      - revoked_at
+      - state
+      - updated_at
+      - verified_at
+      - verified_by_admin_id
     AdminSecondaryMarketListingRow:
       type: object
       properties:
@@ -5421,6 +5808,32 @@ components:
       - disclaimer
       - documents
       - user
+    AdvanceRepaymentOverdueRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        interest_due_minor:
+          type: integer
+        principal_due_minor:
+          type: integer
+        interest_applied_minor:
+          type: integer
+        principal_applied_minor:
+          type: integer
+        remaining_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - interest_applied_minor
+      - interest_due_minor
+      - principal_applied_minor
+      - principal_due_minor
+      - remaining_minor
     AdvanceRepaymentScheduleRow:
       type: object
       properties:
@@ -5505,9 +5918,14 @@ components:
             type: string
         payout_instruction_id:
           type: string
+        destination_rule:
+          type: string
+          description: 'deposit_proven: the verified IBAN that sent the latest deposit;
+            admin_verified: the most recently admin-verified IBAN.'
       required:
       - amount_minor
       - currency
+      - destination_rule
       - investor_user_id
       - lot_ids
       - payout_instruction_id
@@ -6358,6 +6776,30 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AdvanceRepaymentScheduleRow'
+        overdue_interest_due_minor:
+          type: integer
+        overdue_principal_due_minor:
+          type: integer
+        overdue_interest_applied_minor:
+          type: integer
+        overdue_principal_applied_minor:
+          type: integer
+        overdue_remaining_minor:
+          type: integer
+        prepayment_minor:
+          type: integer
+        overdue_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvanceRepaymentOverdueRow'
+        interest_paid_through_date:
+          type: string
+          format: date
+          nullable: true
+        first_new_installment_interest_start_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - accrued_interest_days
       - accrued_interest_minor
@@ -6365,14 +6807,23 @@ components:
       - anchor_installment_number
       - bank_date
       - currency
+      - first_new_installment_interest_start_date
       - interest_accrual_end_date
       - interest_accrual_start_date
       - interest_applied_minor
+      - interest_paid_through_date
       - loan_id
       - new_schedule_rows
       - old_schedule_rows
       - outstanding_principal_after_minor
       - outstanding_principal_before_minor
+      - overdue_interest_applied_minor
+      - overdue_interest_due_minor
+      - overdue_principal_applied_minor
+      - overdue_principal_due_minor
+      - overdue_remaining_minor
+      - overdue_rows
+      - prepayment_minor
       - principal_applied_minor
       - scheduled_interest_due_minor
     BorrowerRepaymentEvent:
@@ -6512,6 +6963,11 @@ components:
         early_regular_payment_acknowledged:
           type: boolean
           default: false
+        confirm_repeat_payment:
+          type: boolean
+          default: false
+          description: Set only after a duplicate-payment rejection (409), when the
+            borrower really sent a second identical payment.
         idempotency_key:
           type: string
           maxLength: 160
@@ -6581,6 +7037,28 @@ components:
         * `mixed_collateral` - Mixed collateral
         * `unsecured_exception` - Unsecured exception
         * `other` - Other
+    CollectionAccount:
+      type: object
+      properties:
+        currency:
+          type: string
+        collection_account_identifier:
+          type: string
+        iban:
+          type: string
+        qr_iban:
+          type: string
+        account_holder_name:
+          type: string
+        bank_name:
+          type: string
+      required:
+      - account_holder_name
+      - bank_name
+      - collection_account_identifier
+      - currency
+      - iban
+      - qr_iban
     CurrentUserResponse:
       type: object
       properties:
@@ -7306,6 +7784,17 @@ components:
           format: date
         collection_account_identifier:
           type: string
+          description: 'Legacy: one account for both sides. Leave blank to use the
+            configured collection account of each currency.'
+          maxLength: 128
+        sold_collection_account_identifier:
+          type: string
+          description: Blank uses the configured collection account of the sold currency.
+          maxLength: 128
+        bought_collection_account_identifier:
+          type: string
+          description: Blank uses the configured collection account of the bought
+            currency.
           maxLength: 128
         bank_reference:
           type: string
@@ -7325,7 +7814,6 @@ components:
       - booking_date
       - bought_amount_minor
       - bought_currency
-      - collection_account_identifier
       - end_date
       - idempotency_key
       - sold_amount_minor
@@ -7343,9 +7831,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/FxExchangePortal'
+        terms:
+          $ref: '#/components/schemas/FxTermsPortal'
       required:
       - exchanges
       - quotes
+      - terms
     FxQuote:
       type: object
       properties:
@@ -7598,6 +8089,26 @@ components:
       - residual_by_currency_minor
       - settlement_count
       - start_date
+    FxTermsPortal:
+      type: object
+      properties:
+        daily_limit_chf_minor:
+          type: integer
+          description: Daily FX limit per investor, as a CHF equivalent in minor units.
+        daily_limit_used_chf_minor:
+          type: integer
+          description: CHF equivalent already converted on the current Europe/Zurich
+            business day.
+        quote_ttl_seconds:
+          type: integer
+          description: How long an executable quote stays valid after it is issued.
+        platform_fee_bps:
+          type: integer
+      required:
+      - daily_limit_chf_minor
+      - daily_limit_used_chf_minor
+      - platform_fee_bps
+      - quote_ttl_seconds
     HealthResponse:
       type: object
       properties:
@@ -7830,13 +8341,24 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PayoutInstruction'
+        pending_withdrawals:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingWithdrawal'
+          description: Withdrawal requests waiting for the bank transfer, oldest first.
         has_penalty_mode_balance:
           type: boolean
+        penalty_bps_per_day:
+          type: integer
+          description: Daily balance-ageing penalty on a balance in penalty mode,
+            in basis points.
       required:
       - as_of
       - has_penalty_mode_balance
       - lots
       - payout_instructions
+      - penalty_bps_per_day
+      - pending_withdrawals
       - summaries
     InvestorBalanceSummary:
       type: object
@@ -8098,6 +8620,9 @@ components:
           type: string
         topic:
           type: string
+        topic_label:
+          type: string
+          description: Short human label of the notice type, e.g. Deposit or Withdrawal.
         status:
           type: string
         title:
@@ -8130,12 +8655,10 @@ components:
           type: string
           description: Loan or holding UUID for the loan and holding targets; blank
             otherwise.
-        metadata: {}
       required:
       - body
       - created_at
       - id
-      - metadata
       - navigation_target
       - navigation_target_id
       - notification_source
@@ -8143,6 +8666,7 @@ components:
       - status
       - title
       - topic
+      - topic_label
       - unread
     InvestorNotificationReadResponse:
       type: object
@@ -8243,6 +8767,11 @@ components:
         notes:
           type: string
         metadata: {}
+        evidence_reference:
+          type: string
+          maxLength: 255
+        other_investor_override_reason:
+          type: string
       required:
       - currency
       - destination_account_name
@@ -8255,6 +8784,53 @@ components:
           $ref: '#/components/schemas/InvestorPayoutInstruction'
       required:
       - payout_instruction
+    InvestorPayoutInstructionRevokeRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Why the IBAN is rejected or no longer usable.
+      required:
+      - reason
+    InvestorPayoutInstructionRevokeResponse:
+      type: object
+      properties:
+        payout_instruction:
+          $ref: '#/components/schemas/InvestorPayoutInstruction'
+        action:
+          type: string
+          description: revoked (the IBAN was verified) or rejected (it was a pending
+            request).
+        flagged_withdrawal_request_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - action
+      - flagged_withdrawal_request_ids
+      - payout_instruction
+    InvestorPayoutInstructionVerifyRequest:
+      type: object
+      properties:
+        evidence_reference:
+          type: string
+          description: Where the ownership proof is kept (bank letter, statement,
+            ticket).
+          maxLength: 255
+        notes:
+          type: string
+        other_investor_override_reason:
+          type: string
+          description: Required when the IBAN is a verified payout account of another
+            investor.
+        destination_account_name:
+          type: string
+          description: Account holder name confirmed by the evidence. Blank keeps
+            the investor's.
+          maxLength: 255
+      required:
+      - evidence_reference
     InvestorPortfolio:
       type: object
       properties:
@@ -8439,6 +9015,8 @@ components:
           format: date
         collection_account_identifier:
           type: string
+          description: Paying collection account. Blank uses the configured account
+            of the currency.
           maxLength: 128
         bank_reference:
           type: string
@@ -8456,7 +9034,6 @@ components:
           maxLength: 160
       required:
       - booking_date
-      - collection_account_identifier
       - idempotency_key
       - value_date
     InvestorWithdrawalFinalizeResponse:
@@ -9102,6 +9679,9 @@ components:
           format: date
         collection_account_identifier:
           type: string
+          description: Receiving collection account. Blank uses the configured account
+            of the currency. Spelling variants of the configured account are stored
+            in its configured spelling.
           maxLength: 128
         payer_name:
           type: string
@@ -9131,7 +9711,6 @@ components:
       required:
       - amount_minor
       - booking_date
-      - collection_account_identifier
       - currency
       - idempotency_key
       - investor_user_id
@@ -9878,6 +10457,11 @@ components:
         notes:
           type: string
         metadata: {}
+        confirm_repeat_payment:
+          type: boolean
+          default: false
+          description: Set only after a duplicate-payment rejection (409), when the
+            borrower really sent a second identical payment.
         idempotency_key:
           type: string
           maxLength: 160
@@ -9912,6 +10496,7 @@ components:
         borrower_id:
           type: string
           format: uuid
+          nullable: true
         visibility:
           type: string
         note_type:
@@ -10194,6 +10779,32 @@ components:
       - due_date
       - interest_minor
       - principal_minor
+    MarketplaceBorrowerDocumentDownload:
+      type: object
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_encoding:
+          type: string
+        content:
+          type: string
+        content_sha256:
+          type: string
+      required:
+      - content
+      - content_encoding
+      - content_sha256
+      - content_type
+      - display_name
+      - document_id
+      - filename
     MarketplaceLoanDetail:
       type: object
       properties:
@@ -10710,14 +11321,16 @@ components:
       - terms_version
     NaturalPersonRegistrationResponse:
       type: object
+      description: The same answer for a new address and an address that already has
+        an account.
       properties:
-        user:
-          $ref: '#/components/schemas/UserSummary'
+        status:
+          type: string
         email_login_sent:
           type: boolean
       required:
       - email_login_sent
-      - user
+      - status
     NavigationTargetEnum:
       enum:
       - none
@@ -10762,6 +11375,16 @@ components:
         * `default_update` - Default update
         * `recovery_update` - Recovery update
         * `document_note` - Document note
+    OriginEnum:
+      enum:
+      - investor_request
+      - lender_deposit
+      - admin
+      type: string
+      description: |-
+        * `investor_request` - Investor request
+        * `lender_deposit` - Lender deposit
+        * `admin` - Admin
     OriginalLoanScheduleRow:
       type: object
       properties:
@@ -10890,6 +11513,8 @@ components:
           type: boolean
         hold_reason:
           type: string
+        is_subscription_paused:
+          type: boolean
       required:
       - activation_outstanding_principal_minor
       - borrower_snapshot
@@ -10910,6 +11535,7 @@ components:
       - investor_penalty_participation_bps
       - investor_summary
       - is_on_hold
+      - is_subscription_paused
       - loan_id
       - maturity_date
       - minimum_investment_minor
@@ -11692,6 +12318,14 @@ components:
       - idempotency_key
       - investor_message
       - reason
+    OriginatorSubscriptionResume:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 255
+      required:
+      - reason
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -12064,6 +12698,35 @@ components:
       - message
       - severity
       - type
+    PendingWithdrawal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        is_forced:
+          type: boolean
+          description: Forced return of an overdue balance (day-60 rule), not asked
+            by the investor.
+      required:
+      - amount_minor
+      - currency
+      - destination_account_name
+      - destination_iban
+      - id
+      - is_forced
+      - requested_at
     PeriodPresetEnum:
       enum:
       - custom
@@ -12101,6 +12764,12 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    PhoneVerificationRequest:
+      type: object
+      properties:
+        phone_number:
+          type: string
+          maxLength: 32
     PhoneVerificationRequestResponse:
       type: object
       properties:
@@ -12487,6 +13156,9 @@ components:
           type: string
           format: uuid
           nullable: true
+        closed_reason:
+          type: string
+          readOnly: true
         notes:
           type: string
         admin_notes:
@@ -12503,6 +13175,7 @@ components:
       - allocated_at
       - closed_at
       - closed_by_admin_id
+      - closed_reason
       - created_at
       - created_by_user_id
       - currency
@@ -12938,6 +13611,14 @@ components:
             $ref: '#/components/schemas/PrimaryOrderPortal'
       required:
       - orders
+    ProductTypeEnum:
+      enum:
+      - direct
+      - originator_claim
+      type: string
+      description: |-
+        * `direct` - direct
+        * `originator_claim` - originator_claim
     PublicDocumentTemplateVersion:
       type: object
       properties:
@@ -13002,6 +13683,67 @@ components:
       - occurred_at
       - title
       - visibility
+    PublicMarketplaceLoan:
+      type: object
+      description: 'Anonymous loan preview: only the MKT-DEC-002 fields (plus the
+        loan id).'
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+          description: Public id for the project page link.
+        borrower_name:
+          type: string
+          description: 'Direct loans: the borrower''s legal name. Loan Originator
+            claims: the anonymized borrower name unless the originator published the
+            legal name.'
+        borrower_country:
+          type: string
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          description: |-
+            Loan type: a BANXUM Direct loan or a Loan Originator claim.
+
+            * `direct` - direct
+            * `originator_claim` - originator_claim
+        is_refinancing:
+          type: boolean
+          description: 'Loan type: new or refinancing.'
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+          description: Loan amount in minor units.
+        interest_rate_bps:
+          type: integer
+          description: Investor interest per year in basis points.
+        term_months:
+          type: integer
+          description: Loan period in months.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PublicMarketplaceLoanStatusEnum'
+          description: |-
+            Every public preview is open for investment.
+
+            * `open` - open
+      required:
+      - borrower_country
+      - borrower_name
+      - currency
+      - interest_rate_bps
+      - is_refinancing
+      - loan_id
+      - principal_minor
+      - product_type
+      - status
+      - term_months
+    PublicMarketplaceLoanStatusEnum:
+      enum:
+      - open
+      type: string
+      description: '* `open` - open'
     PublishLoanRequest:
       type: object
       properties:
@@ -13770,6 +14512,9 @@ components:
         remaining_term_months:
           type: integer
           readOnly: true
+        is_own_listing:
+          type: boolean
+          readOnly: true
       required:
       - accrued_interest_from_date
       - accrued_interest_minor
@@ -13782,6 +14527,7 @@ components:
       - discount_premium_bps
       - id
       - interest_rate_bps
+      - is_own_listing
       - last_payment_date
       - listed_at
       - loan_id
@@ -13876,6 +14622,9 @@ components:
         remaining_term_months:
           type: integer
           readOnly: true
+        is_own_listing:
+          type: boolean
+          readOnly: true
         originator_id:
           type: string
           format: uuid
@@ -13936,6 +14685,7 @@ components:
       - id
       - interest_rate_bps
       - investment_schedule
+      - is_own_listing
       - last_payment_date
       - latest_public_note
       - listed_at
@@ -14273,6 +15023,63 @@ components:
       - price_bps
       - sensitive_action_code
       - sensitive_action_code_id
+    SecondaryMarketListingPricingPreview:
+      type: object
+      properties:
+        holding_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        price_bps:
+          type: integer
+        pricing_date:
+          type: string
+          format: date
+        current_principal_minor:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        accrued_interest_from_date:
+          type: string
+          format: date
+          nullable: true
+        accrued_interest_to_date:
+          type: string
+          format: date
+        maker_fee_bps:
+          type: integer
+        minimum_maker_fee_minor:
+          type: integer
+        maker_fee_minor:
+          type: integer
+        seller_net_proceeds_minor:
+          type: integer
+        taker_fee_minor:
+          type: integer
+        buyer_total_cost_minor:
+          type: integer
+      required:
+      - accrued_interest_from_date
+      - accrued_interest_minor
+      - accrued_interest_to_date
+      - buyer_total_cost_minor
+      - currency
+      - current_principal_minor
+      - discount_premium_bps
+      - holding_id
+      - maker_fee_bps
+      - maker_fee_minor
+      - minimum_maker_fee_minor
+      - price_bps
+      - pricing_date
+      - seller_net_proceeds_minor
+      - taker_fee_minor
+      - transfer_price_minor
     SecondaryMarketListingRejectRequest:
       type: object
       properties:
@@ -14461,6 +15268,16 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        expected_buyer_total_cost_minor:
+          type: integer
+          minimum: 1
+        expected_price_bps:
+          type: integer
+          maximum: 1000000
+          minimum: 1
+        expected_current_principal_minor:
+          type: integer
+          minimum: 1
         sensitive_action_code_id:
           type: string
           format: uuid
@@ -14469,6 +15286,9 @@ components:
           maxLength: 32
       required:
       - document_acceptance_id
+      - expected_buyer_total_cost_minor
+      - expected_current_principal_minor
+      - expected_price_bps
       - idempotency_key
       - sensitive_action_code
       - sensitive_action_code_id
@@ -14901,6 +15721,18 @@ components:
           items:
             $ref: '#/components/schemas/SmartInvestLoanKindEnum'
           maxItems: 100
+    StateEnum:
+      enum:
+      - pending
+      - verified
+      - revoked
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending verification
+        * `verified` - Verified
+        * `revoked` - Revoked
+        * `rejected` - Rejected
     Status828Enum:
       enum:
       - active

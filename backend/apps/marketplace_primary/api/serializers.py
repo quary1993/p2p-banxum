@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from backend.apps.marketplace_primary.models import (
@@ -9,6 +10,34 @@ from backend.apps.marketplace_primary.models import (
     PrimaryLoanCancellation,
     PrimaryLoanClose,
 )
+
+
+class PublicMarketplaceLoanSerializer(serializers.Serializer[Any]):
+    """Anonymous loan preview: only the MKT-DEC-002 fields (plus the loan id)."""
+
+    loan_id = serializers.UUIDField(help_text="Public id for the project page link.")
+    borrower_name = serializers.CharField(
+        help_text=(
+            "Direct loans: the borrower's legal name. Loan Originator claims: the "
+            "anonymized borrower name unless the originator published the legal name."
+        ),
+    )
+    borrower_country = serializers.CharField(allow_blank=True)
+    product_type = serializers.ChoiceField(
+        choices=["direct", "originator_claim"],
+        help_text="Loan type: a BANXUM Direct loan or a Loan Originator claim.",
+    )
+    is_refinancing = serializers.BooleanField(help_text="Loan type: new or refinancing.")
+    currency = serializers.CharField()
+    principal_minor = serializers.IntegerField(help_text="Loan amount in minor units.")
+    interest_rate_bps = serializers.IntegerField(
+        help_text="Investor interest per year in basis points."
+    )
+    term_months = serializers.IntegerField(help_text="Loan period in months.")
+    status = serializers.ChoiceField(
+        choices=["open"],
+        help_text="Every public preview is open for investment.",
+    )
 
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
@@ -151,6 +180,16 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     pricing_as_of_date = serializers.DateField(allow_null=True, required=False)
 
 
+class MarketplaceBorrowerDocumentDownloadSerializer(serializers.Serializer[Any]):
+    document_id = serializers.UUIDField()
+    display_name = serializers.CharField()
+    filename = serializers.CharField()
+    content_type = serializers.CharField()
+    content_encoding = serializers.CharField()
+    content = serializers.CharField()
+    content_sha256 = serializers.CharField()
+
+
 class PrimaryInvestmentOrderSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     loan_id = serializers.UUIDField()
@@ -168,10 +207,19 @@ class PrimaryInvestmentOrderSerializer(serializers.Serializer[Any]):
     released_at = serializers.DateTimeField(allow_null=True)
     closed_at = serializers.DateTimeField(allow_null=True)
     closed_by_admin_id = serializers.UUIDField(allow_null=True)
+    closed_reason = serializers.SerializerMethodField()
     notes = serializers.CharField()
     admin_notes = serializers.CharField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    @extend_schema_field(serializers.CharField())
+    def get_closed_reason(self, order: Any) -> str:
+        """Why the order closed without an investment (empty for other states)."""
+        metadata = getattr(order, "metadata", None)
+        if not isinstance(metadata, dict):
+            return ""
+        return str(metadata.get("closed_reason") or "")
 
 
 class PrimaryInvestmentOrderCreateRequestSerializer(serializers.Serializer[Any]):

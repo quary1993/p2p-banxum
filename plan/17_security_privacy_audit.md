@@ -46,6 +46,13 @@ Define platform-wide security, privacy, data protection, and auditability requir
 - Tech-team email alerts for critical launch incidents. Formal incident-response runbooks are future scope unless Garanta requires them.
 - Backup and restore testing.
 
+Implementation status (2026-10-09, security audit A-49..A-56):
+- Every environment except `local` fails closed: DEBUG off, secure cookies, HTTPS redirect, HSTS and the proxy HTTPS header by default; the process refuses to start with the development secret key or without `AUTH_DELIVERY_SECRET_ENCRYPTION_KEY` and `AUTH_SECRET_DIGEST_PEPPER`. The deploy container runs `manage.py check --deploy --fail-level ERROR` before it starts; CI runs the same check with a staging-like environment. The provider checks (SMS, email, FX, Didit) need the real providers in production; staging may run the mock providers, because staging sends no real email or SMS (plan 19) and QA mode needs the mock email provider.
+- Stored email copies never hold live login links or codes; debug and error pages mask URL/DSN settings.
+- The app is served with CSP (`frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer` and HSTS at the TLS edge.
+- The backend image runs as an unprivileged user and excludes env files, git history, media and QA snapshots. CI runs `pip-audit` and `npm audit --omit=dev`.
+- Didit webhooks are accepted only with a signature that covers a payload timestamp no older than 5 minutes. With the partial "simple" signature only the signed fields are used, and an approval waits for an admin.
+
 ## Privacy Requirements
 
 - Data minimization.
@@ -297,7 +304,7 @@ Launch session policy:
 - Investor and admin sessions end 2 hours after login (absolute, not idle-based; `AUTH_SESSION_MAX_AGE_SECONDS`), enforced server-side, or earlier on explicit logout, admin restriction, session revocation, or a security event requiring re-authentication. Updated 2026-10-09 from the QA regression; this replaces the earlier long-lived investor session and the 15-minute idle / 8-hour admin defaults.
 - Investor sensitive-action email codes are required for sensitive/financial actions. Codes expire after 10 minutes, allow 3 attempts (`AUTH_SENSITIVE_CODE_MAX_ATTEMPTS`), and require resend throttling.
 - Admin email codes expire after 10 minutes.
-- Failed login/code attempts and magic-link requests are rate-limited by account, IP, and email address.
+- Failed login/code attempts and magic-link requests are rate-limited by account, IP, and email address. Updated 2026-10-09: a limit that names an email address is always paired with the client IP, so a third party cannot lock out a named investor or admin; emails to one address are spaced by a backoff instead of being refused. The client IP is read from `X-Forwarded-For` counted from the right with `TRUSTED_PROXY_COUNT` (deployment: 2); client-sent entries are never used.
 
 These defaults balance investor usability with action-level controls for money-moving and legally binding actions.
 

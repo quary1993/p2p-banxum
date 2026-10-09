@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, cast
 
+from django.core.exceptions import SuspiciousFileOperation
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Model
 
@@ -640,6 +643,50 @@ def add_borrower_document(command: AddBorrowerDocumentCommand) -> BorrowerDocume
 
 def borrower_can_transact(borrower: BorrowerEntity) -> bool:
     return borrower.can_transact
+
+
+@dataclass(frozen=True, slots=True)
+class InvestorBorrowerDocumentFile:
+    document_id: str
+    display_name: str
+    filename: str
+    content_type: str
+    content: bytes
+    checksum_sha256: str
+
+
+def read_investor_visible_borrower_document(
+    *, borrower_id: str, document_id: str
+) -> InvestorBorrowerDocumentFile:
+    """File of a borrower document that the investor disclosure lists (visible and scanned)."""
+    document = (
+        BorrowerDocument.objects.select_related("stored_file")
+        .filter(id=document_id, borrower__id=borrower_id, investor_visible=True)
+        .first()
+    )
+    if document is None or document.stored_file.scan_status != FileScanStatus.CLEAN:
+        raise BorrowerValidationError("Document not found.")
+    stored_file = document.stored_file
+    try:
+        with default_storage.open(stored_file.storage_key, "rb") as handle:
+            content = handle.read()
+    except (OSError, SuspiciousFileOperation) as exc:
+        raise BorrowerValidationError(
+            "This document is not available at the moment. Please contact support."
+        ) from exc
+    checksum = hashlib.sha256(content).hexdigest()
+    if stored_file.checksum_sha256 and checksum != stored_file.checksum_sha256:
+        raise BorrowerValidationError(
+            "This document is not available at the moment. Please contact support."
+        )
+    return InvestorBorrowerDocumentFile(
+        document_id=str(document.id),
+        display_name=str(document.display_name),
+        filename=str(stored_file.original_filename or f"{document.display_name}.pdf"),
+        content_type=str(stored_file.content_type or "application/octet-stream"),
+        content=content,
+        checksum_sha256=checksum,
+    )
 
 
 def borrower_investor_disclosure(borrower: BorrowerEntity) -> dict[str, Any]:

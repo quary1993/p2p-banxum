@@ -61,6 +61,7 @@ export interface InvestorDocument {
 export interface NotificationItem {
   id: string;
   tone: "ok" | "warn" | "bad" | "info";
+  label: string;
   title: string;
   body: string;
   time: string;

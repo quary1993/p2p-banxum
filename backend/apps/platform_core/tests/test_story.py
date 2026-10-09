@@ -178,6 +178,7 @@ def test_normalise_story_image_reencodes_as_metadata_free_jpeg() -> None:
         assert not image.info.get("exif")
         # Alpha is flattened onto white, so the pixel is a tinted red, not raw RGBA.
         pixel = image.getpixel((5, 5))
+        assert isinstance(pixel, tuple)
         assert pixel[0] > pixel[1] and pixel[0] > pixel[2]
 
 

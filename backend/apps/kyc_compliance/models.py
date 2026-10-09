@@ -133,6 +133,9 @@ class KycProviderSession(TimestampedModel):
     )
     expires_at = models.DateTimeField(null=True, blank=True)
     provider_payload = models.JSONField(default=dict, blank=True)
+    # Set when an admin KYC decision is recorded: results that arrive later for this session
+    # are kept as evidence but can no longer change the case.
+    superseded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

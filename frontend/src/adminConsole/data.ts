@@ -18,12 +18,17 @@ import {
   useV1FxAdminDeltaReportRetrieve,
   useV1FxAdminRealizedSettlementReportRetrieve,
   useV1KycAdminManualReviewsList,
+  useV1LedgerAdminCollectionAccountsList,
   useV1LedgerAdminInvestorBalanceSummaryRetrieve,
+  useV1LedgerAdminPayoutInstructionsList,
+  useV1LedgerAdminPayoutInstructionsRetrieve,
   useV1LedgerAdminWithdrawalRequestsHistoryRetrieve,
   useV1LoansAdminLoansList,
   useV1LoansAdminLoansRetrieve,
   useV1ServicingAdminRiskNotesList,
   type AdminLookupResult,
+  type AdminPayoutInstructionRow,
+  type CollectionAccount,
   type V1AdminOpsAuditEventsListParams,
   type V1AdminOpsTasksListParams,
   type V1AdminOpsUsersRetrieveParams,
@@ -42,6 +47,7 @@ import {
   type V1FxAdminDeltaReportRetrieveParams,
   type V1FxAdminRealizedSettlementReportRetrieveParams,
   type V1LedgerAdminInvestorBalanceSummaryRetrieveParams,
+  type V1LedgerAdminPayoutInstructionsListParams,
   type V1LedgerAdminWithdrawalRequestsHistoryRetrieveParams,
   type V1LoansAdminLoansListParams,
   type V1ServicingAdminRiskNotesListParams,
@@ -97,6 +103,19 @@ export function isWithdrawalQueueItem(item: {
 export function taskTypeLabel(taskType: string) {
   if (taskType === "payout_instruction_verification") return "IBAN Verification";
   return taskType.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function statusLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** "Open → Resolved" only for a real status change; other task edits carry no status pair. */
+export function taskEventStatusText(event: { previous_status: string; new_status: string }) {
+  if (event.previous_status && event.new_status && event.previous_status !== event.new_status) {
+    return `${statusLabel(event.previous_status)} → ${statusLabel(event.new_status)}`;
+  }
+  if (!event.previous_status && event.new_status) return statusLabel(event.new_status);
+  return "";
 }
 
 /**
@@ -353,6 +372,7 @@ export function useAdminWithdrawalHistoryData(params: V1LedgerAdminWithdrawalReq
   const rows = adminWithdrawalHistoryFixture.filter((row) => {
     if (params.status && row.status !== params.status) return false;
     if (params.currency && row.currency !== params.currency) return false;
+    if (params.is_forced !== undefined && params.is_forced !== null && row.is_forced !== params.is_forced) return false;
     if (search) {
       return [row.id, row.investor_name, row.investor_email, row.investor_reference, row.destination_iban]
         .some((value) => value.toLowerCase().includes(search));
@@ -361,6 +381,77 @@ export function useAdminWithdrawalHistoryData(params: V1LedgerAdminWithdrawalReq
   });
   return useV1LedgerAdminWithdrawalRequestsHistoryRetrieve(params, {
     query: adminPreviewQuery({ count: rows.length, limit, offset, results: rows.slice(offset, offset + limit) })
+  });
+}
+
+const collectionAccountsFixture: CollectionAccount[] = [
+  {
+    currency: "CHF",
+    collection_account_identifier: "BANXUM-CHF-COLLECTION",
+    iban: "CH1183019GARANTAFI001",
+    qr_iban: "",
+    account_holder_name: "Garanta Finanzgruppe AG",
+    bank_name: "Yapeal"
+  },
+  {
+    currency: "EUR",
+    collection_account_identifier: "BANXUM-EUR-COLLECTION",
+    iban: "CH8183019GARANTAFI002",
+    qr_iban: "",
+    account_holder_name: "Garanta Finanzgruppe AG",
+    bank_name: "Yapeal"
+  }
+];
+
+/** Configured collection account per currency (one per currency at launch). */
+export function useCollectionAccountsData() {
+  return useV1LedgerAdminCollectionAccountsList({
+    query: { ...adminPreviewQuery(collectionAccountsFixture), staleTime: 60_000 }
+  });
+}
+
+export function collectionAccountFor(accounts: CollectionAccount[] | undefined, currency: string) {
+  const code = currency.trim().toUpperCase();
+  return (accounts ?? []).find((account) => account.currency === code && account.collection_account_identifier);
+}
+
+const payoutInstructionFixture: AdminPayoutInstructionRow[] = [
+  {
+    id: "preview-payout-1",
+    investor_user_id: "preview-investor-1",
+    investor_name: "Anna Keller",
+    investor_email: "anna.keller@example.test",
+    investor_reference: "L4F8K2Q9R",
+    currency: "CHF",
+    destination_iban: "CH5604835012345678009",
+    destination_account_name: "Anna Keller",
+    state: "pending",
+    origin: "investor_request",
+    verified_at: null,
+    verified_by_admin_id: null,
+    evidence_reference: "",
+    other_investor_count: 0,
+    open_withdrawal_count: 0,
+    revocation_reason: "",
+    revoked_at: null,
+    created_at: "2026-04-20T09:10:00+02:00",
+    updated_at: "2026-04-20T09:10:00+02:00"
+  }
+];
+
+export function useAdminPayoutInstructionsData(params: V1LedgerAdminPayoutInstructionsListParams) {
+  const rows = payoutInstructionFixture.filter((row) => !params.state || row.state === params.state);
+  return useV1LedgerAdminPayoutInstructionsList(params, {
+    query: adminPreviewQuery({ count: rows.length, limit: params.limit ?? 50, offset: 0, results: rows })
+  });
+}
+
+export function useAdminPayoutInstructionData(instructionId: string, enabled: boolean) {
+  return useV1LedgerAdminPayoutInstructionsRetrieve(instructionId, {
+    query: {
+      ...adminPreviewQuery(payoutInstructionFixture[0]),
+      enabled: !isFixturePreview && enabled && Boolean(instructionId)
+    }
   });
 }
 
@@ -411,4 +502,24 @@ export function useLoanRiskNotesData(params: V1ServicingAdminRiskNotesListParams
       enabled: !isFixturePreview && enabled
     }
   });
+}
+
+const objectTypeNames: Record<string, string> = {
+  investorpayoutinstruction: "Payout IBAN",
+  investorwithdrawalrequest: "Withdrawal request",
+  admin_task: "Admin task",
+  admintask: "Admin task"
+};
+
+/** Readable name of a related object type ("InvestorPayoutInstruction" -> "Payout IBAN"). */
+export function objectTypeLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  const known = objectTypeNames[value.toLowerCase()];
+  if (known) return known;
+  const words = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_.-]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }

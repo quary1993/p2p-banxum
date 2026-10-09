@@ -460,7 +460,16 @@ def _originator_opportunity_lifecycle_summary(
         action for action in actions
         if action.get("reason") in {"funding_close_failed", "legacy_upgrade_failed"}
     ]
-    closed = [action for action in actions if action not in activation_overdue + failures]
+    # Paused rounds past their deadline wait for an admin decision (one open admin
+    # task each). They are not failures and do not fail the job.
+    paused_awaiting_admin = [
+        action for action in actions if action.get("reason") == "paused_round_awaiting_admin"
+    ]
+    closed = [
+        action
+        for action in actions
+        if action not in activation_overdue + failures + paused_awaiting_admin
+    ]
     return {
         "as_of_date": as_of_date.isoformat(),
         "action_count": len(actions),
@@ -471,6 +480,8 @@ def _originator_opportunity_lifecycle_summary(
         "closed": closed,
         "activation_overdue_count": len(activation_overdue),
         "activation_overdue": activation_overdue,
+        "paused_awaiting_admin_count": len(paused_awaiting_admin),
+        "paused_awaiting_admin": paused_awaiting_admin,
     }
 
 

@@ -29,6 +29,7 @@ from backend.apps.smart_invest.services import (
     SaveSmartInvestRuleCommand,
     SmartInvestValidationError,
     deactivate_smart_invest_rule,
+    get_smart_invest,
     opportunity_matches_criteria,
     save_smart_invest_rule,
 )
@@ -395,7 +396,14 @@ def test_publishing_matching_loan_enqueues_one_alert_without_backfill(
     message = OutboxMessage.objects.get(topic="email.smart_invest_opportunity_match")
     assert message.payload["user_id"] == str(investor.pk)
     assert message.payload["loan_id"] == str(second.id)
-    assert "does not reserve or invest funds" in message.payload["body"]
+    assert "does not reserve or invest funds" in message.payload["body_text"]
+    # The match email must render; a payload the renderer cannot read ends as a dead letter.
+    # Loaded by name: module boundaries forbid a static import of communications here.
+    communications = import_module("backend.apps.communications.services")
+    rendered = communications.render_email_for_outbox_message(message)
+    assert rendered.recipient_email == cast(Any, investor).email
+    assert "matches the Smart Invest criteria you selected" in rendered.body_text
+    assert "Review opportunity" in rendered.body_html
 
     # A repeated publication hook cannot send the same opportunity twice.
     from backend.apps.smart_invest.services import notify_smart_invest_matches_for_published_loan
@@ -641,3 +649,26 @@ def test_migration_converts_single_value_rules_exactly() -> None:
         assert SmartInvestRule.objects.get(user_id=users["banxum"].pk).minimum_yield_bps == 700
     finally:
         _migrate(_AFTER_LISTS)
+
+
+@pytest.mark.django_db
+def test_a_fully_funded_loan_is_not_a_match(admin_user: Model, investor: Model) -> None:
+    # Verify 2026-10-09: Smart Invest listed a fully committed loan as a match.
+    loan_services = _loan_services()
+    loans = []
+    for title in ("Open", "Full"):
+        loan = loan_services.create_loan(
+            _loan_command(admin_user, _borrower(admin_user, suffix=title), title=title)
+        )
+        loan_services.publish_loan(
+            loan_services.PublishLoanCommand(actor=admin_user, loan_id=str(loan.id))
+        )
+        loans.append(loan)
+    apps.get_model("loans", "Loan").objects.filter(pk=loans[1].id).update(
+        committed_principal_minor=100_000_00
+    )
+    save_smart_invest_rule(_rule_command(investor))
+
+    payload = get_smart_invest(actor=investor)
+
+    assert [match["loan_id"] for match in payload["matches"]] == [str(loans[0].id)]

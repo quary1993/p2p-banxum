@@ -2167,6 +2167,12 @@
   margin-left: 8px;
 }
 
+/* Currency code first, as everywhere else ("CHF 1'234.56"). */
+.bxm .dz-cur.dz-cur-lead {
+  margin-left: 0;
+  margin-right: 10px;
+}
+
 .bxm .dz-stat-lines {
   border-top: 1px solid var(--line);
   margin-top: 16px;
@@ -2211,6 +2217,13 @@
   margin-top: auto;
   padding-top: 12px;
   text-transform: uppercase;
+}
+
+.bxm .dz-cell-sub.red {
+  border-top: none;
+  color: var(--bxm-signal);
+  margin-top: 4px;
+  padding-top: 0;
 }
 
 .bxm .dz-stat .dz-fig-md + .dz-cell-sub {
@@ -2314,6 +2327,23 @@
 .bxm .dz-desk-name:hover {
   color: var(--ink);
   text-decoration: underline;
+}
+
+/* A long loan title wraps inside the row instead of running over the tick box (audit A-60). */
+.bxm .dz-desk-row {
+  flex-wrap: wrap;
+}
+
+.bxm .dz-desk-row > .dz-tick,
+.bxm .dz-desk-row > .ui-tooltip-anchor:first-child {
+  flex: none;
+}
+
+.bxm .dz-desk-name {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .bxm .dz-leader {
@@ -2536,4 +2566,270 @@
 /* Ticked checkboxes: white tick on the black box. */
 .bxm .check input:checked + .box {
   color: #fff;
+}
+
+/* Skip link of the investor portal (audit A-62); hidden until focused, like the public site's. */
+.bxm .app a.portal-skip:focus {
+  color: #fff;
+  text-decoration: none;
+  top: 8px;
+}
+
+/* Small phones (audit A-60): at 320-420 px the header tools fit without sideways scrolling. The
+   Add Funds button keeps its accessible name (aria-label) and shows only its icon. */
+@media (max-width: 420px) {
+  .bxm .app .topbar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .bxm .app .menu-btn {
+    margin-left: -4px;
+  }
+
+  .bxm .topbar-brand {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .bxm .topbar-brand .bxm-wordmark-img {
+    height: 13px;
+    max-width: 100%;
+  }
+
+  .bxm .topbar-tools {
+    flex: 0 1 auto;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .bxm .app .topbar-add-funds {
+    padding: 0 9px;
+  }
+
+  .bxm .app .topbar-add-funds .topbar-add-funds-label {
+    display: none;
+  }
+
+  .bxm .dz-next12 {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .bxm .dz-next12 .dz-leader {
+    display: none;
+  }
+}
+
+/* Phone tables (audit A-60): rows become stacked label/value lines, so the amount, status and
+   download columns stay visible instead of hiding behind sideways scrolling. */
+@media (max-width: 640px) {
+  .bxm table.stack-on-phone,
+  .bxm table.stack-on-phone tbody,
+  .bxm table.stack-on-phone tr,
+  .bxm table.stack-on-phone td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .bxm table.stack-on-phone thead {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  .bxm table.stack-on-phone tbody tr {
+    border-bottom: 1px solid var(--line);
+    padding: 10px 0;
+  }
+
+  .bxm table.stack-on-phone tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .bxm table.stack-on-phone tbody td,
+  .bxm .pf-page table.stack-on-phone td,
+  .bxm .pf-page table.stack-on-phone td:first-child,
+  .bxm .pf-page table.stack-on-phone td:last-child {
+    align-items: baseline;
+    border-bottom: 0;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 4px 16px;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .bxm table.stack-on-phone td[data-label]::before {
+    color: var(--ink-3);
+    content: attr(data-label);
+    flex: none;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--bxm-tag-track);
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .bxm table.stack-on-phone td > * {
+    min-width: 0;
+  }
+
+  .bxm table.stack-on-phone .doc-title-cell {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .bxm table.stack-on-phone .doc-downloads-cell .doc-downloads {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .bxm table.stack-on-phone .chip {
+    white-space: normal;
+  }
+
+  .bxm .balance-lots-table.stack-on-phone td.lot-deadline {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .bxm .balance-lots-table.stack-on-phone td.lot-deadline > .dmeter {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .bxm .balance-lots-table.stack-on-phone .lot-deadline-meta {
+    align-items: flex-end;
+    flex-direction: column;
+    margin-top: 0;
+    white-space: normal;
+  }
+}
+
+/* Documents at desktop widths (audit A-60): the download buttons stay inside the card. The
+   context may wrap, and the buttons stack in one narrow column. */
+.bxm .documents-data-table .doc-title-cell {
+  min-width: 180px;
+}
+
+.bxm table.documents-data-table thead th,
+.bxm table.documents-data-table tbody td {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.bxm .documents-data-table .doc-downloads {
+  align-items: stretch;
+  flex-direction: column;
+  min-width: 72px;
+}
+
+@media (max-width: 640px) {
+  .bxm table.stack-on-phone .doc-downloads-cell .doc-downloads {
+    flex-direction: row;
+  }
+}
+
+/* Pending withdrawals on the Account page. */
+.bxm .acct-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bxm .acct-pending-list .acct-row {
+  padding: 16px 24px;
+}
+
+.bxm .acct-pending-list .acct-row-text {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .bxm .acct-pending-list .acct-row {
+    padding: 14px 16px;
+  }
+}
+
+/* Smart Invest rule actions at 320 px: long labels wrap inside the button. */
+@media (max-width: 420px) {
+  .bxm .si-active-actions {
+    min-width: 0;
+  }
+
+  .bxm .si-active-actions .si-pill-outline,
+  .bxm .si-active-actions .si-pill-dark {
+    height: auto;
+    max-width: 100%;
+    min-height: 36px;
+    padding: 6px 14px;
+    text-align: center;
+    white-space: normal;
+  }
+}
+
+/* Between tablet and wide desktop the "Artifact" note column gives its room to the downloads. */
+@media (min-width: 641px) and (max-width: 1399px) {
+  .bxm table.documents-data-table thead th:nth-child(6),
+  .bxm table.documents-data-table tbody td:nth-child(6) {
+    display: none;
+  }
+}
+
+/* Overview desk footer at phone widths: the note and the confirm button wrap onto their own lines. */
+@media (max-width: 560px) {
+  .bxm .dz-desk-foot {
+    flex-wrap: wrap;
+  }
+
+  .bxm .dz-desk-foot .si-dash-setup {
+    margin-left: auto;
+  }
+}
+
+/* Smart Invest matches on phones (audit A-60): each match becomes two short lines, so the
+   available amount is visible without sideways scrolling. */
+@media (max-width: 640px) {
+  .bxm .smart-invest-match-table {
+    overflow-x: visible;
+  }
+
+  .bxm .smart-invest-match-table.with-ticks .smart-invest-match-head {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+  }
+
+  .bxm .smart-invest-match-table.with-ticks .smart-invest-match-row {
+    gap: 4px 10px;
+    min-width: 0;
+    grid-template-areas:
+      "tick name name name"
+      ". yield term ltv"
+      ". avail avail avail";
+    grid-template-columns: 28px auto auto 1fr;
+  }
+
+  .bxm .smart-invest-match-row > span:nth-child(1) { grid-area: tick; }
+  .bxm .smart-invest-match-row > span:nth-child(2) { grid-area: name; }
+  .bxm .smart-invest-match-row > span:nth-child(3) { grid-area: yield; }
+  .bxm .smart-invest-match-row > span:nth-child(4) { grid-area: term; }
+  .bxm .smart-invest-match-row > span:nth-child(5) { grid-area: ltv; }
+  .bxm .smart-invest-match-row > span:nth-child(6) { grid-area: avail; }
+  .bxm .smart-invest-match-row > span:nth-child(7) { display: none; }
+
+  .bxm .smart-invest-match-row > span:nth-child(3)::before { color: var(--ink-3); content: "Yield "; }
+  .bxm .smart-invest-match-row > span:nth-child(6)::before { color: var(--ink-3); content: "Available "; }
 }

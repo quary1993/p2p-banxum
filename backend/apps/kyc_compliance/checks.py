@@ -15,6 +15,10 @@ def check_didit_webhook_signature_config(
     session_provider = str(settings.DIDIT_SESSION_PROVIDER).lower()
     if environment == "local":
         return []
+    # Staging may run the mock provider: it must not send real messages or make real
+    # provider calls (plan 19), and QA mode needs it. Production needs the real one.
+    if session_provider == "mock" and str(settings.ENVIRONMENT).lower() != "production":
+        return []
 
     errors: list[Error] = []
     if session_provider != "api":

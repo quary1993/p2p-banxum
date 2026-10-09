@@ -263,6 +263,15 @@ Integrations, APIs, and Event Architecture; Admin and Operations Portal; Communi
 Follow-ups:
 Confirm where Didit provider-side monitoring alerts are reviewed operationally and what admin status/reason codes should be used when Garanta manually restricts or closes an account after an off-platform review.
 
+### KYC-DEC-009: Flagged Cases Stay With the Admins
+
+Status: Accepted (audit fix A-14).
+Date: 2026-10-09.
+Owner: Garanta compliance / technology.
+
+Decision:
+Only an admin decision moves a case out of declined, manual review, high risk, sanctions, PEP, adverse-media or re-verification-required status. The investor cannot start a new Didit session from these statuses and sees only "Your verification is under review. We will contact you."; an admin "request re-verification" is the one way to let the investor verify again, while expired/abandoned sessions and plain pending cases can still be restarted. Didit results never overturn such a status or an admin decision (results for sessions that existed when the admin decided are evidence only); they are stored and put in front of an admin through the case's KYC review task. On a provider-approved case a later restrictive Didit result still applies. The investor-facing status shows AML hits as manual review and never returns screening flags.
+
 ## Actors
 
 - Investor user.
@@ -400,7 +409,7 @@ Confirm where Didit provider-side monitoring alerts are reviewed operationally a
 - Admin workflow and evidence requirements for manually entering legal-entity lender investments where Garanta operates without self-service action.
 - Final legal confirmation of KYC/KYB/AML evidence retention beyond the 10-year minimum, if required.
 - Exact export package manifest and recipient-specific redaction rules.
-- How rejected users can appeal or retry.
+- How rejected users can appeal (retry is admin-controlled, see KYC-DEC-009).
 
 ## Q/A Backlog
 

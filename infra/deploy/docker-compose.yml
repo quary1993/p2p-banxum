@@ -20,6 +20,16 @@ services:
     volumes:
       - redis_data:/data
 
+  # The backend runs as the unprivileged user 10001 (audit A-55). Media written by
+  # older root-run containers is handed over to that user before every start.
+  media-permissions:
+    image: busybox:1.36
+    user: "0:0"
+    command: ["chown", "-R", "10001:10001", "/media"]
+    volumes:
+      - media_data:/media
+    restart: "no"
+
   backend:
     build:
       context: ../..
@@ -33,10 +43,18 @@ services:
       CACHE_URL: redis://redis:6379/0
       DJANGO_STATIC_ROOT: /app/staticfiles
       DJANGO_MEDIA_ROOT: /app/backend/media
-    command: sh -c ".venv/bin/python backend/manage.py migrate --noinput && .venv/bin/python backend/manage.py collectstatic --noinput && .venv/bin/python backend/manage.py seed_reference_data && .venv/bin/python backend/manage.py bootstrap_superadmin && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60}"
+      # Caddy (TLS edge) -> nginx (frontend container) -> backend: two proxies add
+      # X-Forwarded-For entries; TLS ends at Caddy (audit A-48 / A-51).
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-2}
+      DJANGO_USE_X_FORWARDED_PROTO: "true"
+    # "check --deploy" runs first: the container does not start with unsafe settings
+    # or missing provider configuration (audit A-51).
+    command: sh -c ".venv/bin/python backend/manage.py check --deploy --fail-level ERROR && .venv/bin/python backend/manage.py migrate --noinput && .venv/bin/python backend/manage.py collectstatic --noinput && .venv/bin/python backend/manage.py seed_reference_data && .venv/bin/python backend/manage.py bootstrap_superadmin && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60}"
     volumes:
       - media_data:/app/backend/media
     depends_on:
+      media-permissions:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

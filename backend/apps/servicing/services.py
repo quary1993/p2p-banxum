@@ -46,6 +46,9 @@ from backend.apps.platform_core.services.events import (
     enqueue_outbox_message,
     record_domain_event,
 )
+from backend.apps.platform_core.services.investor_notices import (
+    notify_loan_holders_of_status_change,
+)
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
@@ -70,6 +73,14 @@ class ServicingAuthorizationError(ServicingError):
 
 class ServicingValidationError(ServicingError):
     pass
+
+
+class ServicingDuplicatePaymentError(ServicingValidationError):
+    """A borrower receipt repeats a bank movement that was already recorded."""
+
+    def __init__(self, message: str, *, duplicate_bank_operation_id: str) -> None:
+        super().__init__(message)
+        self.duplicate_bank_operation_id = duplicate_bank_operation_id
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -153,6 +164,9 @@ class RecordBorrowerRepaymentCommand:
     borrower_repayment_bank_date: date | None = None
     early_regular_payment_acknowledged: bool = False
     idempotency_key: str = ""
+    # Explicit admin confirmation that the borrower really sent a second payment
+    # identical to one already recorded (see _guard_duplicate_borrower_receipt).
+    confirm_repeat_payment: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +176,22 @@ class AdvanceRepaymentScheduleRow:
     principal_minor: int
     interest_minor: int
     total_minor: int
+    admin_overridden: bool = False
+    # True for an overdue installment of which this payment paid only a part.
+    partially_paid: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AdvanceRepaymentOverdueRow:
+    """How a payment is applied to one installment due on or before the bank date."""
+
+    installment_number: int
+    due_date: date
+    interest_due_minor: int
+    principal_due_minor: int
+    interest_applied_minor: int
+    principal_applied_minor: int
+    remaining_minor: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +212,23 @@ class AdvanceRepaymentPlan:
     anchor_installment_number: int
     old_schedule_rows: list[AdvanceRepaymentScheduleRow]
     new_schedule_rows: list[AdvanceRepaymentScheduleRow]
+    # Installments due on or before the bank date are paid first, oldest first
+    # (interest, then principal). Only money beyond them is a prepayment.
+    overdue_interest_due_minor: int = 0
+    overdue_principal_due_minor: int = 0
+    overdue_interest_applied_minor: int = 0
+    overdue_principal_applied_minor: int = 0
+    overdue_remaining_minor: int = 0
+    prepayment_minor: int = 0
+    overdue_rows: tuple[AdvanceRepaymentOverdueRow, ...] = ()
+    # Date through which contractual interest is paid after this payment.
+    interest_paid_through_date: date | None = None
+    # Interest of the first new installment runs from this date to its due date.
+    first_new_installment_interest_start_date: date | None = None
+
+    @property
+    def overdue_only(self) -> bool:
+        return self.prepayment_minor == 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +299,7 @@ class RecordLoanRecoveryPaymentCommand:
     notes: str = ""
     metadata: dict[str, Any] | None = None
     idempotency_key: str = ""
+    confirm_repeat_payment: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,6 +547,63 @@ def _locked_loan(loan_id: str) -> Model:
 
 def _received_at_from_value_date(value_date: date) -> datetime:
     return datetime.combine(value_date, time.min, tzinfo=business_timezone())
+
+
+def _validate_bank_dates_not_in_future(*, booking_date: date, value_date: date) -> None:
+    # Receipts are recorded after the money arrives. Past value dates stay allowed.
+    today = business_date(now_utc())
+    for label, value in (("Value date", value_date), ("Booking date", booking_date)):
+        if value > today:
+            raise ServicingValidationError(
+                f"{label} cannot be in the future: {value.isoformat()} is after today "
+                f"({today.isoformat()}, Europe/Zurich)."
+            )
+
+
+def _guard_duplicate_borrower_receipt(
+    *,
+    loan_id: str,
+    currency: str,
+    amount_minor: int,
+    payer_account_identifier: str,
+    value_date: date,
+    bank_reference: str,
+    confirm_repeat_payment: bool,
+) -> list[str]:
+    """Refuse a receipt that repeats an already-recorded borrower bank movement.
+
+    Call it while the loan row is locked, so two submissions of one movement
+    cannot both pass. Returns the ids of the earlier movements when the admin
+    explicitly confirmed a genuine second payment.
+    """
+
+    ledger = _ledger_services()
+    matches = ledger.find_matching_borrower_receipts(
+        loan_id=loan_id,
+        currency=currency,
+        amount_minor=amount_minor,
+        payer_account_identifier=payer_account_identifier,
+        value_date=value_date,
+        bank_reference=bank_reference,
+    )
+    if matches and not confirm_repeat_payment:
+        earlier = matches[0]
+        amount = format_amount_minor(int(earlier.amount_minor), str(earlier.currency_id))
+        recorded_at = (
+            earlier.confirmed_at.astimezone(business_timezone()).strftime("%Y-%m-%d %H:%M")
+            if earlier.confirmed_at
+            else "earlier"
+        )
+        payer = str(earlier.payer_account_identifier).strip() or "an unknown account"
+        raise ServicingDuplicatePaymentError(
+            f"Possible duplicate: {amount} from {payer} with value date "
+            f"{earlier.value_date.isoformat()} was already recorded for this loan "
+            f"(bank operation {earlier.id}, recorded {recorded_at}). It was not recorded "
+            "again. If the borrower really sent a second identical payment, confirm the "
+            "repeat payment and submit again.",
+            duplicate_bank_operation_id=str(earlier.id),
+        )
+    return [str(operation.id) for operation in matches]
 
 
 def _resolve_repayment_collection_account_identifier(
@@ -883,14 +988,10 @@ def get_loan_repayment_schedule_snapshots(
     ):
         event_ref = cast(Any, event)
         is_advance = str(event_ref.event_type) == BorrowerRepaymentEventType.EARLY_REPAYMENT
-        raw_bank_date = cast(dict[str, Any], event_ref.metadata).get(
-            "borrower_repayment_bank_date"
+        is_overdue_payment = (
+            str(event_ref.event_type) == BorrowerRepaymentEventType.PARTIAL_INSTALLMENT
         )
-        payment_date = (
-            date.fromisoformat(str(raw_bank_date))
-            if is_advance and raw_bank_date
-            else cast(date, event_ref.value_date)
-        )
+        payment_date = _event_payment_date(event_ref)
         paid_principal_minor = int(event_ref.principal_applied_minor) + int(
             event_ref.future_principal_applied_minor
         )
@@ -916,6 +1017,8 @@ def get_loan_repayment_schedule_snapshots(
                 label=(
                     "Repayment in advance"
                     if is_advance
+                    else "Payment of overdue amounts"
+                    if is_overdue_payment
                     else f"Installment {event_ref.installment.installment_number} paid"
                 ),
                 payment_date=payment_date,
@@ -938,6 +1041,11 @@ def get_loan_repayment_schedule_snapshots(
             )
         outstanding_total_minor = outstanding_principal_minor + outstanding_interest_minor
         has_recorded_event = event_count_by_installment_id.get(str(installment_ref.pk), 0) > 0
+        # A row carried over after a payment of part of an overdue installment
+        # shows only what is still due.
+        partially_paid = bool(
+            cast(dict[str, Any], installment_ref.metadata or {}).get("partially_paid")
+        )
         if has_recorded_event and outstanding_total_minor == 0:
             # The immutable repayment event above is the historical row. Keeping
             # the fully-paid contractual row as well would double-count it.
@@ -948,9 +1056,11 @@ def get_loan_repayment_schedule_snapshots(
         )
         if is_paid:
             row_status = "paid"
-        elif installment_ref.due_date < as_of_date:
+        elif days_past_due >= LATE_THRESHOLD_DAYS:
+            # Overdue from the late threshold (day 5), when the loan becomes Late.
             row_status = "overdue"
-        elif installment_ref.due_date == as_of_date:
+        elif installment_ref.due_date <= as_of_date:
+            # Due today or in the grace period (days 1-4): due, not yet overdue.
             row_status = "due"
         else:
             row_status = "upcoming"
@@ -985,7 +1095,7 @@ def get_loan_repayment_schedule_snapshots(
                 row_type="scheduled_installment",
                 label=(
                     f"Remaining installment {installment_ref.installment_number}"
-                    if has_recorded_event
+                    if has_recorded_event or partially_paid
                     else f"Installment {installment_ref.installment_number}"
                 ),
                 payment_date=None,
@@ -1206,6 +1316,9 @@ def _record_loan_servicing_status_change(
                 triggering_due_date=triggering_due_date,
             )
         )
+    notify_loan_holders_of_status_change(
+        loan=loan, new_status=new_status, as_of_date=as_of_date, days_past_due=days_past_due
+    )
     return LoanServicingStatusChange(
         loan_id=str(loan_ref.id),
         previous_status=previous_status,
@@ -1223,6 +1336,7 @@ def _refresh_loan_status_after_repayment(
     actor: Model,
     as_of_date: date,
     repayment_event_id: str,
+    oldest_unpaid_before: tuple[int, date] | None = None,
 ) -> LoanServicingStatusChange | None:
     loan_ref = cast(Any, loan)
     if str(loan_ref.status) not in {LOAN_STATUS_ACTIVE, LOAN_STATUS_LATE}:
@@ -1233,6 +1347,21 @@ def _refresh_loan_status_after_repayment(
     )
     if new_status == LOAN_STATUS_DEFAULTED:
         # Repayment recording never escalates a loan into default; the status scanner owns that.
+        return None
+    if (
+        str(loan_ref.status) == LOAN_STATUS_LATE
+        and new_status == LOAN_STATUS_ACTIVE
+        and installment is not None
+        and oldest_unpaid_before is not None
+        and (
+            int(cast(Any, installment).installment_number),
+            cast(date, cast(Any, installment).due_date),
+        )
+        == oldest_unpaid_before
+    ):
+        # Part of the oldest unpaid installment is still unpaid, so this payment
+        # did not cure the arrears (even when its value date falls inside the
+        # grace period). The loan stays Late until every overdue amount is paid.
         return None
     return _record_loan_servicing_status_change(
         loan=loan,
@@ -1751,6 +1880,38 @@ def _advance_schedule_row(row: Any) -> AdvanceRepaymentScheduleRow:
     )
 
 
+def _event_payment_date(event: Any) -> date:
+    """Actual borrower payment date of a recorded repayment event."""
+    raw_bank_date = cast(dict[str, Any], event.metadata).get("borrower_repayment_bank_date")
+    if raw_bank_date:
+        return date.fromisoformat(str(raw_bank_date))
+    return cast(date, event.value_date)
+
+
+def _event_interest_paid_through_date(event: Any) -> date:
+    """Date through which a recorded repayment event paid contractual interest."""
+    metadata = cast(dict[str, Any], event.metadata)
+    raw_paid_through = metadata.get("interest_paid_through_date")
+    if raw_paid_through:
+        return date.fromisoformat(str(raw_paid_through))
+    if str(event.event_type) == BorrowerRepaymentEventType.EARLY_REPAYMENT:
+        return _event_payment_date(event)
+    # A regular installment collects its full contractual interest, even when the
+    # bank value date is shortly before its due date.
+    return cast(date, event.installment.due_date)
+
+
+def _accrued_interest_minor(*, principal_minor: int, rate_bps: int, days: int) -> int:
+    return int(
+        (
+            Decimal(principal_minor)
+            * Decimal(rate_bps)
+            * Decimal(max(0, days))
+            / Decimal(10_000 * 365)
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
+
 def _advance_repayment_plan(
     *,
     loan: Model,
@@ -1758,12 +1919,15 @@ def _advance_repayment_plan(
     bank_date: date,
     currency_code: str,
 ) -> tuple[AdvanceRepaymentPlan, Model]:
-    """Waterfall plan for a repayment-in-advance declaration.
+    """Waterfall plan for a payment declared through the repayment-in-advance flow.
 
-    Pays all interest due until the bank date first (unpaid scheduled interest of
-    installments due on or before the bank date, plus ACT/365 interest since the
-    latest date through which interest was actually covered), then reduces
-    outstanding principal and regenerates the future schedule.
+    Installments due on or before the bank date come first: the interest of all of
+    them (oldest first), then their principal (oldest first). Unpaid parts of those
+    installments stay in the schedule with their original due dates, so a loan
+    keeps its days-past-due clock until they are paid. Only money beyond all of
+    them is a prepayment: it pays ACT/365 interest since the latest
+    interest-paid-through date, then reduces principal, and only then is the
+    future schedule re-amortized.
     """
     loan_ref = cast(Any, loan)
     today = business_date(now_utc())
@@ -1791,28 +1955,20 @@ def _advance_repayment_plan(
         .select_related("installment")
         .order_by("value_date", "created_at", "id")
     )
-    actual_payment_dates: list[date] = []
-    for event in prior_events:
-        event_ref = cast(Any, event)
-        raw_bank_date = cast(dict[str, Any], event_ref.metadata).get(
-            "borrower_repayment_bank_date"
-        )
-        actual_payment_dates.append(
-            date.fromisoformat(str(raw_bank_date))
-            if str(event_ref.event_type) == BorrowerRepaymentEventType.EARLY_REPAYMENT
-            and raw_bank_date
-            else cast(date, event_ref.value_date)
-        )
-    latest_actual_payment_date = max(actual_payment_dates, default=None)
+    latest_actual_payment_date = max(
+        (_event_payment_date(event) for event in prior_events),
+        default=None,
+    )
     if latest_actual_payment_date is not None and bank_date < latest_actual_payment_date:
         raise ServicingValidationError(
             "Borrower repayment bank date cannot precede an already-recorded repayment."
         )
 
     next_unpaid: Model | None = None
-    scheduled_interest_due = 0
-    last_due_on_or_before: Any | None = None
-    future_slots: list[Any] = []
+    # (row, remaining principal, remaining interest) of installments due on or
+    # before the bank date, oldest first.
+    overdue: list[tuple[Any, int, int]] = []
+    future_slots: list[tuple[Any, int, int]] = []
     for row in rows:
         principal_paid, interest_paid = _installment_paid_totals(cast(Model, row))
         remaining_principal = int(row.principal_minor) - principal_paid
@@ -1821,14 +1977,12 @@ def _advance_repayment_plan(
             raise ServicingValidationError("Installment payment totals exceed scheduled amounts.")
         if remaining_principal + remaining_interest <= 0:
             continue
-        if row.due_date <= bank_date:
-            last_due_on_or_before = row
-        else:
-            future_slots.append(row)
         if next_unpaid is None:
             next_unpaid = cast(Model, row)
         if row.due_date <= bank_date:
-            scheduled_interest_due += remaining_interest
+            overdue.append((row, remaining_principal, remaining_interest))
+        else:
+            future_slots.append((row, remaining_principal, remaining_interest))
     if next_unpaid is None:
         raise ServicingValidationError("Loan has no outstanding scheduled installment.")
 
@@ -1839,122 +1993,214 @@ def _advance_repayment_plan(
     if outstanding_principal <= 0:
         raise ServicingValidationError("Loan has no outstanding principal.")
 
-    prior_interest_covered_dates: list[date] = []
-    for event in prior_events:
-        event_ref = cast(Any, event)
-        if str(event_ref.event_type) == BorrowerRepaymentEventType.EARLY_REPAYMENT:
-            raw_bank_date = cast(dict[str, Any], event_ref.metadata).get(
-                "borrower_repayment_bank_date"
-            )
-            prior_interest_covered_dates.append(
-                date.fromisoformat(str(raw_bank_date))
-                if raw_bank_date
-                else cast(date, event_ref.value_date)
-            )
-        else:
-            # A regular installment collects its full contractual interest, even
-            # when the bank value date is shortly before its due date.
-            prior_interest_covered_dates.append(cast(date, event_ref.installment.due_date))
-    interest_covered_until = max(
-        [loan_start_date, *prior_interest_covered_dates],
-    )
-    if last_due_on_or_before is not None and scheduled_interest_due > 0:
-        interest_covered_until = max(
-            interest_covered_until,
-            cast(date, last_due_on_or_before.due_date),
-        )
-    # Interest accrues at end of day. A payment received on bank_date therefore
-    # owes interest through the preceding day, represented by this date delta.
-    days_elapsed = max(0, (bank_date - interest_covered_until).days)
-    accrued_interest = int(
-        (
-            Decimal(outstanding_principal)
-            * Decimal(int(loan_ref.interest_rate_bps))
-            * Decimal(days_elapsed)
-            / Decimal(10_000 * 365)
-        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    )
-    interest_due_total = scheduled_interest_due + accrued_interest
-    waterfall = _allocate_universal_waterfall(
-        amount_minor,
-        interest_minor=interest_due_total,
-        principal_minor=outstanding_principal,
-    )
-    if waterfall.interest_minor < interest_due_total:
+    overdue_interest_due = sum(remaining_interest for _, _, remaining_interest in overdue)
+    overdue_principal_due = sum(remaining_principal for _, remaining_principal, _ in overdue)
+    overdue_total_due = overdue_interest_due + overdue_principal_due
+    if overdue_principal_due > outstanding_principal:
         raise ServicingValidationError(
-            "Repayment in advance must cover all interest due until the bank date "
-            f"({interest_due_total} minor units) before principal can be repaid."
+            "Overdue schedule principal exceeds the outstanding loan principal."
         )
-    principal_total = waterfall.principal_minor
-    new_outstanding = outstanding_principal - principal_total
-
-    new_rows: list[AdvanceRepaymentScheduleRow] = []
-    if new_outstanding > 0:
-        if not future_slots:
-            raise ServicingValidationError(
-                "Bank date is on or after the final scheduled installment; repayment in "
-                "advance must settle the full outstanding principal."
+    # Universal waterfall on the overdue items: costs and penalty (zero at launch),
+    # interest of every overdue installment, then their principal.
+    overdue_waterfall = _allocate_universal_waterfall(
+        min(amount_minor, overdue_total_due),
+        interest_minor=overdue_interest_due,
+        principal_minor=overdue_principal_due,
+    )
+    interest_left = overdue_waterfall.interest_minor
+    principal_left = overdue_waterfall.principal_minor
+    overdue_rows: list[AdvanceRepaymentOverdueRow] = []
+    remaining_overdue_rows: list[AdvanceRepaymentScheduleRow] = []
+    prior_interest_paid_through = max(
+        [loan_start_date, *(_event_interest_paid_through_date(event) for event in prior_events)],
+    )
+    interest_paid_through_overdue = prior_interest_paid_through
+    interest_paid_in_order = True
+    for row, remaining_principal, remaining_interest in overdue:
+        interest_applied = min(interest_left, remaining_interest)
+        interest_left -= interest_applied
+        principal_applied = min(principal_left, remaining_principal)
+        principal_left -= principal_applied
+        # Interest is paid through a due date only when it and every older
+        # installment's interest are fully paid.
+        interest_paid_in_order = interest_paid_in_order and interest_applied == remaining_interest
+        if interest_paid_in_order:
+            interest_paid_through_overdue = max(
+                interest_paid_through_overdue,
+                cast(date, row.due_date),
             )
-        first_slot = future_slots[0]
-        start_number = int(first_slot.installment_number)
-        generated = _regenerated_future_rows(
-            loan=loan,
-            remaining_principal_minor=new_outstanding,
-            currency_code=currency_code,
-            remaining_term=len(future_slots),
-            first_due_date=cast(date, first_slot.due_date),
-            start_number=start_number,
-        )
-        # The borrower already paid accrued interest up to the bank date, so the
-        # first regenerated installment only carries interest for the remainder
-        # of the current period.
-        prorated_first_interest = int(
-            (
-                Decimal(new_outstanding)
-                * Decimal(int(loan_ref.interest_rate_bps))
-                * Decimal(max(0, (cast(date, first_slot.due_date) - bank_date).days))
-                / Decimal(10_000 * 365)
-            ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        )
-        for index, generated_row in enumerate(generated):
-            interest_minor = (
-                prorated_first_interest if index == 0 else int(generated_row.interest_minor)
+        principal_after = remaining_principal - principal_applied
+        interest_after = remaining_interest - interest_applied
+        overdue_rows.append(
+            AdvanceRepaymentOverdueRow(
+                installment_number=int(row.installment_number),
+                due_date=cast(date, row.due_date),
+                interest_due_minor=remaining_interest,
+                principal_due_minor=remaining_principal,
+                interest_applied_minor=interest_applied,
+                principal_applied_minor=principal_applied,
+                remaining_minor=principal_after + interest_after,
             )
-            # Keep the original future rows' due dates (and numbers) so month-end
-            # schedules do not drift when the remaining term is re-amortized.
-            slot = future_slots[index]
-            new_rows.append(
+        )
+        if principal_after + interest_after > 0:
+            # Unpaid parts of an overdue installment are never re-amortized: the
+            # row stays due on its original date.
+            remaining_overdue_rows.append(
                 AdvanceRepaymentScheduleRow(
-                    installment_number=int(slot.installment_number),
-                    due_date=cast(date, slot.due_date),
-                    principal_minor=int(generated_row.principal_minor),
-                    interest_minor=interest_minor,
-                    total_minor=int(generated_row.principal_minor) + interest_minor,
+                    installment_number=int(row.installment_number),
+                    due_date=cast(date, row.due_date),
+                    principal_minor=principal_after,
+                    interest_minor=interest_after,
+                    total_minor=principal_after + interest_after,
+                    admin_overridden=bool(row.admin_overridden),
+                    partially_paid=(
+                        interest_applied + principal_applied > 0
+                        or bool(cast(dict[str, Any], row.metadata or {}).get("partially_paid"))
+                    ),
                 )
             )
+    overdue_remaining = sum(row.total_minor for row in remaining_overdue_rows)
+    prepayment = max(0, amount_minor - overdue_total_due)
 
+    interest_covered_until = prior_interest_paid_through
+    if overdue:
+        interest_covered_until = max(interest_covered_until, cast(date, overdue[-1][0].due_date))
+    days_elapsed = 0
+    accrued_interest = 0
+    prepayment_principal = 0
+    new_rows: list[AdvanceRepaymentScheduleRow] = []
+    first_new_interest_start: date | None = None
+    if prepayment == 0:
+        # Overdue items only: the rest of the schedule stays exactly as it is.
+        interest_paid_through = interest_paid_through_overdue
+        new_rows = [
+            *remaining_overdue_rows,
+            *(
+                AdvanceRepaymentScheduleRow(
+                    installment_number=int(row.installment_number),
+                    due_date=cast(date, row.due_date),
+                    principal_minor=remaining_principal,
+                    interest_minor=remaining_interest,
+                    total_minor=remaining_principal + remaining_interest,
+                    admin_overridden=bool(row.admin_overridden),
+                )
+                for row, remaining_principal, remaining_interest in future_slots
+            ),
+        ]
+        new_outstanding = outstanding_principal - overdue_waterfall.principal_minor
+    else:
+        # Every overdue item is paid. Interest accrues at end of day, so a payment
+        # received on bank_date owes interest through the preceding day.
+        days_elapsed = max(0, (bank_date - interest_covered_until).days)
+        accrued_interest = _accrued_interest_minor(
+            principal_minor=outstanding_principal,
+            rate_bps=int(loan_ref.interest_rate_bps),
+            days=days_elapsed,
+        )
+        if prepayment < accrued_interest:
+            if overdue_total_due > 0:
+                raise ServicingValidationError(
+                    "This payment pays all overdue amounts "
+                    f"({format_amount_minor(overdue_total_due, currency_code)}) and leaves "
+                    f"{format_amount_minor(prepayment, currency_code)}. That is less than the "
+                    "interest due since "
+                    f"{interest_covered_until.isoformat()} "
+                    f"({format_amount_minor(accrued_interest, currency_code)}), so it cannot "
+                    "be a repayment in advance. Record exactly the overdue amount, or at least "
+                    f"{format_amount_minor(overdue_total_due + accrued_interest, currency_code)}."
+                )
+            raise ServicingValidationError(
+                "Repayment in advance must cover all interest due until the bank date "
+                f"({accrued_interest} minor units) before principal can be repaid."
+            )
+        prepayment_waterfall = _allocate_universal_waterfall(
+            prepayment,
+            interest_minor=accrued_interest,
+            principal_minor=outstanding_principal - overdue_principal_due,
+        )
+        prepayment_principal = prepayment_waterfall.principal_minor
+        interest_paid_through = bank_date
+        new_outstanding = outstanding_principal - overdue_principal_due - prepayment_principal
+        if new_outstanding > 0:
+            if not future_slots:
+                raise ServicingValidationError(
+                    "Bank date is on or after the final scheduled installment; repayment in "
+                    "advance must settle the full outstanding principal."
+                )
+            first_slot = future_slots[0][0]
+            generated = _regenerated_future_rows(
+                loan=loan,
+                remaining_principal_minor=new_outstanding,
+                currency_code=currency_code,
+                remaining_term=len(future_slots),
+                first_due_date=cast(date, first_slot.due_date),
+                start_number=int(first_slot.installment_number),
+            )
+            # The first regenerated installment carries interest only for the days
+            # not already paid: from the later of the bank date and the date
+            # interest was already paid to (an early regular installment pays its
+            # full period), up to its due date.
+            first_new_interest_start = max(bank_date, interest_covered_until)
+            prorated_first_interest = _accrued_interest_minor(
+                principal_minor=new_outstanding,
+                rate_bps=int(loan_ref.interest_rate_bps),
+                days=(cast(date, first_slot.due_date) - first_new_interest_start).days,
+            )
+            for index, generated_row in enumerate(generated):
+                interest_minor = (
+                    prorated_first_interest if index == 0 else int(generated_row.interest_minor)
+                )
+                # Keep the original future rows' due dates (and numbers) so
+                # month-end schedules do not drift when the remaining term is
+                # re-amortized.
+                slot = future_slots[index][0]
+                new_rows.append(
+                    AdvanceRepaymentScheduleRow(
+                        installment_number=int(slot.installment_number),
+                        due_date=cast(date, slot.due_date),
+                        principal_minor=int(generated_row.principal_minor),
+                        interest_minor=interest_minor,
+                        total_minor=int(generated_row.principal_minor) + interest_minor,
+                    )
+                )
+
+    interest_applied_total = overdue_waterfall.interest_minor + accrued_interest
+    principal_applied_total = overdue_waterfall.principal_minor + prepayment_principal
     plan = AdvanceRepaymentPlan(
         loan_id=str(loan_ref.id),
         currency=currency_code,
         amount_minor=amount_minor,
         bank_date=bank_date,
-        interest_accrual_start_date=interest_covered_until,
+        interest_accrual_start_date=(
+            min(interest_covered_until, bank_date) if prepayment > 0 else bank_date
+        ),
         interest_accrual_end_date=bank_date,
         accrued_interest_days=days_elapsed,
-        scheduled_interest_due_minor=scheduled_interest_due,
+        scheduled_interest_due_minor=overdue_interest_due,
         accrued_interest_minor=accrued_interest,
-        interest_applied_minor=interest_due_total,
-        principal_applied_minor=principal_total,
+        interest_applied_minor=interest_applied_total,
+        principal_applied_minor=principal_applied_total,
         outstanding_principal_before_minor=outstanding_principal,
         outstanding_principal_after_minor=new_outstanding,
         anchor_installment_number=(
-            int(last_due_on_or_before.installment_number)
-            if last_due_on_or_before is not None
-            else 0
+            int(overdue[-1][0].installment_number) if overdue else 0
         ),
         old_schedule_rows=[_advance_schedule_row(row) for row in rows],
         new_schedule_rows=new_rows,
+        overdue_interest_due_minor=overdue_interest_due,
+        overdue_principal_due_minor=overdue_principal_due,
+        overdue_interest_applied_minor=overdue_waterfall.interest_minor,
+        overdue_principal_applied_minor=overdue_waterfall.principal_minor,
+        overdue_remaining_minor=overdue_remaining,
+        prepayment_minor=prepayment,
+        overdue_rows=tuple(overdue_rows),
+        interest_paid_through_date=interest_paid_through,
+        first_new_installment_interest_start_date=first_new_interest_start,
     )
+    if sum(row.principal_minor for row in new_rows) != new_outstanding:
+        raise ServicingValidationError(
+            "The schedule after this payment does not match the outstanding principal."
+        )
     return plan, next_unpaid
 
 
@@ -1979,12 +2225,15 @@ def _apply_advance_repayment_schedule(
                 principal_minor=row.principal_minor,
                 interest_minor=row.interest_minor,
                 total_minor=row.total_minor,
-                admin_overridden=False,
+                admin_overridden=row.admin_overridden,
                 metadata={
                     "previous_schedule_version": previous_schedule_version,
-                    "reason": "repayment_in_advance",
+                    "reason": (
+                        "overdue_payment" if plan.overdue_only else "repayment_in_advance"
+                    ),
                     "repayment_event_id": str(repayment_event.id),
                     "borrower_repayment_bank_date": plan.bank_date.isoformat(),
+                    **({"partially_paid": True} if row.partially_paid else {}),
                 },
             )
             for row in plan.new_schedule_rows
@@ -2022,6 +2271,11 @@ def _apply_advance_repayment_schedule(
         "remaining_principal_minor": plan.outstanding_principal_after_minor,
         "repayment_event_id": str(repayment_event.id),
         "installment_count": len(plan.new_schedule_rows),
+        "overdue_interest_applied_minor": plan.overdue_interest_applied_minor,
+        "overdue_principal_applied_minor": plan.overdue_principal_applied_minor,
+        "overdue_remaining_minor": plan.overdue_remaining_minor,
+        "prepayment_minor": plan.prepayment_minor,
+        "overdue_only": plan.overdue_only,
     }
     event_model = apps.get_model("loans", "LoanEvent")
     event_model.objects.create(
@@ -2031,7 +2285,11 @@ def _apply_advance_repayment_schedule(
         actor_account_type=str(getattr(actor, "account_type", "")),
         previous_status=str(loan_ref.status),
         new_status=str(loan_ref.status),
-        note="Schedule recalculated after repayment in advance.",
+        note=(
+            "Schedule updated after a payment of overdue amounts."
+            if plan.overdue_only
+            else "Schedule recalculated after repayment in advance."
+        ),
         metadata=metadata,
     )
     actor_ref = actor_ref_for_user(actor)
@@ -2108,6 +2366,10 @@ def record_borrower_repayment(
     )
     if existing is not None:
         return existing
+    _validate_bank_dates_not_in_future(
+        booking_date=command.booking_date,
+        value_date=command.value_date,
+    )
     # The account the borrower paid from is the bank evidence for this receipt.
     payer_account_identifier = _clean_required(command.payer_account_identifier, "Payer account")
 
@@ -2120,6 +2382,15 @@ def record_borrower_repayment(
         return existing_after_lock
 
     loan_ref = cast(Any, loan)
+    repeat_of_bank_operation_ids = _guard_duplicate_borrower_receipt(
+        loan_id=str(loan_ref.id),
+        currency=str(loan_ref.currency_id),
+        amount_minor=amount_minor,
+        payer_account_identifier=payer_account_identifier,
+        value_date=command.value_date,
+        bank_reference=command.bank_reference,
+        confirm_repeat_payment=command.confirm_repeat_payment,
+    )
     currency = _enabled_currency(str(loan_ref.currency_id))
     collection_account_identifier = _resolve_repayment_collection_account_identifier(
         currency=currency.code,
@@ -2148,7 +2419,13 @@ def record_borrower_repayment(
         interest_applied = advance_plan.interest_applied_minor
         principal_applied = min(remaining_principal, advance_plan.principal_applied_minor)
         future_principal_applied = advance_plan.principal_applied_minor - principal_applied
-        event_type = BorrowerRepaymentEventType.EARLY_REPAYMENT
+        # A payment that only reaches overdue installments is not a repayment in
+        # advance: nothing is prepaid and the future schedule does not change.
+        event_type = (
+            BorrowerRepaymentEventType.PARTIAL_INSTALLMENT
+            if advance_plan.overdue_only
+            else BorrowerRepaymentEventType.EARLY_REPAYMENT
+        )
     else:
         if command.borrower_repayment_bank_date is not None:
             raise ServicingValidationError(
@@ -2274,6 +2551,26 @@ def record_borrower_repayment(
         "accrued_interest_days": (
             advance_plan.accrued_interest_days if advance_plan is not None else 0
         ),
+        "interest_paid_through_date": (
+            advance_plan.interest_paid_through_date.isoformat()
+            if advance_plan is not None and advance_plan.interest_paid_through_date is not None
+            else cast(date, cast(Any, installment).due_date).isoformat()
+        ),
+        "overdue_interest_applied_minor": (
+            advance_plan.overdue_interest_applied_minor if advance_plan is not None else 0
+        ),
+        "overdue_principal_applied_minor": (
+            advance_plan.overdue_principal_applied_minor if advance_plan is not None else 0
+        ),
+        "overdue_remaining_minor": (
+            advance_plan.overdue_remaining_minor if advance_plan is not None else 0
+        ),
+        "prepayment_minor": advance_plan.prepayment_minor if advance_plan is not None else 0,
+        **(
+            {"confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids}
+            if repeat_of_bank_operation_ids
+            else {}
+        ),
         "ledger_journal_entry_id": str(ledger_result.journal_entry.id),
         "bank_operation_id": str(ledger_result.bank_operation.id),
     }
@@ -2358,6 +2655,10 @@ def record_borrower_repayment(
         actor=command.actor,
         as_of_date=command.value_date,
         repayment_event_id=str(repayment_event.id),
+        oldest_unpaid_before=(
+            int(cast(Any, installment).installment_number),
+            cast(date, cast(Any, installment).due_date),
+        ),
     )
     try:
         refresh_listings = (
@@ -2580,6 +2881,10 @@ def record_loan_recovery_payment(
     )
     if existing is not None:
         return existing
+    _validate_bank_dates_not_in_future(
+        booking_date=command.booking_date,
+        value_date=command.value_date,
+    )
 
     loan = _locked_loan(command.loan_id)
     existing_after_lock = _existing_recovery_for_idempotency(
@@ -2589,11 +2894,27 @@ def record_loan_recovery_payment(
     if existing_after_lock is not None:
         return existing_after_lock
     loan_ref = cast(Any, loan)
+    if str(getattr(loan_ref, "product_type", "direct")) != "direct":
+        raise ServicingValidationError(
+            "This is a Loan Originator loan. Record its recovery receipts through the Loan "
+            "Originator servicing workflow (Manage > Record borrower repayment / schedule "
+            "revision)."
+        )
     if str(loan_ref.status) not in RECOVERY_ALLOWED_LOAN_STATUSES:
         raise ServicingValidationError(
             "Recovery payments can only be recorded for defaulted loans "
             "before final loss recognition."
         )
+    # The bank movement is the net amount that reached the collection account.
+    repeat_of_bank_operation_ids = _guard_duplicate_borrower_receipt(
+        loan_id=str(loan_ref.id),
+        currency=str(loan_ref.currency_id),
+        amount_minor=net_received_minor,
+        payer_account_identifier=command.payer_account_identifier,
+        value_date=command.value_date,
+        bank_reference=command.bank_reference,
+        confirm_repeat_payment=command.confirm_repeat_payment,
+    )
     currency = _enabled_currency(str(loan_ref.currency_id))
     # Recovered funds arrive in Garanta's collection account for the loan currency,
     # exactly like regular borrower repayments; the platform owns that setting.
@@ -2735,6 +3056,11 @@ def record_loan_recovery_payment(
         "penalties_due_minor": penalties_due_minor,
         "outstanding_principal_before_recovery_minor": outstanding_principal_minor,
         "metadata": command.metadata or {},
+        **(
+            {"confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids}
+            if repeat_of_bank_operation_ids
+            else {}
+        ),
     }
     try:
         with transaction.atomic():
@@ -2935,6 +3261,10 @@ def scan_loan_servicing_statuses(
     command: ScanLoanServicingStatusesCommand,
 ) -> ScanLoanServicingStatusesResult:
     _require_admin_actor(command.actor)
+    if command.as_of_date > business_date(now_utc()):
+        raise ServicingValidationError(
+            "Status scan cannot run for a future date. Use the QA clock to advance time."
+        )
     loan_model = apps.get_model("loans", "Loan")
     loans = loan_model.objects.select_for_update().filter(
         status__in=STATUS_SCAN_LOAN_STATUSES,
@@ -3031,10 +3361,13 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
     )
     if existing is not None:
         return existing
+    # Loan Originator loans have no BANXUM borrower; their notes keep it empty.
+    borrower_id = loan_ref.borrower_id
     metadata = {
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "loan_id": str(loan_ref.id),
-        "borrower_id": str(loan_ref.borrower_id),
+        "borrower_id": str(borrower_id) if borrower_id else "",
+        "product_type": str(getattr(loan_ref, "product_type", "direct")),
         "loan_status": str(loan_ref.status),
         **(command.metadata or {}),
     }
@@ -3046,7 +3379,7 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
         with transaction.atomic():
             note = LoanRiskNote.objects.create(
                 loan=loan,
-                borrower_id=loan_ref.borrower_id,
+                borrower_id=borrower_id,
                 visibility=visibility,
                 note_type=note_type,
                 title=title,
@@ -3069,7 +3402,7 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
     event_metadata = {
         "risk_note_id": str(note.id),
         "loan_id": str(loan_ref.id),
-        "borrower_id": str(loan_ref.borrower_id),
+        "borrower_id": str(borrower_id) if borrower_id else "",
         "visibility": visibility,
         "note_type": note_type,
         "title": title,

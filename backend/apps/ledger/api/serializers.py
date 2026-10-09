@@ -164,7 +164,16 @@ class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
     currency = serializers.CharField(max_length=3)
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    collection_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+        help_text=(
+            "Receiving collection account. Blank uses the configured account of the "
+            "currency. Spelling variants of the configured account are stored in its "
+            "configured spelling."
+        ),
+    )
     payer_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
     payer_account_identifier = serializers.CharField(
         required=True,
@@ -201,10 +210,111 @@ class InvestorPayoutInstructionRegisterRequestSerializer(serializers.Serializer[
     is_verified_usable = serializers.BooleanField(required=False, default=True)
     notes = serializers.CharField(required=False, allow_blank=True)
     metadata = serializers.JSONField(required=False)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    other_investor_override_reason = serializers.CharField(required=False, allow_blank=True)
 
 
 class InvestorPayoutInstructionRegisterResponseSerializer(serializers.Serializer[Any]):
     payout_instruction = InvestorPayoutInstructionSerializer()
+
+
+class InvestorPayoutInstructionVerifyRequestSerializer(serializers.Serializer[Any]):
+    evidence_reference = serializers.CharField(
+        max_length=255,
+        help_text="Where the ownership proof is kept (bank letter, statement, ticket).",
+    )
+    notes = serializers.CharField(required=False, allow_blank=True)
+    other_investor_override_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Required when the IBAN is a verified payout account of another investor.",
+    )
+    destination_account_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Account holder name confirmed by the evidence. Blank keeps the investor's.",
+    )
+
+
+class InvestorPayoutInstructionRevokeRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField(help_text="Why the IBAN is rejected or no longer usable.")
+
+
+class InvestorPayoutInstructionRevokeResponseSerializer(serializers.Serializer[Any]):
+    payout_instruction = InvestorPayoutInstructionSerializer()
+    action = serializers.CharField(
+        help_text="revoked (the IBAN was verified) or rejected (it was a pending request)."
+    )
+    flagged_withdrawal_request_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+PAYOUT_INSTRUCTION_STATE_CHOICES = [
+    ("pending", "Pending verification"),
+    ("verified", "Verified"),
+    ("revoked", "Revoked"),
+    ("rejected", "Rejected"),
+]
+
+
+class AdminPayoutInstructionListQuerySerializer(serializers.Serializer[Any]):
+    state = serializers.ChoiceField(
+        choices=PAYOUT_INSTRUCTION_STATE_CHOICES,
+        required=False,
+        allow_blank=True,
+    )
+    investor_user_id = serializers.UUIDField(required=False)
+    currency = serializers.CharField(required=False, allow_blank=True, max_length=3)
+    q = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=200, default=50)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+
+
+class AdminPayoutInstructionRowSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    investor_name = serializers.CharField(allow_blank=True)
+    investor_email = serializers.CharField(allow_blank=True)
+    investor_reference = serializers.CharField(allow_blank=True)
+    currency = serializers.CharField()
+    destination_iban = serializers.CharField()
+    destination_account_name = serializers.CharField(allow_blank=True)
+    state = serializers.ChoiceField(choices=PAYOUT_INSTRUCTION_STATE_CHOICES)
+    origin = serializers.ChoiceField(
+        choices=[
+            ("investor_request", "Investor request"),
+            ("lender_deposit", "Lender deposit"),
+            ("admin", "Admin"),
+        ],
+        help_text="How the IBAN reached the account: investor request or incoming deposit.",
+    )
+    verified_at = serializers.DateTimeField(allow_null=True)
+    verified_by_admin_id = serializers.UUIDField(allow_null=True)
+    evidence_reference = serializers.CharField(allow_blank=True)
+    other_investor_count = serializers.IntegerField(
+        help_text="Other investors for whom this IBAN is a verified payout account."
+    )
+    open_withdrawal_count = serializers.IntegerField()
+    revocation_reason = serializers.CharField(allow_blank=True)
+    revoked_at = serializers.DateTimeField(allow_null=True)
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class AdminPayoutInstructionListResponseSerializer(serializers.Serializer[Any]):
+    count = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    results = AdminPayoutInstructionRowSerializer(many=True)
+
+
+class CollectionAccountSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    collection_account_identifier = serializers.CharField(allow_blank=True)
+    iban = serializers.CharField(allow_blank=True)
+    qr_iban = serializers.CharField(allow_blank=True)
+    account_holder_name = serializers.CharField(allow_blank=True)
+    bank_name = serializers.CharField(allow_blank=True)
 
 
 class InvestorSelfServicePayoutInstructionRegisterRequestSerializer(
@@ -301,7 +411,12 @@ class InvestorWithdrawalHistoryResponseSerializer(serializers.Serializer[Any]):
 class InvestorWithdrawalFinalizeRequestSerializer(serializers.Serializer[Any]):
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    collection_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+        help_text="Paying collection account. Blank uses the configured account of the currency.",
+    )
     bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
@@ -374,6 +489,12 @@ class BalanceAgeingForcedWithdrawalCandidateSerializer(serializers.Serializer[An
     amount_minor = serializers.IntegerField()
     lot_ids = serializers.ListField(child=serializers.CharField())
     payout_instruction_id = serializers.CharField()
+    destination_rule = serializers.CharField(
+        help_text=(
+            "deposit_proven: the verified IBAN that sent the latest deposit; "
+            "admin_verified: the most recently admin-verified IBAN."
+        )
+    )
 
 
 class BalanceAgeingPenaltyModeTransitionSerializer(serializers.Serializer[Any]):

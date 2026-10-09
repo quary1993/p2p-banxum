@@ -12,6 +12,7 @@ import {
 import { hasSessionExpiredNotice, reportSessionExpired } from "./api/client/sessionExpiry";
 import { activityFixture, balanceLotsFixture, balancesFixture, loanDetailsFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
+import { formatMoneyMinor, formatRateBps } from "./investorPortal/format";
 
 function renderApp(path = "/") {
   window.history.pushState({}, "", path);
@@ -269,6 +270,9 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
     });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    // A batch needs the same risk acknowledgement as a single investment (audit A-31).
+    expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
     expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
   } finally {
@@ -311,6 +315,7 @@ test("rule desk batch-reserves a v2 Loan Originator subscription at par", async 
     fireEvent.click(
       within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i })
     );
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), {
       target: { value: "123456" }
     });
@@ -377,6 +382,7 @@ test("smart invest table bulk-selects across currencies and approves one allocat
       expect(within(dialog).getByRole("link", { name: /primary-market investment terms/i })).toBeInTheDocument();
     });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Place \d+ investments?/ }));
     expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
@@ -1094,7 +1100,7 @@ test("marketplace sorts from the header and the sort menu", () => {
 
   // The sort menu picks a different column.
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Term" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Term" }));
   expect(loanTitles()[0]).toBe("Swiss SME equipment claim");
 
   // The same sort applies to the Cards layout.
@@ -1131,7 +1137,7 @@ test("portfolio loans sort from the header and the sort menu", () => {
   // Sort menu offers the detailed columns and the clear link restores default.
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Rate" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Rate" }));
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
 
   // A Detailed-only sort never remains active without a visible column indicator.
@@ -1141,7 +1147,7 @@ test("portfolio loans sort from the header and the sort menu", () => {
 
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Rate" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Rate" }));
   fireEvent.click(screen.getByRole("button", { name: "back to largest first" }));
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
 });
@@ -1602,7 +1608,7 @@ test("secondary market redesign shows for-sale table, explainer band and selling
   expect(screen.getByText("Buyer cost")).toBeInTheDocument();
   expect(screen.getByText(/Equipment · 9.4% coupon/)).toBeInTheDocument();
   expect(screen.getByText("24 mo")).toBeInTheDocument();
-  expect(screen.getByText("−2.0%")).toBeInTheDocument();
+  expect(screen.getByText("2.0% discount")).toBeInTheDocument();
   expect(screen.getByText("CHF 5'185.30")).toBeInTheDocument();
   expect(screen.getByText(/non-standard/)).toBeInTheDocument();
 
@@ -1752,7 +1758,11 @@ test("holding details open on the investment page with factual projections and c
   expect(within(page).getByText("Projected still to earn")).toBeInTheDocument();
   expect(within(page).getByText("Collateral")).toBeInTheDocument();
   expect(within(page).getByText("Registered real-estate security supporting the borrower obligation.")).toBeInTheDocument();
-  expect(within(page).getByText("61.0% LTV")).toBeInTheDocument();
+  // LTV uses the principal still owed on the whole loan (audit A-65), not the original amount lent.
+  const engadin = portfolioFixture.holdings.find((holding) => holding.id === "H-2310")!.loan;
+  const owedMinor = engadin.schedule.reduce((sum, row) => sum + row.outstanding_principal_minor, 0);
+  expect(within(page).getByText(`${formatRateBps(Math.round((owedMinor * 10_000) / engadin.collateral_value_minor))} LTV`)).toBeInTheDocument();
+  expect(within(page).getByText(/current loan principal against/).textContent).toContain(formatMoneyMinor(owedMinor, "CHF"));
   expect(within(page).getByText(/Historical rows show the borrower payment recorded for the full loan|deterministic projected share/)).toBeInTheDocument();
 
   fireEvent.click(within(page).getByRole("button", { name: /Open timeline/ }));
@@ -2542,5 +2552,69 @@ test("Account shows the frozen balance apart from the penalty charged on the lot
   } finally {
     overdueLot!.penalized_amount_minor = 0;
     chf!.penalty_charged_minor = 0;
+  }
+});
+
+test("withdrawal review shows the destination IBAN and account name before the code step", () => {
+  renderApp();
+  loginDemo();
+  clickNav(/^Account/);
+  const main = screen.getByRole("main");
+  fireEvent.click(within(main).getAllByRole("button", { name: "Withdraw to IBAN" })[0]);
+  const dialog = screen.getByRole("dialog", { name: "Withdraw CHF" });
+  fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "250" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+
+  const review = screen.getByRole("dialog", { name: "Withdraw CHF" });
+  expect(within(review).getByText("To IBAN")).toBeInTheDocument();
+  expect(within(review).getByText("CH93 0076 2011 6238 5295 7")).toBeInTheDocument();
+  expect(within(review).getByText("Account name")).toBeInTheDocument();
+  expect(within(review).getByText("Lukas Brunner")).toBeInTheDocument();
+});
+
+test("activity shows penalty charges and labels a forced return as such", () => {
+  const added = [
+    {
+      id: "P-1",
+      activity_type: "balance_penalty_charge",
+      occurred_at: "2026-05-02T12:00:00+02:00",
+      direction: "out" as const,
+      title: "Penalty charged: balance past the 60-day limit",
+      amount_minor: 50_00,
+      currency: "CHF",
+      status: "charged",
+      loan_id: null,
+      loan_title: "",
+      metadata: { balance_lot_id: "lot-1", charge_date: "2026-05-02", penalty_bps_per_day: 100 }
+    },
+    {
+      id: "W-401",
+      activity_type: "withdrawal_request",
+      occurred_at: "2026-05-01T12:00:00+02:00",
+      direction: "out" as const,
+      title: "Forced return to your bank account",
+      amount_minor: 4_950_00,
+      currency: "CHF",
+      status: "requested",
+      loan_id: null,
+      loan_title: "",
+      metadata: { is_forced: true, destination_iban: "CH9300762011623852957", finalized_at: "", cancelled_at: "" }
+    }
+  ];
+  activityFixture.entries.push(...added);
+  try {
+    renderApp();
+    loginDemo();
+    clickNav("My investments");
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+
+    const penaltyRow = screen.getByText("Penalty charged: balance past the 60-day limit").closest("tr") as HTMLElement;
+    expect(within(penaltyRow).getByText("penalty")).toBeInTheDocument();
+    expect(within(penaltyRow).getByText(/-50\.00/)).toBeInTheDocument();
+    const forcedRow = screen.getByText("Forced return to your bank account").closest("tr") as HTMLElement;
+    expect(within(forcedRow).getByText("forced return")).toBeInTheDocument();
+    expect(within(forcedRow).getByText("Pending")).toBeInTheDocument();
+  } finally {
+    activityFixture.entries.splice(activityFixture.entries.length - added.length, added.length);
   }
 });

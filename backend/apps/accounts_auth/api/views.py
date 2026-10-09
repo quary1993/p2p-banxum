@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.accounts_auth.api.origin import SameSiteRequestOnly
 from backend.apps.accounts_auth.api.permissions import IsSuperAdminUser
 from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
 from backend.apps.accounts_auth.api.serializers import (
@@ -29,6 +30,7 @@ from backend.apps.accounts_auth.api.serializers import (
     PhoneVerificationConfirmRequestSerializer,
     PhoneVerificationConfirmResponseSerializer,
     PhoneVerificationRequestResponseSerializer,
+    PhoneVerificationRequestSerializer,
     SensitiveActionCodeRequestResponseSerializer,
     SensitiveActionCodeRequestSerializer,
     serialize_account_access_event,
@@ -41,6 +43,8 @@ from backend.apps.accounts_auth.api.throttles import (
     NaturalPersonRegistrationThrottle,
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
+    admin_login_failure_backoff,
+    email_ip_identifier,
 )
 from backend.apps.accounts_auth.models import (
     AccountAccessReason,
@@ -62,6 +66,7 @@ from backend.apps.accounts_auth.services import (
     InvalidOrExpiredCodeError,
     InvalidOrExpiredTokenError,
     InvalidPasswordError,
+    InvalidRegistrationDataError,
     InvalidTermsAcceptanceError,
     MagicLinkConsumeCommand,
     MagicLinkRequestCommand,
@@ -84,6 +89,7 @@ from backend.apps.accounts_auth.services import (
     issue_sensitive_action_code,
     register_natural_person_lender,
     request_phone_verification,
+    send_registration_follow_up_email,
     start_admin_login,
     update_marketing_consent,
 )
@@ -93,19 +99,19 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 
 class NaturalPersonRegistrationView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
     throttle_classes = [NaturalPersonRegistrationThrottle]
 
     @extend_schema(
         request=NaturalPersonRegistrationRequestSerializer,
-        responses={201: NaturalPersonRegistrationResponseSerializer},
+        responses={202: NaturalPersonRegistrationResponseSerializer},
     )
     def post(self, request: Request) -> Response:
         serializer = NaturalPersonRegistrationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
-            user = register_natural_person_lender(
+            result = register_natural_person_lender(
                 RegisterNaturalPersonCommand(
                     email=data["email"],
                     full_name=data["full_name"],
@@ -133,35 +139,26 @@ class NaturalPersonRegistrationView(APIView):
                     marketing_consent=data["marketing_consent"],
                 )
             )
-        except DuplicateEmailError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
-        except InvalidTermsAcceptanceError as exc:
+        except (InvalidTermsAcceptanceError, InvalidRegistrationDataError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Issue the first sign-in magic link as part of registration so the
-        # client does not need a second request that can race the per-IP/email
-        # magic-link throttle. Registration must still succeed if issuance
-        # fails; the client can fall back to the explicit resend endpoint.
-        email_login_sent = True
-        try:
-            issue_magic_link(
-                MagicLinkRequestCommand(
-                    email=user.email,
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except AccountsAuthError:
-            email_login_sent = False
+        # The first sign-in link goes out with the registration, so the client needs no
+        # second request. An address that already has an account gets the same answer
+        # and an email that says so; nothing stored changes (audit A-50 / A-57).
+        send_registration_follow_up_email(
+            result,
+            ip_address=client_ip(request),
+            user_agent=user_agent(request),
+        )
         return Response(
-            {"user": serialize_user(user), "email_login_sent": email_login_sent},
-            status=status.HTTP_201_CREATED,
+            {"status": "accepted", "email_login_sent": True},
+            status=status.HTTP_202_ACCEPTED,
         )
 
 
 class MagicLinkRequestView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
     throttle_classes = [MagicLinkRequestThrottle]
 
     @extend_schema(request=MagicLinkRequestSerializer, responses={202: None})
@@ -184,7 +181,7 @@ class MagicLinkRequestView(APIView):
 
 class MagicLinkConsumeView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
 
     @extend_schema(
         request=MagicLinkConsumeSerializer,
@@ -216,7 +213,7 @@ class MagicLinkConsumeView(APIView):
 
 class AdminLoginStartView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
     throttle_classes = [AdminLoginStartThrottle]
 
     @extend_schema(
@@ -227,6 +224,19 @@ class AdminLoginStartView(APIView):
         serializer = AdminLoginStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
+        # Wrong passwords slow down only this (email, IP) pair (audit A-47).
+        backoff = admin_login_failure_backoff()
+        backoff_key = email_ip_identifier(request, str(data["email"]))
+        wait = backoff.retry_after(backoff_key)
+        if wait is not None:
+            return Response(
+                {
+                    "detail": f"Too many failed attempts. Try again in {wait} seconds.",
+                    "retry_after_seconds": wait,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(wait)},
+            )
         try:
             result = start_admin_login(
                 AdminLoginStartCommand(
@@ -236,10 +246,14 @@ class AdminLoginStartView(APIView):
                     user_agent=user_agent(request),
                 )
             )
-        except (AdminLoginInvalidCredentialsError, InvalidOrExpiredCodeError) as exc:
+        except AdminLoginInvalidCredentialsError as exc:
+            backoff.record_failure(backoff_key)
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidOrExpiredCodeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except SensitiveActionCodeThrottleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        backoff.reset(backoff_key)
 
         return Response(
             {
@@ -253,7 +267,7 @@ class AdminLoginStartView(APIView):
 
 class AdminLoginConfirmView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
     throttle_classes = [AdminLoginConfirmThrottle]
 
     @extend_schema(
@@ -437,15 +451,21 @@ class PhoneVerificationRequestView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [PhoneVerificationRequestThrottle]
 
-    @extend_schema(request=None, responses={202: PhoneVerificationRequestResponseSerializer})
+    @extend_schema(
+        request=PhoneVerificationRequestSerializer,
+        responses={202: PhoneVerificationRequestResponseSerializer},
+    )
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
+        serializer = PhoneVerificationRequestSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
         try:
             result = request_phone_verification(
                 PhoneVerificationRequestCommand(
                     user=user,
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
+                    phone_number=serializer.validated_data.get("phone_number") or None,
                 )
             )
         except PhoneAlreadyVerifiedError:

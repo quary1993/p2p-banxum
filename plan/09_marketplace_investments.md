@@ -58,6 +58,8 @@ Public preview fields before login:
 - Borrower country.
 - Loan currency.
 
+Implementation 2026-10-09 (QA audit): the anonymous list `GET /api/v1/marketplace/primary/loans/` returns only these fields plus the loan id for the `/projects/<id>` page: `borrower_name` (Direct: legal name; Loan Originator: the anonymized name unless the legal name is published), `borrower_country`, `principal_minor`, `interest_rate_bps` (investor interest), `term_months`, loan type as `product_type` (Direct or Loan Originator claim) and `is_refinancing`, `status` (`open`) and `currency`. Risk rating, LTV, collateral, funding progress, deadline, minimum and participation terms are not public. Logged-in KYC-approved investors get the full list from `GET /api/v1/marketplace/primary/opportunities/`.
+
 Rationale:
 This allows investors to evaluate opportunities early while keeping full loan data, balances, deposits, FX, and investment functionality behind onboarding controls.
 
@@ -91,6 +93,8 @@ Decision:
 Investors cannot cancel investment orders. A pending order has no effect until sufficient balance is allocated/reserved or admin validates received funds. Pending orders remain open until the loan funding target is reached, the campaign is closed, or the order is otherwise closed by platform rules.
 
 To prevent spam, each investor may have a limited number of pending orders. Launch assumption: 50 pending orders per investor.
+
+Amended 2026-10-09 (audit SECONDARY-09): a pending order that was never confirmed is closed as not invested by platform rule when the same investor places a new order on the same loan (replaced), or when it is older than `investment.pending_order_ttl_minutes` (default 60) at the investor's next order. No money moves. An investor is never blocked by their own failed or abandoned confirmations.
 
 Rationale:
 Because pending orders do not reserve capacity until balance/funds are allocated, cancellation is not required for funding control. A pending-order cap prevents abuse and operational clutter.
@@ -136,7 +140,7 @@ Confirm launch restrictions by jurisdiction if needed. V1 does not enforce hard 
 ### MKT-DEC-007: Secondary Market Seller Pricing
 
 Status: Accepted.
-Date: 2026-05-16. Updated 2026-05-29.
+Date: 2026-05-16. Updated 2026-05-29, 2026-10-09.
 Owner: Garanta product / operations / legal.
 
 Decision:
@@ -148,11 +152,16 @@ Accrued interest up to the settlement date is calculated separately, daily, pro 
 
 Future interest is not included in the transfer price and belongs to the buyer after settlement.
 
+For a direct-loan holding, accrued interest runs ACT/365 from the date interest is next owed from to the settlement date, whoever the seller is: the later of the loan start date (where the repayment schedule and repayment-in-advance servicing start interest) and the last date already covered by a borrower payment. The holding's own assignment date ("Yours since") is never the accrual start, because the holder on the next due date receives that installment's full interest; otherwise a resale chain would move the interest an intermediate holder paid for to the next buyer (QA audit 2026-10-09). Loan Originator holdings keep their carried-forward entitlement start.
+
+The buyer is charged only the economics they reviewed. The purchase request carries the reviewed buyer total cost, `price_bps` and current principal, and the purchase-terms acceptance records the same total. Settlement recomputes the price under the loan/holding/listing locks and rejects the purchase with HTTP 409 `secondary_price_changed`, moving no money, if anything differs (seller edit, servicing repricing, or accrued interest that has grown since a review on an earlier business day). The buyer then reviews the new price and confirms again.
+
 Rationale:
 Seller-defined discount/premium pricing supports flexible exits while the separate accrued-interest calculation makes the economics clear between seller and buyer.
 
 Follow-ups:
 Finalize legal display wording for discount/premium and accrued-interest disclosure.
+Decide whether seller `price_bps` needs a tighter product bound than the technical 1 to 1,000,000 bps (0.01% to 10,000% of principal) range; the plan sets none today (QA audit 2026-10-09).
 
 ### MKT-DEC-008: Legal-Entity Lender Offline Investments
 
@@ -173,9 +182,11 @@ Define admin fields, evidence requirements, whether the single legal-entity repr
 
 ### MKT-DEC-009: Non-Performing and Non-Standard Loans on Secondary Market
 
-Status: Accepted.
-Date: 2026-05-16. Updated 2026-05-29.
+Status: Accepted. Superseded in part by the C18 rule below (2026-10-09).
+Date: 2026-05-16. Updated 2026-05-29, 2026-10-09.
 Owner: Garanta product / operations / legal.
+
+Update 2026-10-09 (QA decision C18): loans that are overdue (late), in default or time-extended must not be listable on the secondary market. There is no listing request and no admin approval for them. The platform refuses a listing, a listing edit, listing terms and a purchase when the loan is not `active`, for Direct and Loan Originator holdings alike. When a loan turns late or defaulted, its open listings are cancelled automatically with a reason; no money moves, the holding stays with the seller, and the seller gets a portal notice. The investor UI has no "Request listing" or "Approval pending". Existing approval requests and open listings of non-performing loans were cancelled by migration `secondary_market.0009` (system actor, reason recorded, seller notice). The admin approve endpoint stays only for old rows and never publishes a listing of a non-performing loan. A time extension has no loan status of its own: it settles the old loan and creates a new one (plan/11). The text below is kept as history.
 
 Decision:
 Defaulted loans are not offered to investors on the primary market. If a loan becomes late or defaulted after it is active, lenders continue to see it in their portfolio and may seek to list their holdings on the secondary market through the non-standard listing workflow.
@@ -295,7 +306,7 @@ Secondary-market v1 uses direct buyer acceptance of a listed price.
 
 No admin approval or mediation is required for a current/performing holding that passes automatic listing checks. The sale should execute immediately after buyer eligibility checks, sufficient eligible balance/funds, required checkbox/clickwrap document acceptance, fee calculation, and system validation pass.
 
-For non-standard holdings under MKT-DEC-009, admin approval is required before the listing becomes visible. Once approved and visible, the buyer can purchase directly after eligibility, balance/funds, required additional risk acknowledgement, document acceptance, fee calculation, and system validation pass.
+Superseded 2026-10-09 (C18, see MKT-DEC-009): non-standard holdings cannot be listed. For non-standard holdings under MKT-DEC-009, admin approval is required before the listing becomes visible. Once approved and visible, the buyer can purchase directly after eligibility, balance/funds, required additional risk acknowledgement, document acceptance, fee calculation, and system validation pass.
 
 Required documents are accepted by checkbox/clickwrap and made available for on-demand generation/download according to the document module. Legal terms and transaction-agreement PDFs are not emailed by default.
 
@@ -404,9 +415,9 @@ Date: 2026-07-27.
 Owner: Garanta product / finance / operations.
 
 Decision:
-The seller's `price_bps` is the durable commercial choice: 10,000 is par, values above are a premium, and values below are a discount. After any borrower repayment, repayment in advance, recovery distribution, or servicing-status transition changes a loan or holding, every unsold open listing for that loan is refreshed atomically from the latest loan and holding data. The platform preserves only `price_bps` and recomputes current principal, transfer price, accrued interest, maker/taker fees, seller net proceeds, buyer total, payment date, days past due, risk-acknowledgement state, and disclosure status. A zero-principal/unlistable holding is automatically cancelled. A performing `active` loan remains automatically listed; `late`/`defaulted` listings return to approval-required status.
+The seller's `price_bps` is the durable commercial choice: 10,000 is par, values above are a premium, and values below are a discount. After any borrower repayment, repayment in advance, recovery distribution, or servicing-status transition changes a loan or holding, every unsold open listing for that loan is refreshed atomically from the latest loan and holding data. The platform preserves only `price_bps` and recomputes current principal, transfer price, accrued interest, maker/taker fees, seller net proceeds, buyer total, payment date, days past due, risk-acknowledgement state, and disclosure status. A zero-principal/unlistable holding is automatically cancelled. A performing `active` loan remains automatically listed. Since 2026-10-09 (C18) a listing whose loan turns `late` or `defaulted` is cancelled automatically and the seller is told; it no longer returns to approval-required status.
 
-`Funded` means funding has closed but the borrower has not yet been paid. Holdings in that state are visible in the portfolio but cannot be listed or submitted for listing review. The investor UI disables the listing action with a disbursement-pending explanation. When an `active` loan becomes `late` or `defaulted`, its open listing is immediately hidden from buyers, returned to `approval_requested`, and surfaced through the existing secondary-listing approval queue; seller-facing status text explains that Garanta reapproval is required.
+`Funded` means funding has closed but the borrower has not yet been paid. Holdings in that state are visible in the portfolio but cannot be listed or submitted for listing review. The investor UI disables the listing action with a disbursement-pending explanation. When an `active` loan becomes `late` or `defaulted`, its open listing is cancelled at once (C18, 2026-10-09).
 
 For a regular installment paid before its due date, secondary-market accrued interest starts only after the contractual due date because that installment already paid full contractual interest through that date. For a repayment in advance, accrual restarts from the actual borrower bank date. Purchase settlement still recomputes all economics again on the purchase date. The repayment-credit email mentions automatic listing recalculation only for the seller of a listing that remains active and unsold.
 
@@ -439,7 +450,7 @@ Keeping the percentage premium/discount while refreshing every derived amount ho
 5. Admin matches and validates received external funds where applicable.
 6. Allocated balance or validated funds are allocated first-come-first-served against remaining loan capacity.
 7. If capacity remains, the order becomes a funded/validated order for the accepted amount.
-8. If only part of the payment fits within remaining capacity, the order is accepted for the fitting portion and the excess is marked refund due.
+8. If only part of the payment fits within remaining capacity, the order is accepted for the fitting portion and the excess is marked refund due. Amended 2026-10-09 (audit A-33): the fitting portion must reach the loan's minimum order; if less than the minimum is left, the order closes as not invested and no money moves (the same rule as Loan Originator rounds).
 9. If no capacity remains, the order is closed in a final non-invested status and the full received amount is marked refund due.
 10. If the campaign does not proceed, validated/allocated funds are released back to investor balance or withdrawn/refunded according to policy and balance ageing rules.
 
@@ -476,7 +487,7 @@ Launch requirements:
 - Open unsold listings are automatically repriced after repayment, recovery, or status changes using current holding/loan data while preserving only the seller's percentage premium/discount (`price_bps`).
 - Maker/taker fees are calculated on transfer price excluding accrued interest, rounded half-up to the nearest cent/minor unit, with configurable minimum-fee support.
 - Current/performing holdings may be listed automatically after system checks.
-- Late, overdue, restructured, under-observation, default, recovery, legal-enforcement, payment-incident, or otherwise non-performing/non-standard holdings require an admin-approved listing request before becoming visible.
+- Late, overdue, time-extended, default or otherwise non-performing holdings cannot be listed (C18, 2026-10-09); open listings are cancelled when the loan turns late or defaulted.
 - Approved non-standard listings require buyer warning and additional risk acknowledgement before purchase.
 - Buyer eligibility checks before purchase or transfer.
 - Secondary-market assignment or reassignment documentation generated for each secondary-market purchase.
@@ -577,7 +588,7 @@ Investor balance entries use loan-specific remaining-window eligibility and the 
 - Listing publication is blocked by missing mandatory structured loan information, including collateral type, collateral value, interest rate, repayment schedule, or mandatory borrower fields.
 - Secondary-market buyers must pass eligibility checks and accept required disclosures before transfer.
 - Secondary-market buyer acceptance of a current/performing listed price can settle directly without admin approval when eligibility, balance/funding, document acceptance, fee, and validation checks pass.
-- Secondary-market non-standard listing requests require admin approval before publication if the related loan/project is not normal performing, including late, overdue, restructured, under observation, default, recovery, legal enforcement, payment incident, or any other non-performing/non-standard status.
+- Secondary-market listings are refused when the related loan is not normal performing (late, overdue, time-extended, default or any other non-performing status); there is no approval request (C18, 2026-10-09).
 - Non-standard listing approval is audit logged with approval date, approving admin, reason, and disclosure note.
 - Garanta may reject or remove non-standard listings at its discretion.
 - Buyers of approved non-standard listings must see a clear warning and accept an additional risk acknowledgement before purchase.
@@ -629,6 +640,8 @@ An `originator_claim` appears in the existing primary opportunity table with a L
 Amended 2026-09-07: new `par_component_v2` subscriptions use the ordinary primary-order review and allocation path. Allocation atomically locks the loan, validates eligibility/current terms/sensitive code/minimum/capacity, consumes FIFO balance lots, and posts investor liability to funding escrow. The order remains reserved until funding close. Closing atomically converts allocated orders into active par holdings, creates post-boundary component entitlements from the published schedule, and transfers escrow to the internal Loan Originator payable. There is no separate activation stage. Fingerprinted idempotency, stable loan locking, capacity constraints, and immutable close/activation evidence prevent replay and oversubscription.
 
 The contractual boundary installment belongs entirely to the LO and is recorded as a borrower repayment received by Garanta. Investor holdings exist before that receipt but receive none of its components. Incidental bank timing cannot shift the entitlement boundary or rewrite the agreed economics. Future investor interest and penalty use the declared participation rates on proportional claim ownership; no investor interest accrues during funding.
+
+Update 2026-10-09 (QA audit JOURNEY-09): the loan page of a Loan Originator opportunity stays readable after its round closes, read-only, like a funded Direct loan. Holders and other KYC-approved investors can open it from emails, notices and the portfolio; it shows no capacity, and the order and quote services still refuse investment. Draft and cancelled opportunities stay hidden.
 
 Historical `legacy_yield_v1` records retain their existing immediate quote/purchase path solely for compatibility; new originator opportunities cannot use it. Retiring test or legacy opportunities means placing them on hold or otherwise hiding them from new activity. Append-only financial, holding, purchase, and acceptance evidence is never wiped merely to clean a catalogue; a completely clean QA dataset requires rebuilding the environment.
 

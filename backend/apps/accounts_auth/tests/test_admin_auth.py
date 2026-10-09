@@ -21,6 +21,7 @@ from backend.apps.accounts_auth.services import (
     AdminLoginStartCommand,
     CreateAdminUserCommand,
     DuplicateEmailError,
+    InvalidPasswordError,
     SuperadminBootstrapError,
     bootstrap_env_superadmin,
     confirm_admin_login,
@@ -291,6 +292,31 @@ def test_superadmin_create_admin_api_rejects_weak_password(
 
     assert response.status_code == 400
     assert User.objects.filter(email="ops-admin@example.test").exists() is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("password", "reason"),
+    [
+        ("Short-Pass1", "at least 12 characters"),
+        ("password1234", "too common"),
+    ],
+)
+def test_admin_passwords_need_twelve_characters_and_no_common_password(
+    superadmin: User,
+    password: str,
+    reason: str,
+) -> None:
+    # Audit SECCODE-17: Django's defaults allowed 8 characters.
+    with pytest.raises(InvalidPasswordError, match=reason):
+        create_admin_user(
+            CreateAdminUserCommand(
+                actor=superadmin,
+                email="ops-admin@example.test",
+                password=password,
+                full_name="Ops Admin",
+            )
+        )
 
 
 @pytest.mark.django_db

@@ -9,6 +9,7 @@ from backend.apps.secondary_market.api.views import (
     SecondaryMarketListingDetailView,
     SecondaryMarketListingEditView,
     SecondaryMarketListingListCreateView,
+    SecondaryMarketListingPricingPreviewView,
     SecondaryMarketListingPurchaseView,
     SecondaryMarketListingRejectView,
     SecondaryMarketListingRemoveView,
@@ -19,6 +20,11 @@ urlpatterns = [
         "listings/",
         SecondaryMarketListingListCreateView.as_view(),
         name="secondary-market-listings",
+    ),
+    path(
+        "listings/pricing-preview/",
+        SecondaryMarketListingPricingPreviewView.as_view(),
+        name="secondary-market-listing-pricing-preview",
     ),
     path(
         "listings/<uuid:listing_id>/",

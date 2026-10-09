@@ -81,12 +81,30 @@ class PayoutInstructionSerializer(serializers.Serializer[Any]):
     created_at = serializers.DateTimeField()
 
 
+class PendingWithdrawalSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    currency = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    destination_iban = serializers.CharField()
+    destination_account_name = serializers.CharField(allow_blank=True)
+    requested_at = serializers.DateTimeField()
+    is_forced = serializers.BooleanField(
+        help_text="Forced return of an overdue balance (day-60 rule), not asked by the investor."
+    )
+
+
 class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     as_of = serializers.DateTimeField()
     summaries = BalanceSummarySerializer(many=True)
     lots = BalanceLotSerializer(many=True)
     payout_instructions = PayoutInstructionSerializer(many=True)
+    pending_withdrawals = PendingWithdrawalSerializer(
+        many=True, help_text="Withdrawal requests waiting for the bank transfer, oldest first."
+    )
     has_penalty_mode_balance = serializers.BooleanField()
+    penalty_bps_per_day = serializers.IntegerField(
+        help_text="Daily balance-ageing penalty on a balance in penalty mode, in basis points."
+    )
 
 
 class DepositInstructionSerializer(serializers.Serializer[Any]):
@@ -162,6 +180,9 @@ class InvestorNotificationSerializer(serializers.Serializer[Any]):
     id = serializers.CharField()
     notification_source = serializers.CharField()
     topic = serializers.CharField()
+    topic_label = serializers.CharField(
+        help_text="Short human label of the notice type, e.g. Deposit or Withdrawal."
+    )
     status = serializers.CharField()
     title = serializers.CharField()
     body = serializers.CharField()
@@ -176,7 +197,6 @@ class InvestorNotificationSerializer(serializers.Serializer[Any]):
         allow_blank=True,
         help_text="Loan or holding UUID for the loan and holding targets; blank otherwise.",
     )
-    metadata = serializers.JSONField()
 
 
 class InvestorNotificationsSerializer(serializers.Serializer[Any]):
@@ -527,6 +547,20 @@ class FxExchangePortalSerializer(serializers.Serializer[Any]):
     executed_at = serializers.DateTimeField()
 
 
+class FxTermsPortalSerializer(serializers.Serializer[Any]):
+    daily_limit_chf_minor = serializers.IntegerField(
+        help_text="Daily FX limit per investor, as a CHF equivalent in minor units."
+    )
+    daily_limit_used_chf_minor = serializers.IntegerField(
+        help_text="CHF equivalent already converted on the current Europe/Zurich business day."
+    )
+    quote_ttl_seconds = serializers.IntegerField(
+        help_text="How long an executable quote stays valid after it is issued."
+    )
+    platform_fee_bps = serializers.IntegerField()
+
+
 class FxHistoryPortalSerializer(serializers.Serializer[Any]):
     quotes = FxQuotePortalSerializer(many=True)
     exchanges = FxExchangePortalSerializer(many=True)
+    terms = FxTermsPortalSerializer()

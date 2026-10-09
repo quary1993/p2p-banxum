@@ -1000,14 +1000,15 @@ def test_late_loan_can_declare_repayment_in_advance(
     loan.refresh_from_db()
     assert cast(Any, loan).status == "late"
 
-    # Interest due until the bank date: scheduled 300_00 of the overdue
-    # installment plus 30_000_00 x 1000/10000 x 5/365 = 41_10 accrued.
-    with pytest.raises(ServicingValidationError, match="cover all interest due"):
+    # The overdue installment (3_300_00) is paid first. Money beyond it is a
+    # prepayment and must first cover 30_000_00 x 1000/10000 x 5/365 = 41_10
+    # accrued interest; 20_00 extra does not.
+    with pytest.raises(ServicingValidationError, match="pays all overdue amounts"):
         record_borrower_repayment(
             _repayment_command(
                 admin_user,
                 loan,
-                amount_minor=300_00,
+                amount_minor=3_320_00,
                 booking_date=date(2026, 3, 5),
                 value_date=date(2026, 3, 5),
                 repayment_in_advance=True,
@@ -1690,12 +1691,14 @@ def test_advance_preview_admin_api(
     assert cast(Any, loan).schedule_version == 1
     assert not BorrowerRepaymentEvent.objects.exists()
 
+    # Before the first due date nothing is overdue, so the whole amount is a
+    # prepayment and must cover the accrued interest first.
     validation_response = client.post(
         "/api/v1/servicing/admin/borrower-repayments/advance-preview/",
         data={
             "loan_id": str(loan.pk),
-            "amount_minor": 100_00,
-            "borrower_repayment_bank_date": "2026-03-15",
+            "amount_minor": 10_00,
+            "borrower_repayment_bank_date": "2026-02-10",
         },
         content_type="application/json",
     )

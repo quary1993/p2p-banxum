@@ -98,7 +98,9 @@ SMS is used only for phone confirmation at launch. Phone verification uses Twili
 
 The investor portal includes an in-app notification center backed by transactional email outbox and delivery evidence. Balance-ageing reminders belong in that notification center rather than as a persistent dashboard warning. Blocking account states, such as a day-60 freeze caused by a missing usable payout IBAN, remain visible as contextual banners because they directly change which actions are available.
 
-Notification read state (QA 2026-10): each notice is unread until the investor opens it or marks it read; "mark all as read" covers the listed notices. Read state is an append-only receipt per investor and outbox message (`communications.NotificationReadReceipt`), so a notice stays read after it moves from queued to delivered. Sign-in link and confirmation-code emails are listed for delivery transparency but never count as unread. Each notice carries a typed navigation target (loan, holding, portfolio, balances, secondary market, FX, or none) derived from its own message metadata; the portal opens that page and still authorizes it as usual.
+Notification read state (QA 2026-10): each notice is unread until the investor opens it or marks it read; "mark all as read" covers the listed notices. Read state is an append-only receipt per investor and outbox message (`communications.NotificationReadReceipt`), so a notice stays read after it moves from queued to delivered. Each notice carries a typed navigation target (loan, holding, portfolio, balances, secondary market, FX, or none) derived from its own message metadata; the portal opens that page and still authorizes it as usual.
+
+Notification centre content (audit 2026-10, A-46): sign-in link and confirmation-code emails (investor and admin) are not notices. The centre does not list them and does not count them as unread, so they cannot push real notices off the page. Each notice shows a short human label (for example "Deposit" or "Withdrawal"), never the raw topic key. The investor API does not return delivery internals (provider ids, attempts, errors).
 
 The launch email provider is Twilio Email API. The sender domain for the current private-test deployment is `nxnarena.com`; the final production domain remains a go-live configuration decision.
 
@@ -114,7 +116,7 @@ Follow-ups:
 Provide separate Twilio Email API-key credentials, verified sender/domain and DNS records, plus Twilio Verify credentials/service configuration. Decide the final production sender domain.
 
 Implementation status:
-Twilio Email API, legacy SendGrid and Twilio Verify are implemented behind provider settings and bounded provider calls. Non-local deploy checks reject mock/local email delivery and validate the credentials required by the selected provider. Twilio Email uses Basic authentication with a dedicated API-key SID/secret, while Twilio Verify retains separate credentials and preserves BANXUM's local user ownership, expiry, attempts, audit, and verified-state controls. Business-event email outbox mapping is implemented for balance-ageing reminders, repayment credits, recovery distributions, and secondary-market listing/purchase events. Final sender-domain validation, bounce/suppression integration and advisor-approved wording/templates remain launch setup tasks.
+Twilio Email API, legacy SendGrid and Twilio Verify are implemented behind provider settings and bounded provider calls. Non-local deploy checks reject mock/local email delivery and validate the credentials required by the selected provider. Twilio Email uses Basic authentication with a dedicated API-key SID/secret, while Twilio Verify retains separate credentials and preserves BANXUM's local user ownership, expiry, attempts, audit, and verified-state controls. Business-event email outbox mapping is implemented for the events listed under Implementation Status below. Final sender-domain validation, bounce/suppression integration and advisor-approved wording/templates remain launch setup tasks.
 
 ### COMMS-DEC-002: Marketing Consent and Future Newsletter Lists
 
@@ -346,19 +348,17 @@ Regards,
 {{operator.legal_name}}
 
 Day-60 subject:
-Penalty notice: your {{platform.name}} balance has reached the 60-day limit
+Last day: your {{platform.name}} balance reaches the 60-day limit today
 
-Day-60 body:
+Day-60 body (sent on the deadline date, the last day the money may stay; enforcement starts the next day):
 
 Hello {{investor_name}},
 
-Your {{amount}} {{currency}} balance from {{received_date}} has reached the 60-day holding limit.
+Your {{amount}} {{currency}} balance from {{received_date}} reaches the 60-day holding limit today.
 
 Swiss regulatory requirements mean {{operator.legal_name}} must avoid keeping user funds for more than 60 days. This deadline cannot be extended.
 
-This balance is now subject to the configured penalty policy: {{penalty.description}}.
-
-Please withdraw the balance immediately.
+Please withdraw the balance by the end of today. From tomorrow, {{operator.legal_name}} returns it to your verified IBAN; without a usable IBAN it becomes subject to the configured penalty policy: {{penalty.description}}.
 
 If {{operator.legal_name}} does not have a usable IBAN for you, financial actions on your account will be frozen until you provide one so we can return the due funds. You will still have read-only access to your portfolio, documents, tax information statements, notices, and messages.
 
@@ -377,6 +377,12 @@ The current backend queues idempotent transactional email outbox messages for:
 - Secondary-market listing lifecycle updates for sellers.
 - Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
 - Smart Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
+- Balance events (audit 2026-10, A-18): deposit credited; withdrawal requested, sent and cancelled; day-61 forced return started; penalty mode entered; payout IBAN added (also when added again after a rejection), verified, not verified (the admin rejects the request) or no longer usable (the admin revokes it). The IBAN verification task cannot be closed while the request is pending; the reject action closes it.
+- Currency exchange completed, with amounts, rate, fee and date.
+- Primary market: order placed with the amount actually reserved (also a partial reservation); funding closed (holding active) or partly closed (new loan amount); funding cancelled, with the admin's investor message; order released by an admin.
+- Loan status: Direct and Loan Originator loans turned Late (day 5) or Defaulted (day 16), sent to current holders.
+
+Each business event creates one email and one portal notice through `platform_core.services.investor_notices` (idempotency key per event, Europe/Zurich business dates from the platform clock, amounts in the currency's minor units, masked IBANs, no secrets). Penalty mode sends one notice per investor, currency and entry day; daily penalty charges send no notice, and no weekly summary is sent. Internal admin reasons (withdrawal cancellation, order release, IBAN rejection or revocation) are not sent to investors; the investor message of a partial close or a funding cancellation is. A test renders every email topic produced in the backend through the real renderer.
 
 Local development uses the mock email provider. Staging and production use `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email`, `TWILIO_EMAIL_API_KEY_SID`, `TWILIO_EMAIL_API_KEY_SECRET`, `TWILIO_EMAIL_FROM_EMAIL`, and authenticated sender-domain DNS before sending real notices. The legacy `sendgrid` provider remains available for rollback. Final advisor-approved template wording, template versioning UI, attachments/secure document links, bounce/suppression handling, and admin dead-letter task creation remain provider/content follow-ups before launch.
 

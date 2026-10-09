@@ -1,20 +1,51 @@
+# Build context for backend/Dockerfile.deploy and frontend/Dockerfile.deploy is the
+# repository root. Never send secrets, history, user data or local tooling to the
+# image builder (audit A-55). IP of Webby-Soft SRL.
+
+# Secrets and local environment files (examples stay).
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+docs/secrets.md
+docs/*.private.md
+infra/deploy/.env*
+!infra/deploy/.env.example
+
+# Version control and editor/OS files.
 .git
 .github
-.DS_Store
+**/.DS_Store
+.claude
+.idea
+.vscode
+
+# User data, database files, QA snapshots and scratch output.
+media
+backend/media
+**/db.sqlite3
+tmp
+QA
+**/Archive.zip
+**/*.dump
+**/*.sql.gz
+**/*.log
+
+# Local dependencies and build output (images install their own).
+.venv
+**/node_modules
+frontend/dist
+dist
+build
+staticfiles
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
 .grimp_cache
 .import_linter_cache
-.mypy_cache
-.pytest_cache
-.ruff_cache
-.venv
-__pycache__
-*.pyc
-db.sqlite3
-docs/secrets.md
-.env
-*.pem
-frontend/dist
-frontend/node_modules
-node_modules
-backend/media
-staticfiles
+.coverage
+htmlcov
+.fx-preview

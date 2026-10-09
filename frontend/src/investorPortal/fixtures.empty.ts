@@ -7,6 +7,7 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  PublicMarketplaceLoan,
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
@@ -65,10 +66,13 @@ export const balancesFixture: InvestorBalancePortal = {
   summaries: [],
   lots: [],
   payout_instructions: [],
-  has_penalty_mode_balance: false
+  pending_withdrawals: [],
+  has_penalty_mode_balance: false,
+  penalty_bps_per_day: 0
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];
+export const publicMarketplaceLoansFixture: PublicMarketplaceLoan[] = [];
 
 export const smartInvestFixture: SmartInvestResponse = {
   rule: null,
@@ -117,5 +121,6 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
 
 export const fxFixture: FxHistoryPortal = {
   quotes: [],
-  exchanges: []
+  exchanges: [],
+  terms: { daily_limit_chf_minor: 0, daily_limit_used_chf_minor: 0, quote_ttl_seconds: 0, platform_fee_bps: 0 }
 };

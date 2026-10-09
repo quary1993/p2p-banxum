@@ -222,6 +222,7 @@ class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[st
     payment_history = OriginatorLoanPaymentRowResponseSerializer(many=True)
     is_on_hold = serializers.BooleanField()
     hold_reason = serializers.CharField(allow_blank=True)
+    is_subscription_paused = serializers.BooleanField()
 
 
 class OriginatorLoanPublishSerializer(serializers.Serializer[dict[str, object]]):
@@ -253,6 +254,10 @@ class OriginatorSubscriptionCancellationRequestSerializer(
 
 
 class OriginatorLoanHoldSerializer(serializers.Serializer[dict[str, object]]):
+    reason = serializers.CharField(max_length=255)
+
+
+class OriginatorSubscriptionResumeSerializer(serializers.Serializer[dict[str, object]]):
     reason = serializers.CharField(max_length=255)
 
 

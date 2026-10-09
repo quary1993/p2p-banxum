@@ -46,6 +46,7 @@ from backend.apps.servicing.services import (
     RecordLoanWriteOffCommand,
     ScanLoanServicingStatusesCommand,
     ServicingAuthorizationError,
+    ServicingDuplicatePaymentError,
     ServicingValidationError,
     add_loan_risk_note,
     list_admin_loan_risk_notes,
@@ -56,6 +57,18 @@ from backend.apps.servicing.services import (
     record_loan_write_off,
     scan_loan_servicing_statuses,
 )
+
+
+def _duplicate_payment_response(exc: ServicingDuplicatePaymentError) -> Response:
+    # 409 tells the admin console to offer the explicit repeat confirmation.
+    return Response(
+        {
+            "detail": str(exc),
+            "code": "duplicate_borrower_payment",
+            "duplicate_bank_operation_id": exc.duplicate_bank_operation_id,
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 def _admin_forbidden_response() -> Response:
@@ -100,10 +113,13 @@ class BorrowerRepaymentRecordView(APIView):
                         False,
                     ),
                     idempotency_key=data["idempotency_key"],
+                    confirm_repeat_payment=data["confirm_repeat_payment"],
                 )
             )
         except ServicingAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingDuplicatePaymentError as exc:
+            return _duplicate_payment_response(exc)
         except ServicingValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
@@ -370,10 +386,13 @@ class LoanRecoveryPaymentRecordView(APIView):
                     notes=data.get("notes", ""),
                     metadata=data.get("metadata", {}),
                     idempotency_key=data["idempotency_key"],
+                    confirm_repeat_payment=data["confirm_repeat_payment"],
                 )
             )
         except ServicingAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingDuplicatePaymentError as exc:
+            return _duplicate_payment_response(exc)
         except ServicingValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(

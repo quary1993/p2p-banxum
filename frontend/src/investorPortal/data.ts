@@ -16,6 +16,7 @@ import {
   useV1InvestorPortalSecondaryMarketRetrieve,
   useV1MarketplacePrimaryLoansList,
   useV1MarketplacePrimaryLoansRetrieve,
+  useV1MarketplacePrimaryOpportunitiesList,
   useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList,
   useV1InvestorSmartInvestRetrieve
@@ -33,6 +34,7 @@ import {
   loanDetailsFixture,
   marketplaceLoansFixture,
   portfolioFixture,
+  publicMarketplaceLoansFixture,
   primaryOrdersFixture,
   secondaryActivityFixture,
   secondaryListingDetailsFixture,
@@ -118,6 +120,7 @@ const notificationsFixture: InvestorNotifications = {
     id: notification.id,
     notification_source: "preview",
     topic: "email.preview",
+    topic_label: notification.label,
     status: "sent",
     title: notification.title,
     body: notification.body,
@@ -125,8 +128,7 @@ const notificationsFixture: InvestorNotifications = {
     sent_at: `${portalFixture.today}T00:00:00Z`,
     unread: notification.unread,
     navigation_target: notification.target ?? "none",
-    navigation_target_id: notification.targetId ?? "",
-    metadata: { tone: notification.tone, time: notification.time }
+    navigation_target_id: notification.targetId ?? ""
   })),
   unread_count: portalFixture.notifications.filter((notification) => notification.unread).length
 };
@@ -250,9 +252,17 @@ export function useFxData(limit = 50, enabled = true) {
   );
 }
 
-export function useMarketplaceLoansData() {
+/** Investor marketplace list: full preview data, for KYC-approved investors only. */
+export function useMarketplaceLoansData(enabled = true) {
+  return useV1MarketplacePrimaryOpportunitiesList({ limit: 250 }, {
+    query: previewQuery(marketplaceLoansFixture, enabled)
+  });
+}
+
+/** Public site list: only the MKT-DEC-002 fields, open to anonymous visitors. */
+export function usePublicMarketplaceLoansData() {
   return useV1MarketplacePrimaryLoansList({ limit: 250 }, {
-    query: previewQuery(marketplaceLoansFixture)
+    query: previewQuery(publicMarketplaceLoansFixture)
   });
 }
 

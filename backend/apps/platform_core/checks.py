@@ -42,3 +42,53 @@ def check_scheduled_jobs_actor_configured(
             id="platform_core.E002",
         )
     ]
+
+
+def _is_local_environment() -> bool:
+    return str(getattr(settings, "ENVIRONMENT", "local")).strip().lower() == "local"
+
+
+@register(Tags.security, deploy=True)
+def check_debug_off_outside_local(
+    app_configs: object | None,
+    **kwargs: Any,
+) -> list[Error]:
+    """Debug pages show settings and code; only local development may turn them on."""
+
+    if _is_local_environment() or not bool(getattr(settings, "DEBUG", False)):
+        return []
+    return [
+        Error(
+            "DJANGO_DEBUG must be false outside local development.",
+            hint="Remove DJANGO_DEBUG from the environment or set it to false.",
+            id="platform_core.E003",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_client_ip_source_behind_proxy(
+    app_configs: object | None,
+    **kwargs: Any,
+) -> list[Error]:
+    """Behind a proxy, client IPs need TRUSTED_PROXY_COUNT (audit A-48).
+
+    With 0, every request seems to come from the proxy, so the per-IP login limits
+    become platform-wide and one person can block login for everybody.
+    """
+
+    if _is_local_environment():
+        return []
+    behind_proxy = getattr(settings, "SECURE_PROXY_SSL_HEADER", None) is not None
+    if not behind_proxy or int(getattr(settings, "TRUSTED_PROXY_COUNT", 0) or 0) > 0:
+        return []
+    return [
+        Error(
+            "TRUSTED_PROXY_COUNT must be set when Django runs behind a reverse proxy.",
+            hint=(
+                "Set it to the number of proxies that add X-Forwarded-For entries "
+                "(Caddy -> nginx -> backend: 2)."
+            ),
+            id="platform_core.E004",
+        )
+    ]

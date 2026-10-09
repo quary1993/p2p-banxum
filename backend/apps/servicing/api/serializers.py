@@ -52,6 +52,14 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
         required=False,
         default=False,
     )
+    confirm_repeat_payment = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set only after a duplicate-payment rejection (409), when the borrower really "
+            "sent a second identical payment."
+        ),
+    )
     idempotency_key = serializers.CharField(max_length=160)
 
 
@@ -72,6 +80,16 @@ class AdvanceRepaymentScheduleRowSerializer(serializers.Serializer[Any]):
     total_minor = serializers.IntegerField()
 
 
+class AdvanceRepaymentOverdueRowSerializer(serializers.Serializer[Any]):
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    interest_due_minor = serializers.IntegerField()
+    principal_due_minor = serializers.IntegerField()
+    interest_applied_minor = serializers.IntegerField()
+    principal_applied_minor = serializers.IntegerField()
+    remaining_minor = serializers.IntegerField()
+
+
 class BorrowerRepaymentAdvancePreviewResponseSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
     currency = serializers.CharField()
@@ -89,6 +107,17 @@ class BorrowerRepaymentAdvancePreviewResponseSerializer(serializers.Serializer[A
     anchor_installment_number = serializers.IntegerField()
     old_schedule_rows = AdvanceRepaymentScheduleRowSerializer(many=True)
     new_schedule_rows = AdvanceRepaymentScheduleRowSerializer(many=True)
+    # Installments due on or before the bank date are paid first (interest, then
+    # principal, oldest first). Only the rest is a prepayment.
+    overdue_interest_due_minor = serializers.IntegerField()
+    overdue_principal_due_minor = serializers.IntegerField()
+    overdue_interest_applied_minor = serializers.IntegerField()
+    overdue_principal_applied_minor = serializers.IntegerField()
+    overdue_remaining_minor = serializers.IntegerField()
+    prepayment_minor = serializers.IntegerField()
+    overdue_rows = AdvanceRepaymentOverdueRowSerializer(many=True)
+    interest_paid_through_date = serializers.DateField(allow_null=True)
+    first_new_installment_interest_start_date = serializers.DateField(allow_null=True)
 
 
 class BorrowerRepaymentEventSerializer(serializers.Serializer[Any]):
@@ -192,7 +221,8 @@ class PublicLoanRiskNoteListQuerySerializer(serializers.Serializer[Any]):
 class LoanRiskNoteSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     loan_id = serializers.UUIDField()
-    borrower_id = serializers.UUIDField()
+    # Empty for Loan Originator loans.
+    borrower_id = serializers.UUIDField(allow_null=True)
     visibility = serializers.CharField()
     note_type = serializers.CharField()
     title = serializers.CharField()
@@ -289,6 +319,14 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
     notes = serializers.CharField(required=False, allow_blank=True)
     metadata = serializers.JSONField(required=False)
+    confirm_repeat_payment = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set only after a duplicate-payment rejection (409), when the borrower really "
+            "sent a second identical payment."
+        ),
+    )
     idempotency_key = serializers.CharField(max_length=160)
 
 

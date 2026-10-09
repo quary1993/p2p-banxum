@@ -12,7 +12,10 @@ from backend.apps.kyc_compliance.models import (
     KycStatus,
     KycVerificationCase,
 )
-from backend.apps.kyc_compliance.services import user_can_access_financial_features
+from backend.apps.kyc_compliance.services import (
+    investor_visible_kyc_status,
+    user_can_access_financial_features,
+)
 
 
 class KycStatusResponseSerializer(serializers.Serializer[Any]):
@@ -120,14 +123,23 @@ def serialize_kyc_status(
     case: KycVerificationCase | None,
     latest_session: KycProviderSession | None,
 ) -> dict[str, Any]:
+    """Investor-facing KYC status.
+
+    AML screening outcomes read as a plain manual review, and screening flags and risk class
+    stay internal (admins see them in the KYC review screens), so nothing here discloses a
+    sanctions, PEP or adverse-media hit.
+    """
+
     return {
-        "status": case.status if case is not None else KycStatus.NOT_STARTED,
+        "status": (
+            investor_visible_kyc_status(case.status) if case is not None else KycStatus.NOT_STARTED
+        ),
         "financial_access_allowed": user_can_access_financial_features(user),
         "phone_verified": getattr(user, "phone_verified_at", None) is not None,
         "provider": case.provider if case is not None else "didit",
         "provider_session_id": latest_session.provider_session_id if latest_session else "",
         "verification_url": latest_session.verification_url if latest_session else None,
         "manual_review_required": case.manual_review_required if case is not None else False,
-        "detected_flags": case.detected_flags if case is not None else [],
-        "risk_classification": case.risk_classification if case is not None else "",
+        "detected_flags": [],
+        "risk_classification": "",
     }

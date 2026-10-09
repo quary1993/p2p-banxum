@@ -22,6 +22,7 @@ from backend.apps.communications.models import (
 )
 from backend.apps.communications.services import (
     DispatchEmailOutboxCommand,
+    MockEmailProvider,
     dispatch_due_email_outbox_messages,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
@@ -136,12 +137,21 @@ def test_twilio_email_provider_requires_api_key_secret() -> None:
 )
 def test_dispatch_magic_link_email_archives_full_content_and_marks_processed(
     investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     auth_services = _auth_services()
     result = auth_services.issue_magic_link(
         auth_services.MagicLinkRequestCommand(email=cast(Any, investor).email)
     )
     outbox = OutboxMessage.objects.get(topic="email.magic_link_requested")
+    sent: list[Any] = []
+    original_send = MockEmailProvider.send
+
+    def capture_send(self: MockEmailProvider, email: Any) -> Any:
+        sent.append(email)
+        return original_send(self, email)
+
+    monkeypatch.setattr(MockEmailProvider, "send", capture_send)
 
     dispatch_result = dispatch_due_email_outbox_messages(DispatchEmailOutboxCommand(limit=10))
 
@@ -157,13 +167,21 @@ def test_dispatch_magic_link_email_archives_full_content_and_marks_processed(
     assert delivery.recipient_email == cast(Any, investor).email
     assert "BANXUM" in delivery.subject
     assert "Garanta Finanzgruppe AG" in delivery.body_text
-    assert "https://app.banxum.test/login?token=" in delivery.body_text
-    assert result.raw_token in delivery.body_text
+    # Audit A-49: the provider gets the live link, with the token in the URL fragment;
+    # the stored copy (DB, backups, QA snapshots) holds no usable token.
+    assert len(sent) == 1
+    live_link = f"https://app.banxum.test/login#token={result.raw_token}"
+    assert live_link in sent[0].body_text
+    assert f'href="{live_link}"' in sent[0].body_html
+    assert "?token=" not in sent[0].body_text
+    assert result.raw_token not in delivery.body_text
+    assert result.raw_token not in delivery.body_html
+    assert "https://app.banxum.test/login#token=[redacted]" in delivery.body_text
     assert (
-        '<a class="btn-a font-sans" href="https://app.banxum.test/login?token='
+        '<a class="btn-a font-sans" href="https://app.banxum.test/login#token=[redacted]"'
         in delivery.body_html
     )
-    assert f'href="https://app.banxum.test/login?token={result.raw_token}"' in delivery.body_html
+    assert delivery.metadata["secret_redacted_in_record"] is True
     assert "Open secure login link" in delivery.body_html
     assert delivery.provider == "mock"
     assert delivery.provider_message_id
@@ -205,8 +223,11 @@ def test_dispatch_sensitive_action_code_email_archives_code(
     outbox.refresh_from_db()
     assert outbox.status == OutboxStatus.PROCESSED
     delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
-    assert result.raw_code in delivery.body_text
-    assert result.raw_code in delivery.body_html
+    # Audit A-49: the stored copy never holds the live code.
+    assert result.raw_code not in delivery.body_text
+    assert result.raw_code not in delivery.body_html
+    assert "[redacted]" in delivery.body_text
+    assert "[redacted]" in delivery.body_html
     assert "Action needed" in delivery.body_html
     assert "fx" in delivery.metadata["action"]
 
@@ -259,6 +280,7 @@ def test_sensitive_action_email_dispatch_uses_sendgrid_payload_without_tracking(
     assert result.raw_code in payload["content"][1]["value"]
     assert "<a " in payload["content"][1]["value"]
     delivery = EmailDeliveryRecord.objects.get(template_key="auth.withdrawal.code.v1")
+    assert result.raw_code not in delivery.body_text
     assert delivery.provider == "sendgrid"
     assert delivery.provider_message_id == "sendgrid-message-1"
 

@@ -11,7 +11,8 @@ import {
   useV1AuthAdminLoginConfirmCreate,
   useV1AuthAdminLoginStartCreate,
   useV1AuthLogoutCreate,
-  useV1AdminOpsReconciliationBreakTasksSyncCreate
+  useV1AdminOpsReconciliationBreakTasksSyncCreate,
+  v1AuthMeRetrieve
 } from "../api/generated/banxumApi";
 import { clearReadonlyImpersonation } from "../api/client/impersonation";
 import { ApiClientError } from "../api/client/httpClient";
@@ -46,9 +47,10 @@ import {
   WithdrawalExecutionForm
 } from "./AdminModulePanels";
 import { AdminBusinessDateProvider } from "./AdminBusinessDateProvider";
+import { fallbackAdminBusinessDate } from "./adminBusinessDate";
 import { AdminTasksPanel } from "./AdminTasksPanel";
 import { adminHref, navigateAdmin, openAdminSection, useAdminLocation, useAdminParam, type AdminSection } from "./adminRoute";
-import { isWithdrawalQueueItem, uniqueQueueItems, useAdminOperationsDashboardData } from "./data";
+import { isWithdrawalQueueItem, objectTypeLabel, uniqueQueueItems, useAdminOperationsDashboardData } from "./data";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
@@ -328,8 +330,25 @@ export function AdminApp() {
       }),
     [queryClient]
   );
+  // Sign out fails closed: local state is cleared only when the server ended the session.
+  const [logoutError, setLogoutError] = useState("");
   const logoutMutation = useV1AuthLogoutCreate({
-    mutation: { onSettled: finishLogout }
+    mutation: {
+      onSuccess: () => {
+        setLogoutError("");
+        finishLogout();
+      },
+      onError: async () => {
+        try {
+          const current = await v1AuthMeRetrieve();
+          if (current?.user) setLogoutError("Sign out failed. You are still signed in. Try again.");
+          else finishLogout();
+        } catch (checkError) {
+          if (checkError instanceof ApiClientError && [401, 403].includes(checkError.status)) finishLogout();
+          else setLogoutError("Sign out failed. You may still be signed in. Try again.");
+        }
+      }
+    }
   });
   const sessionQuery = useV1AuthMeRetrieve({
     query: {
@@ -345,8 +364,10 @@ export function AdminApp() {
   const sessionExpired = sessionQuery.error instanceof ApiClientError && [401, 403].includes(sessionQuery.error.status);
   const authenticated =
     isFixturePreview || (!sessionExpired && (localAuthState === "authenticated" || hasSessionAdmin));
+  // The platform (QA) business date from the server. The browser date is never used outside the
+  // fixture preview: forms take their default booking/value dates from it when they first render.
   const platformBusinessDate = qaBusinessDate || sessionQuery.data?.platform_business_date ||
-    new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
+    (isFixturePreview ? fallbackAdminBusinessDate : "");
 
   if (!authenticated && sessionQuery.isLoading && localAuthState === "unknown") {
     return (
@@ -381,11 +402,42 @@ export function AdminApp() {
     );
   }
 
+  if (!platformBusinessDate) {
+    const loadFailed = sessionQuery.isError && !sessionQuery.isFetching;
+    return (
+      <main className="admin-login">
+        <section className="admin-login-card">
+          <div className="admin-wordmark">
+            <span className="brand-mark">{platformName.slice(0, 1)}</span>
+            <div className="col" style={{ gap: 0 }}>
+              <strong>{platformName} Admin</strong>
+              <span>{operatorName}</span>
+            </div>
+          </div>
+          {loadFailed ? (
+            <Banner
+              actions={<Button size="sm" variant="primary" onClick={() => void sessionQuery.refetch()}>Retry</Button>}
+              tone="bad"
+              title="Could not load the platform date"
+            >
+              Forms need the platform business date. Retry to load it.
+            </Banner>
+          ) : (
+            <Empty icon="clock" title="Loading the platform date">
+              Forms use the platform business date, not this computer's date.
+            </Empty>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <AdminBusinessDateProvider businessDate={platformBusinessDate}>
       <AdminShell
         qaControlsAvailable={isFixturePreview || sessionQuery.data?.qa_controls_available === true}
         qaControlsKnown={isFixturePreview || sessionQuery.data !== undefined}
+        isSuperadmin={isFixturePreview || sessionQuery.data?.user?.account_type === "superadmin"}
         restoredTarget={restoredTarget}
         onQaRestored={(target) => {
           queryClient.clear();
@@ -394,11 +446,13 @@ export function AdminApp() {
         }}
         onQaClockChange={setQaBusinessDate}
         isLoggingOut={logoutMutation.isPending}
+        logoutError={logoutError}
         onLogout={() => {
           if (isFixturePreview) {
             finishLogout();
             return;
           }
+          setLogoutError("");
           logoutMutation.mutate();
         }}
       />
@@ -569,24 +623,32 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
 function AdminShell({
   qaControlsAvailable,
   qaControlsKnown,
+  isSuperadmin,
   restoredTarget,
   onQaRestored,
   onQaClockChange,
   isLoggingOut,
+  logoutError = "",
   onLogout
 }: {
   qaControlsAvailable: boolean;
   qaControlsKnown: boolean;
+  isSuperadmin: boolean;
   restoredTarget: "seed" | "snapshot" | null;
   onQaRestored: (target: "seed" | "snapshot") => void;
   onQaClockChange: (businessDate: string) => void;
   isLoggingOut: boolean;
+  logoutError?: string;
   onLogout: () => void;
 }) {
   // The open section lives in the URL (/admin/<section>/...), so a reload or
   // Back/Forward keeps the admin on the same screen.
   const selectedNav = useAdminLocation().section;
-  const visibleNavItems = navItems.filter((item) => item.id !== "qa" || qaControlsAvailable);
+  // Superadmin settings (document templates) are for superadmins only; the backend
+  // refuses every action there for a regular admin (audit SECURITY-06).
+  const visibleNavItems = navItems.filter(
+    (item) => (item.id !== "qa" || qaControlsAvailable) && (item.id !== "settings" || isSuperadmin)
+  );
 
   useEffect(() => {
     if (restoredTarget && selectedNav === "dashboard" && qaControlsAvailable) {
@@ -600,6 +662,12 @@ function AdminShell({
       navigateAdmin(adminHref("dashboard"), { replace: true });
     }
   }, [qaControlsAvailable, qaControlsKnown, selectedNav]);
+
+  useEffect(() => {
+    if (qaControlsKnown && !isSuperadmin && selectedNav === "settings") {
+      navigateAdmin(adminHref("dashboard"), { replace: true });
+    }
+  }, [isSuperadmin, qaControlsKnown, selectedNav]);
 
   return (
     <div className="admin-app">
@@ -647,6 +715,15 @@ function AdminShell({
             <Chip dot={false} tone="neutral">{operatorName}</Chip>
           </div>
         </header>
+        {logoutError ? (
+          <Banner
+            actions={<Button disabled={isLoggingOut} size="sm" variant="primary" onClick={onLogout}>Retry sign out</Button>}
+            tone="bad"
+            title="Sign out failed"
+          >
+            {logoutError}
+          </Banner>
+        ) : null}
         {selectedNav === "dashboard" ? <AdminDashboard /> : null}
         {selectedNav === "tasks" ? <AdminTasksPanel /> : null}
         {selectedNav === "users" ? <UserAccountsPanel /> : null}
@@ -658,7 +735,7 @@ function AdminShell({
           {restoredTarget ? <Banner tone="ok" title="QA database restored">The {restoredTarget} and its saved clock were restored successfully.</Banner> : null}
           <QaDevModePanel onClockChange={onQaClockChange} onRestored={onQaRestored} />
         </> : null}
-        {selectedNav === "settings" ? <SettingsPanel /> : null}
+        {selectedNav === "settings" && isSuperadmin ? <SettingsPanel /> : null}
       </main>
     </div>
   );
@@ -859,7 +936,7 @@ function AdminDashboard() {
                         )}
                       </td>
                       <td>
-                        <span className="admin-object">{item.object_type}</span>
+                        <span className="admin-object">{objectTypeLabel(item.object_type)}</span>
                         <span className="mono muted">{item.object_id}</span>
                       </td>
                     </tr>
@@ -946,7 +1023,7 @@ function AdminDashboard() {
   );
 }
 
-function AdminQueueDrawer({
+export function AdminQueueDrawer({
   item,
   onClose,
   queueLabel
@@ -958,6 +1035,10 @@ function AdminQueueDrawer({
   const metadata = metadataEntries(item.metadata);
   const queryClient = useQueryClient();
   const isWithdrawal = isWithdrawalQueueItem(item);
+  const details = (item.metadata ?? {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof details[key] === "string" ? (details[key] as string) : "");
+  const isForced = details.is_forced === true;
+  const revokedNote = text("destination_revoked");
 
   return (
     <Modal drawer title={item.title} onClose={onClose}>
@@ -966,10 +1047,25 @@ function AdminQueueDrawer({
           <Chip dot={false} tone="neutral">{queueLabel}</Chip>
           <Chip status={item.status} tone={statusTone(item.status)}>{labelize(item.status)}</Chip>
           <Chip dot={false} tone={priorityTone(item.priority)}>{labelize(item.priority)}</Chip>
+          {isWithdrawal && isForced ? <Chip dot={false} tone="warn">Forced return</Chip> : null}
         </div>
+        {isWithdrawal && revokedNote ? (
+          <Banner tone="bad" title="Destination IBAN revoked">
+            {revokedNote}. Do not pay this out. Cancel the withdrawal: the money goes back to the investor&apos;s balance.
+          </Banner>
+        ) : null}
+        {isWithdrawal ? (
+          <div className="admin-detail-grid" data-testid="withdrawal-destination">
+            <ReviewRow label="Owner" value={[text("investor_name"), text("investor_email")].filter(Boolean).join(" · ") || text("investor_user_id") || "-"} />
+            <ReviewRow label="Investor reference" value={text("investor_reference") || "-"} />
+            <ReviewRow label="Destination IBAN" value={<span className="mono">{text("destination_iban") || "-"}</span>} />
+            <ReviewRow label="Account name" value={text("destination_account_name") || "-"} />
+            {isForced ? <ReviewRow label="Why this IBAN" value={text("destination_reason") || "-"} /> : null}
+          </div>
+        ) : null}
         <div className="admin-detail-grid">
           <ReviewRow label="Kind" value={item.kind} />
-          <ReviewRow label="Object" value={`${item.object_type} / ${item.object_id}`} />
+          <ReviewRow label="Object" value={`${objectTypeLabel(item.object_type)} / ${item.object_id}`} />
           <ReviewRow label="Due" value={dueLabel(item)} />
           <ReviewRow
             label="Amount"
@@ -982,7 +1078,7 @@ function AdminQueueDrawer({
             }
           />
         </div>
-        <div>
+        {isWithdrawal ? null : <div>
           <h4>Metadata</h4>
           {metadata.length ? (
             <div className="admin-meta">
@@ -993,7 +1089,7 @@ function AdminQueueDrawer({
           ) : (
             <p className="muted">No metadata returned for this dashboard item.</p>
           )}
-        </div>
+        </div>}
         {isWithdrawal ? (
           <div className="admin-drawer-action">
             <h4>Execute or cancel withdrawal</h4>

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 from django.apps import apps
@@ -24,7 +25,7 @@ from backend.apps.investor_portal.services import (
     get_investor_portfolio,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
-from backend.apps.platform_core.domain.time import business_timezone
+from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.impersonation import issue_readonly_impersonation_token
 from backend.apps.platform_core.services.settings import (
@@ -415,6 +416,31 @@ def test_balances_are_self_scoped_and_bucketed(
         "overdue",
         "penalty_mode",
     }
+
+
+@pytest.mark.django_db
+def test_deadline_date_is_the_last_withdraw_only_day_before_overdue(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=1_000_00,
+        value_date=date(2026, 1, 14),
+        idempotency_key="portal-deadline-day",
+    )
+
+    deadline_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 15)))
+    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 16)))
+
+    lot = deadline_day["lots"][0]
+    assert (lot["bucket"], lot["days_until_withdrawal_deadline"]) == ("withdraw_only", 0)
+    assert lot["requires_withdrawal"] is True
+    chf = next(item for item in deadline_day["summaries"] if item["currency"] == "CHF")
+    assert (chf["withdraw_only_minor"], chf["overdue_minor"]) == (1_000_00, 0)
+    assert day_after["lots"][0]["bucket"] == "overdue"
 
 
 @pytest.mark.django_db
@@ -918,48 +944,276 @@ def test_investor_statement_download_is_self_scoped(
             document_kind="account_statement",
             output_format="csv",
             start_date=date(2026, 1, 1),
-            end_date=date(2026, 12, 31),
+            end_date=date(2026, 3, 31),
         )
     )
 
     assert artifact["content_type"].startswith("text/csv")
-    assert str(investor.pk) in artifact["content"]
-    assert str(other_investor.pk) not in artifact["content"]
+    assert cast(Any, investor).investor_reference in artifact["content"]
+    assert "1500.00" in artifact["content"]
+    assert cast(Any, other_investor).investor_reference not in artifact["content"]
+    assert "9500.00" not in artifact["content"]
     assert "950000" not in artifact["content"]
 
 
+def _receipt(investor: Model, *, key: str, topic: str, delivered: bool = True) -> None:
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    record_model = apps.get_model("communications", "EmailDeliveryRecord")
+    email = cast(Any, investor).email
+    outbox = outbox_model.objects.create(
+        topic=topic,
+        payload={"user_id": str(investor.pk), "email": email, "action": "withdrawal"},
+        status="processed" if delivered else "pending",
+        processed_at=timezone.now() if delivered else None,
+        idempotency_key=f"portal-receipt-{key}",
+    )
+    if delivered:
+        record_model.objects.create(
+            outbox_message=outbox,
+            topic=topic,
+            template_key="auth.receipt.v1",
+            recipient_email=email,
+            subject="Your BANXUM confirmation code",
+            body_text="Your code is 123456",
+            body_html="Your code is 123456",
+            provider="mock",
+            provider_message_id=f"mock-receipt-{key}",
+            status="sent",
+            attempt_number=1,
+            sent_at=timezone.now(),
+        )
+
+
 @pytest.mark.django_db
-def test_notifications_redact_sensitive_action_email_body(investor: Model) -> None:
+def test_notification_centre_leaves_out_sign_in_and_code_receipts(investor: Model) -> None:
+    _approve_financial_access(investor)
+    _outbox, notice = _delivered_notice(investor, key="deposit", topic="email.deposit_reconciled")
+    # Sixty newer sign-in links and codes (investor and admin login codes share the code topic)
+    # must not push the real notice off the default 50-item page.
+    for index in range(30):
+        _receipt(investor, key=f"link-{index}", topic="email.magic_link_requested")
+        _receipt(investor, key=f"code-{index}", topic="email.sensitive_action_code_requested")
+    _receipt(
+        investor, key="queued-code", topic="email.sensitive_action_code_requested", delivered=False
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    listed = client.get("/api/v1/investor/portal/notifications/").json()
+
+    assert [item["id"] for item in listed["notifications"]] == [str(notice.id)]
+    assert listed["unread_count"] == 1
+    assert "123456" not in str(listed)
+    # A receipt cannot be marked read through the notification centre either.
+    receipt_record = apps.get_model("communications", "EmailDeliveryRecord").objects.filter(
+        topic="email.magic_link_requested"
+    ).first()
+    response = client.post(f"/api/v1/investor/portal/notifications/{receipt_record.id}/read/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_documents_list_only_closed_tax_years_and_refuses_open_ones(
+    client: Client,
+    investor: Model,
+) -> None:
+    # JOURNEY-16: tax information was generated for unfinished and future years.
+    _approve_financial_access(investor)
+    user = cast(Any, investor)
+    user.date_joined = datetime(2023, 5, 2, 12, 0, tzinfo=business_timezone())
+    user.save(update_fields=["date_joined"])
+    today = business_date(now_utc())
+
+    listing = get_investor_documents(actor=investor)
+    tax_years = [
+        item["period_end"].year
+        for item in listing["documents"]
+        if item["document_kind"] == "annual_tax_information"
+    ]
+    statements = {
+        item["id"]: (item["period_start"], item["period_end"])
+        for item in listing["documents"]
+        if item["document_kind"] == "account_statement"
+    }
+    assert tax_years == list(range(today.year - 1, 2022, -1))
+    assert all(year < today.year for year in tax_years)
+    assert statements[f"statement-{today.year}"] == (date(today.year, 1, 1), today)
+    assert statements[f"statement-{today.year - 1}"] == (
+        date(today.year - 1, 1, 1),
+        date(today.year - 1, 12, 31),
+    )
+    assert all(item["period_end"] <= today for item in listing["documents"] if "period_end" in item)
+
+    for year in (today.year, today.year + 1):
+        with pytest.raises(InvestorPortalValidationError, match="year that has ended"):
+            download_investor_document(
+                InvestorDocumentDownloadCommand(
+                    actor=investor, document_kind="annual_tax_information", year=year
+                )
+            )
+    client.force_login(user)
+    response = client.post(
+        "/api/v1/investor/portal/documents/download/",
+        data={"document_kind": "annual_tax_information", "year": today.year + 1},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "year that has ended" in response.json()["detail"]
+    response = client.post(
+        "/api/v1/investor/portal/documents/download/",
+        data={
+            "document_kind": "account_statement",
+            "start_date": date(today.year, 1, 1).isoformat(),
+            "end_date": (today + timedelta(days=1)).isoformat(),
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "cannot end after today" in response.json()["detail"]
+
+
+@pytest.mark.django_db
+def test_notifications_show_human_labels_and_hide_delivery_internals(investor: Model) -> None:
     _approve_financial_access(investor)
     outbox_model = apps.get_model("platform_core", "OutboxMessage")
     record_model = apps.get_model("communications", "EmailDeliveryRecord")
-    outbox = outbox_model.objects.create(
-        topic="email.sensitive_action_code_requested",
-        payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
-        status="processed",
-        processed_at=timezone.now(),
-        idempotency_key="portal-sensitive-email",
+    email = cast(Any, investor).email
+    failed = outbox_model.objects.create(
+        topic="email.withdrawal_status",
+        payload={
+            "user_id": str(investor.pk),
+            "email": email,
+            "subject": "Withdrawal requested: CHF 250.00",
+            "body_text": "We received your request to withdraw CHF 250.00.",
+        },
+        status="pending",
+        attempts=1,
+        last_error="Provider secret SG.xyz rejected the request.",
+        idempotency_key="portal-failed-notice",
     )
     record_model.objects.create(
-        outbox_message=outbox,
-        topic="email.sensitive_action_code_requested",
-        template_key="auth.withdrawal.code.v1",
-        recipient_email=cast(Any, investor).email,
-        subject="Your BANXUM confirmation code",
-        body_text="Your code is 123456",
-        body_html="Your code is 123456",
-        provider="mock",
-        provider_message_id="mock-1",
-        status="sent",
+        outbox_message=failed,
+        topic="email.withdrawal_status",
+        template_key="ledger.withdrawal_requested.v1",
+        recipient_email=email,
+        subject="Withdrawal requested: CHF 250.00",
+        body_text="We received your request to withdraw CHF 250.00.",
+        provider="twilio_email",
+        provider_message_id="",
+        status="failed",
         attempt_number=1,
-        sent_at=timezone.now(),
+        error="Provider secret SG.xyz rejected the request.",
+    )
+    queued = outbox_model.objects.create(
+        topic="email.originator_subscription_activated",
+        payload={
+            "user_id": str(investor.pk),
+            "email": email,
+            "subject": "BANXUM investment activated: LO Main",
+            "body_text": "Your CHF 1'000.00 subscription in LO Main is now active.",
+        },
+        status="pending",
+        idempotency_key="portal-queued-lo-notice",
     )
 
     payload = get_investor_notifications(actor=investor)
+    by_topic = {item["topic"]: item for item in payload["notifications"]}
 
-    assert payload["notifications"][0]["title"] == "Your BANXUM confirmation code"
-    assert "123456" not in payload["notifications"][0]["body"]
-    assert "not shown in the portal" in payload["notifications"][0]["body"]
+    assert "SG.xyz" not in str(payload)
+    assert "twilio" not in str(payload)
+    for item in payload["notifications"]:
+        assert "metadata" not in item
+        assert "email." not in item["topic_label"]
+    assert by_topic["email.withdrawal_status"]["topic_label"] == "Withdrawal"
+    assert by_topic["email.withdrawal_status"]["status"] == "failed"
+    activated = by_topic["email.originator_subscription_activated"]
+    # A queued notice shows its own subject and content, not a title made from the topic key.
+    assert activated["id"] == str(queued.id)
+    assert activated["title"] == "BANXUM investment activated: LO Main"
+    assert activated["body"] == "Your CHF 1'000.00 subscription in LO Main is now active."
+    assert activated["topic_label"] == "Investment"
+
+
+@pytest.mark.django_db
+def test_notice_time_is_the_event_time_not_the_later_send_time(investor: Model) -> None:
+    _approve_financial_access(investor)
+    event_at = datetime(2026, 10, 9, 11, 47, tzinfo=UTC)
+    clock = "backend.apps.platform_core.models.base.now_utc"
+    with patch(clock, return_value=event_at):
+        outbox = apps.get_model("platform_core", "OutboxMessage").objects.create(
+            topic="email.deposit_reconciled",
+            payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
+            idempotency_key="portal-late-send",
+        )
+    # The scheduled dispatcher sent it the next day.
+    with patch(clock, return_value=event_at + timedelta(days=1)):
+        apps.get_model("communications", "EmailDeliveryRecord").objects.create(
+            outbox_message=outbox,
+            topic="email.deposit_reconciled",
+            template_key="ledger.deposit_credited.v1",
+            recipient_email=cast(Any, investor).email,
+            subject="Deposit credited: CHF 1.00",
+            body_text="We credited CHF 1.00.",
+            provider="mock",
+            status="sent",
+            attempt_number=1,
+        )
+
+    item = get_investor_notifications(actor=investor)["notifications"][0]
+
+    assert item["created_at"] == event_at
+
+
+@pytest.mark.django_db
+def test_loan_originator_repayment_notices_show_their_content(investor: Model) -> None:
+    _approve_financial_access(investor)
+    _delivered_notice(
+        investor, key="lo-repayment", topic="email.originator_claim_repayment_credited"
+    )
+
+    item = get_investor_notifications(actor=investor)["notifications"][0]
+
+    assert item["topic_label"] == "Repayment"
+    assert item["body"] == "Notice body."
+    assert item["navigation_target"] == "portfolio"
+
+
+@pytest.mark.django_db
+def test_notice_with_its_own_target_opens_that_page(investor: Model) -> None:
+    _approve_financial_access(investor)
+    notices = import_module("backend.apps.platform_core.services.investor_notices")
+    holding_id = "22222222-2222-4222-8222-222222222222"
+    notices.enqueue_investor_notice(
+        notices.InvestorNotice(
+            investor_user_id=str(investor.pk),
+            topic="email.loan_funding_status",
+            idempotency_key="portal-target",
+            subject="Loan funded: Example",
+            body_text="Example is funded.",
+            template_key="marketplace.funding_closed.v1",
+            navigation_target="holding",
+            navigation_target_id=holding_id,
+        )
+    )
+    notices.enqueue_investor_notice(
+        notices.InvestorNotice(
+            investor_user_id=str(investor.pk),
+            topic="email.loan_funding_status",
+            idempotency_key="portal-target-cancel",
+            subject="Loan funding cancelled: Example",
+            body_text="Funding for Example was cancelled.",
+            template_key="marketplace.funding_cancelled.v1",
+            navigation_target="balances",
+        )
+    )
+
+    targets = {
+        item["title"]: (item["navigation_target"], item["navigation_target_id"])
+        for item in get_investor_notifications(actor=investor)["notifications"]
+    }
+
+    assert targets["Loan funded: Example"] == ("holding", holding_id)
+    assert targets["Loan funding cancelled: Example"] == ("balances", "")
 
 
 @pytest.mark.django_db
@@ -1087,7 +1341,7 @@ def test_notifications_can_be_marked_read_one_by_one_and_all_at_once(
     client.force_login(cast(Any, investor))
 
     listed = client.get("/api/v1/investor/portal/notifications/").json()
-    # Sign-in and confirmation-code emails are listed but never count as unread notices.
+    # Sign-in and confirmation-code receipts are neither listed nor counted as unread.
     assert listed["unread_count"] == 3
     unread_by_id = {item["id"]: item["unread"] for item in listed["notifications"]}
     assert unread_by_id[str(first_record.id)] is True
@@ -1221,15 +1475,7 @@ def test_activity_labels_withdrawal_outcomes_and_shows_the_cancellation_credit(
         value_date=date(2026, 3, 1),
         idempotency_key="portal-withdrawal-deposit",
     )
-    ledger_services.register_investor_payout_instruction(
-        ledger_services.RegisterInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
-            currency="CHF",
-            destination_iban="CH9300762011623852957",
-            destination_account_name="Portal Investor",
-        )
-    )
+    # The deposit's source IBAN (CH93...) is the verified payout account.
 
     def request(amount_minor: int, key: str) -> Any:
         code = factories.issue_sensitive_action_test_code(investor, "withdrawal")
@@ -1313,3 +1559,152 @@ def test_balance_summary_reports_penalty_charged_apart_from_frozen_balance(
     assert chf["penalty_mode_minor"] == 4_900_00
     assert chf["penalty_charged_minor"] == 100_00
     assert payload["lots"][0]["penalized_amount_minor"] == 100_00
+
+
+@pytest.mark.django_db
+def test_activity_shows_penalty_charges_and_labels_forced_returns(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    ledger_services = import_module("backend.apps.ledger.services")
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=1_000_00,
+        value_date=date(2026, 1, 1),
+        idempotency_key="portal-forced-deposit",
+    )
+    penalty_lot = _declare_deposit(
+        admin_user=admin_user,
+        investor=other_investor,
+        amount_minor=2_000_00,
+        value_date=date(2026, 1, 1),
+        idempotency_key="portal-penalty-deposit",
+    )
+    # The other investor's only IBAN is revoked, so day 61 means penalty mode.
+    for instruction in apps.get_model("ledger", "InvestorPayoutInstruction").objects.filter(
+        investor_user_id=other_investor.pk
+    ):
+        ledger_services.revoke_investor_payout_instruction(
+            ledger_services.RevokeInvestorPayoutInstructionCommand(
+                actor=admin_user,
+                instruction_id=str(instruction.pk),
+                reason="Returned by the bank.",
+            )
+        )
+    scan = ledger_services.run_balance_ageing_scan(
+        ledger_services.RunBalanceAgeingScanCommand(actor=admin_user, as_of=_at(date(2026, 3, 3)))
+    )
+    forced = scan.forced_withdrawal_requests[0]
+
+    entries = get_investor_activity(actor=investor, limit=50)["entries"]
+    forced_entry = next(entry for entry in entries if entry["id"] == str(forced.id))
+    assert forced_entry["title"] == "Forced return to your bank account"
+    assert forced_entry["metadata"]["is_forced"] is True
+    assert forced_entry["metadata"]["destination_iban"] == "CH9300762011623852957"
+
+    _approve_financial_access(other_investor)
+    other_entries = get_investor_activity(actor=other_investor, limit=50)["entries"]
+    penalties = [e for e in other_entries if e["activity_type"] == "balance_penalty_charge"]
+    assert len(penalties) == 1
+    assert penalties[0]["direction"] == "out"
+    assert penalties[0]["amount_minor"] == 20_00
+    assert penalties[0]["currency"] == "CHF"
+    assert penalties[0]["metadata"]["balance_lot_id"] == str(penalty_lot.pk)
+
+
+@pytest.mark.django_db
+def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_penalty(
+    admin_user: Model,
+    investor: Model,
+    settings: Any,
+) -> None:
+    # Audit A-21/A-20: the Account page needs the open withdrawal requests (forced returns
+    # labelled) and the daily penalty rate for the penalty-mode banner.
+    settings.BALANCE_PENALTY_BPS_PER_DAY = 100
+    _approve_financial_access(investor)
+    ledger_services = import_module("backend.apps.ledger.services")
+    factories = import_module("backend.apps.platform_core.tests.factories")
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=1_000_00,
+        value_date=date(2026, 3, 1),
+        idempotency_key="portal-pending-deposit",
+    )
+
+    def request(amount_minor: int, key: str) -> Any:
+        code = factories.issue_sensitive_action_test_code(investor, "withdrawal")
+        return ledger_services.request_investor_withdrawal(
+            ledger_services.RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=amount_minor,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                destination_account_name="Portal Investor",
+                idempotency_key=key,
+                sensitive_action_code_id=code.code_id,
+                sensitive_action_code=code.raw_code,
+            )
+        )
+
+    pending = request(150_00, "portal-pending-open")
+    finished = request(50_00, "portal-pending-finalized")
+    ledger_services.finalize_investor_withdrawal(
+        ledger_services.FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(finished.id),
+            booking_date=date(2026, 3, 2),
+            value_date=date(2026, 3, 2),
+            collection_account_identifier="CHF-COLLECTION",
+            bank_reference="BANK-PORTAL-PENDING",
+            idempotency_key="portal-pending-finalize",
+        )
+    )
+    forced = request(25_00, "portal-pending-forced")
+    withdrawal_model = apps.get_model("ledger", "InvestorWithdrawalRequest")
+    withdrawal_model.objects.filter(pk=forced.id).update(is_forced=True)
+
+    payload = get_investor_balances(actor=investor)
+
+    assert payload["penalty_bps_per_day"] == 100
+    rows = payload["pending_withdrawals"]
+    assert [row["id"] for row in rows] == [str(pending.id), str(forced.id)]
+    assert rows[0]["amount_minor"] == 150_00
+    assert rows[0]["currency"] == "CHF"
+    assert rows[0]["destination_iban"] == "CH9300762011623852957"
+    assert rows[0]["is_forced"] is False
+    assert rows[1]["is_forced"] is True
+
+    client = Client()
+    client.force_login(cast(Any, investor))
+    response = client.get("/api/v1/investor/portal/balances/")
+    assert response.status_code == 200
+    assert response.json()["pending_withdrawals"][1]["is_forced"] is True
+    assert response.json()["penalty_bps_per_day"] == 100
+
+
+@pytest.mark.django_db
+def test_fx_history_carries_the_daily_limit_and_quote_lock_from_settings(investor: Model) -> None:
+    # Audit A-64: the FX page showed a hard-coded "CHF 100,000" limit and "60 seconds".
+    _approve_financial_access(investor)
+    set_platform_setting(
+        SetPlatformSettingCommand(
+            actor=ActorRef.system(),
+            key="fx.daily_limit_chf_minor",
+            value=25_000_00,
+        )
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    response = client.get("/api/v1/investor/portal/fx/")
+
+    assert response.status_code == 200
+    terms = response.json()["terms"]
+    assert terms["daily_limit_chf_minor"] == 25_000_00
+    assert terms["daily_limit_used_chf_minor"] == 0
+    assert terms["quote_ttl_seconds"] == 60
+    assert terms["platform_fee_bps"] >= 0

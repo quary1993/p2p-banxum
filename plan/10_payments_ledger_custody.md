@@ -89,6 +89,8 @@ At launch, each natural-person or legal-entity lender has a short immutable `inv
 Rationale:
 One collection account/IBAN per currency simplifies banking operations while internal references and ledger entries preserve investor-balance, loan-level, and transaction-level tracking.
 
+Admin forms take the collection account from configuration (one per currency), not from free text. The ledger treats spellings of the same account as one account: it compares letters and digits only and maps the configured name, IBAN and QR-IBAN to the configured name. A blank account means the configured account of the currency. This keeps the duplicate-deposit check reliable (2026-10-09).
+
 Follow-ups:
 Select the bank/payment partner and configure bank-specific labels/formats for the generic bank-operation declaration and reconciliation screens. If the selected bank imposes a stricter structured-reference format, keep `investor_reference` as the human-facing matching key and map it into the bank-specific reference field without exposing long UUIDs to operators or investors.
 
@@ -392,6 +394,7 @@ Launch interpretation:
 - Penalty policy is configured through environment/deployment settings at launch. Reminder schedule and reminder templates remain superadmin-configurable.
 - Currency exchange does not reset the 60-day holding clock. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
 - If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
+- Deadline rule (2026-10-09): the withdrawal deadline date (received date + 60 Europe/Zurich days, day 60) is the last day the money may stay; the investor can withdraw it until the end of that day, but can no longer invest or exchange it. Forced return, penalty mode and the first daily penalty start the next day (day 61). Reminder day numbers count back from the deadline date, so FX proceeds keep their source's age and get the remaining reminders.
 
 Reminder schedule:
 
@@ -509,7 +512,7 @@ Date: 2026-05-20.
 Owner: Garanta compliance / finance / product.
 
 Decision:
-Balance source entries are consumed FIFO within each currency, using the oldest eligible source entries first for investments, withdrawals, FX, fees, and penalties.
+Balance source entries are consumed FIFO within each currency, using the oldest eligible source entries first for investments, withdrawals, FX, fees, and penalties. "Oldest" means the earliest withdrawal deadline (FX proceeds inherit their source's deadline), with the received timestamp as tie-break. A forced return consumes exactly the overdue source entries and never other, non-overdue money.
 
 Funds may be newly invested before their 60-day holding deadline only if the remaining funding window fits within that deadline. Instant secondary-market and legacy claim purchases have no additional campaign wait. Frozen, penalty-mode and overdue sources remain ineligible.
 
@@ -541,7 +544,7 @@ When a balance source reaches the 60-day holding limit, admin attempts a forced 
 
 At launch, an admin declaration of an incoming lender deposit must include the checksum-valid source IBAN observed on the bank statement. That exact investor/currency/IBAN is automatically recorded as a verified payout instruction because ownership/control evidence came from the received bank transfer. Verified source IBANs remain available and are not superseded merely because the investor later requests another payout account.
 
-An investor may request an additional payout IBAN using the `bank_account_change` sensitive-action email code. The additional IBAN is checksum-validated but remains unusable for normal or forced withdrawals until an admin verifies it. Each such request automatically creates or reopens a finance operations task linked to the exact payout instruction; admin verification resolves that task. Multiple verified payout IBANs may coexist for the same investor and currency. Normal withdrawals must use the exact verified destination requested by the investor; forced withdrawals use a usable verified instruction selected by the platform's documented ordering rule.
+An investor may request an additional payout IBAN using the `bank_account_change` sensitive-action email code. The additional IBAN is checksum-validated but remains unusable for normal or forced withdrawals until an admin verifies it. Each such request automatically creates or reopens a finance operations task linked to the exact payout instruction; admin verification resolves that task. If an admin cancels that task without verifying the IBAN, the investor gets a "Payout IBAN not verified" notice (audit 2026-10). Multiple verified payout IBANs may coexist for the same investor and currency. Normal withdrawals must use the exact verified destination requested by the investor; forced withdrawals use a usable verified instruction selected by the platform's documented ordering rule.
 
 Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw them before the 60-day deadline.
 
@@ -553,6 +556,15 @@ When admin records a withdrawal or forced withdrawal as executed, the withdrawal
 
 Rationale:
 Forced withdrawal is preferred over continuing to hold funds. If Garanta cannot return the funds because no usable IBAN is known, the platform must prevent further financial activity until the return path is resolved while keeping read-only access available.
+
+Payout-IBAN controls (decision 2026-10-09):
+
+- An admin verifies only an IBAN that the investor added (a pending request), and records an evidence reference. If the IBAN is already a verified payout account of another investor, the admin must give an override reason. Admins cannot add a payout IBAN the investor never asked for.
+- An admin can revoke a verified IBAN, or reject a pending request, with a reason. The IBAN leaves the investor's withdrawal choices and forced returns. Open withdrawals to it are flagged and cannot be finalized; the admin cancels them, and the money goes back to the balance. An audit event is written and the investor gets one notice (portal and email) without the admin's reason. A later deposit from that IBAN verifies it again, because the transfer proves ownership.
+- An "IBAN verification" task closes only when the IBAN is verified or rejected, so a pending request is never left in no queue.
+- Forced returns go to the verified IBAN that sent the investor's most recent incoming deposit. If no verified IBAN sent a deposit, they go to the most recently admin-verified IBAN. The withdrawal request stores the chosen IBAN, the rule and the reason.
+- The payee name of a withdrawal comes from the verified payout instruction, not from the request.
+- Penalty mode blocks new primary orders, allocations, batch investments and listing create/edit. Cancelling an open listing stays possible.
 
 Follow-ups:
 Define forced-withdrawal evidence requirements, a future investor-selectable preferred verified IBAN, and optional note/document fields for offline handling of returned transfers.
@@ -570,6 +582,8 @@ Balance ageing received timestamps are assigned as follows:
 - Borrower installment/repayment/recovery payments: bank value date.
 - Secondary-market transactions: internal transaction timestamp.
 - Currency exchanges: internal transaction timestamp.
+
+Bank value and booking dates cannot be later than the platform business date (Europe/Zurich) for lender deposits, borrower disbursements, Direct and LO borrower receipts, recoveries, withdrawal finalization, LO settlements and FX external settlements; past value dates and value-before-booking stay allowed. Live admin balance-ageing and loan-status scans cannot run for a future as-of (a balance-ageing dry run may preview one); time moves forward only through the platform clock.
 
 Rationale:
 External cash movements should age from bank value date, while purely platform-internal settlement events should age from the platform event timestamp.
@@ -649,6 +663,8 @@ bank-stated balance by currency
 ```
 
 Any difference is a reconciliation break and must create an admin work item with source report, currency, amount difference, candidate causes, admin notes, and audit trail.
+
+Clarification (2026-10-09): investor money reserved for open primary orders (loan funding escrow) stays in the collection account until disbursement, so the expected total includes it, with the other platform-held payables (withdrawal, disbursement, recovery, Loan Originator and refund payables), FX clearing and FX gain/loss. A snapshot with a matching bank balance therefore shows no break while loans are funding.
 
 The reconciliation process must create an audit trail and must support later automation through bank statement import or bank/API feeds while preserving the same matching, evidence, exception-handling, and approval rules used by the manual launch workflow.
 

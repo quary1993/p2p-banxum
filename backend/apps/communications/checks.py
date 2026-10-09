@@ -16,6 +16,10 @@ def check_email_provider_config(
 
     errors: list[Error] = []
     provider = str(settings.COMMUNICATIONS_EMAIL_PROVIDER).strip().lower()
+    # Staging may run the mock provider: it must not send real messages or make real
+    # provider calls (plan 19), and QA mode needs it. Production needs the real one.
+    if provider == "mock" and str(settings.ENVIRONMENT).lower() != "production":
+        return []
     if provider not in {"sendgrid", "twilio_email"}:
         errors.append(
             Error(

@@ -596,7 +596,22 @@ def _html_from_text(body_text: str) -> str:
     )
 
 
-def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
+REDACTED_SECRET = "[redacted]"
+MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT = "existing_account"
+
+
+def magic_link_login_url(raw_token: str) -> str:
+    """Sign-in URL with the token in the fragment (audit A-49).
+
+    A fragment never reaches a server: it is not in access logs, proxies or the
+    Referer header. The portal reads it and removes it from the address bar before it
+    calls any API.
+    """
+
+    return f"{_base_url()}/login#token={urllib.parse.quote(raw_token, safe='')}"
+
+
+def _render_magic_link_email(message: OutboxMessage, *, redact_secrets: bool) -> RenderedEmail:
     payload = message.payload
     token_id = str(payload.get("delivery_secret_ref", ""))
     recipient = str(payload.get("email", "")).strip().lower()
@@ -605,17 +620,39 @@ def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
 
     token_model = _email_login_token_model()
     token = token_model.objects.select_related("user").get(id=token_id)
-    raw_token = _auth_services_module().delivery_secret_for_magic_link(token)
-    login_url = f"{_base_url()}/login?token={urllib.parse.quote(raw_token)}"
+    if redact_secrets:
+        login_url = f"{_base_url()}/login#token={REDACTED_SECRET}"
+    else:
+        raw_token = _auth_services_module().delivery_secret_for_magic_link(token)
+        login_url = magic_link_login_url(raw_token)
     platform = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
-    subject = f"Your {platform} login link"
+    existing_account = str(payload.get("purpose", "")) == MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT
+    if existing_account:
+        subject = f"Your {platform} account already exists"
+        intro = (
+            f"We received a request to open a new {platform} account with this email "
+            "address. You already have an account, so we did not open a new one."
+        )
+        headline = f"You already have a {platform} account"
+        ignore_line = "If you did not make this request, you can ignore this email."
+    else:
+        subject = f"Your {platform} login link"
+        intro = ""
+        headline = f"Sign in to {platform}"
+        ignore_line = "If you did not request this email, you can ignore it."
     body_text = (
-        f"Use this secure link to sign in to {platform}:\n\n"
+        (f"{intro}\n\n" if intro else "")
+        + f"Use this secure link to sign in to {platform}:\n\n"
         f"{login_url}\n\n"
         f"The link expires at {token.expires_at.isoformat()} and can be used only once.\n"
-        "If you did not request this email, you can ignore it.\n\n"
+        f"{ignore_line}\n\n"
         f"{platform} is operated by {operator}."
+    )
+    paragraphs: tuple[str, ...] = (
+        *((intro,) if intro else ()),
+        f"Use this secure one-time link to sign in to {platform}.",
+        f"The link can be used only once. {ignore_line}",
     )
     return RenderedEmail(
         recipient_email=recipient,
@@ -627,11 +664,8 @@ def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
                 preheader=f"Use your secure one-time {platform} login link.",
                 status_label="Secure login",
                 status_tone="info",
-                headline=f"Sign in to {platform}",
-                paragraphs=(
-                    f"Use this secure one-time link to sign in to {platform}.",
-                    "The link can be used only once. If you did not request this email, you can ignore it.",
-                ),
+                headline=headline,
+                paragraphs=paragraphs,
                 data_rows=(
                     ("Expires at", token.expires_at.isoformat()),
                     ("Recipient", recipient),
@@ -643,16 +677,23 @@ def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
                 ),
             )
         ),
-        template_key="auth.magic_link.v1",
+        template_key=(
+            "auth.magic_link.existing_account.v1" if existing_account else "auth.magic_link.v1"
+        ),
         metadata={
             "user_id": str(payload.get("user_id", "")),
             "expires_at": token.expires_at.isoformat(),
             "secret_redacted_in_outbox": bool(payload.get("secret_redacted")),
+            "secret_redacted_in_record": redact_secrets,
         },
     )
 
 
-def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail:
+def _render_sensitive_action_code_email(
+    message: OutboxMessage,
+    *,
+    redact_secrets: bool,
+) -> RenderedEmail:
     payload = message.payload
     code_id = str(payload.get("delivery_secret_ref", ""))
     recipient = str(payload.get("email", "")).strip().lower()
@@ -662,7 +703,11 @@ def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail
 
     code_model = _sensitive_action_code_model()
     code_record = code_model.objects.select_related("user").get(id=code_id)
-    raw_code = _auth_services_module().delivery_secret_for_sensitive_action_code(code_record)
+    raw_code = (
+        REDACTED_SECRET
+        if redact_secrets
+        else _auth_services_module().delivery_secret_for_sensitive_action_code(code_record)
+    )
     platform = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
     subject = f"Your {platform} confirmation code"
@@ -703,6 +748,7 @@ def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail
             "action": action,
             "expires_at": code_record.expires_at.isoformat(),
             "secret_redacted_in_outbox": bool(payload.get("secret_redacted")),
+            "secret_redacted_in_record": redact_secrets,
         },
     )
 
@@ -894,11 +940,22 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
     )
 
 
-def render_email_for_outbox_message(message: OutboxMessage) -> RenderedEmail:
+def render_email_for_outbox_message(
+    message: OutboxMessage,
+    *,
+    redact_secrets: bool = False,
+) -> RenderedEmail:
+    """Render an outbox email.
+
+    ``redact_secrets=True`` gives the copy that is stored: login links and codes are
+    replaced by "[redacted]". Only the provider ever receives the live secret, and it
+    is decrypted from the auth record at send time (audit A-49).
+    """
+
     if message.topic == "email.magic_link_requested":
-        return _render_magic_link_email(message)
+        return _render_magic_link_email(message, redact_secrets=redact_secrets)
     if message.topic == "email.sensitive_action_code_requested":
-        return _render_sensitive_action_code_email(message)
+        return _render_sensitive_action_code_email(message, redact_secrets=redact_secrets)
     if message.topic == "email.document_acceptance_pdf":
         return _render_document_acceptance_pdf_email(message)
     if message.topic.startswith("email."):
@@ -1022,13 +1079,16 @@ def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now
         return False
 
     attempt_number = message.attempts + 1
-    rendered_email: RenderedEmail | None = None
+    # The stored copy never holds a live login link or code: the provider gets the
+    # rendered email, the delivery record gets the redacted one (audit A-49).
+    stored_email: RenderedEmail | None = None
     try:
         rendered_email = render_email_for_outbox_message(message)
+        stored_email = render_email_for_outbox_message(message, redact_secrets=True)
         provider_result = provider.send(rendered_email)
         record = _record_delivery_attempt(
             message=message,
-            rendered_email=rendered_email,
+            rendered_email=stored_email,
             provider_name=provider.provider_name,
             provider_message_id=provider_result.provider_message_id,
             attempt_number=attempt_number,
@@ -1041,7 +1101,7 @@ def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now
         error = str(exc) or exc.__class__.__name__
         record = _record_delivery_attempt(
             message=message,
-            rendered_email=rendered_email,
+            rendered_email=stored_email,
             provider_name=provider.provider_name,
             attempt_number=attempt_number,
             status=EmailDeliveryStatus.FAILED,

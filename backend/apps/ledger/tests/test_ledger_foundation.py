@@ -48,6 +48,7 @@ from backend.apps.ledger.services import (
     RequestInvestorWithdrawalCommand,
     ReserveInvestmentBalanceCommand,
     RunBalanceAgeingScanCommand,
+    VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
     close_primary_loan_funding,
     create_reconciliation_snapshot,
@@ -65,6 +66,7 @@ from backend.apps.ledger.services import (
     reserve_investor_balance_for_investment,
     run_balance_ageing_scan,
     summarize_investor_balance,
+    verify_investor_payout_instruction,
 )
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
@@ -514,7 +516,7 @@ def test_historical_balance_excludes_later_penalty_charges(
     with freeze_time("2026-01-01T12:00:00Z"):
         deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
         _disable_deposit_payout_instruction(deposit)
-    for day in (2, 3):
+    for day in (3, 4):
         with freeze_time(f"2026-03-{day:02d}T12:00:00Z"):
             run_balance_ageing_scan(
                 RunBalanceAgeingScanCommand(
@@ -524,9 +526,9 @@ def test_historical_balance_excludes_later_penalty_charges(
     lot = InvestorBalanceLot.objects.get(pk=deposit.balance_lot.pk)
     assert lot.available_amount_minor == 98_00
     for day, available, penalized, status in (
-        (1, 100_00, 0, BalanceLotStatus.AVAILABLE),
-        (2, 99_00, 1_00, BalanceLotStatus.PENALTY_MODE),
-        (3, 98_00, 2_00, BalanceLotStatus.PENALTY_MODE),
+        (2, 100_00, 0, BalanceLotStatus.AVAILABLE),
+        (3, 99_00, 1_00, BalanceLotStatus.PENALTY_MODE),
+        (4, 98_00, 2_00, BalanceLotStatus.PENALTY_MODE),
     ):
         state = balance_lot_amounts_as_of(lots=[lot], as_of=_received_at(date(2026, 3, day)))[
             str(lot.pk)
@@ -1107,14 +1109,15 @@ def test_register_payout_instruction_adds_another_active_verified_instruction(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    first = register_investor_payout_instruction(
-        RegisterInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
+    first = declare_lender_deposit(_deposit_command(admin_user, investor)).payout_instruction
+    assert first is not None
+    requested = register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
             currency="CHF",
-            destination_iban="CH9300762011623852957",
-            destination_account_name="Ledger Investor",
-            notes="Initial return account.",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Updated",
+            **_sensitive_code_payload(investor, "bank_account_change"),
         )
     )
     second = register_investor_payout_instruction(
@@ -1122,16 +1125,19 @@ def test_register_payout_instruction_adds_another_active_verified_instruction(
             actor=admin_user,
             investor_user_id=str(investor.pk),
             currency="CHF",
-            destination_iban="CH5604835012345678009",
+            destination_iban="CH56 0483 5012 3456 7800 9",
             destination_account_name="Ledger Investor Updated",
+            evidence_reference="bank-letter:2026-01-02",
         )
     )
 
     first.refresh_from_db()
+    assert second.pk == requested.pk
     assert first.status == "active"
     assert second.status == "active"
     assert second.is_verified_usable is True
     assert second.verified_by_admin_id == admin_user.pk
+    assert second.metadata["verification"]["evidence_reference"] == "bank-letter:2026-01-02"
     assert (
         InvestorPayoutInstruction.objects.filter(
             investor_user_id=investor.pk,
@@ -1141,7 +1147,7 @@ def test_register_payout_instruction_adds_another_active_verified_instruction(
         == 2
     )
     assert DomainEvent.objects.filter(
-        event_type="InvestorPayoutInstructionRegistered",
+        event_type="InvestorPayoutInstructionVerified",
         aggregate_id=str(second.id),
     ).exists()
 
@@ -1179,15 +1185,7 @@ def test_investor_self_service_payout_instruction_requires_bank_change_code(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    first = register_investor_payout_instruction(
-        RegisterInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
-            currency="CHF",
-            destination_iban="CH9300762011623852957",
-            destination_account_name="Ledger Investor",
-        )
-    )
+    first = _register_verified_iban(admin_user, investor)
 
     instruction = register_investor_self_service_payout_instruction(
         RegisterInvestorSelfServicePayoutInstructionCommand(
@@ -1245,6 +1243,7 @@ def test_admin_verification_resolves_self_service_iban_task(
             currency="CHF",
             destination_iban="CH5604835012345678009",
             destination_account_name="Ledger Investor Additional",
+            evidence_reference="bank-letter:additional",
         )
     )
 
@@ -1364,20 +1363,13 @@ def test_balance_ageing_scan_creates_forced_withdrawal_when_iban_exists(
 ) -> None:
     _approve_financial_access(investor)
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    payout_instruction = register_investor_payout_instruction(
-        RegisterInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
-            currency="CHF",
-            destination_iban="CH9300762011623852957",
-            destination_account_name="Ledger Investor",
-        )
-    )
+    payout_instruction = deposit.payout_instruction
+    assert payout_instruction is not None
 
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 2)),
+            as_of=_received_at(date(2026, 3, 3)),
         )
     )
     lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
@@ -1386,14 +1378,14 @@ def test_balance_ageing_scan_creates_forced_withdrawal_when_iban_exists(
         CreateReconciliationSnapshotCommand(
             actor=admin_user,
             currency="CHF",
-            as_of_date=date(2026, 3, 2),
+            as_of_date=date(2026, 3, 3),
             bank_stated_balance_minor=100_00,
         )
     )
     rerun = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 2)),
+            as_of=_received_at(date(2026, 3, 3)),
         )
     )
 
@@ -1428,19 +1420,19 @@ def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 2)),
+            as_of=_received_at(date(2026, 3, 3)),
         )
     )
     lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
     summary = summarize_investor_balance(
         investor_user_id=str(investor.pk),
         currency="CHF",
-        as_of=_received_at(date(2026, 3, 2)),
+        as_of=_received_at(date(2026, 3, 3)),
     )
     rerun = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 2)),
+            as_of=_received_at(date(2026, 3, 3)),
         )
     )
 
@@ -1463,7 +1455,7 @@ def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
         CreateReconciliationSnapshotCommand(
             actor=admin_user,
             currency="CHF",
-            as_of_date=date(2026, 3, 2),
+            as_of_date=date(2026, 3, 3),
             bank_stated_balance_minor=100_00,
         )
     )
@@ -1505,13 +1497,13 @@ def test_balance_ageing_penalty_charges_once_per_business_day(
     first = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 2)),
+            as_of=_received_at(date(2026, 3, 3)),
         )
     )
     second = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 3, 3)),
+            as_of=_received_at(date(2026, 3, 4)),
         )
     )
     lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
@@ -1542,14 +1534,14 @@ def test_balance_ageing_penalty_lineage_guard_skips_duplicate_same_day_charge(
         *cast(list[dict[str, Any]], lot.lineage),
         {
             "event": "penalty_mode_enabled",
-            "as_of": _received_at(date(2026, 3, 2)).isoformat(),
+            "as_of": _received_at(date(2026, 3, 3)).isoformat(),
             "penalty_bps_per_day": 100,
             "penalty_basis_minor": 100_00,
             "reason": "Test setup.",
         },
         {
             "event": "balance_penalty_charged",
-            "charge_date": "2026-03-02",
+            "charge_date": "2026-03-03",
             "amount_minor": 1_00,
             "penalty_bps_per_day": 100,
             "penalty_basis_minor": 100_00,
@@ -1573,7 +1565,7 @@ def test_balance_ageing_penalty_lineage_guard_skips_duplicate_same_day_charge(
         result = run_balance_ageing_scan(
             RunBalanceAgeingScanCommand(
                 actor=admin_user,
-                as_of=_received_at(date(2026, 3, 2)),
+                as_of=_received_at(date(2026, 3, 3)),
             )
         )
 
@@ -1591,6 +1583,15 @@ def test_payout_instruction_and_balance_ageing_scan_api(
     investor: Model,
 ) -> None:
     declare_lender_deposit(_deposit_command(admin_user, investor))
+    register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Second",
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        )
+    )
     client.force_login(cast(Any, admin_user))
 
     instruction_response = client.post(
@@ -1598,14 +1599,15 @@ def test_payout_instruction_and_balance_ageing_scan_api(
         data={
             "investor_user_id": str(investor.pk),
             "currency": "CHF",
-            "destination_iban": "CH9300762011623852957",
-            "destination_account_name": "Ledger Investor",
+            "destination_iban": "CH5604835012345678009",
+            "destination_account_name": "Ledger Investor Second",
+            "evidence_reference": "bank-letter:second",
         },
         content_type="application/json",
     )
     scan_response = client.post(
         "/api/v1/ledger/admin/balance-ageing-scans/",
-        data={"as_of": "2026-03-02T00:00:00+01:00", "currency": "CHF"},
+        data={"as_of": "2026-03-03T00:00:00+01:00", "currency": "CHF"},
         content_type="application/json",
     )
 
@@ -1680,16 +1682,33 @@ def _register_verified_iban(
     *,
     iban: str = "CH9300762011623852957",
     currency: str = "CHF",
-) -> None:
-    # Withdrawals only settle to Garanta-verified accounts; admin registration
-    # records the instruction as verified usable.
-    register_investor_payout_instruction(
-        RegisterInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
+    account_name: str = "Ledger Investor",
+) -> InvestorPayoutInstruction:
+    # Withdrawals only settle to Garanta-verified accounts. The investor requests the
+    # IBAN (email code) and an admin verifies that request with evidence.
+    existing = InvestorPayoutInstruction.objects.filter(
+        investor_user_id=investor.pk,
+        currency_id=currency,
+        destination_iban=iban.replace(" ", ""),
+        status="active",
+        is_verified_usable=True,
+    ).first()
+    if existing is not None:
+        return existing
+    requested = register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
             currency=currency,
             destination_iban=iban,
-            destination_account_name="Ledger Investor",
+            destination_account_name=account_name,
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        )
+    )
+    return verify_investor_payout_instruction(
+        VerifyInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            instruction_id=str(requested.pk),
+            evidence_reference="bank-letter:test",
         )
     )
 

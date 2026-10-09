@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { ApiClientError, httpClient } from "./httpClient";
+import { ApiClientError, NETWORK_ERROR_MESSAGE, httpClient } from "./httpClient";
+import { intentIdempotencyKey } from "./idempotency";
 import { hasSessionExpiredNotice, onSessionExpired } from "./sessionExpiry";
 
 afterEach(() => {
@@ -158,5 +159,43 @@ describe("httpClient", () => {
     ).rejects.toMatchObject({
       message: "phone number: Enter a valid phone number."
     });
+  });
+
+  test("a network failure gives a clear message, not the browser's 'Failed to fetch'", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+
+    const failure = httpClient({ url: "/api/v1/ledger/withdrawal-requests/", method: "POST", data: {} });
+
+    await expect(failure).rejects.toBeInstanceOf(ApiClientError);
+    await expect(failure).rejects.toMatchObject({ status: 0, message: NETWORK_ERROR_MESSAGE });
+  });
+
+  test("an aborted request still rejects with the abort error", async () => {
+    const abort = new DOMException("The operation was aborted.", "AbortError");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw abort; }));
+
+    await expect(httpClient({ url: "/api/v1/auth/me/", method: "GET" })).rejects.toBe(abort);
+  });
+
+  test("an intent keeps its idempotency key until the server accepts it (A-41)", async () => {
+    const intent = { amount_minor: 10_000, currency: "CHF", destination_iban: "CH93" };
+    const first = intentIdempotencyKey("investor-withdrawal", intent);
+    expect(intentIdempotencyKey("investor-withdrawal", { ...intent })).toBe(first);
+    expect(intentIdempotencyKey("investor-withdrawal", { ...intent, amount_minor: 20_000 })).not.toBe(first);
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    await expect(
+      httpClient({ url: "/api/v1/ledger/withdrawal-requests/", method: "POST", data: { ...intent, idempotency_key: first } })
+    ).rejects.toMatchObject({ status: 0 });
+    // A timeout is not an answer: the retry must carry the same key.
+    expect(intentIdempotencyKey("investor-withdrawal", intent)).toBe(first);
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "w1" }), {
+      headers: { "Content-Type": "application/json" },
+      status: 201
+    })));
+    await httpClient({ url: "/api/v1/ledger/withdrawal-requests/", method: "POST", data: { ...intent, idempotency_key: first } });
+    // Accepted: the same values again are a new withdrawal with a new key.
+    expect(intentIdempotencyKey("investor-withdrawal", intent)).not.toBe(first);
   });
 });

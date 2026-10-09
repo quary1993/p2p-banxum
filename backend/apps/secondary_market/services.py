@@ -13,7 +13,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Model, Q, Sum
+from django.db.models import F, Max, Model, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -65,6 +65,21 @@ class SecondaryMarketValidationError(SecondaryMarketError):
     pass
 
 
+SECONDARY_PRICE_CHANGED_CODE = "secondary_price_changed"
+SECONDARY_PRICE_CHANGED_MESSAGE = (
+    "The price of this listing changed. Review the new price and confirm again."
+)
+
+
+class SecondaryMarketPriceChangedError(SecondaryMarketValidationError):
+    """The economics the buyer reviewed no longer match the price at settlement."""
+
+    code = SECONDARY_PRICE_CHANGED_CODE
+
+    def __init__(self, message: str = SECONDARY_PRICE_CHANGED_MESSAGE) -> None:
+        super().__init__(message)
+
+
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 PRICE_BPS_MAX = 1_000_000
 LISTING_CONTEXT_TYPE = "secondary_market_listing"
@@ -80,7 +95,16 @@ REMOVAL_IDEMPOTENCY_METADATA_KEY = "removal_idempotency_key"
 CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
 CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 PERFORMING_LOAN_STATUS = "active"
-NONSTANDARD_LISTABLE_STATUSES = {"late", "defaulted"}
+# Product rule C18: holdings of loans that are late, in default or time-extended are
+# never listable. There is no admin approval path for them (plan/09 MKT-DEC-009).
+NON_PERFORMING_LOAN_STATUSES = {"late", "defaulted"}
+LATE_OR_DEFAULTED_DIRECT_LISTING_MESSAGE = (
+    "Late or defaulted loans cannot be listed on the secondary market."
+)
+LATE_OR_DEFAULTED_ORIGINATOR_LISTING_MESSAGE = (
+    "Late or defaulted Loan Originator claims cannot be transferred on the secondary market."
+)
+LISTING_CANCELLED_BY_LOAN_STATUS_NOTICE_SUBJECT = "secondary-market listing cancelled"
 _USE_DATABASE_PRICING_VALUE = object()
 
 
@@ -222,6 +246,11 @@ class PurchaseSecondaryMarketListingCommand:
     listing_id: str
     document_acceptance_id: str
     idempotency_key: str
+    # The economics the buyer reviewed and accepted. Settlement charges exactly
+    # these values or rejects the purchase without moving money.
+    expected_buyer_total_cost_minor: int
+    expected_price_bps: int
+    expected_current_principal_minor: int
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
     risk_acknowledgement_accepted: bool = False
@@ -273,15 +302,38 @@ def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
 
 
 def _require_listable_loan_status(loan: Model) -> str:
+    """Only holdings of performing (``active``) loans can be listed, edited or bought."""
     loan_status = str(cast(Any, loan).status)
-    if _is_originator_claim_loan(loan) and loan_status != PERFORMING_LOAN_STATUS:
+    if loan_status == PERFORMING_LOAN_STATUS:
+        return loan_status
+    if _is_originator_claim_loan(loan):
+        raise SecondaryMarketValidationError(LATE_OR_DEFAULTED_ORIGINATOR_LISTING_MESSAGE)
+    if loan_status in NON_PERFORMING_LOAN_STATUSES:
+        raise SecondaryMarketValidationError(LATE_OR_DEFAULTED_DIRECT_LISTING_MESSAGE)
+    raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+
+
+def _require_purchasable_loan_status(loan: Model) -> None:
+    """A listing can be bought only while its loan performs (rule C18)."""
+    loan_status = str(cast(Any, loan).status)
+    if loan_status == PERFORMING_LOAN_STATUS:
+        return
+    if loan_status in NON_PERFORMING_LOAN_STATUSES:
         raise SecondaryMarketValidationError(
-            "Late or defaulted Loan Originator claims cannot be transferred on the "
-            "secondary market."
+            "This listing is no longer available because the loan is late or in default."
         )
-    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
-        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
-    return loan_status
+    raise SecondaryMarketValidationError("This listing is no longer available.")
+
+
+def _loan_status_cancellation_reason(loan_status: str) -> str:
+    if loan_status == "late":
+        return "Cancelled automatically because the loan is late. Late loans cannot be listed."
+    if loan_status == "defaulted":
+        return (
+            "Cancelled automatically because the loan is in default. "
+            "Loans in default cannot be listed."
+        )
+    return f"Cancelled automatically because the loan status changed to {loan_status}."
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -507,7 +559,13 @@ def _interest_covered_until_date(loan_id: str) -> Any:
     covered_dates: list[Any] = []
     for event in event_model.objects.filter(loan_id=loan_id).select_related("installment"):
         event_ref = cast(Any, event)
-        if str(event_ref.event_type) == "early_repayment":
+        raw_paid_through = cast(dict[str, Any], event_ref.metadata).get(
+            "interest_paid_through_date"
+        )
+        if raw_paid_through:
+            # Recorded explicitly since a payment can reach only overdue items.
+            covered_dates.append(date.fromisoformat(str(raw_paid_through)))
+        elif str(event_ref.event_type) == "early_repayment":
             raw_bank_date = cast(dict[str, Any], event_ref.metadata).get(
                 "borrower_repayment_bank_date"
             )
@@ -589,9 +647,17 @@ def _accrued_interest(
             as_of_date=cast(date, as_of_date),
         )
     holding_ref = cast(Any, holding)
-    assigned_date = to_business_time(holding_ref.assignment_effective_at).date()
+    # Direct-loan interest is loan-level: whoever holds the claim at the next
+    # installment receives that installment's full interest. Accrual therefore
+    # runs from the date interest is next owed from, i.e. the later of the loan
+    # start date (the schedule's interest start, as in repayment-in-advance
+    # servicing) and the last date already covered by a borrower payment. The
+    # holding's own assignment date ("Yours since") must not be used: in a
+    # resale chain it would make the next buyer skip the accrued interest the
+    # intermediate holder already paid for.
+    interest_start = cast(date, loan_ref.loan_start_date)
     from_date = (
-        max(assigned_date, interest_covered_until) if interest_covered_until else assigned_date
+        max(interest_start, interest_covered_until) if interest_covered_until else interest_start
     )
     days = max(0, (as_of_date - from_date).days)
     if days == 0:
@@ -758,6 +824,7 @@ def _validate_listing_acceptance(
     acceptance_id: str,
     actor: Model,
     holding: Model,
+    price_bps: int,
 ) -> Model:
     acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
     acceptance = cast(
@@ -779,6 +846,14 @@ def _validate_listing_acceptance(
         acceptance_ref.template_version_id
     ):
         raise SecondaryMarketValidationError("Document acceptance is no longer current.")
+    snapshot = acceptance_ref.data_snapshot
+    accepted_price = snapshot.get("price_bps") if isinstance(snapshot, dict) else None
+    if accepted_price is not None and str(accepted_price) != str(price_bps):
+        # The acceptance evidence records the reviewed price (audit A-36).
+        raise SecondaryMarketValidationError(
+            "The listing terms were accepted for a different price. "
+            "Review the listing and accept the terms again."
+        )
     return acceptance
 
 
@@ -811,6 +886,207 @@ def _validate_purchase_acceptance(
     ):
         raise SecondaryMarketValidationError("Document acceptance is no longer current.")
     return acceptance
+
+
+def _iso_or_none(value: Any) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def listing_terms_acceptance_snapshot(
+    *,
+    actor: Model,
+    holding_id: str,
+    price_bps: Any,
+    listing_id: str = "",
+) -> dict[str, Any]:
+    """Server-built evidence for secondary-market listing terms (SECCODE-11).
+
+    The holding must exist and belong to the seller; an edit names the seller's own
+    open listing of that holding. Every amount comes from the platform's pricing, so
+    the seller cannot write their own money terms into the evidence. Only the chosen
+    price percentage is a seller input.
+    """
+    _require_investor_financial_access(actor)
+    price = _validate_listing_price_bps(price_bps)
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_related("loan", "currency")
+        .filter(id=holding_id, investor_user_id=actor.pk)
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Holding does not exist.")
+    holding_ref = cast(Any, holding)
+    listing_id_clean = str(listing_id or "").strip()
+    if listing_id_clean:
+        listing_exists = SecondaryMarketListing.objects.filter(
+            id=listing_id_clean,
+            seller_user_id=actor.pk,
+            holding_id=holding_ref.id,
+            status__in=[
+                SecondaryMarketListingStatus.ACTIVE,
+                SecondaryMarketListingStatus.APPROVAL_REQUESTED,
+            ],
+        ).exists()
+        if not listing_exists:
+            raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+    if str(holding_ref.status) != "active" or int(holding_ref.current_principal_minor) <= 0:
+        raise SecondaryMarketValidationError("Only active holdings with principal can be listed.")
+    loan = cast(Model, holding_ref.loan)
+    loan_ref = cast(Any, loan)
+    _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, price)
+    pricing_date = business_date(now_utc())
+    pricing = _pricing_snapshot(
+        holding=holding,
+        loan=loan,
+        price_bps=price,
+        as_of_date=pricing_date,
+    )
+    currency = str(holding_ref.currency_id)
+    listing_terms = {
+        "price_bps": price,
+        "current_principal_minor": pricing.current_principal_minor,
+        "transfer_price_minor": pricing.transfer_price_minor,
+        "discount_premium_bps": pricing.discount_premium_bps,
+        "accrued_interest_minor": pricing.accrued_interest_minor,
+        "maker_fee_bps": pricing.maker_fee_bps,
+        "maker_fee_minor": pricing.maker_fee_minor,
+        "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
+        "currency": currency,
+        "pricing_date": pricing_date.isoformat(),
+    }
+    return {
+        "action": "edit" if listing_id_clean else "create",
+        "holding_id": str(holding_ref.id),
+        "listing_id": listing_id_clean,
+        "price_bps": price,
+        "current_principal_minor": pricing.current_principal_minor,
+        "currency": currency,
+        "loan": {
+            "id": str(loan_ref.id),
+            "title": str(loan_ref.title),
+            "product_type": str(getattr(loan_ref, "product_type", "direct")),
+            "status": str(loan_ref.status),
+        },
+        "holding": {
+            "id": str(holding_ref.id),
+            "current_principal_minor": pricing.current_principal_minor,
+            "currency": currency,
+        },
+        "listing": listing_terms,
+    }
+
+
+def purchase_terms_acceptance_snapshot(
+    *,
+    actor: Model,
+    listing_id: str,
+    reviewed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Server-built evidence for secondary-market purchase terms (SECCODE-11).
+
+    The listing must be open to this buyer. The recorded economics are the fresh
+    buyer pricing; when the buyer's reviewed figures differ, the price changed and the
+    buyer must review again (SecondaryMarketPriceChangedError, nothing is recorded).
+    """
+    listing_id_clean = str(listing_id or "").strip()
+    seller_user_id = (
+        SecondaryMarketListing.objects.filter(id=listing_id_clean)
+        .values_list("seller_user_id", flat=True)
+        .first()
+        if listing_id_clean
+        else None
+    )
+    if seller_user_id is None:
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+    if str(seller_user_id) == str(actor.pk):
+        raise SecondaryMarketValidationError("Buyer cannot purchase their own listing.")
+    detail = get_active_secondary_market_listing_detail(actor=actor, listing_id=listing_id_clean)
+    reviewed_values = reviewed if isinstance(reviewed, dict) else {}
+    for key in ("buyer_total_cost_minor", "price_bps", "current_principal_minor", "currency"):
+        if key in reviewed_values and reviewed_values[key] != detail[key]:
+            raise SecondaryMarketPriceChangedError()
+    terms = {
+        "listing_id": str(detail["id"]),
+        "currency": str(detail["currency"]),
+        "price_bps": int(detail["price_bps"]),
+        "current_principal_minor": int(detail["current_principal_minor"]),
+        "transfer_price_minor": int(detail["transfer_price_minor"]),
+        "discount_premium_bps": int(detail["discount_premium_bps"]),
+        "accrued_interest_minor": int(detail["accrued_interest_minor"]),
+        "accrued_interest_from_date": _iso_or_none(detail["accrued_interest_from_date"]),
+        "accrued_interest_to_date": _iso_or_none(detail["accrued_interest_to_date"]),
+        "taker_fee_bps": int(detail["taker_fee_bps"]),
+        "taker_fee_minor": int(detail["taker_fee_minor"]),
+        "buyer_total_cost_minor": int(detail["buyer_total_cost_minor"]),
+        "pricing_date": business_date(now_utc()).isoformat(),
+    }
+    return {
+        **terms,
+        "loan": {
+            "id": str(detail["loan_id"]),
+            "title": str(detail["loan_title"]),
+            "product_type": str(detail["product_type"]),
+            "status": str(detail["loan_status_at_listing"]),
+        },
+        "listing": dict(terms),
+        "risk_acknowledgement_required": bool(detail["risk_acknowledgement_required"]),
+    }
+
+
+def _validate_expected_purchase_values(command: PurchaseSecondaryMarketListingCommand) -> None:
+    for value, label in (
+        (command.expected_buyer_total_cost_minor, "Expected buyer total cost"),
+        (command.expected_price_bps, "Expected sale price"),
+        (command.expected_current_principal_minor, "Expected principal"),
+    ):
+        if type(value) is not int or value <= 0:
+            raise SecondaryMarketValidationError(
+                f"{label} must be the positive amount shown in the purchase review."
+            )
+
+
+def _require_reviewed_purchase_economics(
+    *,
+    command: PurchaseSecondaryMarketListingCommand,
+    acceptance: Model,
+    listing: SecondaryMarketListing,
+    price_bps: int,
+    pricing: SecondaryMarketListingPricing,
+) -> None:
+    """Charge only what the buyer reviewed and what the acceptance evidence records.
+
+    Any difference between the reviewed economics and the settlement pricing (a
+    seller edit, servicing repricing, or accrued interest from a new business
+    day) rejects the purchase before any money moves. The acceptance snapshot is
+    the source of the generated purchase document, so it must state the same
+    total that settlement charges.
+    """
+    if (
+        command.expected_buyer_total_cost_minor != pricing.buyer_total_cost_minor
+        or command.expected_price_bps != price_bps
+        or command.expected_current_principal_minor != pricing.current_principal_minor
+    ):
+        raise SecondaryMarketPriceChangedError()
+    snapshot = cast(Any, acceptance).data_snapshot
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    accepted_total = snapshot.get("buyer_total_cost_minor")
+    if type(accepted_total) is not int:
+        raise SecondaryMarketValidationError(
+            "Purchase terms acceptance must record the reviewed total cost."
+        )
+    expected_snapshot_values: dict[str, Any] = {
+        "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+        "price_bps": price_bps,
+        "current_principal_minor": pricing.current_principal_minor,
+        "currency": str(listing.currency_id),
+        "listing_id": str(listing.id),
+    }
+    for key, expected in expected_snapshot_values.items():
+        if key in snapshot and snapshot[key] != expected:
+            raise SecondaryMarketPriceChangedError()
 
 
 def _listing_request_fingerprint(
@@ -986,6 +1262,14 @@ def _existing_purchase_replay(
         raise SecondaryMarketValidationError(
             "Idempotency key was already used for a different purchase request."
         )
+    if (
+        int(existing.buyer_total_cost_minor) != command.expected_buyer_total_cost_minor
+        or int(existing.price_bps) != command.expected_price_bps
+        or int(existing.current_principal_minor) != command.expected_current_principal_minor
+    ):
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
     return cast(SecondaryMarketPurchase, existing)
 
 
@@ -1018,6 +1302,40 @@ def _record_listing_event(
             idempotency_key=idempotency_key,
             request_fingerprint=request_fingerprint,
         ),
+    )
+
+
+def _notify_seller_listing_cancelled_by_loan_status(
+    *,
+    listing: SecondaryMarketListing,
+    loan_title: str,
+    loan_status: str,
+    refresh_event_id: str,
+) -> None:
+    """Tell the seller (portal notice + email) why the listing was cancelled."""
+    status_text = "is in default" if loan_status == "defaulted" else f"is {loan_status}"
+    _enqueue_investor_email(
+        investor_user_id=str(listing.seller_user_id),
+        topic="email.secondary_market_listing_status",
+        subject=(
+            f"{settings.PLATFORM_BRAND_NAME} {LISTING_CANCELLED_BY_LOAN_STATUS_NOTICE_SUBJECT}"
+        ),
+        body_text=(
+            f"We cancelled your secondary-market listing for loan {loan_title}, because the "
+            f"loan {status_text}. Loans that are late or in default cannot be sold on the "
+            "secondary market.\n\n"
+            "No money was moved. You keep the holding in your portfolio. You can list it "
+            "again when the loan is up to date."
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:auto-cancelled:{refresh_event_id}",
+        metadata={
+            "listing_id": str(listing.id),
+            "holding_id": str(listing.holding_id),
+            "loan_id": str(listing.loan_id),
+            "loan_status": loan_status,
+            "reason": "loan_not_performing",
+        },
     )
 
 
@@ -1076,11 +1394,12 @@ def refresh_open_secondary_market_listings_for_loan(
         loan_status = str(loan_ref.status)
         holding_principal = int(holding_ref.current_principal_minor)
         holding_is_open = str(holding_ref.status) == "active" and holding_principal > 0
-        loan_is_listable = loan_status in {
-            PERFORMING_LOAN_STATUS,
-            *NONSTANDARD_LISTABLE_STATUSES,
-        }
+        # Product rule C18: a listing stays open only while the loan performs. When the
+        # loan turns late or defaulted the listing is cancelled (no money moves); it is
+        # never re-priced into an approval queue.
+        loan_is_listable = loan_status == PERFORMING_LOAN_STATUS
         automatically_cancelled = not holding_is_open or not loan_is_listable
+        cancelled_by_loan_status = holding_is_open and not loan_is_listable
         event_metadata: dict[str, Any]
         if automatically_cancelled:
             listing.status = SecondaryMarketListingStatus.CANCELLED
@@ -1090,7 +1409,7 @@ def refresh_open_secondary_market_listings_for_loan(
             listing.cancellation_reason = (
                 "Automatically cancelled because the holding has no remaining principal."
                 if not holding_is_open
-                else f"Automatically cancelled because loan status changed to {loan_status}."
+                else _loan_status_cancellation_reason(loan_status)
             )
             listing.listed_at = None
             listing.metadata = {
@@ -1132,17 +1451,9 @@ def refresh_open_secondary_market_listings_for_loan(
                 price_bps=int(listing.price_bps),
                 as_of_date=as_of_date,
             )
-            is_performing = loan_status == PERFORMING_LOAN_STATUS
-            listing.status = (
-                SecondaryMarketListingStatus.ACTIVE
-                if is_performing
-                else SecondaryMarketListingStatus.APPROVAL_REQUESTED
-            )
-            listing.publication_type = (
-                SecondaryMarketListingPublicationType.AUTOMATIC
-                if is_performing
-                else SecondaryMarketListingPublicationType.ADMIN_APPROVED
-            )
+            # Only a performing loan reaches this branch (see loan_is_listable above).
+            listing.status = SecondaryMarketListingStatus.ACTIVE
+            listing.publication_type = SecondaryMarketListingPublicationType.AUTOMATIC
             listing.current_principal_minor = pricing.current_principal_minor
             listing.transfer_price_minor = pricing.transfer_price_minor
             listing.discount_premium_bps = pricing.discount_premium_bps
@@ -1161,12 +1472,8 @@ def refresh_open_secondary_market_listings_for_loan(
             listing.days_past_due = pricing.days_past_due
             listing.last_payment_date = pricing.last_payment_date
             listing.risk_acknowledgement_required = pricing.risk_acknowledgement_required
-            listing.listed_at = (listing.listed_at or now_utc()) if is_performing else None
-            if not is_performing:
-                listing.approved_by_admin_id = None
-                listing.approved_at = None
-                listing.approval_reason = ""
-            listing.public_disclosure_note = "" if is_performing else listing.public_disclosure_note
+            listing.listed_at = listing.listed_at or now_utc()
+            listing.public_disclosure_note = ""
             listing.metadata = {
                 **cast(dict[str, Any], listing.metadata),
                 "last_automatic_refresh": {
@@ -1240,6 +1547,13 @@ def refresh_open_secondary_market_listings_for_loan(
             metadata=event_metadata,
             idempotency_suffix=str(refresh_event.id),
         )
+        if cancelled_by_loan_status:
+            _notify_seller_listing_cancelled_by_loan_status(
+                listing=listing,
+                loan_title=str(loan_ref.title),
+                loan_status=loan_status,
+                refresh_event_id=str(refresh_event.id),
+            )
         refreshed.append(
             SecondaryMarketListingRefresh(
                 listing_id=str(listing.id),
@@ -1321,6 +1635,13 @@ def _record_audit_and_domain(
     )
 
 
+def _require_not_in_penalty_mode(actor: Model, action: str) -> None:
+    """PAY-DEC-022: a penalty-mode investor cannot start new financial actions."""
+    ledger = _ledger_services()
+    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
+        raise SecondaryMarketValidationError(ledger.penalty_mode_frozen_message(action))
+
+
 def _open_listing_exists_for_holding(holding_id: str) -> bool:
     return SecondaryMarketListing.objects.filter(
         holding_id=cast(Any, holding_id),
@@ -1363,6 +1684,7 @@ def create_secondary_market_listing(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         holding=holding,
+        price_bps=price_bps,
     )
     snapshot_date = business_date(now_utc())
     pricing = _pricing_snapshot(
@@ -1385,6 +1707,7 @@ def create_secondary_market_listing(
     )
     if existing is not None:
         return existing
+    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
@@ -1434,13 +1757,14 @@ def _create_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Only holdings with principal can be listed.")
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
-    loan_status = _require_listable_loan_status(loan)
+    _require_listable_loan_status(loan)
     _validate_loan_listing_price(loan, price_bps)
     currency = _enabled_currency(str(holding_ref.currency_id))
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         holding=holding,
+        price_bps=price_bps,
     )
     snapshot_date = business_date(now_utc())
     pricing = _pricing_snapshot(
@@ -1463,22 +1787,16 @@ def _create_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
+    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
         )
     now = now_utc()
-    is_performing = loan_status == PERFORMING_LOAN_STATUS
-    status = (
-        SecondaryMarketListingStatus.ACTIVE
-        if is_performing
-        else SecondaryMarketListingStatus.APPROVAL_REQUESTED
-    )
-    publication_type = (
-        SecondaryMarketListingPublicationType.AUTOMATIC
-        if is_performing
-        else SecondaryMarketListingPublicationType.ADMIN_APPROVED
-    )
+    # _require_listable_loan_status admits performing loans only (rule C18), so every
+    # new listing is published automatically; nothing waits for an admin approval.
+    status = SecondaryMarketListingStatus.ACTIVE
+    publication_type = SecondaryMarketListingPublicationType.AUTOMATIC
     metadata = {
         LISTING_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "pricing_date": str(snapshot_date),
@@ -1517,7 +1835,7 @@ def _create_secondary_market_listing_after_sensitive_code(
             last_payment_date=pricing.last_payment_date,
             risk_acknowledgement_required=pricing.risk_acknowledgement_required,
             document_acceptance=cast(Any, acceptance),
-            listed_at=now if is_performing else None,
+            listed_at=now,
             created_by_user_id=command.actor.pk,
             metadata=metadata,
             idempotency_key=idempotency_key,
@@ -1556,15 +1874,10 @@ def _create_secondary_market_listing_after_sensitive_code(
         note=command.notes,
         metadata=event_metadata,
     )
-    follow_on_event = (
-        SecondaryMarketListingEventType.AUTO_PUBLISHED
-        if is_performing
-        else SecondaryMarketListingEventType.APPROVAL_REQUESTED
-    )
     _record_listing_event(
         listing=listing,
         actor=command.actor,
-        event_type=follow_on_event,
+        event_type=SecondaryMarketListingEventType.AUTO_PUBLISHED,
         new_status=listing.status,
         metadata=event_metadata,
     )
@@ -1575,7 +1888,7 @@ def _create_secondary_market_listing_after_sensitive_code(
         listing=listing,
         metadata=event_metadata,
     )
-    status_label = "active" if is_performing else "submitted for Garanta approval"
+    status_label = "active"
     _enqueue_investor_email(
         investor_user_id=seller_user_id,
         topic="email.secondary_market_listing_status",
@@ -1614,6 +1927,7 @@ def edit_secondary_market_listing(
     )
     if existing is not None:
         return existing
+    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     listing = (
         SecondaryMarketListing.objects.select_related("holding")
         .filter(id=command.listing_id, seller_user_id=command.actor.pk)
@@ -1631,6 +1945,7 @@ def edit_secondary_market_listing(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         holding=cast(Model, listing.holding),
+        price_bps=command.price_bps,
     )
     if str(cast(Any, acceptance).pk) == str(listing.document_acceptance_id):
         raise SecondaryMarketValidationError(
@@ -1672,6 +1987,7 @@ def _edit_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
+    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     locator = (
         SecondaryMarketListing.objects.filter(
             id=command.listing_id,
@@ -1729,12 +2045,13 @@ def _edit_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Only active holdings with principal can be listed.")
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
-    loan_status = _require_listable_loan_status(loan)
+    _require_listable_loan_status(loan)
     _validate_loan_listing_price(loan, price_bps)
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         holding=holding,
+        price_bps=price_bps,
     )
     if str(cast(Any, acceptance).pk) == str(listing.document_acceptance_id):
         raise SecondaryMarketValidationError(
@@ -1757,17 +2074,9 @@ def _edit_secondary_market_listing_after_sensitive_code(
         "document_acceptance_id": str(listing.document_acceptance_id),
     }
     now = now_utc()
-    is_performing = loan_status == PERFORMING_LOAN_STATUS
-    listing.status = (
-        SecondaryMarketListingStatus.ACTIVE
-        if is_performing
-        else SecondaryMarketListingStatus.APPROVAL_REQUESTED
-    )
-    listing.publication_type = (
-        SecondaryMarketListingPublicationType.AUTOMATIC
-        if is_performing
-        else SecondaryMarketListingPublicationType.ADMIN_APPROVED
-    )
+    # Only performing loans pass _require_listable_loan_status (rule C18).
+    listing.status = SecondaryMarketListingStatus.ACTIVE
+    listing.publication_type = SecondaryMarketListingPublicationType.AUTOMATIC
     listing.current_principal_minor = pricing.current_principal_minor
     listing.price_bps = price_bps
     listing.transfer_price_minor = pricing.transfer_price_minor
@@ -1788,7 +2097,7 @@ def _edit_secondary_market_listing_after_sensitive_code(
     listing.last_payment_date = pricing.last_payment_date
     listing.risk_acknowledgement_required = pricing.risk_acknowledgement_required
     listing.document_acceptance = cast(Any, acceptance)
-    listing.listed_at = now if is_performing else None
+    listing.listed_at = now
     listing.approved_by_admin_id = None
     listing.approved_at = None
     listing.approval_reason = ""
@@ -1885,7 +2194,7 @@ def _edit_secondary_market_listing_after_sensitive_code(
         metadata=event_metadata,
         idempotency_suffix=str(edit_event.id),
     )
-    status_label = "active" if is_performing else "submitted for Garanta approval"
+    status_label = "active"
     _enqueue_investor_email(
         investor_user_id=seller_user_id,
         topic="email.secondary_market_listing_status",
@@ -1959,15 +2268,24 @@ def list_admin_secondary_market_listings(
     return listings
 
 
+@transaction.atomic
 def approve_secondary_market_listing(
     command: ApproveSecondaryMarketListingCommand,
 ) -> SecondaryMarketListing:
+    """Legacy admin approval. No new listing waits for approval (rule C18).
+
+    Kept so an old ``approval_requested`` row can be resolved safely: approval never
+    publishes a listing whose loan is not performing.
+    """
     _require_admin_actor(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     reason = _clean_required(command.reason, "Approval reason")
     disclosure_note = _clean_required(command.disclosure_note, "Disclosure note")
     listing = (
-        SecondaryMarketListing.objects.select_for_update().filter(id=command.listing_id).first()
+        SecondaryMarketListing.objects.select_for_update()
+        .select_related("loan")
+        .filter(id=command.listing_id)
+        .first()
     )
     if listing is None:
         raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
@@ -1989,6 +2307,7 @@ def approve_secondary_market_listing(
         return listing
     if listing.status != SecondaryMarketListingStatus.APPROVAL_REQUESTED:
         raise SecondaryMarketValidationError("Only requested listings can be approved.")
+    _require_listable_loan_status(cast(Model, listing.loan))
     previous_status = str(listing.status)
     now = now_utc()
     listing.status = SecondaryMarketListingStatus.ACTIVE
@@ -2318,6 +2637,7 @@ def purchase_secondary_market_listing(
     _require_investor_financial_access(command.actor)
     buyer_user_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    _validate_expected_purchase_values(command)
     replay = _existing_purchase_replay(
         command,
         buyer_user_id=buyer_user_id,
@@ -2368,7 +2688,7 @@ def purchase_secondary_market_listing(
         raise SecondaryMarketValidationError("Seller holding does not exist.")
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
-    _require_listable_loan_status(loan)
+    _require_purchasable_loan_status(loan)
     _validate_loan_listing_price(loan, int(listing.price_bps))
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
@@ -2389,7 +2709,7 @@ def purchase_secondary_market_listing(
             "Buyer must acknowledge the non-standard listing risk disclosure."
         )
 
-    _validate_purchase_acceptance(
+    acceptance = _validate_purchase_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         listing=listing,
@@ -2405,6 +2725,16 @@ def purchase_secondary_market_listing(
         raise SecondaryMarketValidationError(
             "Loan status changed after listing; seller must relist with current disclosures."
         )
+    # Early check before the email code is consumed, so a buyer whose review went
+    # stale can review the new price and confirm again with the same code. The
+    # authoritative check repeats under the settlement row locks.
+    _require_reviewed_purchase_economics(
+        command=command,
+        acceptance=acceptance,
+        listing=listing,
+        price_bps=int(listing.price_bps),
+        pricing=pricing,
+    )
     request_fingerprint = _purchase_request_fingerprint(
         command,
         buyer_user_id=buyer_user_id,
@@ -2448,6 +2778,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     _require_investor_financial_access(command.actor)
     buyer_user_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    _validate_expected_purchase_values(command)
     replay = _existing_purchase_replay(
         command,
         buyer_user_id=buyer_user_id,
@@ -2510,7 +2841,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Listing changed during purchase settlement.")
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
-    _require_listable_loan_status(loan)
+    _require_purchasable_loan_status(loan)
     _validate_loan_listing_price(loan, int(listing.price_bps))
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
@@ -2548,6 +2879,15 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError(
             "Loan status changed after listing; seller must relist with current disclosures."
         )
+    # Loan, holding and listing rows are locked: a seller edit or servicing
+    # repricing cannot change these economics between this check and the ledger.
+    _require_reviewed_purchase_economics(
+        command=command,
+        acceptance=acceptance,
+        listing=listing,
+        price_bps=int(listing.price_bps),
+        pricing=pricing,
+    )
     if _is_originator_claim_loan(loan):
         buyer_cash_flows = _originator_holding_projection(
             holding=holding,
@@ -2798,6 +3138,62 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     return cast(SecondaryMarketPurchase, purchase)
 
 
+def preview_secondary_market_listing_pricing(
+    *,
+    actor: Model,
+    holding_id: str,
+    price_bps: int,
+) -> dict[str, Any]:
+    """Seller-side pricing of a holding at a price, as a listing made now would record.
+
+    The listing form shows these server values (transfer price, accrued interest,
+    configured maker fee with its minimum, seller net proceeds) instead of a browser
+    estimate. It uses the same pricing as listing creation and a same-day sale.
+    """
+    _require_investor_financial_access(actor)
+    price_bps = _validate_listing_price_bps(price_bps)
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_related("loan", "currency")
+        .filter(id=holding_id, investor_user_id=actor.pk)
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Holding does not exist.")
+    holding_ref = cast(Any, holding)
+    loan = cast(Model, holding_ref.loan)
+    if str(holding_ref.status) != "active" or int(holding_ref.current_principal_minor) <= 0:
+        raise SecondaryMarketValidationError("Only active holdings with principal can be listed.")
+    _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, price_bps)
+    pricing_date = business_date(now_utc())
+    pricing = _pricing_snapshot(
+        holding=holding,
+        loan=loan,
+        price_bps=price_bps,
+        as_of_date=pricing_date,
+    )
+    return {
+        "holding_id": str(holding_ref.id),
+        "currency": str(holding_ref.currency_id),
+        "price_bps": price_bps,
+        "pricing_date": pricing_date,
+        "current_principal_minor": pricing.current_principal_minor,
+        "transfer_price_minor": pricing.transfer_price_minor,
+        "discount_premium_bps": pricing.discount_premium_bps,
+        "accrued_interest_minor": pricing.accrued_interest_minor,
+        "accrued_interest_from_date": pricing.accrued_interest_from_date,
+        "accrued_interest_to_date": pricing.accrued_interest_to_date,
+        "maker_fee_bps": pricing.maker_fee_bps,
+        "minimum_maker_fee_minor": pricing.minimum_maker_fee_minor,
+        "maker_fee_minor": pricing.maker_fee_minor,
+        "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
+        "taker_fee_minor": pricing.taker_fee_minor,
+        "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+    }
+
+
 def list_active_secondary_market_listings(
     *,
     actor: Model,
@@ -2811,9 +3207,13 @@ def list_active_secondary_market_listings(
             status=SecondaryMarketListingStatus.ACTIVE,
             loan__status=F("loan_status_at_listing"),
         )
-        .filter(~Q(loan__product_type="originator_claim") | Q(loan__status=PERFORMING_LOAN_STATUS))
+        # Rule C18: only performing loans are offered, Direct and Loan Originator alike.
+        .filter(loan__status=PERFORMING_LOAN_STATUS)
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
+    for listing in listings:
+        # The viewer's own listing is shown as "Your listing", without a Buy action.
+        listing.is_own_listing = str(listing.seller_user_id) == str(actor.pk)  # type: ignore[attr-defined]
     if not listings:
         return listings
 
@@ -2908,6 +3308,7 @@ def get_active_secondary_market_listing_detail(
             status=SecondaryMarketListingStatus.ACTIVE,
             loan__status=F("loan_status_at_listing"),
         )
+        .filter(loan__status=PERFORMING_LOAN_STATUS)
         .first()
     )
     if listing is None:
@@ -2981,6 +3382,7 @@ def get_active_secondary_market_listing_detail(
         "loan_id": str(listing.loan_id),
         "loan_title": str(loan.title),
         "product_type": str(getattr(loan, "product_type", "direct")),
+        "is_own_listing": str(listing.seller_user_id) == str(actor.pk),
         "status": str(listing.status),
         "current_principal_minor": current_pricing.current_principal_minor,
         "currency": str(listing.currency_id),

@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 from unittest.mock import patch
 
 import pytest
@@ -290,6 +290,7 @@ def _secondary_acceptance(
     context_type: str,
     context_id: str,
     suffix: str,
+    data_snapshot: dict[str, Any] | None = None,
 ) -> Model:
     documents = import_module("backend.apps.documents.models")
     template = documents.DocumentTemplate.objects.create(
@@ -325,10 +326,40 @@ def _secondary_acceptance(
             context_type=context_type,
             context_id=context_id,
             accepted_checkbox_labels=["I accept the secondary-market assignment terms."],
-            data_snapshot={},
+            data_snapshot=data_snapshot or {},
             idempotency_key=f"originator-secondary-accept-{suffix}",
         ),
     )
+
+
+def _secondary_purchase_review(buyer: Model, listing_id: str) -> dict[str, Any]:
+    """The economics the buyer reviews in the Buy modal (fresh listing detail)."""
+    secondary = import_module("backend.apps.secondary_market.services")
+    detail = secondary.get_active_secondary_market_listing_detail(
+        actor=buyer,
+        listing_id=listing_id,
+    )
+    return {
+        "listing_id": detail["id"],
+        "currency": detail["currency"],
+        "price_bps": detail["price_bps"],
+        "current_principal_minor": detail["current_principal_minor"],
+        "buyer_total_cost_minor": detail["buyer_total_cost_minor"],
+    }
+
+
+class _SecondaryExpectedTerms(TypedDict):
+    expected_buyer_total_cost_minor: int
+    expected_price_bps: int
+    expected_current_principal_minor: int
+
+
+def _secondary_expected_terms(review: dict[str, Any]) -> _SecondaryExpectedTerms:
+    return {
+        "expected_buyer_total_cost_minor": int(review["buyer_total_cost_minor"]),
+        "expected_price_bps": int(review["price_bps"]),
+        "expected_current_principal_minor": int(review["current_principal_minor"]),
+    }
 
 
 def _declare_originator_test_deposit(
@@ -633,6 +664,20 @@ def _close_originator_at_as_of(
         return close_originator_subscription_round(command)
 
 
+def _record_originator_repayment_at_as_of(
+    command: RecordOriginatorBorrowerRepaymentCommand,
+) -> OriginatorBorrowerRepayment:
+    # Bank receipts cannot be dated in the future: run on the platform day they arrive.
+    clock = datetime.combine(
+        max(command.as_of_date, command.value_date, command.booking_date), time(12), UTC
+    )
+    with (
+        patch("backend.apps.originator_claims.services.now_utc", return_value=clock),
+        patch("backend.apps.ledger.services.now_utc", return_value=clock),
+    ):
+        return record_originator_borrower_repayment(command)
+
+
 def _scan_originator_at_as_of(
     *, actor: Model, as_of_date: date, limit: int = 1000
 ) -> list[dict[str, str]]:
@@ -675,7 +720,7 @@ def _record_subscription_boundary(
     payment_date: date | None = None,
 ) -> OriginatorBorrowerRepayment:
     boundary_date = payment_date or today + timedelta(days=10)
-    return record_originator_borrower_repayment(
+    return _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -1272,7 +1317,7 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
         )
     )
 
-    repayment = record_originator_borrower_repayment(
+    repayment = _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -1318,6 +1363,8 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
             start_date=today,
             end_date=first_due,
             output_format="csv",
+            # Tax information is only produced once its period has ended.
+            as_of=datetime.combine(first_due + timedelta(days=1), time(12), UTC),
         )
     )
     tax_rows = list(csv.DictReader(io.StringIO(tax_artifact.content)))
@@ -1331,23 +1378,30 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
     assert len(queue) == 1
     assert queue[0]["purchase_ids"] == [str(purchase.id)]
     assert queue[0]["repayment_ids"] == [str(repayment.id)]
-    settlement = finalize_originator_settlement(
-        FinalizeOriginatorSettlementCommand(
-            actor=admin_user,
-            originator_id=str(originator.id),
-            currency="CHF",
-            purchase_ids=[str(purchase.id)],
-            repayment_ids=[str(repayment.id)],
-            booking_date=first_due,
-            value_date=first_due,
-            collection_account_identifier="CH11 83019 GARANTAFI001",
-            bank_reference="LO-SETTLEMENT-1",
-            payment_reference="LO-SETTLEMENT-1",
-            evidence_reference="BANK-STMT-LO-SETTLEMENT-1",
-            notes="Purchase and servicing batch settlement.",
-            idempotency_key="originator-combined-settlement-1",
+    # Settlement bank dates cannot be in the future: settle on the platform day
+    # the transfer was sent.
+    settlement_clock = datetime.combine(first_due, time(12), UTC)
+    with (
+        patch("backend.apps.originator_claims.services.now_utc", return_value=settlement_clock),
+        patch("backend.apps.ledger.services.now_utc", return_value=settlement_clock),
+    ):
+        settlement = finalize_originator_settlement(
+            FinalizeOriginatorSettlementCommand(
+                actor=admin_user,
+                originator_id=str(originator.id),
+                currency="CHF",
+                purchase_ids=[str(purchase.id)],
+                repayment_ids=[str(repayment.id)],
+                booking_date=first_due,
+                value_date=first_due,
+                collection_account_identifier="CH11 83019 GARANTAFI001",
+                bank_reference="LO-SETTLEMENT-1",
+                payment_reference="LO-SETTLEMENT-1",
+                evidence_reference="BANK-STMT-LO-SETTLEMENT-1",
+                notes="Purchase and servicing batch settlement.",
+                idempotency_key="originator-combined-settlement-1",
+            )
         )
-    )
     assert settlement.amount_minor == (
         settlement.purchase_amount_minor + settlement.servicing_amount_minor
     )
@@ -1428,12 +1482,14 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
         today=today,
         suffix="RESALE-BUYER",
     )
+    resale_review = _secondary_purchase_review(other_investor, str(listing.id))
     purchase_acceptance = _secondary_acceptance(
         other_investor,
         category="secondary_market_purchase",
         context_type="secondary_market_purchase",
         context_id=str(listing.id),
         suffix="resale-purchase",
+        data_snapshot=resale_review,
     )
     purchase_code = issue_sensitive_action_test_code(
         other_investor,
@@ -1447,6 +1503,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
             sensitive_action_code_id=purchase_code.code_id,
             sensitive_action_code=purchase_code.raw_code,
             idempotency_key="originator-resale-purchase",
+            **_secondary_expected_terms(resale_review),
         )
     )
 
@@ -1458,7 +1515,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
     assert resale.metadata["buyer_projected_yield_bps"] > 0
     assert "target_yield_bps" not in resale.metadata
 
-    repayment = record_originator_borrower_repayment(
+    repayment = _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -1527,13 +1584,15 @@ def test_direct_servicing_scanner_does_not_mutate_originator_loans(
         suffix="DIRECT-SCANNER",
     )
     servicing = import_module("backend.apps.servicing.services")
-    scan_result = servicing.scan_loan_servicing_statuses(
-        servicing.ScanLoanServicingStatusesCommand(
-            actor=admin_user,
-            as_of_date=today + timedelta(days=31),
-            loan_ids=[str(result.loan.id)],
+    clock = datetime.combine(today + timedelta(days=31), time(12), UTC)
+    with patch("backend.apps.servicing.services.now_utc", return_value=clock):
+        scan_result = servicing.scan_loan_servicing_statuses(
+            servicing.ScanLoanServicingStatusesCommand(
+                actor=admin_user,
+                as_of_date=today + timedelta(days=31),
+                loan_ids=[str(result.loan.id)],
+            )
         )
-    )
     result.loan.refresh_from_db()
     assert scan_result.changes == []
     assert result.loan.status == "active"
@@ -1643,7 +1702,7 @@ def test_full_originator_repayment_closes_claim_without_nulling_shared_dates(
         final_due_days=45,
     )
     original_first_payment_date = result.loan.first_payment_date
-    first = record_originator_borrower_repayment(
+    first = _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -1663,7 +1722,7 @@ def test_full_originator_repayment_closes_claim_without_nulling_shared_dates(
         )
     )
     assert first.principal_after_minor == 500_000
-    second = record_originator_borrower_repayment(
+    second = _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -1907,7 +1966,7 @@ def test_originator_repayment_rejects_csv_split_that_pays_principal_before_inter
         OriginatorClaimsValidationError,
         match="violates the universal payment waterfall",
     ):
-        record_originator_borrower_repayment(
+        _record_originator_repayment_at_as_of(
             RecordOriginatorBorrowerRepaymentCommand(
                 actor=admin_user,
                 loan_id=str(result.loan.id),
@@ -2363,7 +2422,7 @@ def test_par_subscription_actual_repayment_uses_component_participation(
     )
 
     second_due = today + timedelta(days=40)
-    repayment = record_originator_borrower_repayment(
+    repayment = _record_originator_repayment_at_as_of(
         RecordOriginatorBorrowerRepaymentCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
@@ -3187,7 +3246,7 @@ def test_par_subscription_hold_blocks_investment_and_remains_cancellable(
                 idempotency_key="subscription-open-hold-order",
             )
         )
-    with pytest.raises(OriginatorClaimsValidationError, match="held originator funding round"):
+    with pytest.raises(OriginatorClaimsValidationError, match="funding round is paused"):
         _close_originator_at_as_of(
             CloseOriginatorSubscriptionRoundCommand(
                 actor=admin_user,
@@ -3234,7 +3293,7 @@ def test_par_subscription_hold_blocks_automatic_close_and_allows_refund(
             reason="Explicit adverse compliance hold.",
         )
     )
-    with pytest.raises(OriginatorClaimsValidationError, match="held originator"):
+    with pytest.raises(OriginatorClaimsValidationError, match="funding round is paused"):
         _close_originator_at_as_of(
             CloseOriginatorSubscriptionRoundCommand(
                 actor=admin_user,
@@ -3258,12 +3317,12 @@ def test_par_subscription_hold_blocks_automatic_close_and_allows_refund(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("explicit_hold", [True, False])
 def test_expired_subscription_safeguards_escalate_without_being_bypassed_on_retry(
     admin_user: Model,
     investor: Model,
-    explicit_hold: bool,
 ) -> None:
+    # A round paused by an admin is not a close failure: see
+    # test_originator_paused_round.py. A blocked originator still is.
     today = business_date(timezone.now())
     result = _create_par_subscription_loan(admin_user=admin_user, today=today, suffix="SAFEGUARD")
     order = _allocate_par_subscription(
@@ -3274,17 +3333,8 @@ def test_expired_subscription_safeguards_escalate_without_being_bypassed_on_retr
         amount_minor=160_000,
         suffix="SAFEGUARD",
     )
-    if explicit_hold:
-        place_originator_loan_on_hold(
-            HoldOriginatorLoanCommand(
-                actor=admin_user,
-                loan_id=str(result.loan.pk),
-                reason="Explicit adverse compliance hold.",
-            )
-        )
-    else:
-        result.profile.originator.status = LoanOriginatorStatus.BLOCKED
-        result.profile.originator.save(update_fields=["status"])
+    result.profile.originator.status = LoanOriginatorStatus.BLOCKED
+    result.profile.originator.save(update_fields=["status"])
     for _attempt in range(2):
         actions = _scan_originator_at_as_of(
             actor=admin_user, as_of_date=today + timedelta(days=6)
@@ -3297,8 +3347,6 @@ def test_expired_subscription_safeguards_escalate_without_being_bypassed_on_retr
         assert result.profile.is_on_hold is True
         assert order.status == "balance_allocated"
         assert not OriginatorSubscriptionActivation.objects.exists()
-        if explicit_hold:
-            assert result.profile.hold_reason == "Explicit adverse compliance hold."
     task_model = import_module("backend.apps.admin_ops.models").AdminTask
     assert task_model.objects.filter(
         related_object_type="LoanFundingCloseFailure",
@@ -3578,6 +3626,7 @@ def test_qa_clock_lo_resale_lot_is_yours_since_the_purchase_not_activation(
         purchase_code = issue_sensitive_action_test_code(
             other_investor, "secondary_market_purchase"
         )
+        r87_review = _secondary_purchase_review(other_investor, str(listing.id))
         resale = secondary.purchase_secondary_market_listing(
             secondary.PurchaseSecondaryMarketListingCommand(
                 actor=other_investor,
@@ -3589,11 +3638,13 @@ def test_qa_clock_lo_resale_lot_is_yours_since_the_purchase_not_activation(
                         context_type="secondary_market_purchase",
                         context_id=str(listing.id),
                         suffix="r87-purchase",
+                        data_snapshot=r87_review,
                     ).pk
                 ),
                 sensitive_action_code_id=purchase_code.code_id,
                 sensitive_action_code=purchase_code.raw_code,
                 idempotency_key="r87-purchase",
+                **_secondary_expected_terms(r87_review),
             )
         )
         portfolio = import_module("backend.apps.investor_portal.services").get_investor_portfolio(
@@ -3726,3 +3777,111 @@ def test_originator_edit_without_changes_is_rejected_like_borrower_edits(
         originator=originator, event_type=OriginatorClaimEventType.ORIGINATOR_UPDATED
     )
     assert event.metadata == {"changed_fields": ["contact_info"]}
+
+
+@pytest.mark.django_db
+def test_closed_subscription_loan_page_stays_readable_but_not_investable(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    """JOURNEY-09: an LO loan page opens after its round closes; investing stays refused."""
+    from django.test import Client
+
+    from backend.apps.originator_claims.services import (
+        list_open_originator_marketplace_payloads,
+        originator_marketplace_payload,
+    )
+
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(admin_user=admin_user, today=today, suffix="READ")
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="READ",
+    )
+    _close_originator_at_as_of(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-read-close",
+        )
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert result.loan.status == "active"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.ACTIVE
+    _approve_financial_access(other_investor)
+    client = Client()
+
+    for reader in (investor, other_investor):
+        client.force_login(cast(Any, reader))
+        response = client.get(f"/api/v1/marketplace/primary/loans/{result.loan.id}/")
+        assert response.status_code == 200, response.content
+        payload = response.json()
+        assert payload["loan_id"] == str(result.loan.id)
+        assert payload["status"] == "active"
+        assert payload["opportunity_status"] == "active"
+        assert payload["remaining_capacity_minor"] == 0
+        assert payload["fillable_amount_minor"] == 0
+        assert payload["originator_schedule"]
+
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+    with pytest.raises(marketplace.MarketplacePrimaryValidationError, match="not published"):
+        marketplace.create_primary_investment_order(
+            marketplace.CreatePrimaryInvestmentOrderCommand(
+                actor=other_investor,
+                loan_id=str(result.loan.id),
+                amount_minor=100_000,
+                idempotency_key="subscription-read-late-order",
+            )
+        )
+    # The open list and Smart Invest still offer only open rounds.
+    assert all(
+        row["loan_id"] != str(result.loan.id)
+        for row in list_open_originator_marketplace_payloads(limit=100)
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="not open"):
+        originator_marketplace_payload(result.profile, include_detail=False)
+
+
+@pytest.mark.django_db
+def test_claim_quote_acceptance_needs_the_investors_own_quote(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    """SECCODE-11: LO claim evidence is built from the investor's own quote only."""
+    documents = import_module("backend.apps.documents.services")
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(admin_user=admin_user, today=today, suffix="OWNQ")
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    quote = create_originator_claim_quote(
+        CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(result.loan.id),
+            requested_cash_minor=250_000,
+        )
+    )
+
+    # atomic(): the helper's own template rows roll back with each refusal.
+    with (
+        pytest.raises(documents.DocumentValidationError, match="quote does not exist"),
+        transaction.atomic(),
+    ):
+        _primary_acceptance(other_investor, quote_id=str(quote.id))
+    with pytest.raises(documents.DocumentValidationError, match="quote does not exist"):
+        _primary_acceptance(investor, quote_id=str(uuid.uuid4()))
+
+    acceptance = _primary_acceptance(investor, quote_id=str(quote.id))
+    snapshot = cast(Any, acceptance).data_snapshot
+    assert snapshot["order"]["assigned_principal_minor"] == quote.assigned_principal_minor
+    assert snapshot["order"]["allocated_amount_minor"] == quote.executable_cash_minor
+    assert snapshot["originator"]["legal_name"] == "Lifecycle Originator OWNQ AG"
+    assert snapshot["user"]["email"] == cast(Any, investor).email

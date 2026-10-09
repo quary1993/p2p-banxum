@@ -4,6 +4,8 @@ from django.urls import path
 
 from backend.apps.marketplace_primary.api.views import (
     MarketplaceLoanDetailView,
+    MarketplaceLoanDocumentDownloadView,
+    MarketplaceOpportunityListView,
     PrimaryInvestmentOrderAllocateView,
     PrimaryInvestmentOrderCreateView,
     PrimaryInvestmentOrderReleaseView,
@@ -17,9 +19,19 @@ from backend.apps.marketplace_primary.api.views import (
 urlpatterns = [
     path("loans/", PublicMarketplaceLoanListView.as_view(), name="marketplace-primary-loans"),
     path(
+        "opportunities/",
+        MarketplaceOpportunityListView.as_view(),
+        name="marketplace-primary-opportunities",
+    ),
+    path(
         "loans/<uuid:loan_id>/",
         MarketplaceLoanDetailView.as_view(),
         name="marketplace-primary-loan-detail",
+    ),
+    path(
+        "loans/<uuid:loan_id>/documents/<uuid:document_id>/",
+        MarketplaceLoanDocumentDownloadView.as_view(),
+        name="marketplace-primary-loan-document-download",
     ),
     path(
         "orders/",

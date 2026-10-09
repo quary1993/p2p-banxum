@@ -12,6 +12,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
 import "./styles.css";
 import "./banxumSkin.css";
 import "./skin/projects.css";
@@ -28,6 +29,9 @@ const queryClient = new QueryClient({
     }
   }
 });
+
+// Take a login-link token out of the address bar before the first request (audit A-49).
+captureMagicLinkTokenFromLocation();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

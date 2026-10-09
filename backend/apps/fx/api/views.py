@@ -207,7 +207,13 @@ class FxExternalSettlementDeclareView(APIView):
                     end_date=data["end_date"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
+                    sold_collection_account_identifier=data.get(
+                        "sold_collection_account_identifier", ""
+                    ),
+                    bought_collection_account_identifier=data.get(
+                        "bought_collection_account_identifier", ""
+                    ),
                     bank_reference=data.get("bank_reference", ""),
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),

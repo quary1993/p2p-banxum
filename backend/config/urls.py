@@ -29,7 +29,16 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/investor/smart-invest/", include("backend.apps.smart_invest.api.urls")),
 ]
 
-if settings.DJANGO_ADMIN_ENABLED:
+
+def django_admin_mounted() -> bool:
+    """The Django admin is a password-only login without the admin email code or a
+    throttle, so it is mounted in local development only (audit A-52)."""
+
+    environment = str(getattr(settings, "ENVIRONMENT", "local")).strip().lower()
+    return bool(settings.DJANGO_ADMIN_ENABLED) and environment == "local"
+
+
+if django_admin_mounted():
     urlpatterns.append(path("admin/django/", admin.site.urls))
 
 if settings.API_DOCS_ENABLED:

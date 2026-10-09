@@ -26,6 +26,7 @@ from backend.apps.fx.models import (
     FxExternalSettlementStatus,
     FxQuote,
 )
+from backend.apps.fx.notices import notify_fx_exchange_completed
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
@@ -33,13 +34,17 @@ from backend.apps.platform_core.domain.access import (
 )
 from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
 from backend.apps.platform_core.domain.time import (
+    business_date,
     business_timezone,
     now_utc,
     to_business_time,
     to_wall_clock,
 )
 from backend.apps.platform_core.models import Currency
-from backend.apps.platform_core.selectors.settings import get_platform_setting_value
+from backend.apps.platform_core.selectors.settings import (
+    get_collection_account_identifier,
+    get_platform_setting_value,
+)
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.platform_core.services.sensitive_actions import (
@@ -175,13 +180,17 @@ class DeclareFxExternalSettlementCommand:
     end_date: date
     booking_date: date
     value_date: date
-    collection_account_identifier: str
+    # Legacy: one account for both sides. Leave blank so each side uses the configured
+    # collection account of its own currency, or set the per-side fields below.
+    collection_account_identifier: str = ""
     bank_reference: str = ""
     payment_reference: str = ""
     evidence_reference: str = ""
     notes: str = ""
     idempotency_key: str = ""
     as_of: datetime | None = None
+    sold_collection_account_identifier: str = ""
+    bought_collection_account_identifier: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +328,20 @@ def _daily_limit_chf_minor() -> int:
     return value
 
 
+def investor_fx_terms(*, investor_user_id: str, as_of: datetime | None = None) -> dict[str, int]:
+    """Read-only FX terms for the investor portal: the daily limit, what was used of it on the
+    current Europe/Zurich business day, the quote lock time and the platform fee."""
+    business_day = _business_date_for_timestamp(as_of or now_utc())
+    return {
+        "daily_limit_chf_minor": _daily_limit_chf_minor(),
+        "daily_limit_used_chf_minor": _daily_executed_chf_equivalent(
+            str(investor_user_id), business_day
+        ),
+        "quote_ttl_seconds": QUOTE_TTL_SECONDS,
+        "platform_fee_bps": _platform_fee_bps(),
+    }
+
+
 def _pair_rate_bounds(pair: str) -> tuple[Decimal, Decimal] | None:
     configured = get_platform_setting_value("fx.pair_rate_bounds", DEFAULT_PAIR_RATE_BOUNDS)
     if not isinstance(configured, dict):
@@ -403,6 +426,20 @@ def _external_settlement_request_fingerprint(
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
             "collection_account_identifier": command.collection_account_identifier.strip(),
+            **{
+                field: value
+                for field, value in (
+                    (
+                        "sold_collection_account_identifier",
+                        command.sold_collection_account_identifier.strip(),
+                    ),
+                    (
+                        "bought_collection_account_identifier",
+                        command.bought_collection_account_identifier.strip(),
+                    ),
+                )
+                if value
+            },
             "bank_reference": command.bank_reference.strip(),
             "payment_reference": command.payment_reference.strip(),
             "evidence_reference": command.evidence_reference.strip(),
@@ -1197,6 +1234,7 @@ def _execute_fx_quote_after_sensitive_code(command: ExecuteFxQuoteCommand) -> Fx
             idempotency_key=f"fx-exchange:{exchange.id}:completed",
         )
     )
+    notify_fx_exchange_completed(exchange)
     return exchange
 
 
@@ -1256,6 +1294,29 @@ def create_fx_delta_report(
     )
 
 
+def _settlement_collection_account(
+    *,
+    currency_code: str,
+    side_identifier: str,
+    shared_identifier: str,
+) -> str:
+    """The collection account of one settlement side.
+
+    An explicit per-side account wins, then the legacy shared field, then the configured
+    collection account of that currency (as for recoveries).
+    """
+    identifier = side_identifier.strip() or shared_identifier.strip()
+    if identifier:
+        return identifier
+    configured = get_collection_account_identifier(currency_code)
+    if not configured:
+        raise FxValidationError(
+            f"The {currency_code} collection account is not configured. "
+            "Enter the collection account."
+        )
+    return configured
+
+
 @transaction.atomic
 def declare_fx_external_settlement(
     command: DeclareFxExternalSettlementCommand,
@@ -1280,9 +1341,16 @@ def declare_fx_external_settlement(
         bought_currency.code,
         "FX external bought amount",
     )
-    collection_account_identifier = command.collection_account_identifier.strip()
-    if not collection_account_identifier:
-        raise FxValidationError("Collection account identifier is required.")
+    sold_collection_account_identifier = _settlement_collection_account(
+        currency_code=sold_currency.code,
+        side_identifier=command.sold_collection_account_identifier,
+        shared_identifier=command.collection_account_identifier,
+    )
+    bought_collection_account_identifier = _settlement_collection_account(
+        currency_code=bought_currency.code,
+        side_identifier=command.bought_collection_account_identifier,
+        shared_identifier=command.collection_account_identifier,
+    )
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     request_fingerprint = _external_settlement_request_fingerprint(
         command,
@@ -1298,6 +1366,17 @@ def declare_fx_external_settlement(
     )
     if existing is not None:
         return existing
+    # The external conversion is recorded after the bank executed it.
+    today = business_date(now_utc())
+    for label, value in (
+        ("Value date", command.value_date),
+        ("Booking date", command.booking_date),
+    ):
+        if value > today:
+            raise FxValidationError(
+                f"{label} cannot be in the future: {value.isoformat()} is after today "
+                f"({today.isoformat()}, Europe/Zurich)."
+            )
     batch = _expected_pair_batch(
         sold_currency_code=sold_currency.code,
         bought_currency_code=bought_currency.code,
@@ -1332,6 +1411,8 @@ def declare_fx_external_settlement(
         "expected_target_credited_minor": expected_target_credited_minor,
         "settled_exchange_ids": [str(exchange.id) for exchange in batch.exchanges],
         "settled_exchange_count": len(batch.exchanges),
+        "sold_collection_account_identifier": sold_collection_account_identifier,
+        "bought_collection_account_identifier": bought_collection_account_identifier,
         "sold_currency_residual_policy": (
             "expected sold minus actual sold; positive means source-currency clearing remains"
         ),
@@ -1351,7 +1432,8 @@ def declare_fx_external_settlement(
                 bought_amount_minor=bought_amount_minor,
                 booking_date=command.booking_date,
                 value_date=command.value_date,
-                collection_account_identifier=collection_account_identifier,
+                collection_account_identifier=sold_collection_account_identifier,
+                bought_collection_account_identifier=bought_collection_account_identifier,
                 bank_reference=command.bank_reference,
                 payment_reference=command.payment_reference,
                 evidence_reference=command.evidence_reference,
@@ -1394,7 +1476,7 @@ def declare_fx_external_settlement(
                     actual_rate=actual_rate,
                     booking_date=command.booking_date,
                     value_date=command.value_date,
-                    collection_account_identifier=collection_account_identifier,
+                    collection_account_identifier=sold_collection_account_identifier,
                     bank_reference=command.bank_reference.strip(),
                     payment_reference=command.payment_reference.strip(),
                     evidence_reference=command.evidence_reference.strip(),

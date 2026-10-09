@@ -299,6 +299,13 @@ The cutoff is the end of the selected Europe/Zurich business day. Direct reports
 
 Balance and ageing exports reconstruct lot consumption, releases, withdrawals/cancellations, FX and penalties from dated ledger evidence, not today's mutable balances. Later backdated accounting corrections can restate source history; generated artifacts retain their checksum and report definition. Explicitly live exposure reports must not be presented as historical snapshots. Closure pseudonymization, protected provider evidence and final storage/scanning hardening remain launch deferrals, not completed reporting features.
 
+## Report Definition reporting-v4 (2026-10-09)
+
+- Lender account statement (investor download and superadmin export): one section per currency with the opening balance, each movement on its value date (Europe/Zurich) with a plain description (deposit, investment in a named loan, repayment with principal and interest, recovery, secondary-market purchase or sale, currency exchange, withdrawal, penalty), the amount from the investor's view (money in positive, money out negative), the running balance and the closing balance. Opening and closing balances equal the investor's ledger account on those dates. The CSV has the same rows with numbers in currency units. Borrower and Garanta statements keep the ledger-line layout.
+- Account statements cannot end after the business date. Annual tax information is refused for a period that has not ended.
+- Loan funding lists a loan when, in the period, it was published, an order was placed, its funding round closed or was cancelled, or its funding deadline fell. The rule is printed in the report notes. LO rows show the anonymized borrower name and the Loan Originator.
+- Redacted exports replace every investor user id, email and investor reference wherever it appears in a cell (for example ledger account codes, lot source ids, bank operation links) and in the exported filters.
+
 ## Dependencies
 
 - All business modules.

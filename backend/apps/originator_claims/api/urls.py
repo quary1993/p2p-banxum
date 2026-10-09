@@ -24,6 +24,10 @@ urlpatterns = [
     ),
     path("admin/loans/<uuid:loan_id>/hold/", views.OriginatorLoanHoldView.as_view()),
     path(
+        "admin/loans/<uuid:loan_id>/subscription-resume/",
+        views.OriginatorSubscriptionResumeView.as_view(),
+    ),
+    path(
         "admin/loans/<uuid:loan_id>/repayments/",
         views.OriginatorBorrowerRepaymentCreateView.as_view(),
     ),

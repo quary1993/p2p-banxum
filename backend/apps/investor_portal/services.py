@@ -10,9 +10,11 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.apps import apps
+from django.conf import settings
 from django.db.models import Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import user_can_access_financial_features
+from backend.apps.platform_core.domain.funding import balance_deadline_date, balance_is_overdue
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.activity_archive import merge_archived_activity
@@ -35,8 +37,46 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.loan_status_changed",
         "email.loan_risk_note_published",
         "email.smart_invest_opportunity_match",
+        "email.originator_claim_purchase_confirmation",
+        "email.originator_claim_repayment_credited",
+        "email.originator_subscription_activated",
+        "email.originator_subscription_cancelled",
+        "email.balance_forced_return",
+        "email.balance_penalty_mode",
+        "email.payout_account_status",
+        "email.loan_funding_status",
+        "email.primary_order_released",
     }
 )
+
+# Human labels for the notification centre; the raw topic key is never shown to investors.
+NOTIFICATION_TOPIC_LABELS = {
+    "email.investor_notice": "Investor notice",
+    "email.balance_ageing_reminder": "Balance reminder",
+    "email.deposit_reconciled": "Deposit",
+    "email.withdrawal_status": "Withdrawal",
+    "email.balance_forced_return": "Balance return",
+    "email.balance_penalty_mode": "Penalty mode",
+    "email.payout_account_status": "Payout IBAN",
+    "email.fx_exchange_confirmation": "Currency exchange",
+    "email.primary_investment_confirmation": "Investment",
+    "email.primary_order_released": "Investment",
+    "email.loan_funding_status": "Funding",
+    "email.loan_status_changed": "Loan status",
+    "email.loan_risk_note_published": "Loan update",
+    "email.repayment_distribution_credited": "Repayment",
+    "email.recovery_distribution_credited": "Recovery",
+    "email.originator_claim_purchase_confirmation": "Investment",
+    "email.originator_claim_repayment_credited": "Repayment",
+    "email.originator_subscription_activated": "Investment",
+    "email.originator_subscription_cancelled": "Funding",
+    "email.secondary_market_listing_status": "Secondary market",
+    "email.secondary_market_purchase_confirmation": "Secondary market",
+    "email.secondary_market_sale_confirmation": "Secondary market",
+    "email.smart_invest_opportunity_match": "Smart Invest",
+    "email.document_acceptance_pdf": "Documents",
+    "email.account_login_blocked": "Account",
+}
 
 
 class InvestorPortalAuthorizationError(RuntimeError):
@@ -81,6 +121,10 @@ def _documents_services() -> Any:
 
 def _originator_services() -> Any:
     return import_module("backend.apps.originator_claims.services")
+
+
+def _fx_services() -> Any:
+    return import_module("backend.apps.fx.services")
 
 
 def _require_financial_access(actor: Model) -> str:
@@ -133,8 +177,11 @@ def _balance_bucket(lot: Any, *, as_of: datetime) -> str:
         return "penalty_exhausted"
     if status != "available":
         return status
-    if business_date(as_of) >= business_date(lot.withdrawal_deadline_at):
+    if balance_is_overdue(withdrawal_deadline_at=lot.withdrawal_deadline_at, as_of=as_of):
         return "overdue"
+    if business_date(as_of) == balance_deadline_date(lot.withdrawal_deadline_at):
+        # Last day (day 60): it can still be withdrawn today, but no longer invested.
+        return "withdraw_only"
     return "investable"
 
 
@@ -254,7 +301,8 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
     lots = list(
         lot_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency")
-        .order_by("received_at", "created_at", "id")
+        # Consumption order: earliest withdrawal deadline first (FX proceeds keep their source's).
+        .order_by("withdrawal_deadline_at", "received_at", "created_at", "id")
     )
     visible_lots = [
         _lot_payload(lot, as_of=as_of_value) for lot in lots if int(lot.available_amount_minor) > 0
@@ -277,24 +325,40 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .select_related("currency")
         .order_by("currency", "-created_at")
     ]
-    penalty_mode_minor = sum(
-        item["penalty_mode_minor"]
-        for item in _balance_summaries(
-            investor_user_id=investor_user_id,
-            as_of=as_of_value,
-            lots=lots,
-        )
+    summaries = _balance_summaries(
+        investor_user_id=investor_user_id,
+        as_of=as_of_value,
+        lots=lots,
     )
+    penalty_mode_minor = sum(item["penalty_mode_minor"] for item in summaries)
+    # Requested withdrawals (voluntary and forced) wait for the bank transfer; their amount is
+    # already out of the balance.
+    withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
+    pending_withdrawals = [
+        {
+            "id": str(withdrawal.pk),
+            "currency": _currency_code(withdrawal.currency),
+            "amount_minor": int(withdrawal.amount_minor),
+            "destination_iban": str(withdrawal.destination_iban),
+            "destination_account_name": str(withdrawal.destination_account_name),
+            "requested_at": withdrawal.requested_at,
+            "is_forced": bool(withdrawal.is_forced),
+        }
+        for withdrawal in withdrawal_model.objects.filter(
+            investor_user_id=investor_user_id,
+            status="requested",
+        )
+        .select_related("currency")
+        .order_by("requested_at", "id")
+    ]
     return {
         "as_of": as_of_value,
-        "summaries": _balance_summaries(
-            investor_user_id=investor_user_id,
-            as_of=as_of_value,
-            lots=lots,
-        ),
+        "summaries": summaries,
         "lots": visible_lots,
         "payout_instructions": payout_instructions,
+        "pending_withdrawals": pending_withdrawals,
         "has_penalty_mode_balance": penalty_mode_minor > 0,
+        "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
     }
 
 
@@ -347,6 +411,24 @@ def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
     }
 
 
+def _statement_document(
+    *, year: int, period_start: date, period_end: date, as_of: datetime, version: str
+) -> dict[str, Any]:
+    return {
+        "id": f"statement-{year}",
+        "document_kind": "account_statement",
+        "title": f"Investor account statement - {year}",
+        "document_type": "Statement",
+        "version": version,
+        "date": as_of,
+        "context_label": f"{period_start.isoformat()} to {period_end.isoformat()}",
+        "output_formats": ["pdf", "csv", "zip"],
+        "generated_on_request": True,
+        "period_start": period_start,
+        "period_end": period_end,
+    }
+
+
 def get_investor_documents(*, actor: Model) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
@@ -362,39 +444,50 @@ def get_investor_documents(*, actor: Model) -> dict[str, Any]:
 
     as_of = now_utc()
     today = business_date(as_of)
-    statement_start = date(today.year, 1, 1)
-    statement_end = today
-    tax_year = today.year - 1
-    documents.extend(
-        [
-            {
-                "id": f"statement-{today.year}",
-                "document_kind": "account_statement",
-                "title": f"Investor account statement - {today.year}",
-                "document_type": "Statement",
-                "version": "reporting-v2",
-                "date": as_of,
-                "context_label": f"{statement_start.isoformat()} to {statement_end.isoformat()}",
-                "output_formats": ["pdf", "csv", "zip"],
-                "generated_on_request": True,
-                "period_start": statement_start,
-                "period_end": statement_end,
-            },
-            {
-                "id": f"tax-{tax_year}",
-                "document_kind": "annual_tax_information",
-                "title": f"Annual lender tax information statement - {tax_year}",
-                "document_type": "Tax",
-                "version": "reporting-v2",
-                "date": as_of,
-                "context_label": f"Calendar year {tax_year}",
-                "output_formats": ["pdf", "csv", "zip"],
-                "generated_on_request": True,
-                "period_start": date(tax_year, 1, 1),
-                "period_end": date(tax_year, 12, 31),
-            },
-        ]
+    version = str(_reporting_services().REPORT_DEFINITION_VERSION)
+    joined = getattr(actor, "date_joined", None)
+    joined_year = business_date(joined).year if isinstance(joined, datetime) else today.year
+    # Only finished calendar years get annual documents: the last year always, and earlier
+    # years back to the year the account was opened (at most ten years).
+    closed_years = list(
+        range(today.year - 1, max(min(joined_year, today.year - 1), today.year - 10) - 1, -1)
     )
+    documents.append(
+        _statement_document(
+            year=today.year,
+            period_start=date(today.year, 1, 1),
+            period_end=today,
+            as_of=as_of,
+            version=version,
+        )
+    )
+    for year in closed_years:
+        if year >= joined_year:
+            documents.append(
+                _statement_document(
+                    year=year,
+                    period_start=date(year, 1, 1),
+                    period_end=date(year, 12, 31),
+                    as_of=as_of,
+                    version=version,
+                )
+            )
+    for year in closed_years:
+        documents.append(
+            {
+                "id": f"tax-{year}",
+                "document_kind": "annual_tax_information",
+                "title": f"Annual lender tax information statement - {year}",
+                "document_type": "Tax",
+                "version": version,
+                "date": as_of,
+                "context_label": f"Calendar year {year}",
+                "output_formats": ["pdf", "csv", "zip"],
+                "generated_on_request": True,
+                "period_start": date(year, 1, 1),
+                "period_end": date(year, 12, 31),
+            }
+        )
     return {
         "as_of": as_of,
         "documents": documents,
@@ -447,17 +540,31 @@ def _acceptance_download_payload(
     }
 
 
-def _report_period_from_download(command: InvestorDocumentDownloadCommand) -> tuple[date, date]:
+def _report_period_from_download(
+    command: InvestorDocumentDownloadCommand, *, document_kind: str
+) -> tuple[date, date]:
     today = business_date(now_utc())
     if command.start_date and command.end_date:
         if command.end_date < command.start_date:
             raise InvestorPortalValidationError("end_date must be on or after start_date.")
-        return command.start_date, command.end_date
-    if command.document_kind == "annual_tax_information":
+        start_date, end_date = command.start_date, command.end_date
+    elif document_kind == "annual_tax_information":
         year = command.year or today.year - 1
-        return date(year, 1, 1), date(year, 12, 31)
-    year = command.year or today.year
-    return date(year, 1, 1), today if year == today.year else date(year, 12, 31)
+        start_date, end_date = date(year, 1, 1), date(year, 12, 31)
+    else:
+        year = command.year or today.year
+        start_date = date(year, 1, 1)
+        end_date = today if year == today.year else date(year, 12, 31)
+    if document_kind == "annual_tax_information" and end_date >= today:
+        raise InvestorPortalValidationError(
+            "Tax information is only available for a year that has ended. "
+            f"{end_date.year} ends on {end_date.isoformat()}."
+        )
+    if document_kind == "account_statement" and end_date > today:
+        raise InvestorPortalValidationError(
+            f"An account statement cannot end after today ({today.isoformat()})."
+        )
+    return start_date, end_date
 
 
 def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict[str, Any]:
@@ -476,24 +583,29 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
         )
     if document_kind not in {"account_statement", "annual_tax_information"}:
         raise InvestorPortalValidationError("Unsupported investor document kind.")
-    start_date, end_date = _report_period_from_download(command)
+    start_date, end_date = _report_period_from_download(command, document_kind=document_kind)
     reporting = _reporting_services()
     report_type = (
         "participant_account_statement"
         if document_kind == "account_statement"
         else "annual_tax_information"
     )
-    artifact = reporting.generate_investor_self_service_report(
-        reporting.GenerateInvestorSelfServiceReportCommand(
-            actor=command.actor,
-            participant_actor=command.actor,
-            audit_actor=audit_actor,
-            report_type=report_type,
-            start_date=start_date,
-            end_date=end_date,
-            output_format=output_format,
+    try:
+        artifact = reporting.generate_investor_self_service_report(
+            reporting.GenerateInvestorSelfServiceReportCommand(
+                actor=command.actor,
+                participant_actor=command.actor,
+                audit_actor=audit_actor,
+                report_type=report_type,
+                start_date=start_date,
+                end_date=end_date,
+                output_format=output_format,
+            )
         )
-    )
+    except reporting.ReportingAuthorizationError as exc:
+        raise InvestorPortalAuthorizationError(str(exc)) from exc
+    except reporting.ReportingError as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
     return {
         "content_type": artifact.content_type,
         "filename": artifact.filename,
@@ -504,12 +616,16 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
     }
 
 
-def _notification_title_for_topic(topic: str) -> str:
-    if topic == "email.magic_link_requested":
-        return "Login link email"
-    if topic == "email.sensitive_action_code_requested":
-        return "Confirmation code email"
-    return topic.replace("email.", "").replace("_", " ").replace(".", " ").title()
+def notification_topic_label(topic: str) -> str:
+    label = NOTIFICATION_TOPIC_LABELS.get(topic)
+    if label:
+        return label
+    words = topic.removeprefix("email.").replace("_", " ").replace(".", " ").strip()
+    return words.capitalize() if words else "Notice"
+
+
+def _notification_title(*, topic: str, subject: Any = "") -> str:
+    return str(subject or "").strip() or notification_topic_label(topic)
 
 
 def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | None = None) -> str:
@@ -528,8 +644,8 @@ def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | N
     return "Notification delivery status update."
 
 
-# Emails the investor triggered for themselves (sign-in links, confirmation codes) are listed for
-# delivery transparency but never count as unread notices.
+# Receipts of emails the investor triggered for themselves (sign-in links, investor and admin
+# confirmation codes) are not notices: the notification centre never lists or counts them.
 SELF_TRIGGERED_EMAIL_TOPICS = frozenset(
     {"email.magic_link_requested", "email.sensitive_action_code_requested"}
 )
@@ -566,8 +682,17 @@ _PORTFOLIO_NOTIFICATION_TOPICS = frozenset(
     }
 )
 _BALANCE_NOTIFICATION_TOPICS = frozenset(
-    {"email.balance_ageing_reminder", "email.deposit_reconciled", "email.withdrawal_status"}
+    {
+        "email.balance_ageing_reminder",
+        "email.deposit_reconciled",
+        "email.withdrawal_status",
+        "email.balance_forced_return",
+        "email.balance_penalty_mode",
+        "email.payout_account_status",
+        "email.primary_order_released",
+    }
 )
+_TARGETS_WITH_ID = frozenset({NOTIFICATION_TARGET_LOAN, NOTIFICATION_TARGET_HOLDING})
 
 
 def _communications_services() -> Any:
@@ -594,6 +719,13 @@ def _notification_target(*, topic: str, payload: Any) -> dict[str, str]:
     def target(kind: str, target_id: str = "") -> dict[str, str]:
         return {"navigation_target": kind, "navigation_target_id": target_id}
 
+    # Notices name their own target (platform_core investor_notices); it is validated here.
+    explicit = str(metadata_dict.get("navigation_target") or "")
+    if explicit in NOTIFICATION_TARGET_TYPES:
+        if explicit not in _TARGETS_WITH_ID:
+            return target(explicit)
+        if field("navigation_target_id"):
+            return target(explicit, field("navigation_target_id"))
     if topic == "email.secondary_market_purchase_confirmation" and field("buyer_holding_id"):
         return target(NOTIFICATION_TARGET_HOLDING, field("buyer_holding_id"))
     if topic.startswith("email.secondary_market_"):
@@ -629,9 +761,10 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     latest_records: dict[str, Any] = {}
     for record in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
+        .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
         .select_related("outbox_message")
         .defer("body_html")
-        .order_by("-created_at", "-id")[: window * 3]
+        .order_by("-outbox_message__created_at", "-created_at", "-id")[: window * 3]
     ):
         key = str(record.outbox_message_id)
         if key not in latest_records:
@@ -642,25 +775,21 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     entries: list[dict[str, Any]] = []
     for record in latest_records.values():
         topic = str(record.topic)
+        # Delivery internals (provider ids, attempts, errors) stay out of the investor payload.
         entries.append(
             {
                 "id": str(record.id),
                 "outbox_message_id": int(record.outbox_message_id),
                 "notification_source": "email_delivery",
                 "topic": topic,
+                "topic_label": notification_topic_label(topic),
                 "status": str(record.status),
-                "title": str(record.subject) or _notification_title_for_topic(topic),
+                "title": _notification_title(topic=topic, subject=record.subject),
                 "body": _notification_body(topic=topic, record=record),
-                "created_at": record.created_at,
+                # When the event happened (platform clock), not when the email went out.
+                "created_at": record.outbox_message.created_at,
                 "sent_at": record.sent_at,
                 **_notification_target(topic=topic, payload=record.outbox_message.payload),
-                "metadata": {
-                    "outbox_message_id": str(record.outbox_message_id),
-                    "attempt_number": int(record.attempt_number),
-                    "provider": str(record.provider),
-                    "provider_message_id": str(record.provider_message_id),
-                    "error": str(record.error),
-                },
             }
         )
 
@@ -672,25 +801,20 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     )
     for outbox in pending_outboxes:
         topic = str(outbox.topic)
+        payload = outbox.payload if isinstance(outbox.payload, dict) else {}
         entries.append(
             {
                 "id": str(outbox.id),
                 "outbox_message_id": int(outbox.id),
                 "notification_source": "email_outbox",
                 "topic": topic,
+                "topic_label": notification_topic_label(topic),
                 "status": str(outbox.status),
-                "title": _notification_title_for_topic(topic),
+                "title": _notification_title(topic=topic, subject=payload.get("subject")),
                 "body": _notification_body(topic=topic, outbox=outbox),
                 "created_at": outbox.created_at,
                 "sent_at": outbox.processed_at,
                 **_notification_target(topic=topic, payload=outbox.payload),
-                "metadata": {
-                    "attempts": int(outbox.attempts),
-                    "next_attempt_at": (
-                        outbox.next_attempt_at.isoformat() if outbox.next_attempt_at else ""
-                    ),
-                    "last_error": str(outbox.last_error),
-                },
             }
         )
 
@@ -699,11 +823,15 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
 
 
 def _investor_outbox_queryset(outbox_model: Any, *, investor_user_id: str, email: str) -> Any:
-    return outbox_model.objects.filter(topic__startswith="email.").filter(
-        Q(payload__user_id=investor_user_id)
-        | Q(payload__email=email)
-        | Q(payload__recipient_email=email)
-        | Q(payload__to_email=email)
+    return (
+        outbox_model.objects.filter(topic__startswith="email.")
+        .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .filter(
+            Q(payload__user_id=investor_user_id)
+            | Q(payload__email=email)
+            | Q(payload__recipient_email=email)
+            | Q(payload__to_email=email)
+        )
     )
 
 
@@ -715,8 +843,9 @@ def _investor_notification_index(actor: Model, *, window: int) -> list[tuple[int
     rows: dict[int, tuple[Any, str]] = {}
     for outbox_message_id, topic, created_at in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
-        .order_by("-created_at", "-id")
-        .values_list("outbox_message_id", "topic", "created_at")[: window * 3]
+        .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .order_by("-outbox_message__created_at", "-created_at", "-id")
+        .values_list("outbox_message_id", "topic", "outbox_message__created_at")[: window * 3]
     ):
         if outbox_message_id not in rows:
             rows[int(outbox_message_id)] = (created_at, str(topic))
@@ -782,6 +911,7 @@ def _notification_outbox_id_for_actor(*, actor: Model, notification_id: str) -> 
             delivery_model.objects.filter(
                 id=record_id, recipient_email=email, topic__startswith="email."
             )
+            .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
             .only("outbox_message_id")
             .first()
         )
@@ -1455,13 +1585,19 @@ def _investor_activity_entries(
                 activity_type="withdrawal_request",
                 occurred_at=withdrawal.requested_at,
                 direction="out",
-                title="Withdrawal request",
+                # A forced return is started by Garanta at the 60-day limit, not by the investor.
+                title=(
+                    "Forced return to your bank account"
+                    if withdrawal.is_forced
+                    else "Withdrawal request"
+                ),
                 amount_minor=int(withdrawal.amount_minor),
                 currency=_currency_code(withdrawal.currency),
                 # requested (pending bank execution), finalized (paid out) or cancelled.
                 status=withdrawal_status,
                 metadata={
                     "is_forced": bool(withdrawal.is_forced),
+                    "destination_iban": str(withdrawal.destination_iban),
                     "finalized_at": (
                         withdrawal.finalized_at.isoformat() if withdrawal.finalized_at else ""
                     ),
@@ -1480,7 +1616,11 @@ def _investor_activity_entries(
                     activity_type="withdrawal_cancellation",
                     occurred_at=withdrawal.cancelled_at,
                     direction="in",
-                    title="Withdrawal cancelled",
+                    title=(
+                        "Forced return cancelled"
+                        if withdrawal.is_forced
+                        else "Withdrawal cancelled"
+                    ),
                     amount_minor=int(withdrawal.amount_minor),
                     currency=_currency_code(withdrawal.currency),
                     status="returned",
@@ -1490,6 +1630,33 @@ def _investor_activity_entries(
                     },
                 )
             )
+    journal_model = _model("ledger", "LedgerJournalEntry")
+    for journal in (
+        journal_model.objects.filter(
+            lender_user_id=investor_user_id,
+            event_type="balance_penalty_charged",
+        )
+        .select_related("currency")
+        .order_by("-effective_at", "-created_at")[:limit_value]
+    ):
+        journal_metadata = journal.metadata if isinstance(journal.metadata, dict) else {}
+        entries.append(
+            _activity(
+                activity_id=str(journal.pk),
+                activity_type="balance_penalty_charge",
+                occurred_at=journal.effective_at,
+                direction="out",
+                title="Penalty charged: balance past the 60-day limit",
+                amount_minor=int(journal.gross_amount_minor),
+                currency=_currency_code(journal.currency),
+                status="charged",
+                metadata={
+                    "balance_lot_id": str(journal_metadata.get("balance_lot_id", "")),
+                    "charge_date": str(journal_metadata.get("charge_date", "")),
+                    "penalty_bps_per_day": int(journal_metadata.get("penalty_bps_per_day", 0)),
+                },
+            )
+        )
     for order in (
         order_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency", "loan")
@@ -1831,6 +1998,7 @@ def get_fx_history(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
         entries=result["exchanges"],
         limit=limit_value,
     )
+    result["terms"] = _fx_services().investor_fx_terms(investor_user_id=investor_user_id)
     return result
 
 
@@ -1956,8 +2124,8 @@ def get_investor_dashboard(*, actor: Model, as_of: datetime | None = None) -> di
                     "currency": summary["currency"],
                     "amount_minor": summary["withdraw_only_minor"],
                     "message": (
-                        "This balance is older than the reinvestment window and can only "
-                        "be withdrawn."
+                        "This balance reaches its 60-day holding deadline today. It can only "
+                        "be withdrawn, until the end of today."
                     ),
                 }
             )

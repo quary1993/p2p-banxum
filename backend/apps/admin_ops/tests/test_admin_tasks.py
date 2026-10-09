@@ -385,3 +385,99 @@ def test_loan_default_review_task_is_single_per_loan_and_reopens_when_closed(
         _loan_default_command(admin_user, loan_id="0b6c3a1e-58d7-4f0f-9a43-2f5d4c7e8a91")
     )
     assert other.id != task.id
+
+
+def _pending_payout_iban_task(investor: Model) -> tuple[Any, AdminTask]:
+    from importlib import import_module
+
+    from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
+
+    _approve_investor(investor)
+    ledger = import_module("backend.apps.ledger.services")
+    code = issue_sensitive_action_test_code(investor, "bank_account_change")
+    instruction = ledger.register_investor_self_service_payout_instruction(
+        ledger.RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Task Investor",
+            sensitive_action_code_id=code.code_id,
+            sensitive_action_code=code.raw_code,
+        )
+    )
+    task = AdminTask.objects.get(
+        task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+        related_object_id=str(instruction.pk),
+    )
+    return instruction, task
+
+
+def _approve_investor(investor: Model) -> None:
+    from django.apps import apps
+
+    cast(Any, investor).phone_verified_at = timezone.now()
+    investor.save(update_fields=["phone_verified_at"])
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.update_or_create(
+        user_id=investor.pk,
+        defaults={
+            "subject_reference": f"user:{investor.pk}",
+            "provider_environment": "test",
+            "workflow_id": "test-workflow",
+            "vendor_data": f"user:{investor.pk}",
+            "status": "approved",
+            "decision_at": timezone.now(),
+        },
+    )
+
+
+@pytest.mark.django_db
+def test_payout_iban_task_cannot_be_closed_while_the_iban_is_pending(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    from importlib import import_module
+
+    instruction, task = _pending_payout_iban_task(investor)
+
+    for status in (AdminTaskStatus.RESOLVED, AdminTaskStatus.CANCELLED):
+        with pytest.raises(AdminTaskValidationError, match="Verify or reject the IBAN first"):
+            update_admin_task(
+                UpdateAdminTaskCommand(actor=admin_user, task_id=str(task.id), status=status)
+            )
+    task.refresh_from_db()
+    assert task.status == AdminTaskStatus.OPEN
+
+    ledger = import_module("backend.apps.ledger.services")
+    ledger.verify_investor_payout_instruction(
+        ledger.VerifyInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            instruction_id=str(instruction.pk),
+            evidence_reference="bank-letter:task",
+        )
+    )
+    task.refresh_from_db()
+    assert task.status == AdminTaskStatus.RESOLVED
+
+
+@pytest.mark.django_db
+def test_task_edit_without_status_change_records_no_status_pair(admin_user: Model) -> None:
+    task = create_admin_task(
+        CreateAdminTaskCommand(
+            actor=admin_user,
+            task_type=AdminTaskType.OTHER,
+            title="Close the month",
+        )
+    )
+    update_admin_task(
+        UpdateAdminTaskCommand(actor=admin_user, task_id=str(task.id), status="resolved")
+    )
+    update_admin_task(
+        UpdateAdminTaskCommand(actor=admin_user, task_id=str(task.id), notes="Filed the report.")
+    )
+
+    events = list(AdminTaskEvent.objects.filter(task=task).order_by("occurred_at", "id"))
+    status_event = next(event for event in events if event.event_type == "status_changed")
+    notes_event = next(event for event in events if event.event_type == "updated")
+    assert (status_event.previous_status, status_event.new_status) == ("open", "resolved")
+    # No "Resolved -> Resolved" line for a notes edit (MONEY-24).
+    assert (notes_event.previous_status, notes_event.new_status) == ("", "")

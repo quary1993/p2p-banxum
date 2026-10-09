@@ -366,7 +366,8 @@ class LoanRiskNote(AppendOnlyModel, TimestampedModel):
         on_delete=models.PROTECT,
         related_name="risk_notes",
     )
-    borrower_id = models.UUIDField()
+    # Empty for Loan Originator loans: their final borrower is not a BANXUM borrower.
+    borrower_id = models.UUIDField(null=True, blank=True)
     visibility = models.CharField(max_length=16, choices=LoanRiskNoteVisibility.choices)
     note_type = models.CharField(max_length=64, choices=LoanRiskNoteType.choices)
     title = models.CharField(max_length=255, blank=True)

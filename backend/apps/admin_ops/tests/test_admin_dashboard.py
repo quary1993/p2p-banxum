@@ -337,6 +337,13 @@ def test_admin_dashboard_aggregates_daily_operations(
     forced_item = dashboard["queues"]["forced_withdrawals_requested"][0]
     assert forced_item["kind"] == "withdrawal_request"
     assert forced_item["object_type"] == "InvestorWithdrawalRequest"
+    # The side panel shows who is paid, where, and that it is a forced return (A-26).
+    assert forced_item["title"] == "Forced return awaiting bank execution"
+    assert forced_item["metadata"]["investor_name"] == str(cast(Any, investor).full_name)
+    assert forced_item["metadata"]["investor_email"] == str(cast(Any, investor).email)
+    assert forced_item["metadata"]["destination_iban"] == "CH9300762011623852957"
+    assert forced_item["metadata"]["destination_account_name"] == "Dashboard Investor"
+    assert forced_item["metadata"]["is_forced"] is True
     assert dashboard["queues"]["balance_ageing_actions"][0]["kind"] == "balance_lot_overdue"
     assert dashboard["queues"]["servicing_due"][0]["amount_minor"] == 1_100_00
     assert dashboard["queues"]["failed_emails"][0]["metadata"]["attempts"] == 8

@@ -198,7 +198,7 @@ Investor documents are English-only at launch. Accepted/generated transaction do
 - Loan purpose.
 - Collateral/backing type.
 - Collateral value, if investor-facing disclosure policy permits.
-- Calculated LTV when collateral value is non-zero and LTV is displayable.
+- Calculated LTV when collateral value is non-zero and LTV is displayable. The investor portal shows one LTV everywhere (marketplace, Smart Invest, loan sheet, portfolio, holding page): principal still owed on the whole loan divided by the collateral valuation (for an open loan, the loan amount). The label is "LTV"; there is no separate "collateral margin" figure (decision 2026-10-09, audit A-65).
 - Collateral description, if investor-facing disclosure policy permits.
 - Requested amount and funded amount.
 - Interest rate or expected return.

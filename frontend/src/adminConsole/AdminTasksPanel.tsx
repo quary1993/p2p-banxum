@@ -18,7 +18,12 @@ import {
   useV1AdminOpsTasksPartialUpdate
 } from "../api/generated/banxumApi";
 import { isFixturePreview } from "../investorPortal/data";
-import { formatDateTime } from "../investorPortal/format";
+import {
+  formatDateTime,
+  zurichDateKey,
+  zurichDateTimeInputToIso,
+  zurichDateTimeInputValue
+} from "../investorPortal/format";
 import {
   Banner,
   Button,
@@ -31,6 +36,7 @@ import {
 } from "../investorPortal/ui";
 import { adminTaskEventsFixture, adminTasksFixture } from "./adminFixtures";
 import { useAdminBusinessDate } from "./adminBusinessDate";
+import { PayoutInstructionTaskBlock } from "./PayoutIbans";
 import { useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   useAdminBorrowerLookupData,
@@ -40,6 +46,8 @@ import {
   useAdminLoanLookupData,
   useAdminPrimaryOrderLookupData,
   useAdminSecondaryListingLookupData,
+  taskEventStatusText,
+  objectTypeLabel,
   taskTypeLabel,
   useAdminTaskEventsData,
   useAdminTasksData,
@@ -106,13 +114,43 @@ function refetchLive(refetch: () => Promise<unknown>) {
   if (!isFixturePreview) void refetch();
 }
 
+// Due times are entered and shown as Europe/Zurich wall time, whatever the browser's time zone,
+// and converted explicitly; reading the server string as browser-local time moved the due time by
+// the browser's UTC offset on every save (FRONTCODE-16).
 function dueLocalValue(value: string | null | undefined) {
-  if (!value) return "";
-  return value.slice(0, 16);
+  return zurichDateTimeInputValue(value);
+}
+
+function taskDraft(task: AdminTask): TaskDraft {
+  return {
+    title: task.title,
+    task_type: task.task_type as AdminTaskTypeEnum,
+    priority: task.priority as AdminTaskPriorityEnum,
+    status: task.status as AdminTaskStatusEnum,
+    due_at: dueLocalValue(task.due_at),
+    notes: task.notes,
+    completion_note: task.completion_note
+  };
+}
+
+/** Only the fields the admin changed, so a save cannot record changes nobody made. */
+function changedTaskFields(original: TaskDraft, next: TaskDraft): PatchedAdminTaskUpdateRequest {
+  const payload: PatchedAdminTaskUpdateRequest = {};
+  if (next.title !== original.title) payload.title = next.title;
+  if (next.task_type !== original.task_type) payload.task_type = next.task_type;
+  if (next.priority !== original.priority) payload.priority = next.priority;
+  if (next.status !== original.status) payload.status = next.status;
+  if (next.due_at !== original.due_at) {
+    if (next.due_at === "") payload.clear_due_at = true;
+    else payload.due_at = localValueToIso(next.due_at);
+  }
+  if (next.notes !== original.notes) payload.notes = next.notes;
+  if (next.completion_note !== original.completion_note) payload.completion_note = next.completion_note;
+  return payload;
 }
 
 function localValueToIso(value: string) {
-  return value ? new Date(value).toISOString() : null;
+  return value ? zurichDateTimeInputToIso(value) || null : null;
 }
 
 function lookupDisplay(option: AdminLookupResult) {
@@ -275,7 +313,7 @@ export function AdminTasksPanel() {
     : (eventsQuery.data ?? []);
   const openCount = baseTasks.filter((task) => !task.is_terminal).length;
   const urgentCount = baseTasks.filter((task) => task.priority === "urgent" && !task.is_terminal).length;
-  const dueTodayCount = baseTasks.filter((task) => task.due_at?.slice(0, 10) === today && !task.is_terminal).length;
+  const dueTodayCount = baseTasks.filter((task) => zurichDateKey(task.due_at) === today && !task.is_terminal).length;
 
   function updatePreviewTask(taskId: string, changes: PatchedAdminTaskUpdateRequest) {
     setPreviewTasks((current) =>
@@ -460,7 +498,7 @@ export function AdminTasksPanel() {
                     <td>
                       {task.related_object_type ? (
                         <>
-                          <span className="admin-object">{task.related_object_type}</span>
+                          <span className="admin-object">{objectTypeLabel(task.related_object_type)}</span>
                           <span className="mono muted">{task.related_object_id}</span>
                         </>
                       ) : (
@@ -656,7 +694,7 @@ type TaskDraft = {
   completion_note: string;
 };
 
-function TaskDetailDrawer({
+export function TaskDetailDrawer({
   task,
   events,
   eventsLoading,
@@ -676,26 +714,14 @@ function TaskDetailDrawer({
   const updateTask = useV1AdminOpsTasksPartialUpdate();
   // Resolving only closes the task; it never performs the underlying action.
   const [pendingResolve, setPendingResolve] = useState<Partial<TaskDraft> | null>(null);
-  const [draft, setDraft] = useState<TaskDraft>({
-    title: task.title,
-    task_type: task.task_type as AdminTaskTypeEnum,
-    priority: task.priority as AdminTaskPriorityEnum,
-    status: task.status as AdminTaskStatusEnum,
-    due_at: dueLocalValue(task.due_at),
-    notes: task.notes,
-    completion_note: task.completion_note
-  });
+  const [draft, setDraft] = useState<TaskDraft>(() => taskDraft(task));
+  const isPayoutIbanTask =
+    task.task_type === "payout_instruction_verification" &&
+    task.related_object_type === "InvestorPayoutInstruction" &&
+    Boolean(task.related_object_id);
 
   useEffect(() => {
-    setDraft({
-      title: task.title,
-      task_type: task.task_type as AdminTaskTypeEnum,
-      priority: task.priority as AdminTaskPriorityEnum,
-      status: task.status as AdminTaskStatusEnum,
-      due_at: dueLocalValue(task.due_at),
-      notes: task.notes,
-      completion_note: task.completion_note
-    });
+    setDraft(taskDraft(task));
   }, [task]);
 
   function submitUpdate(event?: FormEvent, override?: Partial<TaskDraft>, resolveConfirmed = false) {
@@ -705,16 +731,7 @@ function TaskDetailDrawer({
       setPendingResolve(override ?? {});
       return;
     }
-    const payload: PatchedAdminTaskUpdateRequest = {
-      title: next.title,
-      task_type: next.task_type,
-      priority: next.priority,
-      status: next.status,
-      due_at: localValueToIso(next.due_at),
-      clear_due_at: next.due_at === "",
-      notes: next.notes,
-      completion_note: next.completion_note
-    };
+    const payload = changedTaskFields(taskDraft(task), next);
 
     if (isFixturePreview) {
       onPreviewUpdate(task.id, payload);
@@ -746,7 +763,9 @@ function TaskDetailDrawer({
 
   return (
     <Modal drawer title={task.title} onClose={onClose}>
-      <form className="admin-drawer-body" onSubmit={submitUpdate}>
+      {/* The IBAN action block has forms of its own, so the task form starts below it:
+          a form inside a form is invalid HTML and the browser drops its submit. */}
+      <div className="admin-drawer-body">
         <div className="row gap-8 wrap">
           <Chip status={task.status} tone={statusTone(task.status)}>{labelize(task.status)}</Chip>
           <Chip dot={false} tone={priorityTone(task.priority)}>{labelize(task.priority)}</Chip>
@@ -759,101 +778,105 @@ function TaskDetailDrawer({
           <ReviewRow label="Task ID" value={task.id} />
           <ReviewRow label="Created" value={formatDateTime(task.created_at)} />
           <ReviewRow label="Updated" value={formatDateTime(task.updated_at)} />
-          <ReviewRow label="Related object" value={task.related_object_type ? `${task.related_object_type} / ${task.related_object_id}` : "-"} />
+          <ReviewRow label="Related object" value={task.related_object_type ? `${objectTypeLabel(task.related_object_type)} / ${task.related_object_id}` : "-"} />
         </div>
 
-        <Field label="Title">
-          <input
-            maxLength={255}
-            onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-            required
-            value={draft.title}
-          />
-        </Field>
+        {isPayoutIbanTask ? <PayoutInstructionTaskBlock instructionId={task.related_object_id} /> : null}
 
-        <div className="grid grid-2">
-          <Field label="Status">
-            <select aria-label="Status" onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as AdminTaskStatusEnum }))} value={draft.status}>
-              {taskStatusOptions.map((status) => (
-                <option key={status} value={status}>{labelize(status)}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Priority">
-            <select onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as AdminTaskPriorityEnum }))} value={draft.priority}>
-              {taskPriorityOptions.map((priority) => (
-                <option key={priority} value={priority}>{labelize(priority)}</option>
-              ))}
-            </select>
-          </Field>
-        </div>
-
-        <div className="grid grid-2">
-          <Field label="Type">
-            <select onChange={(event) => setDraft((current) => ({ ...current, task_type: event.target.value as AdminTaskTypeEnum }))} value={draft.task_type}>
-              {taskTypeOptions.map((taskType) => (
-                <option key={taskType} value={taskType}>{taskTypeLabel(taskType)}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Due at">
-            <input onChange={(event) => setDraft((current) => ({ ...current, due_at: event.target.value }))} type="datetime-local" value={draft.due_at} />
-          </Field>
-        </div>
-
-        <Field label="Notes">
-          <textarea
-            onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-            rows={5}
-            value={draft.notes}
-          />
-        </Field>
-
-        {isTerminalStatus(draft.status) ? (
-          <Field label="Completion note">
-            <textarea
-              onChange={(event) => setDraft((current) => ({ ...current, completion_note: event.target.value }))}
-              placeholder="Document how this task was resolved or why it was cancelled."
-              rows={3}
-              value={draft.completion_note}
+        <form className="admin-drawer-body" onSubmit={submitUpdate}>
+          <Field label="Title">
+            <input
+              maxLength={255}
+              onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+              required
+              value={draft.title}
             />
           </Field>
-        ) : null}
 
-        {updateTask.error ? (
-          <Banner tone="bad" title="Could not update task">
-            {errorMessage(updateTask.error)}
-          </Banner>
-        ) : null}
+          <div className="grid grid-2">
+            <Field label="Status">
+              <select aria-label="Status" onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as AdminTaskStatusEnum }))} value={draft.status}>
+                {taskStatusOptions.map((status) => (
+                  <option key={status} value={status}>{labelize(status)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Priority">
+              <select onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as AdminTaskPriorityEnum }))} value={draft.priority}>
+                {taskPriorityOptions.map((priority) => (
+                  <option key={priority} value={priority}>{labelize(priority)}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
 
-        {pendingResolve ? (
-          <Modal onClose={() => setPendingResolve(null)} title="Resolve this task?">
-            <div className="admin-confirm-body">
-              <Banner tone="warn" title="This only marks the task as done">
-                Resolving records that the task was checked and closes it. It does not do the work
-                itself: it will not verify an IBAN, execute a payment or change any other record.
-                Complete that action in its own screen first (for example Finance ops &rsaquo; IBAN
-                verification).
-              </Banner>
-              <div className="modal-foot inline-foot">
-                <Button onClick={() => setPendingResolve(null)}>Back</Button>
-                <Button onClick={confirmResolve} variant="primary">Mark as resolved</Button>
+          <div className="grid grid-2">
+            <Field label="Type">
+              <select onChange={(event) => setDraft((current) => ({ ...current, task_type: event.target.value as AdminTaskTypeEnum }))} value={draft.task_type}>
+                {taskTypeOptions.map((taskType) => (
+                  <option key={taskType} value={taskType}>{taskTypeLabel(taskType)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Due at">
+              <input onChange={(event) => setDraft((current) => ({ ...current, due_at: event.target.value }))} type="datetime-local" value={draft.due_at} />
+            </Field>
+          </div>
+
+          <Field label="Notes">
+            <textarea
+              onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+              rows={5}
+              value={draft.notes}
+            />
+          </Field>
+
+          {isTerminalStatus(draft.status) ? (
+            <Field label="Completion note">
+              <textarea
+                onChange={(event) => setDraft((current) => ({ ...current, completion_note: event.target.value }))}
+                placeholder="Document how this task was resolved or why it was cancelled."
+                rows={3}
+                value={draft.completion_note}
+              />
+            </Field>
+          ) : null}
+
+          {updateTask.error ? (
+            <Banner tone="bad" title="Could not update task">
+              {errorMessage(updateTask.error)}
+            </Banner>
+          ) : null}
+
+          {pendingResolve ? (
+            <Modal onClose={() => setPendingResolve(null)} title="Resolve this task?">
+              <div className="admin-confirm-body">
+                <Banner tone="warn" title="This only marks the task as done">
+                  Resolving records that the task was checked and closes it. It does not do the work
+                  itself: it will not verify an IBAN, execute a payment or change any other record.
+                  Complete that action in its own screen first (for example Finance ops &rsaquo; IBAN
+                  verification).
+                </Banner>
+                <div className="modal-foot inline-foot">
+                  <Button onClick={() => setPendingResolve(null)}>Back</Button>
+                  <Button onClick={confirmResolve} variant="primary">Mark as resolved</Button>
+                </div>
               </div>
-            </div>
-          </Modal>
-        ) : null}
+            </Modal>
+          ) : null}
 
-        <div className="admin-action-row">
-          <Button onClick={() => quickStatus("in_progress")} size="sm" variant="ghost">Mark in progress</Button>
-          <Button onClick={() => quickStatus("waiting")} size="sm" variant="ghost">Waiting</Button>
-          <Button onClick={() => quickStatus("resolved")} size="sm" variant="primary">Resolve</Button>
-          <Button onClick={() => quickStatus("cancelled")} size="sm" variant="danger">Cancel task</Button>
-        </div>
+          <div className="admin-action-row">
+            <Button onClick={() => quickStatus("in_progress")} size="sm" variant="ghost">Mark in progress</Button>
+            <Button onClick={() => quickStatus("waiting")} size="sm" variant="ghost">Waiting</Button>
+            <Button onClick={() => quickStatus("resolved")} size="sm" variant="primary">Resolve</Button>
+            <Button onClick={() => quickStatus("cancelled")} size="sm" variant="danger">Cancel task</Button>
+          </div>
 
-        <div className="row gap-8">
-          <Button disabled={updateTask.isPending} type="submit" variant="primary">Save changes</Button>
-          <Button onClick={onClose} variant="ghost">Close</Button>
-        </div>
+          <div className="row gap-8">
+            <Button disabled={updateTask.isPending} type="submit" variant="primary">Save changes</Button>
+            <Button onClick={onClose} variant="ghost">Close</Button>
+          </div>
+        </form>
 
         <div>
           <div className="admin-dashboard-head" style={{ marginBottom: 8 }}>
@@ -875,7 +898,7 @@ function TaskDetailDrawer({
                   </div>
                   <p>{event.note || "No note."}</p>
                   <span className="muted">
-                    {labelize(event.previous_status)} → {labelize(event.new_status)} by {event.actor_account_type}
+                    {[taskEventStatusText(event), `by ${event.actor_account_type}`].filter(Boolean).join(" ")}
                   </span>
                 </div>
               ))}
@@ -886,7 +909,7 @@ function TaskDetailDrawer({
             </Empty>
           )}
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }

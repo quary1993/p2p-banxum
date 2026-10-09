@@ -318,10 +318,17 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
 
 
 def _matching_opportunities(rule: SmartInvestRule) -> tuple[list[dict[str, Any]], int]:
-    opportunities = _marketplace_services().list_public_marketplace_loans(limit=10_000)
+    marketplace = _marketplace_services()
+    opportunities = marketplace.list_open_marketplace_loans(limit=10_000)
     criteria = _criteria_snapshot(rule)
+    # A fully funded loan is no match: no order can go into it.
     return (
-        [item for item in opportunities if opportunity_matches_criteria(item, criteria)],
+        [
+            item
+            for item in opportunities
+            if marketplace.marketplace_payload_has_capacity(item)
+            and opportunity_matches_criteria(item, criteria)
+        ],
         len(opportunities),
     )
 
@@ -331,7 +338,7 @@ def get_smart_invest(*, actor: Model) -> dict[str, Any]:
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
     matches: list[dict[str, Any]] = []
     open_opportunity_count = len(
-        _marketplace_services().list_public_marketplace_loans(limit=10_000)
+        _marketplace_services().list_open_marketplace_loans(limit=10_000)
     )
     if rule is not None and rule.is_active:
         matches, open_opportunity_count = _matching_opportunities(rule)
@@ -479,7 +486,8 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
         "status_label": "New match",
         "status_tone": "info",
         "headline": "A new opportunity matches your rule",
-        "body": (
+        # The email renderer and the notification centre read `body_text`.
+        "body_text": (
             f"{title} matches the Smart Invest criteria you selected. "
             "Smart Invest does not reserve or invest funds; review the opportunity before deciding."
         ),

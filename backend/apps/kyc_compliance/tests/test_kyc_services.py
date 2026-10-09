@@ -503,6 +503,7 @@ def test_didit_webhook_requires_valid_signature_when_configured(
         "session_id": session_result.session.provider_session_id,
         "vendor_data": f"user:{user.pk}",
         "risk": "low",
+        "timestamp": int(timezone.now().timestamp()),
     }
     body = json.dumps(payload).encode("utf-8")
     signature = hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
@@ -594,11 +595,15 @@ def test_didit_webhook_signature_uses_secret_outside_local_even_if_env_disables_
     settings.ENVIRONMENT = "staging"
     settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = False
     settings.DIDIT_WEBHOOK_SECRET = "test-secret"
-    body = b'{"id":"event"}'
+    payload = {"id": "event", "timestamp": int(timezone.now().timestamp())}
+    body = json.dumps(payload).encode("utf-8")
     signature = hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
 
-    assert verify_didit_webhook_signature(raw_body=body, signature="") is False
-    assert verify_didit_webhook_signature(raw_body=body, signature=signature) is True
+    assert verify_didit_webhook_signature(raw_body=body, payload=payload, signature="") is False
+    assert (
+        verify_didit_webhook_signature(raw_body=body, payload=payload, signature=signature)
+        is True
+    )
 
 
 def test_didit_webhook_signature_system_check_flags_non_local_unsafe_config(

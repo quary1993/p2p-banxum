@@ -7,6 +7,7 @@ const notification = (id: string, unread: boolean): InvestorNotification => ({
   id,
   notification_source: "email_delivery",
   topic: "email.investor_notice",
+  topic_label: "Investor notice",
   status: "sent",
   title: id,
   body: "",
@@ -14,8 +15,7 @@ const notification = (id: string, unread: boolean): InvestorNotification => ({
   sent_at: "2026-10-01T10:00:00Z",
   unread,
   navigation_target: "none",
-  navigation_target_id: "",
-  metadata: {}
+  navigation_target_id: ""
 });
 
 describe("notification helpers", () => {

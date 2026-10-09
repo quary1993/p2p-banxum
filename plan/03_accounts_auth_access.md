@@ -61,6 +61,13 @@ Phone verification is mandatory for natural-person investors and is performed th
 
 If an investor loses access to their email address or email delivery repeatedly bounces, account access recovery is handled offline through support. Admin/support must re-verify the investor's identity using available KYC/account evidence and the verified phone number where appropriate before changing the account email or restoring access. The recovery action must be audit logged with actor, timestamp, reason, old email, new email, verification evidence summary, and supporting note/document reference where applicable.
 
+Updated 2026-10-09 (security audit A-47, A-49, A-50, A-57):
+- Login links carry the token in the URL fragment (`/login#token=...`); the portal removes it from the address bar before any API call. Links from older emails (`?token=`) still work for their 15 minutes. Only the newest link of an account works.
+- The stored copy of every sent email shows `[redacted]` in place of a login link or code. Only the email provider receives the live value.
+- Request limits that name an email address always pair it with the caller's IP, so nobody can lock another person out. Per address, a new link email waits while the last link is unused (backoff from 1 minute, doubling, always shorter than the link lifetime); the caller still gets the normal "check your inbox" answer.
+- Registration gives the same answer for a new address and an existing one. A repeated registration never changes stored data. The owner gets an email instead: a sign-in link (unfinished or finished investor account), the blocked notice (restricted/locked), or a notice without a link (admin, closed), at most once an hour or within the link backoff. Phone numbers must be in E.164 form. Until the phone is verified and KYC has started, the signed-in owner can correct the number when they request the SMS code.
+- Sign-in endpoints refuse cross-site browser posts (login CSRF).
+
 Rationale:
 Magic-link login keeps the investor authentication flow simple while mandatory phone verification provides an additional verified contact factor during onboarding.
 
@@ -104,6 +111,8 @@ Impacted modules:
 
 Follow-ups:
 Define environment variable names, secret rotation process, password policy, admin email-code expiry, and bootstrap/deployment procedure.
+
+Updated 2026-10-09 (security audit A-47, A-52, A-57, SECCODE-17): admin passwords need at least 12 characters and must not be on Django's offline list of common passwords. Wrong passwords slow down only the same email and IP pair (5 free attempts, then a doubling wait up to 15 minutes); other IPs are not affected. The admin login takes the same time for unknown, investor and admin emails. The Django admin (`/admin/django/`, password only) exists in local development only.
 
 ### ACC-DEC-003: No Admin Step-Up Authentication at Launch
 

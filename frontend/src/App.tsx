@@ -2,7 +2,7 @@
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -10,6 +10,7 @@ import {
   DocumentKindEnum,
   InvestorDocumentDownloadRequestOutputFormatEnum,
   getV1InvestorSmartInvestRetrieveQueryKey,
+  getV1MarketplaceSecondaryListingsListQueryKey,
   useV1AuthMeRetrieve,
   useV1AuthLogoutCreate,
   useV1AuthMagicLinkRequestCreate,
@@ -34,15 +35,18 @@ import {
   useV1MarketplaceSecondaryListingsCancelCreate,
   useV1MarketplaceSecondaryListingsEditCreate,
   useV1MarketplaceSecondaryListingsPurchaseCreate,
+  useV1MarketplaceSecondaryListingsPricingPreviewRetrieve,
   useV1InvestorSmartInvestDeactivateCreate,
   useV1InvestorSmartInvestUpdate,
   useMarketplacePrimaryOrdersBatchCreate,
   originatorClaimsLoansQuoteCreate,
+  v1AuthMeRetrieve,
   useOriginatorClaimsLoansQuoteCreate,
   useOriginatorClaimsQuotesPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
 } from "./api/generated/banxumApi";
 import { ApiClientError } from "./api/client/httpClient";
+import { intentIdempotencyKey } from "./api/client/idempotency";
 import {
   clearReadonlyImpersonation,
   readReadonlyImpersonationLabel,
@@ -67,11 +71,15 @@ import type {
   MarketplaceLoanPreview,
   OriginatorClaimQuoteResponse,
   PayoutInstruction,
+  PrimaryInvestmentOrder,
+  PrimaryOrderBatchResponse,
   PrimaryOrderPortal,
   PublicDocumentTemplateVersion,
+  PublicMarketplaceLoan,
   SecondaryMarketActivityEntryPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketInvestmentInstallment,
+  SecondaryMarketListingPricingPreview,
   SecondaryMarketLoanInstallment,
   SmartInvestOpportunity,
   SmartInvestResponse,
@@ -91,6 +99,7 @@ import {
   useNotificationsData,
   usePortfolioData,
   usePrimaryOrdersData,
+  usePublicMarketplaceLoansData,
   useSecondaryActivityData,
   useSecondaryListingDetailData,
   useSecondaryListingsData,
@@ -98,6 +107,18 @@ import {
   isFixturePreview
 } from "./investorPortal/data";
 import { portalFixture } from "./investorPortal/fixtures";
+import {
+  FrozenAccountContext,
+  frozenAccountFromBalances,
+  frozenActionReason,
+  payoutInstructionState,
+  useFrozenAccount,
+  withdrawableMinor
+} from "./investorPortal/accountState";
+import { FrozenAccountBanner, PendingWithdrawalsList } from "./investorPortal/AccountStatus";
+import { isNotFoundError, isSignedOutError, retryTransientSessionError } from "./investorPortal/session";
+import { handleTabListKeyDown, useDialog } from "./investorPortal/dialog";
+import { platformTodayKey, platformTodayLocalDate, rememberPlatformBusinessDate } from "./investorPortal/platformClock";
 import {
   hasSmartInvestCriteria,
   mkAnyCollateral,
@@ -119,21 +140,49 @@ import {
   type MkListKey
 } from "./investorPortal/smartInvestCriteria";
 import { onboardingStepForUser } from "./onboarding";
+import { captureMagicLinkTokenFromLocation, takePendingMagicLinkToken } from "./magicLinkToken";
 import {
   formatDate,
   formatDateTime,
   formatMoneyMinor,
+  formatMoneyLabel,
   formatRateBps,
+  formatWholeAmount,
+  daysBetweenDateKeys,
+  humanizeEnum,
+  isZurichWeekendAt,
+  monthLabelFromKey,
+  zurichMonthKey,
   parseMoneyInputToMinorUnits,
+  pluralize,
   safeMetadataCategory,
   zurichDateKey
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
+import { scheduleStatusTone } from "./investorPortal/scheduleStatus";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
 import { notificationRoute } from "./investorPortal/notifications";
+import { LoanDocumentList } from "./investorPortal/LoanDocumentList";
+import {
+  completedHoldingLabel,
+  completedHoldings,
+  defaultSelectedPaymentKey,
+  installmentProgress,
+  isPaidScheduleRow,
+  loanIsInDefault,
+  scheduleRowStatus
+} from "./investorPortal/holdingProgress";
 import { currencyBalanceMinor, investAmountLimitMessage, noEligibleFundsReason } from "./investorPortal/investLimits";
-import { collateralBreakdown, isUnsecuredHolding, valuedSecuredHoldings, weightedLtvPercent } from "./investorPortal/portfolioCollateral";
+import {
+  collateralBreakdown,
+  currentLoanPrincipalMinor,
+  isUnsecuredHolding,
+  isUnsecuredLoan,
+  loanLtvBps,
+  valuedSecuredHoldings,
+  weightedLtvPercent
+} from "./investorPortal/portfolioCollateral";
 import {
   Banner,
   Button,
@@ -167,8 +216,17 @@ const registrationTermsHash =
   import.meta.env.VITE_REGISTRATION_TERMS_HASH ??
   "3b0ba70e0b1d68a6acd2135c832cf114f6db2fb5c8896625c1f28f3ba7bd8dca";
 
+// Labels of the loan repayment types (backend loans.RepaymentType), word for word.
+const repaymentTypeLabels: Record<string, string> = {
+  equal_installments: "Equal installments",
+  bullet_periodic_interest: "Bullet principal with periodic interest",
+  amortizing_principal_interest: "Amortizing principal and interest",
+  interest_only_then_bullet: "Interest-only then bullet",
+  interest_only_then_amortizing: "Interest-only then amortizing"
+};
+
 function formatEnumLabel(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return repaymentTypeLabels[value] ?? value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 const liveProfileFallback = {
@@ -285,12 +343,20 @@ function readStoredObject<T>(key: string, fallback: T): T {
 
 function writeStoredObject(key: string, value: unknown) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can be full or blocked (private mode); navigation must still work.
+  }
 }
 
 function removeStoredObject(key: string) {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(key);
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Nothing to remove.
+  }
 }
 
 const routeNames: RouteName[] = [
@@ -328,7 +394,9 @@ function readStoredRoute(): AppRoute {
 // public pages have their own addresses (/projects, /faq), so "/" is the home page.
 function homeOrStoredRoute(): AppRoute {
   const stored = readStoredRoute();
-  return stored.name === "publicProjects" || stored.name === "publicFaq" ? { name: "public" } : stored;
+  // Never the login or registration form either: a returning visitor whose session ended
+  // sees the home page at "/" (the investor shell also falls back to it, see InvestorShell).
+  return ["publicProjects", "publicFaq", "login", "register"].includes(stored.name) ? { name: "public" } : stored;
 }
 
 function routeFromPathname(pathname: string): AppRoute | null {
@@ -677,16 +745,12 @@ function apiErrorMessage(error: unknown) {
   return "Request failed. Retry once the connection is restored.";
 }
 
-function isZurichWeekend(date = new Date()) {
-  try {
-    const weekday = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Europe/Zurich",
-      weekday: "short"
-    }).format(date);
-    return weekday === "Sat" || weekday === "Sun";
-  } catch {
-    return date.getDay() === 0 || date.getDay() === 6;
-  }
+// 409 from a secondary-market purchase: the listing price differs from the one
+// the buyer reviewed, and nothing was charged.
+function isSecondaryPriceChangedError(error: unknown) {
+  if (!(error instanceof ApiClientError) || error.status !== 409) return false;
+  const payload = error.payload as { code?: unknown } | null | undefined;
+  return payload?.code === "secondary_price_changed";
 }
 
 function templateLabels(template: PublicDocumentTemplateVersion | undefined) {
@@ -905,10 +969,41 @@ function emailCodeRequestDisabled(
   return codeRequest.isRequesting || codeRequest.resendCooldownSeconds > 0;
 }
 
+// Readable names of balance-lot sources (ledger BalanceLotSourceType), never raw keys.
+const lotSourceLabels: Record<string, string> = {
+  deposit: "Bank deposit",
+  installment: "Loan repayment",
+  originator_claim_repayment: "Loan Originator claim repayment",
+  recovery_distribution: "Recovery payment",
+  secondary_market_proceeds: "Secondary-market sale",
+  fx_proceeds: "Currency exchange (FX)",
+  refund: "Refund",
+  correction: "Balance correction",
+  penalty_reversal: "Penalty refund"
+};
+
 function sourceLabel(sourceType: string) {
-  return sourceType
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return lotSourceLabels[sourceType] ?? humanizeEnum(sourceType);
+}
+
+// Activity lines for balance credits carry the raw lot source in their type ("balance_fx_proceeds").
+function activityTitle(entry: Pick<ActivityEntry, "activity_type" | "title" | "metadata">) {
+  if (entry.activity_type === "withdrawal_request" && (entry.metadata as { is_forced?: unknown } | null)?.is_forced === true) {
+    // The server names forced returns; older entries fall back to a fixed label.
+    return entry.title.startsWith("Forced return") ? entry.title : "Forced return to your bank account";
+  }
+  // A penalty charge is a debit with its own server title, not a balance source.
+  if (entry.activity_type === "balance_penalty_charge") return entry.title;
+  if (entry.activity_type.startsWith("balance_") && entry.title !== "QA opening balance") {
+    return sourceLabel(entry.activity_type.slice("balance_".length));
+  }
+  return entry.title;
+}
+
+function activityReference(entry: Pick<ActivityEntry, "activity_type" | "loan_title">) {
+  if (entry.loan_title) return entry.loan_title;
+  if (entry.activity_type.startsWith("balance_")) return "Account balance";
+  return humanizeToken(entry.activity_type) || "-";
 }
 
 function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "committed_principal_minor">) {
@@ -952,14 +1047,14 @@ function marketplaceClosingKey(
   return loan.funding_deadline ?? loan.maturity_date ?? "9999-12-31";
 }
 
+// Money labels use the ISO currency code everywhere ("EUR 250.00"), never a symbol.
 function marketplaceCurrencySymbol(currency: string) {
-  if (currency === "EUR") return "€";
-  if (currency === "CHF") return "CHF";
   return currency;
 }
 
 function fundingDaysRemaining(deadline: string, asOf?: string) {
-  const currentKey = asOf?.slice(0, 10) || zurichDateKey(new Date());
+  // Europe/Zurich business date of the platform clock (as_of), never the browser's date.
+  const currentKey = platformTodayKey(asOf);
   const deadlineTime = Date.parse(`${deadline}T00:00:00Z`);
   const currentTime = Date.parse(`${currentKey}T00:00:00Z`);
   if (!Number.isFinite(deadlineTime) || !Number.isFinite(currentTime)) return null;
@@ -1028,6 +1123,8 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
 }
 
 export function App() {
+  // A login-link token leaves the address bar before anything renders or calls the API.
+  captureMagicLinkTokenFromLocation();
   const pathRoute = routeFromPathname(window.location.pathname);
   const initialRoute: AppRoute = readReadonlyImpersonationToken()
     ? pathRoute && !["public", "publicProjects", "publicFaq", "login", "register"].includes(pathRoute.name)
@@ -1038,6 +1135,8 @@ export function App() {
       : pathRoute ?? readStoredRoute();
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [demoState, setDemoState] = useState<DemoAccountState>("active");
+  // The path is state too: Back/Forward between the portal and /admin must re-render App.
+  const [, setPathname] = useState(() => window.location.pathname);
 
   useEffect(() => {
     if (window.location.pathname.startsWith("/admin")) return;
@@ -1047,7 +1146,8 @@ export function App() {
 
   useEffect(() => {
     const onPopState = () => {
-      // The admin console routes itself (adminConsole/adminRoute.ts).
+      setPathname(window.location.pathname);
+      // The admin console routes itself (adminConsole/adminRoute.ts); App only has to switch to it.
       if (window.location.pathname.startsWith("/admin")) return;
       const nextRoute = routeFromPathname(window.location.pathname) ?? { name: "public" as const };
       writeStoredObject(appRouteStorageKey, nextRoute);
@@ -1067,6 +1167,10 @@ export function App() {
 
   if (window.location.pathname.startsWith("/legal/")) {
     return <UserSkin><LegalDocumentPage setRoute={setRoute} /></UserSkin>;
+  }
+
+  if (routeFromPathname(window.location.pathname) === null) {
+    return <UserSkin><NotFoundPage setRoute={setRoute} /></UserSkin>;
   }
 
   if (route.name === "public") {
@@ -1131,8 +1235,18 @@ function BrandHomeLink({
   onNavigate?: () => void;
   setRoute: (route: AppRoute) => void;
 }) {
+  // Read the session the page already has. Never refetch a failed check on mount: the login
+  // screen shows this link too, and a refetch there resets the portal's session gate, which
+  // then remounts the login screen and this link in a loop (audit A-03).
   const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, refetchOnWindowFocus: false, staleTime: 60_000 }
+    query: {
+      enabled: !isFixturePreview,
+      retry: false,
+      retryOnMount: false,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      staleTime: 60_000
+    }
   });
   const user = authMeQuery.data?.user;
   const signedIn = Boolean(user) && !["admin", "superadmin"].includes(user?.account_type ?? "");
@@ -1185,15 +1299,35 @@ function goToSiteSection(setRoute: (route: AppRoute) => void, id: string) {
   window.history.replaceState(window.history.state, "", `/#${id}`);
 }
 
-function siteOpenLoans(loans: MarketplaceLoanPreview[]) {
-  return loans
-    .filter((loan) => isOpenMarketplaceLoan(loan))
-    .sort((left, right) => marketplaceClosingKey(left).localeCompare(marketplaceClosingKey(right)));
+// Public preview loans arrive open and ordered by closing date (MKT-DEC-002 fields only).
+function siteOpenLoans(loans: PublicMarketplaceLoan[]) {
+  return loans.filter((loan) => loan.status === "open");
 }
 
-function siteYieldRange(loans: MarketplaceLoanPreview[]) {
+function publicLoanTypeLabel(loan: Pick<PublicMarketplaceLoan, "product_type">) {
+  return loan.product_type === "originator_claim" ? "Loan Originator claim" : "Direct loan";
+}
+
+function publicLoanStatusLabel(status: string) {
+  return status === "open" ? "Open for investment" : humanizeToken(status);
+}
+
+function publicCountryLabel(country: string) {
+  const value = country.trim();
+  if (!value) return "Not disclosed";
+  if (/^[A-Za-z]{2}$/.test(value) && typeof Intl.DisplayNames === "function") {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "region" }).of(value.toUpperCase()) ?? value;
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function siteYieldRange(loans: PublicMarketplaceLoan[]) {
   if (loans.length === 0) return null;
-  const values = loans.map((loan) => marketplaceYieldBps(loan));
+  const values = loans.map((loan) => loan.interest_rate_bps);
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
   return minimum === maximum ? formatRateBps(minimum) : `${formatRateBps(minimum)} to ${formatRateBps(maximum)}`;
@@ -1435,7 +1569,7 @@ function SiteFooter({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <div className="site-footer-legal">
           <p>
             {platformName}® is a registered trademark. The {platformName} platform is owned and operated by{" "}
-            {operatorName}, a Swiss financial company with a share capital of CHF 1,100,000.00, affiliated to VQF, a
+            {operatorName}, a Swiss financial company with a share capital of CHF 1'100'000.00, affiliated to VQF, a
             self-regulatory organisation recognised by FINMA, and to FINOS, the Swiss financial ombudsman.{" "}
             {operatorName} is not a bank: money in a {platformName} balance is not a bank deposit and is not protected
             by the Swiss deposit insurance.
@@ -1481,10 +1615,10 @@ function SiteProjectCarousel({
   onRetry,
   onSeeAll
 }: {
-  loans: MarketplaceLoanPreview[];
+  loans: PublicMarketplaceLoan[];
   loading: boolean;
   failed: boolean;
-  onOpen: (loan: MarketplaceLoanPreview) => void;
+  onOpen: (loan: PublicMarketplaceLoan) => void;
   onRetry: () => void;
   onSeeAll: () => void;
 }) {
@@ -1552,19 +1686,19 @@ function SiteProjectCarousel({
         >
           <div className="site-hero-card-top">
             <span className="site-live"><i aria-hidden="true" />Funding now</span>
-            <span>{current.currency}</span>
+            <span>{publicCountryLabel(current.borrower_country)}</span>
           </div>
-          <h2 className="site-hero-card-title">{current.title}</h2>
+          <h2 className="site-hero-card-title">{current.borrower_name}</h2>
           <div className="site-hero-card-place">
-            {humanizeToken(current.purpose)} · {current.currency}
+            {publicLoanTypeLabel(current)} · {current.currency}
             {current.is_refinancing ? " · Refinanced" : ""}
           </div>
           <div className="site-hero-rate">
-            <strong>{formatRateBps(marketplaceYieldBps(current))}</strong>
-            <span>yield a year</span>
+            <strong>{formatRateBps(current.interest_rate_bps)}</strong>
+            <span>interest a year</span>
           </div>
           <dl className="site-hero-card-facts">
-            <div><dt>Term</dt><dd>{current.term_months} months</dd></div>
+            <div><dt>Term</dt><dd>{pluralize(current.term_months, "month")}</dd></div>
             <div>
               <dt>Loan amount</dt>
               <dd>{current.currency} {formatMoneyMinor(current.principal_minor, current.currency)}</dd>
@@ -1579,7 +1713,7 @@ function SiteProjectCarousel({
             {loans.map((loan, loanIndex) => (
               <button
                 aria-current={loanIndex === position ? "true" : undefined}
-                aria-label={`Loan ${loanIndex + 1}: ${loan.title}`}
+                aria-label={`Loan ${loanIndex + 1}: ${loan.borrower_name}`}
                 className={loanIndex === position ? "active" : undefined}
                 key={loan.loan_id}
                 onClick={() => {
@@ -1613,8 +1747,8 @@ function SiteProjectCarousel({
   );
 }
 
-function SiteProjectCard({ loan, onOpen }: { loan: MarketplaceLoanPreview; onOpen: (loan: MarketplaceLoanPreview) => void }) {
-  const open = isOpenMarketplaceLoan(loan);
+function SiteProjectCard({ loan, onOpen }: { loan: PublicMarketplaceLoan; onOpen: (loan: PublicMarketplaceLoan) => void }) {
+  const open = loan.status === "open";
   return (
     <article className={`site-project ${open ? "is-open" : ""}`} onClick={() => onOpen(loan)}>
       <div className="site-project-top">
@@ -1622,22 +1756,22 @@ function SiteProjectCard({ loan, onOpen }: { loan: MarketplaceLoanPreview; onOpe
           <Chip status={loan.status} />
           {loan.is_refinancing ? <RefinancedTag /> : null}
         </div>
-        <span className="site-project-country">{loan.currency}</span>
+        <span className="site-project-country">{publicCountryLabel(loan.borrower_country)}</span>
       </div>
-      <h3 className="site-project-title">{loan.title}</h3>
-      <div className="site-project-place">{humanizeToken(loan.purpose)}</div>
+      <h3 className="site-project-title">{loan.borrower_name}</h3>
+      <div className="site-project-place">{publicLoanTypeLabel(loan)} · {loan.currency}</div>
       <div className="site-project-rate">
-        <strong>{formatRateBps(marketplaceYieldBps(loan))}</strong>
-        <span>yield a year</span>
+        <strong>{formatRateBps(loan.interest_rate_bps)}</strong>
+        <span>interest a year</span>
       </div>
       <dl className="site-project-facts">
         <div><dt>Amount</dt><dd><Money amountMinor={loan.principal_minor} currency={loan.currency} /></dd></div>
-        <div><dt>Term</dt><dd>{loan.term_months} months</dd></div>
+        <div><dt>Term</dt><dd>{pluralize(loan.term_months, "month")}</dd></div>
       </dl>
       <div className="site-project-foot">
         <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />
         <button
-          aria-label={`View ${loan.title}`}
+          aria-label={`View ${loan.borrower_name}`}
           className="site-project-open"
           onClick={(event) => {
             event.stopPropagation();
@@ -1653,10 +1787,10 @@ function SiteProjectCard({ loan, onOpen }: { loan: MarketplaceLoanPreview; onOpe
 }
 
 function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const loansQuery = useMarketplaceLoansData();
+  const loansQuery = usePublicMarketplaceLoansData();
   const loans = loansQuery.data ?? [];
   const openLoans = siteOpenLoans(loans);
-  const openPreview = (loan: MarketplaceLoanPreview) => goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
+  const openPreview = (loan: PublicMarketplaceLoan) => goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
 
   useEffect(() => {
     const id = window.location.hash.slice(1);
@@ -1730,9 +1864,9 @@ function LandingMarketing({
 }: {
   loansFailed: boolean;
   loansLoading: boolean;
-  onOpenLoan: (loan: MarketplaceLoanPreview) => void;
+  onOpenLoan: (loan: PublicMarketplaceLoan) => void;
   onRetry: () => void;
-  openLoans: MarketplaceLoanPreview[];
+  openLoans: PublicMarketplaceLoan[];
   setRoute: (route: AppRoute) => void;
 }) {
   const openCount = openLoans.length;
@@ -1804,8 +1938,8 @@ function LandingMarketing({
               <h2 className="site-h2">Projects looking for investors</h2>
             </div>
             <p className="site-text">
-              Every loan shows the same key facts: borrower, purpose, amount, yield and term. Full loan data, security
-              and documents unlock after you register and verify your identity.
+              Every loan shows the same key facts: borrower, country, loan type, amount, interest and term. Full loan
+              data, security and documents unlock after you register and verify your identity.
             </p>
           </div>
           {loansFailed ? (
@@ -1916,7 +2050,7 @@ function LandingMarketing({
             <div>
               <span className="site-proof-mark">CHF 1.1m</span>
               <h3 className="site-h4">Share capital</h3>
-              <p className="site-text">CHF 1,100,000.00 of share capital behind the company that runs {platformName}.</p>
+              <p className="site-text">CHF 1'100'000.00 of share capital behind the company that runs {platformName}.</p>
             </div>
           </div>
         </div>
@@ -1953,9 +2087,9 @@ function LandingMarketing({
                   <tbody>
                     {openLoans.slice(0, 4).map((loan) => (
                       <tr key={loan.loan_id}>
-                        <td>{loan.title}</td>
-                        <td className="is-num">{formatRateBps(marketplaceYieldBps(loan))}</td>
-                        <td className="is-num">{loan.term_months} months</td>
+                        <td>{loan.borrower_name}</td>
+                        <td className="is-num">{formatRateBps(loan.interest_rate_bps)}</td>
+                        <td className="is-num">{pluralize(loan.term_months, "month")}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2044,7 +2178,7 @@ function LandingMarketing({
                   Yes. {platformName}® is a registered trademark; the platform is owned and operated by {operatorName},
                   a Swiss financial company affiliated to VQF, a self-regulatory organisation recognised by FINMA, for
                   its financial activities, and to FINOS, the Swiss financial ombudsman. Its accounts are audited by an
-                  independent auditor and its share capital is CHF 1,100,000.00. {operatorName} is not a bank.
+                  independent auditor and its share capital is CHF 1'100'000.00. {operatorName} is not a bank.
                 </p>
               </div>
             </details>
@@ -2106,11 +2240,11 @@ function LandingMarketing({
 }
 
 function PublicProjectsPage({ route, setRoute }: { route: AppRoute; setRoute: (route: AppRoute) => void }) {
-  const loansQuery = useMarketplaceLoansData();
+  const loansQuery = usePublicMarketplaceLoansData();
   const loans = loansQuery.data ?? [];
   const previewLoanId = route.params?.loanId ?? null;
   const previewLoan = loans.find((loan) => loan.loan_id === previewLoanId);
-  const openPreview = (loan: MarketplaceLoanPreview) => {
+  const openPreview = (loan: PublicMarketplaceLoan) => {
     goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
   };
 
@@ -2191,7 +2325,7 @@ function PublicLoanPreview({
   onBack,
   setRoute
 }: {
-  loan: MarketplaceLoanPreview;
+  loan: PublicMarketplaceLoan;
   onBack: () => void;
   setRoute: (route: AppRoute) => void;
 }) {
@@ -2203,18 +2337,20 @@ function PublicLoanPreview({
       <div className="site-loan-tags">
         <Chip status={loan.status} />
         <span className="tag">{loan.currency}</span>
-        <span className="tag">{humanizeToken(loan.purpose)}</span>
+        <span className="tag">{publicLoanTypeLabel(loan)}</span>
         {loan.is_refinancing ? <RefinancedTag full /> : null}
       </div>
-      <h1 className="site-h1">{loan.title}</h1>
+      <h1 className="site-h1">{loan.borrower_name}</h1>
       <div className="site-loan-id"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
       <div className="site-project-page">
         <div>
           <div className="site-loan-facts">
             <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
-            <Stat label="Target interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
+            <Stat label="Interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
             <Stat label="Term" raw={`${loan.term_months} mo`} />
-            <Stat label="Status" raw={loan.status} />
+            <Stat label="Status" raw={publicLoanStatusLabel(loan.status)} />
+            <Stat label="Borrower country" raw={publicCountryLabel(loan.borrower_country)} />
+            <Stat label="Loan type" raw={loan.is_refinancing ? `${publicLoanTypeLabel(loan)}, refinancing` : publicLoanTypeLabel(loan)} />
           </div>
           <div className="site-locked site-loan-locked">
             <div className="eyebrow">Full loan data</div>
@@ -2284,7 +2420,9 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
 
   useEffect(() => {
     loginFlowMountedRef.current = true;
-    const token = new URLSearchParams(window.location.search).get("token");
+    // The token arrives in the URL fragment (/login#token=...) or, in older emails, the
+    // query; App has already removed it from the address bar (audit A-49).
+    const token = consumeAttemptedRef.current ? null : takePendingMagicLinkToken();
     if (!token || isFixturePreview) {
       return () => {
         loginFlowMountedRef.current = false;
@@ -2873,7 +3011,9 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       setError("Open your magic-link email in this browser before requesting the SMS code.");
       return;
     }
-    phoneRequestMutation.mutate(undefined, {
+    // Send the number typed at registration: the signed-in owner may correct an
+    // unverified number this way (a repeated registration never changes stored data).
+    phoneRequestMutation.mutate(phoneNumber ? { data: { phone_number: phoneNumber } } : {}, {
       onSuccess: (response) => {
         if (response.phone_verified) {
           setStep(2);
@@ -3289,6 +3429,7 @@ function InvestorShell({
   const [navOpen, setNavOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   const [addFundsOpen, setAddFundsOpen] = useState(false);
+  const [payoutIbanOpen, setPayoutIbanOpen] = useState(false);
   // Investing is a page (/marketplace/:loanId/invest); callers hand over the loan and an optional amount.
   const setInvestLoan = useCallback(
     (loan: MarketplaceLoanDetail | null, initialAmount?: string) => {
@@ -3311,14 +3452,47 @@ function InvestorShell({
     setAddFundsOpen(false);
     setInvestLoan(null);
   };
+  // Sign out fails closed (audit A-58): the portal clears its state only after the server ended
+  // the session. If the call fails, the server is asked whether the session is still valid.
+  const [signOutError, setSignOutError] = useState("");
   const logoutMutation = useV1AuthLogoutCreate({
-    mutation: { onSettled: finishLogout }
+    mutation: {
+      onSuccess: () => {
+        setSignOutError("");
+        finishLogout();
+      },
+      onError: async () => {
+        try {
+          const current = await v1AuthMeRetrieve();
+          if (current?.user) {
+            setSignOutError("We could not sign you out. You are still signed in. Try again.");
+          } else {
+            finishLogout();
+          }
+        } catch (checkError) {
+          if (isSignedOutError(checkError)) finishLogout();
+          else setSignOutError("We could not sign you out. You may still be signed in. Try again.");
+        }
+      }
+    }
   });
   // Re-checked every minute so an expired session or an account restricted by an
-  // admin is noticed even while the investor stays on one screen.
+  // admin is noticed even while the investor stays on one screen. Only 401/403 mean
+  // "signed out" (audit A-59); other failures keep the cached session and retry.
   const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, staleTime: 0, refetchInterval: 60_000 }
+    query: {
+      enabled: !isFixturePreview,
+      retry: retryTransientSessionError,
+      retryDelay: (attempt) => Math.min(2_000 * 2 ** attempt, 15_000),
+      staleTime: 0,
+      refetchInterval: (query) =>
+        query.state.data?.user && !isSignedOutError(query.state.error) ? 60_000 : false
+    }
   });
+  // Show "Checking your session" only before the first answer. A later re-check of a failed
+  // session must keep the login form mounted, so typed input is not lost.
+  const firstSessionCheck =
+    authMeQuery.isPending && authMeQuery.dataUpdatedAt === 0 && authMeQuery.errorUpdatedAt === 0;
   // The backend ends sessions a fixed time after login; any API call then
   // answers 401 session_expired. Leave the portal for the login screen, which
   // explains what happened.
@@ -3336,8 +3510,27 @@ function InvestorShell({
       }),
     [queryClient, setRoute]
   );
-  const sessionUser = authMeQuery.data?.user;
+  const sessionUser = isSignedOutError(authMeQuery.error) ? undefined : authMeQuery.data?.user;
+  // Screens without an as_of of their own use the platform (QA) business date, not the browser's.
+  rememberPlatformBusinessDate(authMeQuery.data?.platform_business_date);
   const hasPortalSession = isFixturePreview || Boolean(sessionUser);
+  // Signed out at "/" (a returning visitor whose last screen was in the portal): "/" is the
+  // public home page, not the login form (FRONTCODE-26).
+  const signedOutAtHome =
+    !isFixturePreview && !firstSessionCheck && !sessionUser && window.location.pathname === "/";
+  // Switch before paint: App then shows the home page itself, so it mounts only once.
+  useLayoutEffect(() => {
+    if (!signedOutAtHome) return;
+    writeStoredObject(appRouteStorageKey, { name: "public" });
+    setRoute({ name: "public" });
+  }, [setRoute, signedOutAtHome]);
+  // Signed in at "/": show the screen's own address, so reload and sharing work.
+  const routeAddress = routePath(route);
+  useEffect(() => {
+    if (sessionUser && window.location.pathname === "/" && routeAddress !== "/") {
+      window.history.replaceState({}, "", routeAddress);
+    }
+  }, [routeAddress, sessionUser]);
   const kycGateQuery = useV1KycStatusRetrieve({
     query: {
       enabled: !isFixturePreview && hasPortalSession,
@@ -3354,9 +3547,15 @@ function InvestorShell({
   });
   const financialAccessAllowed =
     isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
-  const balances = useBalancesData(financialAccessAllowed).data ?? { summaries: [], lots: [] };
+  const balancesData = useBalancesData(financialAccessAllowed).data;
+  const balances = balancesData ?? { summaries: [], lots: [] };
+  // Day-60 penalty mode (PAY-DEC-022) from the live balances; the preview switch only drives fixtures.
+  const frozenAccount = frozenAccountFromBalances(
+    financialAccessAllowed ? balancesData : undefined,
+    isFixturePreview && demoState === "frozen"
+  );
   const notifications = useNotificationsData(20, financialAccessAllowed).data;
-  const marketplaceLoans = useMarketplaceLoansData().data ?? [];
+  const marketplaceLoans = useMarketplaceLoansData(financialAccessAllowed).data ?? [];
   const profile = readonlyImpersonation.active
     ? {
         initials: "RO",
@@ -3382,7 +3581,7 @@ function InvestorShell({
         }
       : displayProfile();
 
-  if (!isFixturePreview && authMeQuery.isPending) {
+  if (!isFixturePreview && firstSessionCheck) {
     return (
       <UserSkin>
         <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
@@ -3391,7 +3590,11 @@ function InvestorShell({
       </UserSkin>
     );
   }
-  if (!isFixturePreview && (!sessionUser || authMeQuery.isError)) {
+  if (signedOutAtHome) {
+    // The layout effect above switches to the public route before this is painted.
+    return null;
+  }
+  if (!isFixturePreview && !sessionUser) {
     return <UserSkin><LoginFlow setRoute={setRoute} /></UserSkin>;
   }
   if (!isFixturePreview && sessionUser && ["admin", "superadmin"].includes(sessionUser.account_type) && !readonlyImpersonation.active) {
@@ -3465,25 +3668,30 @@ function InvestorShell({
   const gatedScreen = blockedAccountStatus
     ? <AccountBlockedScreen status={blockedAccountStatus} />
     : !isFixturePreview && hasPortalSession && !financialAccessAllowed
-      ? kycGateQuery.isPending && !kycGateQuery.data
+      ? kycGateQuery.isPending && kycGateQuery.dataUpdatedAt === 0 && kycGateQuery.errorUpdatedAt === 0
+        // Loading only before the first answer: a re-check after an error must not unmount
+        // the status screen, whose own lookup would then restart the check in a loop.
         ? <ScreenLoading title="Verification" />
         : <KycStatusScreen setRoute={setRoute} />
       : screen;
 
-  const overdueCount = balances.lots.filter((lot) => lot.bucket === "overdue" || lot.bucket === "penalty").length;
+  // Lots on their last day (withdraw-only), past the deadline, or in penalty mode need action.
+  const overdueCount = balances.lots.filter((lot) => ["withdraw_only", "overdue", "penalty_mode", "penalty"].includes(lot.bucket)).length;
   const addFundsCurrency = balances.summaries.find((summary) => summary.currency === "CHF")?.currency
     ?? balances.summaries[0]?.currency
     ?? "CHF";
   const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
   const activeRoute = navActiveRoute[displayRouteName] ?? displayRouteName;
-  const addFundsDisabled = !financialAccessAllowed || demoState === "frozen" || readonlyImpersonation.active;
+  const addFundsDisabled = !financialAccessAllowed || frozenAccount.frozen || readonlyImpersonation.active;
   const openProjectCount = marketplaceLoans.filter((loan) => isOpenMarketplaceLoan(loan)).length;
   const unreadCount = notifications?.unread_count ?? 0;
   const badgeFor = (badge: NavBadge | undefined) => {
     if (badge === "projects") return openProjectCount > 0 ? <span className="nav-count">{openProjectCount}</span> : null;
     if (badge === "notifications") return unreadCount > 0 ? <span className="nav-count">{unreadCount}</span> : null;
-    if (badge === "balances" && (demoState === "frozen" || overdueCount > 0)) {
-      return <span className={`nav-badge ${demoState === "frozen" ? "bad" : "warn"}`}>{demoState === "frozen" ? "!" : overdueCount}</span>;
+    if (badge === "balances" && (frozenAccount.frozen || overdueCount > 0)) {
+      return frozenAccount.frozen
+        ? <span aria-label="Account frozen" className="nav-badge bad">!</span>
+        : <span aria-label={`${overdueCount} ${overdueCount === 1 ? "balance needs" : "balances need"} action`} className="nav-badge warn">{overdueCount}</span>;
     }
     return null;
   };
@@ -3496,6 +3704,7 @@ function InvestorShell({
       finishLogout();
       return;
     }
+    setSignOutError("");
     logoutMutation.mutate();
   };
   const signOutLabel = readonlyImpersonation.active
@@ -3507,6 +3716,19 @@ function InvestorShell({
   return (
     <UserSkin>
     <div className="app">
+      <a
+        className="site-skip portal-skip"
+        href="#portal-content"
+        onClick={(event) => {
+          event.preventDefault();
+          const target = document.querySelector<HTMLElement>(".app .main > main, .app .main main");
+          if (!target) return;
+          if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+          target.focus();
+        }}
+      >
+        Skip to main content
+      </a>
       <div className={`nav-scrim ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="sidebar-brand">
@@ -3542,6 +3764,7 @@ function InvestorShell({
                         <div className="nav-sub">
                           {item.children.map((child) => (
                             <button
+                              aria-current={activeRoute === child.route ? "page" : undefined}
                               className={`nav-sublink ${activeRoute === child.route ? "on" : ""}`}
                               key={child.route}
                               onClick={() => navigate(child.route)}
@@ -3558,6 +3781,7 @@ function InvestorShell({
                 const isActive = activeRoute === item.route;
                 return (
                   <button
+                    aria-current={isActive ? "page" : undefined}
                     className={`nav-link ${isActive ? "on" : ""}`}
                     key={item.route}
                     onClick={() => navigate(item.route)}
@@ -3610,7 +3834,7 @@ function InvestorShell({
               onClick={() => setAddFundsOpen(true)}
               size="sm"
             >
-              Add Funds
+              <span className="topbar-add-funds-label">Add Funds</span>
             </Button>
             {isFixturePreview ? (
               <div className="state-switch">
@@ -3644,6 +3868,18 @@ function InvestorShell({
             />
           </div>
         </header>
+        {signOutError ? (
+          <div className="fixture-preview-notice">
+            <Banner
+              actions={<Button disabled={logoutMutation.isPending} size="sm" variant="primary" onClick={signOut}>{logoutMutation.isPending ? "Signing out..." : "Retry sign out"}</Button>}
+              icon="alert"
+              tone="bad"
+              title="Sign out failed"
+            >
+              {signOutError}
+            </Banner>
+          </div>
+        ) : null}
         {isFixturePreview ? (
           <div className="fixture-preview-notice">
             <Banner icon="alert" tone="warn" title="Preview data">
@@ -3661,7 +3897,18 @@ function InvestorShell({
             </Banner>
           </div>
         ) : null}
-        {gatedScreen}
+        {frozenAccount.frozen && financialAccessAllowed && !blockedAccountStatus ? (
+          <div className="fixture-preview-notice frozen-account-notice">
+            <FrozenAccountBanner
+              account={frozenAccount}
+              onAddIban={readonlyImpersonation.active ? undefined : () => setPayoutIbanOpen(true)}
+              onOpenAccount={route.name === "balances" ? undefined : () => navigate("balances")}
+            />
+          </div>
+        ) : null}
+        <FrozenAccountContext.Provider value={frozenAccount}>
+          {gatedScreen}
+        </FrozenAccountContext.Provider>
         <footer className="portal-footer">
           <span className="portal-footer-copy">&copy; {new Date().getFullYear()} {platformName} · {operatorName}</span>
           <nav aria-label="Legal and help" className="portal-footer-links">
@@ -3678,6 +3925,7 @@ function InvestorShell({
           onClose={() => setAddFundsOpen(false)}
         />
       ) : null}
+      {payoutIbanOpen ? <PayoutIbanModal onClose={() => setPayoutIbanOpen(false)} /> : null}
     </div>
     </UserSkin>
   );
@@ -3718,7 +3966,7 @@ function HeaderLatestProject({ loans, setRoute }: { loans: MarketplaceLoanPrevie
   if (!latest) return <div className="topbar-news" />;
   const meta = [
     formatRateBps(marketplaceYieldBps(latest)),
-    `${latest.term_months} months`,
+    pluralize(latest.term_months, "month"),
     latest.currency
   ].join(" · ");
   return (
@@ -3953,6 +4201,7 @@ function Dashboard({
 }) {
   const dashboardQuery = useDashboardData();
   const balancesQuery = useBalancesData();
+  const frozenAccount = useFrozenAccount();
   const loansQuery = useMarketplaceLoansData();
   const smartInvestQuery = useSmartInvestData();
   const portfolioQuery = usePortfolioData(false);
@@ -4001,19 +4250,25 @@ function Dashboard({
     (holding) => holding.currency === ccy && holding.current_principal_minor > 0
   );
   const investedMinor = outstandingByCcy.get(ccy) ?? 0;
+  // Free to place in new loans (investable lots only).
   const idleMinor = summary?.investable_minor ?? 0;
+  // "Money not working" is everything on the account: investable, last-day, overdue and frozen money.
+  const notWorkingMinor = summary?.total_available_minor ?? 0;
+  const frozenMinor = (summary?.penalty_mode_minor ?? 0) + (summary?.frozen_minor ?? 0);
   const companies = new Set(holdingsCcy.map((holding) => holding.loan.borrower_name || holding.loan.loan_id)).size;
   const avgRateBps = investedMinor > 0
     ? Math.round(holdingsCcy.reduce((sum, holding) => sum + holding.loan.yield_bps * holding.current_principal_minor, 0) / Math.max(1, holdingsCcy.reduce((sum, holding) => sum + holding.current_principal_minor, 0)))
     : 0;
   const [investedWhole, investedCents = "00"] = formatMoneyMinor(investedMinor, ccy).split(".");
   const nextMonth = nextDashboardMonth(dashboard.as_of);
-  const asOfDate = new Date(dashboard.as_of);
+  // Months and days count on the Europe/Zurich calendar of the platform time (as_of), so a
+  // browser in another time zone groups payments under the same months as the labels.
+  const todayKey = zurichDateKey(dashboard.as_of);
   const monthInfo = (offset: number) => {
-    const date = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + 1 + offset, 1);
+    const key = zurichMonthKey(todayKey, 1 + offset);
     return {
-      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
-      label: date.toLocaleDateString("en-GB", { month: "short" }).toUpperCase()
+      key,
+      label: monthLabelFromKey(key, { month: "short" }).toUpperCase()
     };
   };
   const lastDueByHolding = new Map<string, string>();
@@ -4045,9 +4300,9 @@ function Dashboard({
     null
   );
   const sinceLabel = firstAssignment
-    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Europe/Zurich" })
     : null;
-  const idlePct = investedMinor + idleMinor > 0 ? ((idleMinor / (investedMinor + idleMinor)) * 100).toFixed(1) : "0.0";
+  const idlePct = investedMinor + notWorkingMinor > 0 ? ((notWorkingMinor / (investedMinor + notWorkingMinor)) * 100).toFixed(1) : "0.0";
 
   const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
   const deskTickable = deskMatches.filter(isOpenMarketplaceLoan);
@@ -4072,13 +4327,13 @@ function Dashboard({
   };
   const deskItems = deskTicked
     .map((match) => ({ match, amountMinor: deskSplit.get(match.loan_id) ?? 0 }));
-  const deskBatchReady = deskItems.length > 0;
+  const deskBatchReady = deskItems.length > 0 && !frozenAccount.frozen;
   const deskTotal = deskItems.reduce((sum, item) => sum + item.amountMinor, 0);
   const openCcyLoans = loans.filter((loan) => isOpenMarketplaceLoan(loan) && loan.currency === ccy);
   const closingSoon = openCcyLoans
     .map((loan) => {
       const days = loan.funding_deadline
-        ? Math.max(0, Math.ceil((new Date(`${loan.funding_deadline}T00:00:00`).getTime() - asOfDate.getTime()) / 86_400_000))
+        ? Math.max(0, daysBetweenDateKeys(todayKey, loan.funding_deadline) ?? 0)
         : null;
       return { loan, days };
     })
@@ -4097,8 +4352,9 @@ function Dashboard({
     ...holdingsCcy.map((holding) => {
       const last = holding.investment_schedule[holding.investment_schedule.length - 1];
       if (!last) return 1;
-      const lastDate = new Date(`${last.due_date}T00:00:00`);
-      return (lastDate.getFullYear() - asOfDate.getFullYear()) * 12 + lastDate.getMonth() - asOfDate.getMonth();
+      const [lastYear, lastMonth] = last.due_date.split("-").map(Number);
+      const [todayYear, todayMonth] = todayKey.split("-").map(Number);
+      return (lastYear - todayYear) * 12 + lastMonth - todayMonth;
     })
   );
   const reinvestRate = bestOpenBps / 120_000;
@@ -4122,12 +4378,9 @@ function Dashboard({
   const pctPaid = totalBase > 0 ? (realizedInterest / totalBase) * 100 : 0;
   const chartMax = Math.max(7, Math.ceil(Math.max(pctB, pctA) / 7) * 7);
   const chartY = (pct: number) => 286 - (pct / chartMax) * 266;
-  const horizonLabel = (() => {
-    const date = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + horizonMonths, 1);
-    return date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-  })();
+  const horizonLabel = monthLabelFromKey(zurichMonthKey(todayKey, horizonMonths), { month: "short", year: "numeric" });
   const startLabel = firstAssignment
-    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "short", year: "numeric" })
+    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "Europe/Zurich" })
     : formatDate(dashboard.as_of);
   const hasInvestments = investedMinor > 0;
 
@@ -4137,9 +4390,9 @@ function Dashboard({
         actions={
           <>
             {currencies.length > 1 ? (
-              <div aria-label="Display currency" className="seg" role="tablist">
+              <div aria-label="Display currency" className="seg" onKeyDown={handleTabListKeyDown} role="tablist">
                 {currencies.map((code) => (
-                  <button aria-selected={ccy === code} className={ccy === code ? "on" : ""} key={code} onClick={() => setCcyPick(code)} role="tab" type="button">{code}</button>
+                  <button aria-selected={ccy === code} className={ccy === code ? "on" : ""} key={code} onClick={() => setCcyPick(code)} role="tab" tabIndex={ccy === code ? 0 : -1} type="button">{code}</button>
                 ))}
               </div>
             ) : null}
@@ -4149,10 +4402,9 @@ function Dashboard({
         description={<>Your investments in {ccy} on {formatDate(dashboard.as_of)}.</>}
         title="Money working for you"
       />
-      {demoState === "frozen" || demoState === "kyc_pending" ? (
+      {demoState === "kyc_pending" ? (
         <div className="col gap-12 dz-alerts">
-          {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
-          {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
+          <KycBanner setRoute={setRoute} />
         </div>
       ) : null}
 
@@ -4160,8 +4412,8 @@ function Dashboard({
         <div className="card dz-stat dz-hero">
           <div className="dz-stat-title">Invested in loans</div>
           <div className="dz-fig num">
+            <span className="dz-cur dz-cur-lead">{ccy}</span>
             <span className="dz-whole">{investedWhole}</span><span className="dz-cents">.{investedCents}</span>
-            <span className="dz-cur">{ccy}</span>
           </div>
           {hasInvestments ? (
             <div className="dz-stat-lines">
@@ -4186,8 +4438,11 @@ function Dashboard({
         </div>
         <div className="card dz-stat dz-cell">
           <div className="dz-stat-title dz-microlabel"><span className="red">Money not working</span> — just sitting</div>
-          <div className="dz-fig-md num">{pfMoneyLabel(ccy, idleMinor)}</div>
+          <div className="dz-fig-md num">{pfMoneyLabel(ccy, notWorkingMinor)}</div>
           <div className="dz-cell-sub">{idlePct}% of your money, earning nothing</div>
+          {frozenMinor > 0 ? (
+            <div className="dz-cell-sub red">of which {pfMoneyLabel(ccy, frozenMinor)} frozen, with a daily penalty</div>
+          ) : null}
         </div>
       </div>
 
@@ -4233,8 +4488,8 @@ function Dashboard({
                     ) : (
                       <button aria-label={`${ticked ? "Untick" : "Tick"} ${match.title}`} className={`dz-tick${ticked ? " on" : ""}`} onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: !current[match.loan_id] }))} type="button">{ticked ? "✓" : ""}</button>
                     )}
-                    <button className="dz-desk-name" onClick={() => setSheetLoan(match)} type="button">{match.borrower_display_name || match.title}</button>
-                    <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || "Banxum"}</span>
+                    <button className="dz-desk-name" onClick={() => setSheetLoan(match)} type="button">{match.title}</button>
+                    <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || platformName}</span>
                     <span className="dz-leader" />
                     {unaffordable ? (
                       <Tooltip content={affordNote} label={`Below minimum. ${affordNote}`}>
@@ -4246,7 +4501,7 @@ function Dashboard({
               })}
               <div className="dz-desk-foot">
                 <span className="dz-desk-commit num">You commit {pfMoneyLabel(ccy, deskTotal)}</span>
-                <span className="dz-desk-note">{deskBatchReady ? "nothing moves without this click" : deskAllUnticked ? "tick the opportunities you want to invest in" : "untick opportunities until each order reaches its minimum"}</span>
+                <span className="dz-desk-note">{frozenAccount.frozen ? frozenActionReason(frozenAccount) : deskBatchReady ? "nothing moves without this click" : deskAllUnticked ? "tick the opportunities you want to invest in" : "untick opportunities until each order reaches its minimum"}</span>
                 <span style={{ flex: 1 }} />
                 <button className="si-dash-setup" disabled={!deskBatchReady} onClick={() => setBatchOpen(true)} type="button">Review &amp; confirm →</button>
               </div>
@@ -4288,14 +4543,14 @@ function Dashboard({
                 </span>
                 <span className="dz-dots-cap">7 d</span>
               </span>
-              <button className="si-dash-setup" onClick={() => setCloseOpen((open) => !open)} type="button">{closeOpen ? "Hide ▴" : "Check ▾"}</button>
+              <button aria-controls="dz-closing-rows" aria-expanded={closeOpen} className="si-dash-setup" onClick={() => setCloseOpen((open) => !open)} type="button">{closeOpen ? "Hide" : "Check"} <span aria-hidden="true">{closeOpen ? "▴" : "▾"}</span></button>
             </div>
             {closeOpen ? (
-              <div className="si-dash-rows">
+              <div className="si-dash-rows" id="dz-closing-rows">
                 {closingSoon.map((entry) => (
                   <button className="si-dash-row" key={entry.loan.loan_id} onClick={() => setSheetLoan(entry.loan)} type="button">
-                    <span className="si-dash-row-name">{entry.loan.borrower_display_name || entry.loan.title}</span>
-                    <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(entry.loan))} · {entry.loan.term_months} mo · {entry.loan.originator_name || "Banxum"}</span>
+                    <span className="si-dash-row-name">{entry.loan.title}</span>
+                    <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(entry.loan))} · {entry.loan.term_months} mo · {entry.loan.originator_name || platformName}</span>
                     <span className="dz-leader" />
                     <span className={`si-dash-row-amt${entry.days <= 3 ? " red" : ""}`}>closes in {entry.days === 1 ? "1 day" : `${entry.days} days`}</span>
                     <span className="si-dash-row-go" aria-hidden="true">→</span>
@@ -4334,7 +4589,7 @@ function Dashboard({
         <div className="dz-next12">
           <span className="dz-next12-cap">Next 12 months</span>
           <span className="dz-leader" />
-          <span className="dz-next12-cur">{ccy === "EUR" ? "€" : ccy}</span>
+          <span className="dz-next12-cur">{ccy}</span>
           <span className="dz-next12-val num">{formatMoneyMinor(next12Minor, ccy).split(".")[0]}</span>
           <span className="dz-next12-cents num">.{formatMoneyMinor(next12Minor, ccy).split(".")[1] ?? "00"}</span>
         </div>
@@ -4343,14 +4598,14 @@ function Dashboard({
       </div>
 
       <div className="dz-compare">
-        <button className="dz-sect-head as-btn" onClick={() => setCompareOpen((open) => !open)} type="button">
-          <span className="dz-sect-sign">{compareOpen ? "–" : "+"}</span>
+        <button aria-controls="dz-compare-body" aria-expanded={compareOpen} className="dz-sect-head as-btn" onClick={() => setCompareOpen((open) => !open)} type="button">
+          <span aria-hidden="true" className="dz-sect-sign">{compareOpen ? "–" : "+"}</span>
           <span className="dz-sect-title">What you invested and what you earned</span>
           <span style={{ flex: 1 }} />
           <span className="dz-compare-gain num">+ {pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))} if everything were reinvested</span>
         </button>
         {compareOpen ? (
-          <div className="dz-compare-body">
+          <div className="dz-compare-body" id="dz-compare-body">
             <p className="dz-compare-intro">Two scenarios on the same {pfMoneyLabel(ccy, totalBase)}, from {startLabel} to the last scheduled repayment in {horizonLabel}. Totals, not a rate per year.</p>
             <div className="dz-chart-card">
               <svg viewBox="0 0 880 326" style={{ display: "block", maxWidth: "100%" }}>
@@ -4456,8 +4711,17 @@ type BatchPreparedQuote = Pick<
   | "assigned_principal_minor"
   | "target_yield_bps"
   | "rounding_remainder_minor"
+  | "entitlement_start_at"
   | "expires_at"
 >;
+
+// A quote's time to live (expires_at − entitlement_start_at, both on the platform clock). The
+// countdown runs from when the browser received the quotes, so a browser clock that differs from
+// the platform (QA) clock cannot expire them early or keep them alive (FRONTCODE-15).
+function batchQuoteLifetimeMs(quote: Pick<BatchPreparedQuote, "entitlement_start_at" | "expires_at">) {
+  const lifetime = Date.parse(quote.expires_at) - Date.parse(quote.entitlement_start_at);
+  return Number.isFinite(lifetime) && lifetime > 0 ? lifetime : 0;
+}
 
 function allocationPlan(
   matches: AllocMatch[],
@@ -4588,6 +4852,7 @@ function ApproveAllocationModal({
   setRoute: (route: AppRoute) => void;
   setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const balances = useBalancesData().data;
   const tickable = matches.filter(isOpenMarketplaceLoan);
   const currencies = Array.from(new Set(tickable.map((match) => match.currency))).sort();
@@ -4601,12 +4866,16 @@ function ApproveAllocationModal({
   const [allocText, setAllocText] = useState<Record<string, string>>({});
   const [step, setStep] = useState<"allocate" | "confirm" | "done">("allocate");
   const [ack, setAck] = useState(false);
+  // The same risk acknowledgement as a single investment (audit A-31 / JOURNEY-12).
+  const [riskAck, setRiskAck] = useState(false);
+  const [batchResult, setBatchResult] = useState<PrimaryOrderBatchResponse | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [sheetLoan, setSheetLoan] = useState<AllocMatch | null>(null);
   const [preparedQuotes, setPreparedQuotes] = useState<Record<string, BatchPreparedQuote>>({});
   const [preparingQuotes, setPreparingQuotes] = useState(false);
   const [quoteClock, setQuoteClock] = useState(() => Date.now());
+  const [quotesReceivedAt, setQuotesReceivedAt] = useState(0);
   const [batchKey] = useState(() => idempotencyKey("primary-batch"));
   const [acceptanceKey, setAcceptanceKey] = useState(() => idempotencyKey("primary-batch-accept"));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
@@ -4620,19 +4889,14 @@ function ApproveAllocationModal({
   const busy = preparingQuotes || acceptanceMutation.isPending || batchMutation.isPending;
   const termsLabels = templateLabels(termsQuery.data);
   const termsReady = isFixturePreview || Boolean(termsQuery.data && termsLabels.length > 0);
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || sheetLoan) return;
-      if (step === "done") onDone();
-      else onClose();
-    };
-    window.addEventListener("keydown", listener);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", listener);
-      document.body.style.overflow = "";
-    };
-  }, [busy, onClose, onDone, sheetLoan, step]);
+  // Escape, Tab and focus follow the shared dialog rules; the loan sheet opened from here is the
+  // top-most dialog while it is open, so Escape closes only that sheet.
+  const approveRef = useRef<HTMLDivElement>(null);
+  useDialog({
+    dialogRef: approveRef,
+    onDismiss: () => (step === "done" ? onDone() : onClose()),
+    busy
+  });
   useEffect(() => {
     if (step !== "confirm" || Object.keys(preparedQuotes).length === 0) return undefined;
     setQuoteClock(Date.now());
@@ -4681,9 +4945,13 @@ function ApproveAllocationModal({
   }
   const selectedCount = items.length;
   const immediateClaimCount = items.filter((item) => usesImmediateClaimAssignment(item.match)).length;
-  const reservedOrderCount = selectedCount - immediateClaimCount;
-  const quoteExpiryMs = Math.min(
-    ...Object.values(preparedQuotes).map((quote) => new Date(quote.expires_at).getTime())
+  // After placing, count from the server's orders: a round can close (and invest) at once.
+  const reservedOrderCount = batchResult
+    ? batchResult.orders.filter((order) => order.status === "balance_allocated" || order.status === "partially_allocated").length
+    : selectedCount - immediateClaimCount;
+  const investedOrderCount = batchResult ? batchResult.orders.filter((order) => order.status === "closed_invested").length : 0;
+  const quoteExpiryMs = quotesReceivedAt + Math.min(
+    ...Object.values(preparedQuotes).map((quote) => batchQuoteLifetimeMs(quote))
   );
   const hasPreparedQuotes = immediateClaimCount === Object.keys(preparedQuotes).length;
   const quotesExpired = immediateClaimCount > 0 && (!Number.isFinite(quoteExpiryMs) || quoteExpiryMs <= quoteClock);
@@ -4708,6 +4976,7 @@ function ApproveAllocationModal({
               assigned_principal_minor: item.amountMinor,
               target_yield_bps: marketplaceYieldBps(item.match),
               rounding_remainder_minor: 0,
+              entitlement_start_at: new Date().toISOString(),
               expires_at: new Date(Date.now() + 5 * 60_000).toISOString()
             } satisfies BatchPreparedQuote;
           }
@@ -4718,8 +4987,10 @@ function ApproveAllocationModal({
       );
       const nextQuotes = Object.fromEntries(quotes.map((quote) => [quote.loan_id, quote]));
       setPreparedQuotes(nextQuotes);
+      setQuotesReceivedAt(Date.now());
       setAcceptanceKey(idempotencyKey("primary-batch-accept"));
       setAck(false);
+      setRiskAck(false);
       setCode("");
       setQuoteClock(Date.now());
       setStep("confirm");
@@ -4734,6 +5005,10 @@ function ApproveAllocationModal({
 
   const submit = async () => {
     setError("");
+    if (!ack || !riskAck) {
+      setError("Accept the investment terms and the risk disclosure first.");
+      return;
+    }
     if (isFixturePreview) {
       setStep("done");
       return;
@@ -4773,7 +5048,7 @@ function ApproveAllocationModal({
           idempotency_key: acceptanceKey
         }
       });
-      await batchMutation.mutateAsync({
+      const placed = await batchMutation.mutateAsync({
         data: {
           items: reviewItems.map((item) => ({
             loan_id: item.match.loan_id,
@@ -4786,6 +5061,10 @@ function ApproveAllocationModal({
           sensitive_action_code: code
         }
       });
+      // Money moved: refresh balances, portfolio and every list, as the other flows do
+      // (audit A-42 / FRONTCODE-09).
+      void queryClient.invalidateQueries();
+      setBatchResult(placed);
       setStep("done");
     } catch (submitError) {
       setError(apiErrorMessage(submitError));
@@ -4800,7 +5079,7 @@ function ApproveAllocationModal({
   return (
     <div className="ls-scrim">
       <button aria-label="Dismiss" className="ls-overlay-btn" disabled={busy} onClick={dismiss} tabIndex={-1} type="button" />
-      <div aria-label="Approve this allocation." aria-modal="true" className="ls-modal aa-modal" role="dialog">
+      <div aria-label="Approve this allocation." aria-modal="true" className="ls-modal aa-modal" ref={approveRef} role="dialog">
         <div className="ls-scroll aa-scroll">
           {step === "done" ? (
             <div className="aa-done">
@@ -4809,6 +5088,7 @@ function ApproveAllocationModal({
               <p className="aa-done-text">
                 {allocCommitLabel(reviewTotals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}.
                 {reservedOrderCount > 0 ? ` ${reservedOrderCount === 1 ? "One order reserves" : `${reservedOrderCount} orders reserve`} balance until the applicable funding round closes.` : ""}
+                {investedOrderCount > 0 ? ` ${investedOrderCount === 1 ? "One funding round" : `${investedOrderCount} funding rounds`} closed at once, so ${investedOrderCount === 1 ? "that investment is" : "those investments are"} already active.` : ""}
                 {immediateClaimCount > 0 ? ` ${immediateClaimCount === 1 ? "One legacy Loan Originator claim was" : `${immediateClaimCount} legacy Loan Originator claims were`} purchased immediately at the reviewed prices.` : ""}
               </p>
             </div>
@@ -4819,9 +5099,9 @@ function ApproveAllocationModal({
               <div className="si-dash-rows aa-review-rows">
                 {reviewItems.map((item) => (
                   <div className="si-dash-row" key={item.match.loan_id} style={{ cursor: "default" }}>
-                    <span className="si-dash-row-name">{item.match.borrower_display_name || item.match.title}</span>
+                    <span className="si-dash-row-name">{item.match.title}</span>
                     <span className="si-dash-row-meta">
-                      {formatRateBps(marketplaceYieldBps(item.match))} · {item.match.term_months} mo · {item.match.originator_name || "Banxum"}
+                      {formatRateBps(marketplaceYieldBps(item.match))} · {item.match.term_months} mo · {item.match.originator_name || platformName}
                       {item.quote ? ` · assigned principal ${pfMoneyLabel(item.match.currency, item.quote.assigned_principal_minor)}` : " · reserved until funding close"}
                     </span>
                     <span className="dz-leader" />
@@ -4848,6 +5128,9 @@ function ApproveAllocationModal({
               ) : null}
               <Check checked={ack} id="aa-ack" onChange={setAck}>
                 I accept the current <LegalDocLink category="primary_market_investment">primary-market investment terms</LegalDocLink> for every investment listed above.
+              </Check>
+              <Check checked={riskAck} id="aa-risk-ack" onChange={setRiskAck}>
+                I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink> and possible capital loss.
               </Check>
               {!isFixturePreview && termsQuery.isLoading ? <p className="muted">Loading the current published terms...</p> : null}
               {!isFixturePreview && !termsQuery.isLoading && !termsReady ? (
@@ -4883,7 +5166,7 @@ function ApproveAllocationModal({
                 <div className="aa-alloc-row" key={currency}>
                   <span className="aa-alloc-cap">Allocating{currencies.length > 1 ? ` · ${currency}` : ""}</span>
                   <div className="aa-alloc-box">
-                    <span className="aa-alloc-cur">{currency === "EUR" ? "€" : currency}</span>
+                    <span className="aa-alloc-cur">{currency}</span>
                     <input
                       aria-label={`Amount to allocate in ${currency}`}
                       className="aa-alloc-input"
@@ -4922,10 +5205,10 @@ function ApproveAllocationModal({
                       )}
                       <span className="aa-row-main">
                         <span className="aa-row-name">
-                          {match.borrower_display_name || match.title}
+                          {match.title}
                           <button aria-label={`Open ${match.title} in full`} className="aa-info" onClick={() => setSheetLoan(match)} type="button">i</button>
                         </span>
-                        <span className="aa-row-meta num">{formatRateBps(marketplaceYieldBps(match))} · {match.term_months} mo · {match.originator_name || "Banxum"}{days !== null ? ` · closes in ${days === 1 ? "1 day" : `${days} days`}` : ""}</span>
+                        <span className="aa-row-meta num">{formatRateBps(marketplaceYieldBps(match))} · {match.term_months} mo · {match.originator_name || platformName}{days !== null ? ` · closes in ${days === 1 ? "1 day" : `${days} days`}` : ""}</span>
                       </span>
                       {blockedNow && !ticked ? (
                         <Tooltip content={reason} label={`Below minimum. ${reason}`}>
@@ -4951,7 +5234,7 @@ function ApproveAllocationModal({
             <button className="aa-confirm" onClick={onDone} type="button">Done</button>
           ) : step === "confirm" ? (
             <>
-              <button className="aa-confirm" disabled={!ack || code.length < 6 || busy || quotesExpired || !hasPreparedQuotes || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing investments..." : `Place ${selectedCount === 1 ? "1 investment" : `${selectedCount} investments`}`}</button>
+              <button className="aa-confirm" disabled={!ack || !riskAck || code.length < 6 || busy || quotesExpired || !hasPreparedQuotes || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing investments..." : `Place ${selectedCount === 1 ? "1 investment" : `${selectedCount} investments`}`}</button>
               <button className="aa-cancel" disabled={busy} onClick={() => { setStep("allocate"); setPreparedQuotes({}); setError(""); }} type="button">Back</button>
             </>
           ) : (
@@ -4977,21 +5260,6 @@ function ApproveAllocationModal({
   );
 }
 
-function FrozenBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  return (
-    <Banner
-      actions={<Button size="sm" variant="primary" onClick={() => goTo(setRoute, "balances")}>Add payout IBAN</Button>}
-      icon="lock"
-      tone="bad"
-      title="Financial actions are frozen - provide a usable payout IBAN"
-    >
-      A balance lot passed the 60-day regulatory deadline and no usable IBAN is on file. Investing,
-      withdrawals, FX and secondary-market actions are blocked, while portfolio, documents, statements
-      and notices remain available.
-    </Banner>
-  );
-}
-
 function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   return (
     <Banner
@@ -5005,7 +5273,8 @@ function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   );
 }
 
-const mkIsUnsecured = (loan: MarketplaceLoanPreview) => /unsecured/i.test(loan.collateral_type) || loan.ltv_bps === null;
+// The shared "unsecured" rule (portfolioCollateral.ts), also used by the portfolio widgets.
+const mkIsUnsecured = (loan: MarketplaceLoanPreview) => isUnsecuredLoan(loan);
 const mkYieldPct = (loan: MarketplaceLoanPreview) => marketplaceYieldBps(loan) / 100;
 
 // Same semantics as the backend rule: conditions combine with AND, the values
@@ -5112,7 +5381,7 @@ const mkSortOptions: FsSortOption[] = [
   { key: "rating", label: "Rating" },
   { key: "rate", label: "Yield" },
   { key: "term", label: "Term" },
-  { key: "margin", label: "Collateral margin" },
+  { key: "margin", label: "LTV" },
   { key: "available", label: "Available to invest" },
   { key: "closing", label: "Closes" }
 ];
@@ -5122,7 +5391,7 @@ function mkSortValue(loan: MarketplaceLoanPreview, key: string): number | string
   if (key === "rating") return loan.risk_rating;
   if (key === "rate") return marketplaceYieldBps(loan);
   if (key === "term") return loan.term_months;
-  if (key === "margin") return loan.ltv_bps ?? 999_999;
+  if (key === "margin") return loanLtvBps(loan) ?? 999_999;
   if (key === "available") return marketplaceAvailableMinor(loan);
   return `${Number(isOpenMarketplaceLoan(loan)) === 1 ? "0" : "1"}${marketplaceClosingKey(loan)}`;
 }
@@ -5351,7 +5620,13 @@ function MarketplaceScreen({
             invest; returns are not guaranteed and invested capital is at risk.
           </>
         )}
-        eyebrow={<>{openCount} open today · From {marketplaceCurrencySymbol(minimumCurrency)} {formatMoneyMinor(minimumInvestmentMinor, minimumCurrency, 0)}</>}
+        eyebrow={loansQuery.isError && loans.length === 0
+          ? <>Projects could not be loaded</>
+          : loansQuery.isPending && loans.length === 0
+            ? <>Loading projects</>
+            : openCount === 0
+              ? <>Nothing open today</>
+              : <>{openCount} open today · From {marketplaceCurrencySymbol(minimumCurrency)} {formatMoneyMinor(minimumInvestmentMinor, minimumCurrency, 0)}</>}
         title="These companies want your investment"
       />
 
@@ -5843,12 +6118,12 @@ function SmartInvestMatchTable({
               )}
             </span>
             <span>
-              <strong>{match.borrower_display_name || match.title}</strong>
+              <strong>{match.title}</strong>
               <small>{match.originator_name ? `Originated by ${match.originator_name}` : humanizeToken(match.purpose)}</small>
             </span>
             <span>{formatRateBps(match.yield_bps)}</span>
             <span>{match.term_months} mo</span>
-            <span>{match.ltv_bps === null ? "Unsecured" : `${((10_000 - match.ltv_bps) / 100).toFixed(1)}% margin`}</span>
+            <span>{loanLtvBps(match) === null ? "Unsecured" : `${formatRateBps(loanLtvBps(match) ?? 0)} LTV`}</span>
             <span>{pfMoneyLabel(match.currency, match.fillable_amount_minor)}</span>
             <span aria-hidden="true">→</span>
           </div>
@@ -5871,6 +6146,8 @@ function SmartInvestWizard({
   onSave: (filters: MkFilters) => Promise<void>;
   saving: boolean;
 }) {
+  const wizardRef = useRef<HTMLElement>(null);
+  const wizardDialog = useDialog({ dialogRef: wizardRef, onDismiss: onClose });
   const [step, setStep] = useState(0);
   const [filters, setFilters] = useState(initialFilters);
   const [error, setError] = useState("");
@@ -5903,8 +6180,8 @@ function SmartInvestWizard({
   const currencyOptions = mkOptionUnion(smartInvestCatalog.currencies, filters.ccy).map((code) => ({ value: code, label: code }));
   return (
     <div className="ls-scrim si-wiz-scrim" role="presentation">
-      <button aria-label="Close Smart Invest setup" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
-      <section aria-label="Smart Invest setup" aria-modal="true" className="si-wiz" role="dialog">
+      <button aria-label="Close Smart Invest setup" className="ls-overlay-btn" onClick={wizardDialog.dismissFromBackdrop} tabIndex={-1} type="button" />
+      <section aria-label="Smart Invest setup" aria-modal="true" className="si-wiz" ref={wizardRef} role="dialog">
         <div className="si-wiz-head">
           <div className="si-wiz-head-main">
             <div className="si-wiz-pips">
@@ -6018,6 +6295,7 @@ function SmartInvestScreen({
 }) {
   const queryClient = useQueryClient();
   const smartQuery = useSmartInvestData();
+  const frozenAccount = useFrozenAccount();
   const loansQuery = useMarketplaceLoansData();
   const updateMutation = useV1InvestorSmartInvestUpdate();
   const deactivateMutation = useV1InvestorSmartInvestDeactivateCreate();
@@ -6286,8 +6564,11 @@ function SmartInvestScreen({
                 <span className="aa-foot-dots" />
                 <span className="aa-committing">committing</span>
                 <span className="aa-commit-total num">{allocCommitLabel(matchPlan.totals)}</span>
-                <button className="si-dash-setup" disabled={matchPlan.ticked.size === 0} onClick={() => setApproveOpen(true)} type="button">Review &amp; confirm →</button>
+                <button className="si-dash-setup" disabled={matchPlan.ticked.size === 0 || frozenAccount.frozen} onClick={() => setApproveOpen(true)} type="button">Review &amp; confirm →</button>
               </div>
+            ) : null}
+            {frozenAccount.frozen && data.matches.length > 0 ? (
+              <p className="aa-foot-note">{frozenActionReason(frozenAccount)}</p>
             ) : null}
           </div>
         </section>
@@ -6470,6 +6751,25 @@ function marketplaceProjection(
   return osProjection(amountMinor, yieldBps, termMonths, repaymentType);
 }
 
+/** An amount as a plain input value ("5000.00"), without thousands separators. */
+function plainMoneyInput(amountMinor: number, currency: string) {
+  return formatMoneyMinor(amountMinor, currency).replace(/[^\d.]/g, "");
+}
+
+/** How the money comes back, for the sheet's projection line. */
+function repaymentPatternText(repaymentType: string) {
+  if (repaymentType === "bullet_periodic_interest" || repaymentType === "interest_only_then_bullet") {
+    return ", interest monthly and capital at maturity";
+  }
+  if (repaymentType === "interest_only_then_amortizing") {
+    return ", interest only at first, then capital and interest every month";
+  }
+  if (repaymentType === "amortizing_principal_interest" || repaymentType === "equal_installments") {
+    return ", capital and interest every month";
+  }
+  return ", as the loan schedule says";
+}
+
 function MarketplaceLoanSheet({
   preview,
   onClose,
@@ -6490,17 +6790,8 @@ function MarketplaceLoanSheet({
   const [calcText, setCalcText] = useState("");
   const [calcError, setCalcError] = useState("");
   const [calcResult, setCalcResult] = useState<InvestorScheduleProjection | null>(null);
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", listener);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", listener);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetDialog = useDialog({ dialogRef: sheetRef, onDismiss: onClose });
 
   const detail = detailQuery.data ?? null;
   const loan = detail ?? preview;
@@ -6510,9 +6801,10 @@ function MarketplaceLoanSheet({
   const immediateClaim = usesImmediateClaimAssignment(loan);
   const yieldBps = marketplaceYieldBps(loan);
   const openLoan = isOpenMarketplaceLoan(loan);
-  const ltvBps = loan.ltv_bps;
+  const collateralLoan = { ...loan, collateral_value_minor: detail?.collateral_value_minor };
+  const ltvBps = loanLtvBps(collateralLoan);
   const collateralValueMinor = detail?.collateral_value_minor ?? 0;
-  const hasAsset = collateralValueMinor > 0 && ltvBps !== null && ltvBps !== undefined;
+  const hasAsset = !isUnsecuredLoan(collateralLoan) && ltvBps !== null;
   const penaltyBps = detail?.default_penalty_interest_bps ?? 0;
   const repaymentType = detail?.repayment_type ?? "equal_installments";
   const minimumBps = loan.minimum_subscription_bps ?? 5_000;
@@ -6532,11 +6824,14 @@ function MarketplaceLoanSheet({
   const minInvestMinor = loan.minimum_investment_minor;
   const parsed = amountText === null ? null : parseMoneyInputToMinorUnits(amountText, ccy);
   const amountMinor = amountText === null ? Math.max(Math.min(commitableMinor, availableMinor), 0) : (parsed?.amountMinor ?? 0);
-  const amountValue = amountText ?? formatMoneyMinor(amountMinor, ccy);
+  // Pre-fill a plain number ("5000.00"): an edited "5’000’000.00" was hard to correct.
+  const amountValue = amountText ?? plainMoneyInput(amountMinor, ccy);
   const overCash = amountMinor > commitableMinor;
   const underMin = amountMinor < minInvestMinor;
-  const projection = marketplaceProjection(detail, investableMinor > 0 ? investableMinor : minInvestMinor, yieldBps, loan.term_months, repaymentType);
-  const walletBase = investableMinor > 0 ? investableMinor : minInvestMinor;
+  // Project what can really be lent here: the balance, capped by what the loan still
+  // takes (audit A-39 / JOURNEY-05), not the whole wallet.
+  const walletBase = commitableMinor >= minInvestMinor ? commitableMinor : minInvestMinor;
+  const projection = marketplaceProjection(detail, walletBase, yieldBps, loan.term_months, repaymentType);
   const commitProjection = marketplaceProjection(detail, amountMinor, yieldBps, loan.term_months, repaymentType);
   const bookMinor = (portfolio?.holdings ?? [])
     .filter((holding) => holding.currency === ccy)
@@ -6544,7 +6839,11 @@ function MarketplaceLoanSheet({
   const originLine = claim
     ? `originated by ${loan.originator_name ?? "a loan originator"}${subscriptionClaim && loan.funding_deadline ? ` · funding closes ${formatDate(loan.funding_deadline)}` : detail?.loan_start_date ? ` · ${new Date(`${detail.loan_start_date}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}` : ""}${(loan.skin_in_the_game_bps ?? 0) > 0 ? ` · kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)}` : ""}`
     : "originated by Banxum · written when this opportunity funds";
-  const borrowerLabel = loan.borrower_display_name || loan.title;
+  // The claim is against the borrower, never the loan title. Direct loans name the
+  // borrower in the disclosure; the preview may not have it yet.
+  const borrowerLabel = loan.borrower_display_name
+    || (detail ? borrowerDisclosureForLoan(detail).legal_name : undefined)
+    || "the borrower";
   const chain = claim
     ? `${subscriptionClaim ? "After activation, your" : "Your"} claim is against ${borrowerLabel}. Banxum collects it and holds the charge — ${loan.originator_name ?? "the originator"} is not in that chain${(loan.skin_in_the_game_bps ?? 0) > 0 ? `, and it keeps ${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of the outstanding principal, so it loses alongside you` : ""}.`
     : `We underwrote this loan ourselves and we collect it. Your claim is against ${borrowerLabel}, and Banxum holds the charge over the collateral on your behalf.`;
@@ -6561,7 +6860,7 @@ function MarketplaceLoanSheet({
   };
   const reviewOrder = () => {
     if (!detail || underMin || amountMinor <= 0 || overCash) return;
-    onInvest(detail, formatMoneyMinor(amountMinor, ccy).replace(/[^\d.]/g, ""));
+    onInvest(detail, plainMoneyInput(amountMinor, ccy));
   };
   const presets: { label: string; minor: number }[] = [
     { label: "Minimum", minor: minInvestMinor },
@@ -6571,8 +6870,8 @@ function MarketplaceLoanSheet({
 
   return (
     <div className="ls-scrim os-scrim">
-      <button aria-label="Dismiss" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
-      <div aria-label={loan.title} aria-modal="true" className="ls-modal os-sheet" role="dialog">
+      <button aria-label="Dismiss" className="ls-overlay-btn" onClick={sheetDialog.dismissFromBackdrop} tabIndex={-1} type="button" />
+      <div aria-label={loan.title} aria-modal="true" className="ls-modal os-sheet" ref={sheetRef} role="dialog">
         <div className="ls-scroll" style={{ opacity: stepOpen ? 0.5 : 1 }}>
           <div className="os-head">
             <div className="os-head-main">
@@ -6608,7 +6907,7 @@ function MarketplaceLoanSheet({
                     <div className="os-trio">
                       <div><div className="os-trio-val">{pfMoneyLabel(ccy, collateralValueMinor)}</div><div className="os-stat-cap">Valuation</div></div>
                       <div><div className="os-trio-val">{pfMoneyLabel(ccy, loan.principal_minor)}</div><div className="os-stat-cap">Lent against it</div></div>
-                      <div><div className="os-trio-val">{formatRateBps(ltvBps ?? 0)}</div><div className="os-stat-cap">Margin</div></div>
+                      <div><div className="os-trio-val">{formatRateBps(ltvBps ?? 0)}</div><div className="os-stat-cap">LTV</div></div>
                     </div>
                   </>
                 ) : (
@@ -6621,12 +6920,12 @@ function MarketplaceLoanSheet({
             </div>
 
             <div className="os-card">
-              <div className="os-card-head"><span className="os-cap">What your {pfMoneyLabel(ccy, walletBase)} does here</span><span className="os-over">over {loan.term_months} months</span></div>
+              <div className="os-card-head"><span className="os-cap">What your {pfMoneyLabel(ccy, walletBase)} does here</span><span className="os-over">over {pluralize(loan.term_months, "month")}</span></div>
               <div className="os-wallet">
                 <div className="os-wallet-col">
                   <div className="os-wallet-cap">Illustrative — if paid as scheduled</div>
                   <div className="os-wallet-val">{pfMoneyLabel(ccy, projection.totalMinor)}</div>
-                  <div className="os-wallet-sub">{pfMoneyLabel(ccy, walletBase)} your capital returning + {pfMoneyLabel(ccy, projection.interestMinor)} interest{subscriptionClaim ? ", based on the imported remaining loan schedule and your declared component participation" : projection.monthlyMinor ? `, arriving as ${pfMoneyLabel(ccy, projection.monthlyMinor)} a month — not in one payment` : repaymentType === "bullet_periodic_interest" ? ", interest monthly and capital at maturity" : ", paid at maturity"}</div>
+                  <div className="os-wallet-sub">{pfMoneyLabel(ccy, walletBase)} your capital returning + {pfMoneyLabel(ccy, projection.interestMinor)} interest{subscriptionClaim ? ", based on the imported remaining loan schedule and your declared component participation" : projection.monthlyMinor ? `, arriving as ${pfMoneyLabel(ccy, projection.monthlyMinor)} a month — not in one payment` : repaymentPatternText(repaymentType)}</div>
                 </div>
                 <div className="os-wallet-col last">
                   <div className="os-wallet-cap red">If it stops paying</div>
@@ -6698,7 +6997,7 @@ function MarketplaceLoanSheet({
                 <span className="os-cap">Investment schedule calculator</span>
                 <span className="os-calc-hint">how a given amount comes back to you, installment by installment</span>
                 <span className="ls-spacer" />
-                <span className="os-over">{calcOpen ? "Hide ▴" : "Show ▾"}</span>
+                <span className="os-over">{calcOpen ? "Hide" : "Show"} <span aria-hidden="true">{calcOpen ? "▴" : "▾"}</span></span>
               </button>
               {calcOpen ? (
                 <div className="os-calc-body">
@@ -6740,7 +7039,7 @@ function MarketplaceLoanSheet({
                         }}
                       >
                         <div className="os-amt-box os-amt-box-sm">
-                          <span className="os-amt-ccy">{ccy === "EUR" ? "€" : ccy}</span>
+                          <span className="os-amt-ccy">{ccy}</span>
                           <input aria-label="Amount to calculate" className="os-amt-input os-amt-input-sm" inputMode="decimal" onChange={(event) => setCalcText(event.target.value)} placeholder={formatMoneyMinor(minInvestMinor, ccy).replace(/[^\d.]/g, "")} type="text" value={calcText} />
                         </div>
                         <button className="si-pill-dark os-calc-btn" type="submit">Calculate</button>
@@ -6829,14 +7128,15 @@ function MarketplaceLoanSheet({
             <div className="os-step-grid">
               <div className="os-step-amount">
                 <div className="os-amt-box">
-                  <span className="os-amt-ccy">{ccy === "EUR" ? "€" : ccy}</span>
+                  <span className="os-amt-ccy">{ccy}</span>
                   <input aria-label="Amount to invest" className="os-amt-input" inputMode="decimal" onChange={(event) => setAmountText(event.target.value)} type="text" value={amountValue} />
                 </div>
                 <div className="os-chips">
                   {presets.map((preset) => (
-                    <button className="os-chip" key={preset.label} onClick={() => setAmountText(formatMoneyMinor(preset.minor, ccy).replace(/[^\d.]/g, ""))} type="button">{preset.label}</button>
+                    <button className="os-chip" key={preset.label} onClick={() => setAmountText(plainMoneyInput(preset.minor, ccy))} type="button">{preset.label}</button>
                   ))}
                 </div>
+                {parsed?.error ? <div className="os-step-note" role="alert">{parsed.error}</div> : null}
                 {overCash ? <div className="os-step-note">{limitMessage(amountMinor)}</div> : null}
                 {underMin && amountMinor > 0 ? <div className="os-step-note">The minimum in any one loan is {pfMoneyLabel(ccy, minInvestMinor)}.</div> : null}
               </div>
@@ -7005,7 +7305,7 @@ function MarketplaceOpportunityList({
         <FsTh activeKey={sortKey} dir={sortDir} label="Rating" onPick={onPickSort} sortKey="rating" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Yield" onPick={onPickSort} sortKey="rate" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Term" onPick={onPickSort} sortKey="term" />
-        <FsTh activeKey={sortKey} dir={sortDir} label="Collateral margin" onPick={onPickSort} sortKey="margin" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="LTV" onPick={onPickSort} sortKey="margin" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Available to invest" onPick={onPickSort} sortKey="available" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Availability" onPick={onPickSort} sortKey="closing" />
       </div>
@@ -7051,12 +7351,12 @@ function MarketplaceOpportunityList({
               <div className="marketplace-opportunity-term">
                 <span className="marketplace-mobile-label">Term</span>
                 <strong>{loan.term_months}</strong>
-                <small>months</small>
+                <small>{loan.term_months === 1 ? "month" : "months"}</small>
               </div>
               <div className="marketplace-opportunity-collateral">
-                <span className="marketplace-mobile-label">Collateral margin</span>
-                <strong>{loan.ltv_bps === null ? "Not disclosed" : formatRateBps(loan.ltv_bps)}</strong>
-                <small>{loan.ltv_bps === null ? "No LTV" : "of valuation"}</small>
+                <span className="marketplace-mobile-label">LTV</span>
+                <strong>{loanLtvBps(loan) === null ? "Not disclosed" : formatRateBps(loanLtvBps(loan) ?? 0)}</strong>
+                <small>{loanLtvBps(loan) === null ? "No LTV" : "of valuation"}</small>
               </div>
               <div className="marketplace-opportunity-funding">
                 <span className="marketplace-mobile-label">Available to invest</span>
@@ -7108,14 +7408,15 @@ function loanClosesRow(loan: MarketplaceLoanDetail): [string, string] {
   const subscriptionClaim = usesOriginatorSubscription(loan);
   const originatorClaim = isOriginatorClaimLoan(loan);
   if (subscriptionClaim || !originatorClaim) {
-    return ["Closes", loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"];
+    // A loan that no longer takes orders says its funding closed, not that it "closes".
+    return [isOpenMarketplaceLoan(loan) ? "Closes" : "Funding closed", loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"];
   }
   return ["Maturity", loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"];
 }
 
 /** Whether the current viewer can start an order on this loan from the loan pages. */
-function loanInvestBlocked(demoState: DemoAccountState) {
-  return demoState !== "active" || isReadonlyImpersonationActive();
+function loanInvestBlocked(demoState: DemoAccountState, frozen = false) {
+  return frozen || demoState !== "active" || isReadonlyImpersonationActive();
 }
 
 function loanDaysLeftLabel(days: number) {
@@ -7144,7 +7445,7 @@ function LoanFactsCard({ loan }: { loan: MarketplaceLoanDetail }) {
       : []),
     [subscriptionClaim ? "Nominal investor interest rate" : "Investor yield", `${formatRateBps(marketplaceYieldBps(loan))} p.a.`, true],
     ...(originatorClaim ? [["Borrower coupon", `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`, true] as [string, ReactNode, boolean]] : []),
-    ["Loan-to-value", loan.ltv_bps !== null ? `${(loan.ltv_bps / 100).toFixed(1)}%` : "Not shown (no collateral value)", true],
+    ["Loan-to-value", loanLtvBps(loan) !== null ? formatRateBps(loanLtvBps(loan) ?? 0) : "Not shown (no collateral value)", true],
     ["Collateral", loan.collateral_value_minor > 0 ? `${humanizeToken(loan.collateral_type)} · ${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}` : humanizeToken(loan.collateral_type)],
     ["Collateral / backing", loan.collateral_description],
     ...(subscriptionClaim ? [
@@ -7252,27 +7553,13 @@ function LoanBorrowerCard({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 }
 
-/** Borrower documents disclosed by the admin (design: "Documents" card). */
+/** Borrower documents disclosed by the admin (design: "Documents" card). Each one downloads. */
 function LoanDocumentsCard({ loan }: { loan: MarketplaceLoanDetail }) {
   const documents = borrowerDisclosureForLoan(loan).documents ?? [];
   if (documents.length === 0) return null;
   return (
     <LoanCard title="Documents">
-      <ul className="lp-docs">
-        {documents.map((document, index) => (
-          <li className="lp-doc" key={document.id ?? index}>
-            <Icon className="lp-doc-icon" name="doc" size={16} />
-            <div className="lp-doc-main">
-              <div className="lp-doc-name">
-                <strong>{document.display_name || "Borrower document"}</strong>
-                {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
-              </div>
-              {document.description ? <div className="lp-doc-desc">{document.description}</div> : null}
-            </div>
-            {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} /> : null}
-          </li>
-        ))}
-      </ul>
+      <LoanDocumentList disabled={isFixturePreview} documents={documents} humanize={humanizeToken} loanId={loan.loan_id} />
     </LoanCard>
   );
 }
@@ -7287,7 +7574,9 @@ function LoanInvestAside({
   demoState: DemoAccountState;
   setInvestLoan: (loan: MarketplaceLoanDetail) => void;
 }) {
-  const blocked = loanInvestBlocked(demoState);
+  const frozenAccount = useFrozenAccount();
+  const frozen = frozenAccount.frozen;
+  const blocked = loanInvestBlocked(demoState, frozen);
   const originatorClaim = isOriginatorClaimLoan(loan);
   const subscriptionClaim = usesOriginatorSubscription(loan);
   const openForInvestment = isOpenMarketplaceLoan(loan);
@@ -7328,11 +7617,11 @@ function LoanInvestAside({
             </div>
             {blocked ? (
               <div className="lp-aside-sec">
-                <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
+                <Banner tone={frozen ? "bad" : "warn"} title={frozen ? "Financial actions frozen" : "Investing not yet available"}>
                   {isReadonlyImpersonationActive()
                     ? "Read-only impersonation cannot place orders."
-                    : demoState === "frozen"
-                      ? "Provide a usable payout IBAN to unlock investing."
+                    : frozen
+                      ? frozenActionReason(frozenAccount)
                       : "Complete KYC verification to unlock investing."}
                 </Banner>
               </div>
@@ -7382,10 +7671,13 @@ function LoanPageFrame({
   children: (loan: MarketplaceLoanDetail) => ReactNode;
 }) {
   const loanQuery = useLoanDetailData(loanId);
+  const frozenAccount = useFrozenAccount();
   const loan = loanQuery.data;
   const title = page === "story" ? loanCounterpartyLabel : () => "Loan schedule & payments";
   if (loanQuery.isError && !loan) {
-    return (
+    return isNotFoundError(loanQuery.error) ? (
+      <LoanNotFound setRoute={setRoute} title="Loan detail" />
+    ) : (
       <ScreenError title="Loan detail" onRetry={() => void loanQuery.refetch()}>
         We could not load this loan detail. Return to the marketplace or retry after the API is reachable.
       </ScreenError>
@@ -7393,7 +7685,7 @@ function LoanPageFrame({
   }
   if (!loan) return <ScreenLoading title="Loan detail" />;
   const originatorClaim = isOriginatorClaimLoan(loan);
-  const canInvest = isOpenMarketplaceLoan(loan) && !loanInvestBlocked(demoState);
+  const canInvest = isOpenMarketplaceLoan(loan) && !loanInvestBlocked(demoState, frozenAccount.frozen);
 
   return (
     <main className="content lp-page">
@@ -7404,7 +7696,8 @@ function LoanPageFrame({
         description={
           <span className="lp-meta">
             <span className="lp-eyebrow">{title(loan)}</span>
-            <Chip status={loan.status} />
+            {/* A published loan with nothing left to fill is not "Open" (it waits for its close). */}
+            <Chip status={["open", "published"].includes(loan.status) && !isOpenMarketplaceLoan(loan) ? "funded" : loan.status} />
             <Rating value={loan.risk_rating} />
             <span className="tag">{loan.currency}</span>
             {loan.is_refinancing ? <RefinancedTag full /> : null}
@@ -7780,76 +8073,29 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 }
 
-function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoanPreview[]; onOpen: (loan: MarketplaceLoanPreview) => void; preview?: boolean }) {
+/** Public preview grid: project cards with only the MKT-DEC-002 fields. */
+function LoansTable({ loans, onOpen }: { loans: PublicMarketplaceLoan[]; onOpen: (loan: PublicMarketplaceLoan) => void; preview?: boolean }) {
   if (loans.length === 0) {
     return (
       <div className="portal-table-empty">
-        <Empty icon="market" title={preview ? "No loan previews available" : "No loans available"}>
-          {preview
-            ? "There are no published loan previews right now. Check again later or register to receive marketplace updates."
-            : "There are no loans in this view right now."}
+        <Empty icon="market" title="No loan previews available">
+          There are no published loan previews right now. Check again later or register to receive marketplace updates.
         </Empty>
       </div>
     );
   }
-
-  if (preview) {
-    // Public preview: design project cards with the same fields and actions as the table.
-    return (
-      <div className="site-projects loans-preview-grid">
-        {loans.map((loan) => (
-          <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpen} />
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <div className="portal-data-surface">
-      <div className="tbl-wrap">
-        <table className={`tbl portal-data-table loans-data-table ${preview ? "preview" : ""}`}>
-          <thead>
-            <tr>
-              <th>Borrower</th>
-              <th>Purpose</th>
-              <th className="num">Amount</th>
-              <th className="num">Yield</th>
-              <th className="num">Term</th>
-              {!preview ? <th>Rating</th> : null}
-              {!preview ? <th className="num">Funded</th> : null}
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {loans.map((loan) => (
-              <tr className="clickable" key={loan.loan_id} onClick={() => onOpen(loan)}>
-                <td>
-                  <EntityReference
-                    id={loan.loan_id}
-                    idLabel="Copy loan ID"
-                    title={loan.is_refinancing ? <span className="row gap-6 wrap">{loan.title}<RefinancedTag /></span> : loan.title}
-                  />
-                </td>
-                <td>{humanizeToken(loan.purpose)}</td>
-                <td className="num"><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
-                <td className="num col-strong">{formatRateBps(marketplaceYieldBps(loan))}</td>
-                <td className="num">{loan.term_months} mo</td>
-                {!preview ? <td><Rating value={loan.risk_rating} /></td> : null}
-                {!preview ? <td className="num">{fundingPercent(loan)}%</td> : null}
-                <td><Chip status={loan.status} /></td>
-                <td className="right"><Icon className="faint" name="chevR" size={15} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="site-projects loans-preview-grid">
+      {loans.map((loan) => (
+        <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpen} />
+      ))}
     </div>
   );
 }
 
 function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   const balancesQuery = useBalancesData();
+  const frozenAccount = useFrozenAccount();
   const balances = balancesQuery.data;
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
   const [modal, setModal] = useState<"deposit" | "withdraw" | "iban" | null>(null);
@@ -7868,8 +8114,16 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
 
   const summary = balances.summaries.find((item) => item.currency === currency) ?? balances.summaries[0];
   const lots = balances.lots.filter((lot) => lot.currency === currency);
-  const frozen = demoState === "frozen";
+  const frozen = frozenAccount.frozen;
+  // The fixture preview's "Day-60 freeze" shows the overdue lots as frozen; live data has its own bucket.
+  const previewFrozen = isFixturePreview && demoState === "frozen";
   const readonly = isReadonlyImpersonationActive();
+  // Withdrawals go only to an IBAN Garanta has verified for that currency.
+  const verifiedIbanCurrencies = new Set(
+    balances.payout_instructions.filter((instruction) => instruction.is_verified_usable).map((instruction) => instruction.currency)
+  );
+  const withdrawBlockedReason = (forCurrency: string) =>
+    verifiedIbanCurrencies.has(forCurrency) ? "" : `No verified payout IBAN for ${forCurrency} yet. Garanta must verify an IBAN before you can withdraw.`;
   if (!summary) {
     return (
       <main className="content acct-page acct-balances">
@@ -7898,9 +8152,8 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         description={pageDescription}
         title="Account"
       />
-      {frozen || readonly ? (
+      {readonly ? (
         <div className="col gap-12 acct-alerts">
-          {frozen ? <FrozenBanner setRoute={() => openModal("iban")} /> : null}
           {readonly ? (
             <Banner icon="lock" tone="info" title="Read-only view">
               Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
@@ -7919,15 +8172,19 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
               <div className="acct-ccy-amount num">{ccy} {formatMoneyMinor(item.total_available_minor, ccy)}</div>
               <ul className="acct-ccy-list">
                 <BucketTile label="Potentially investable" value={item.investable_minor} currency={ccy} tone="ok" sub="Depends on the loan funding window" />
-                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub="Investment window closed" />
-                <BucketTile label="Overdue" value={item.overdue_minor} currency={ccy} tone="warn" sub="Withdraw before day 60" />
+                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub="Day 60: can only be withdrawn, until the end of today" />
+                <BucketTile label="Overdue" value={item.overdue_minor} currency={ccy} tone="warn" sub="Past the day-60 deadline" />
                 {/* Blocked balance only. Penalties already charged are no longer in the balance; they are listed in the lots view. */}
                 <BucketTile
                   label="Frozen"
-                  value={frozen ? item.overdue_minor : item.penalty_mode_minor + item.frozen_minor}
+                  value={previewFrozen ? item.overdue_minor : item.penalty_mode_minor + item.frozen_minor}
                   currency={ccy}
-                  tone={frozen || item.penalty_mode_minor + item.frozen_minor > 0 ? "bad" : "neutral"}
-                  sub={frozen ? "IBAN required" : item.penalty_mode_minor + item.frozen_minor > 0 ? "Blocked until withdrawn" : "None"}
+                  tone={previewFrozen || item.penalty_mode_minor + item.frozen_minor > 0 ? "bad" : "neutral"}
+                  sub={previewFrozen
+                    ? "IBAN required"
+                    : item.penalty_mode_minor > 0
+                      ? `Penalty ${formatRateBps(balances.penalty_bps_per_day ?? 0)} a day until withdrawn`
+                      : item.frozen_minor > 0 ? "Blocked until withdrawn" : "None"}
                 />
                 <li className="acct-ccy-row total">
                   <span className="acct-ccy-label">On the account</span>
@@ -7937,6 +8194,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
               <div className="acct-ccy-cta">
                 <Button block className="btn-green" disabled={frozen || readonly} size="lg" variant="primary" onClick={() => openModal("deposit", ccy)}>Add {ccy}</Button>
                 <Button block className="acct-ccy-withdraw" disabled={readonly} variant="ghost" onClick={() => openModal("withdraw", ccy)}>Withdraw to IBAN</Button>
+                {withdrawBlockedReason(ccy) ? <p className="acct-ccy-note acct-ccy-blocked">{withdrawBlockedReason(ccy)}</p> : null}
                 <p className="acct-ccy-note">
                   {nextDeadline ? <>Earliest holding deadline: <strong>{formatDate(nextDeadline)}</strong></> : "No holding deadline running."}
                 </p>
@@ -7949,7 +8207,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
       <section className="card acct-lots-card">
         <div className="card-head">
           <h2>{currency} balance lots</h2>
-          <span className="acct-card-meta">{lots.length} lots - FIFO consumption</span>
+          <span className="acct-card-meta">{pluralize(lots.length, "lot")} · used oldest first</span>
         </div>
         {summary.penalty_charged_minor > 0 ? (
           <div className="acct-penalty-line">
@@ -7960,7 +8218,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
             </span>
           </div>
         ) : null}
-        <BalanceLotsTable lots={lots} frozen={frozen} />
+        <BalanceLotsTable lots={lots} frozen={previewFrozen} />
       </section>
 
       <div className="acct-two">
@@ -7976,14 +8234,20 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
                   <div className="acct-row-title">{instruction.destination_account_name}</div>
                   <div className="acct-iban num">{instruction.destination_iban}</div>
                 </div>
-                <div className="acct-row-actions"><span className="tag">{instruction.currency}</span><Chip status="verified" /></div>
+                <div className="acct-row-actions">
+                  <span className="tag">{instruction.currency}</span>
+                  {(() => {
+                    const state = payoutInstructionState(instruction);
+                    return <Chip status={state.key} tone={state.tone}>{state.label}</Chip>;
+                  })()}
+                </div>
               </div>
             ))}
           </div>
         </section>
         <section className="card acct-pending-card">
           <div className="card-head"><h2>Pending withdrawals</h2></div>
-          <Empty icon="clock" title="No pending withdrawals">Withdrawal requests in progress will appear here.</Empty>
+          <PendingWithdrawalsList withdrawals={balances.pending_withdrawals ?? []} />
         </section>
       </div>
 
@@ -7997,7 +8261,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         </ul>
       </section>
       {modal === "deposit" ? <DepositModal currency={modalCurrency} onClose={() => setModal(null)} /> : null}
-      {modal === "withdraw" ? <WithdrawModal currency={modalCurrency} maxMinor={modalSummary.total_available_minor - modalSummary.penalty_mode_minor} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === modalCurrency)} onClose={() => setModal(null)} /> : null}
+      {modal === "withdraw" ? <WithdrawModal currency={modalCurrency} maxMinor={withdrawableMinor(modalSummary)} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === modalCurrency)} onClose={() => setModal(null)} /> : null}
       {modal === "iban" ? <PayoutIbanModal onClose={() => setModal(null)} /> : null}
     </main>
   );
@@ -8025,28 +8289,28 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
   return (
     <div className="portal-data-surface">
       <div className="tbl-wrap">
-        <table className="tbl portal-data-table balance-lots-table">
+        <table className="tbl portal-data-table balance-lots-table stack-on-phone">
           <thead><tr><th>Lot</th><th>Source</th><th>Received</th><th className="num">Remaining</th>{showPenalty ? <th className="num">Penalty charged</th> : null}<th>Age/deadline</th><th>Status</th></tr></thead>
           <tbody>
             {lots.map((lot) => {
               const penalty = frozen && lot.bucket === "overdue";
               return (
                 <tr className={penalty ? "lot-penalty" : lot.bucket === "overdue" ? "lot-overdue" : ""} key={lot.id}>
-                  <td><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
-                  <td><div>{sourceLabel(lot.source_type)}</div>{lot.source_type === "fx_proceeds" ? <div className="sub">Deadline inherited from source lot</div> : null}</td>
-                  <td className="lot-received">{formatDate(lot.received_at)}</td>
-                  <td className="num lot-remaining">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
+                  <td data-label="Lot"><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
+                  <td data-label="Source"><div>{sourceLabel(lot.source_type)}</div>{lot.source_type === "fx_proceeds" ? <div className="sub">Deadline inherited from source lot</div> : null}</td>
+                  <td className="lot-received" data-label="Received">{formatDate(lot.received_at)}</td>
+                  <td className="num lot-remaining" data-label="Remaining">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
                   {showPenalty ? (
-                    <td className={`num lot-penalty-charged${lot.penalized_amount_minor > 0 ? " has-penalty" : ""}`}>{lot.penalized_amount_minor > 0 ? formatMoneyMinor(lot.penalized_amount_minor, lot.currency) : "-"}</td>
+                    <td className={`num lot-penalty-charged${lot.penalized_amount_minor > 0 ? " has-penalty" : ""}`} data-label="Penalty charged">{lot.penalized_amount_minor > 0 ? formatMoneyMinor(lot.penalized_amount_minor, lot.currency) : "-"}</td>
                   ) : null}
-                  <td className="lot-deadline">
+                  <td className="lot-deadline" data-label="Age / deadline">
                     <DeadlineMeter daysUntilWithdrawal={lot.days_until_withdrawal_deadline} />
                     <div className="lot-deadline-meta">
-                      <span>{lot.days_until_withdrawal_deadline > 0 ? `${lot.days_until_withdrawal_deadline}d holding time left` : "Holding deadline reached"}</span>
-                      <span>{lot.days_until_withdrawal_deadline}d to withdraw</span>
+                      <span>{lot.days_until_withdrawal_deadline > 0 ? `${lot.days_until_withdrawal_deadline}d holding time left` : lot.days_until_withdrawal_deadline === 0 ? "Day 60: last day" : "Holding deadline passed"}</span>
+                      <span>{lot.days_until_withdrawal_deadline >= 0 ? `Withdraw by end of ${formatDate(lot.withdrawal_deadline_at)}` : `Deadline: ${formatDate(lot.withdrawal_deadline_at)}`}</span>
                     </div>
                   </td>
-                  <td><Chip status={penalty ? "penalty" : lot.bucket} /></td>
+                  <td data-label="Status"><Chip status={penalty ? "penalty" : lot.bucket} /></td>
                 </tr>
               );
             })}
@@ -8205,6 +8469,10 @@ function QrBillImage({ payload }: { payload: string }) {
   return <img alt="Swiss QR-bill code for the collection account" className="qr-instruction-image" src={src} />;
 }
 
+function formatIbanGroups(iban: string) {
+  return iban.replace(/\s/g, "").replace(/(.{4})/g, "$1 ").trim();
+}
+
 function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { currency: string; maxMinor: number; payoutInstructions: PayoutInstruction[]; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
@@ -8239,7 +8507,14 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
           currency,
           destination_iban: selectedInstruction.destination_iban,
           destination_account_name: selectedInstruction.destination_account_name,
-          idempotency_key: idempotencyKey("investor-withdrawal"),
+          // One key per withdrawal intent: a retry after a timeout is recognised by
+          // the server and not paid out twice. New amount or IBAN, new key.
+          idempotency_key: intentIdempotencyKey("investor-withdrawal", {
+            amount_minor: amountMinor,
+            currency,
+            destination_iban: selectedInstruction.destination_iban,
+            destination_account_name: selectedInstruction.destination_account_name
+          }),
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code
         }
@@ -8266,7 +8541,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
         <div className="col gap-16 acct-modal">
           <div className="acct-modal-figure"><span className="acct-modal-figure-label">Withdrawable balance</span><span className="acct-modal-figure-value num">{currency} {formatMoneyMinor(maxMinor, currency)}</span></div>
           <Field error={amountError} label="Amount to withdraw">
-            <div className="input-affix"><span className="prefix">{currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 60 }} value={amount} /></div>
+            <div className="input-affix"><span className="prefix">{currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.,'\u2019\s]/g, ""))} placeholder="0.00" style={{ paddingLeft: 60 }} value={amount} /></div>
           </Field>
           <Field error={!selectedInstruction?.is_verified_usable ? "Add and verify a payout IBAN before withdrawing." : undefined} label="Payout IBAN">
             <select className="select" onChange={(event) => setSelectedInstructionId(event.target.value)} value={selectedInstructionId}>
@@ -8282,7 +8557,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
         </div>
       ) : step === "confirm" ? (
         <div className="col gap-16 acct-modal">
-          <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
+          <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "To IBAN", value: selectedInstruction ? formatIbanGroups(selectedInstruction.destination_iban) : "-" }, { label: "Account name", value: selectedInstruction?.destination_account_name || "-" }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
           <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
           <CodeRequestField
             hint={previewHint("Demo: any 6 digits")}
@@ -8319,12 +8594,19 @@ function FxCurrencyFlag({ currency }: { currency: "CHF" | "EUR" }) {
 }
 
 function fxMoneyLabel(currency: string, amountMinor: number) {
-  return `${currency === "EUR" ? "€" : currency} ${formatMoneyMinor(amountMinor, currency)}`;
+  return formatMoneyLabel(currency, amountMinor);
 }
 
 function fxRateLabel(rate: string | number | null | undefined) {
   const value = Number(rate);
   return Number.isFinite(value) && value > 0 ? value.toFixed(4) : "-";
+}
+
+// The quoted rate net of the platform fee, shown the same way on the page, in the rate list and in
+// the confirmation. (The amount-based effective rate differs in the 4th decimal through rounding.)
+function fxNetRateLabel(quote: Pick<FxQuotePreview, "rate" | "platform_fee_bps"> | null | undefined) {
+  if (!quote) return "-";
+  return fxRateLabel(Number(quote.rate) * ((10_000 - quote.platform_fee_bps) / 10_000));
 }
 
 function fixtureFxPreview(
@@ -8367,6 +8649,7 @@ function fxAvailabilityTitle(message: string) {
 function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   const fxQuery = useFxData();
   const balancesQuery = useBalancesData();
+  const frozenAccount = useFrozenAccount();
   const fx = fxQuery.data;
   const balances = balancesQuery.data;
   const [from, setFrom] = useState<"CHF" | "EUR">("CHF");
@@ -8374,6 +8657,8 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   const [debouncedInput, setDebouncedInput] = useState({ from: "CHF" as "CHF" | "EUR", amountMinor: 0 });
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [liveQuote, setLiveQuote] = useState<FxQuote | null>(null);
+  // Browser time when the quote arrived: the countdown runs from here for the quote's time to live.
+  const [quoteReceivedAt, setQuoteReceivedAt] = useState(0);
   const [error, setError] = useState("");
   const quoteMutation = useV1FxQuotesCreate();
   const to: "CHF" | "EUR" = from === "CHF" ? "EUR" : "CHF";
@@ -8381,9 +8666,11 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   const amountMinor = parsedAmount.amountMinor;
   const availableMinor = balances?.summaries.find((summary) => summary.currency === from)?.total_available_minor ?? 0;
   const targetAvailableMinor = balances?.summaries.find((summary) => summary.currency === to)?.total_available_minor ?? 0;
-  const frozen = demoState === "frozen";
+  const frozen = frozenAccount.frozen || demoState === "frozen";
   const readonly = isReadonlyImpersonationActive();
-  const fxClosedForWeekend = !isFixturePreview && isZurichWeekend();
+  // Weekends follow the platform clock (balances.as_of, Europe/Zurich), not the browser's date.
+  const fxClosedForWeekend = !isFixturePreview && Boolean(balances?.as_of) && isZurichWeekendAt(balances?.as_of ?? "");
+  const fxTerms = fx?.terms;
   const amountError = parsedAmount.error ?? (amountMinor > availableMinor ? `Exceeds available ${from} balance.` : undefined);
   const inputReady = amountMinor > 0 && !amountError && !frozen && !readonly && !fxClosedForWeekend;
 
@@ -8480,7 +8767,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
     setLiveQuote(null);
     setError("");
   };
-  const requestQuote = () => {
+  const requestQuote = (afterQuote?: () => void) => {
     setError("");
     if (fxClosedForWeekend) {
       setError("FX is unavailable on weekends because live FX market rates are not published. Try again after markets reopen.");
@@ -8506,7 +8793,9 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
       {
         onSuccess: (quote) => {
           setLiveQuote(quote);
+          setQuoteReceivedAt(Date.now());
           setQuoteOpen(true);
+          afterQuote?.();
         },
         onError: (mutationError) => setError(apiErrorMessage(mutationError))
       }
@@ -8529,7 +8818,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
       />
       {frozen || readonly || fxClosedForWeekend ? (
         <div className="col gap-12 acct-alerts">
-          {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
+          {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">{frozenActionReason(frozenAccount)}</Banner> : null}
           {readonly ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
           {fxClosedForWeekend ? (
             <Banner icon="clock" tone="warn" title="FX unavailable on weekends">
@@ -8607,7 +8896,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           <div className="fx-rate-line" aria-live="polite">
             <span className="fx-note">Rate, net of fees</span>
             <span className="leader" />
-            <strong className="num fx-rate-value">{preview ? `1 ${from} = ${fxRateLabel(preview.effective_net_rate)} ${to}` : previewLoading ? "Checking current rate" : "Enter an amount"}</strong>
+            <strong className="num fx-rate-value">{preview ? `1 ${from} = ${fxNetRateLabel(preview)} ${to}` : previewLoading ? "Checking current rate" : "Enter an amount"}</strong>
           </div>
           <div className="fx-cta-line">
             <span className="fx-cta-copy">
@@ -8618,7 +8907,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
             <button
               className="fx-convert-btn"
               disabled={!preview || frozen || fxClosedForWeekend || readonly || quoteMutation.isPending}
-              onClick={requestQuote}
+              onClick={() => requestQuote()}
               type="button"
             >
               {quoteMutation.isPending ? "Locking quote..." : "Convert"}
@@ -8650,7 +8939,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
                 <div className="fx-rate-row" key={source}>
                   <span className="fx-flag-box"><FxCurrencyFlag currency={source} /></span>
                   <span className="fx-rate-unit">1 {source}</span>
-                  <strong className="num">{nominal ? `${fxRateLabel(nominal.effective_net_rate)} ${target}` : "—"}</strong>
+                  <strong className="num">{nominal ? `${fxNetRateLabel(nominal)} ${target}` : "—"}</strong>
                 </div>
               ))}
             </div>
@@ -8707,8 +8996,11 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           <div className="card-head"><h2 className="microlabel">Your FX terms</h2></div>
           <div className="kv fx-kv">
             <div className="kv-row"><span className="k">Conversion fee, in the rate</span><span className="leader" /><span className="v">{preview ? formatRateBps(preview.platform_fee_bps) : nominalRates[0].nominal ? formatRateBps(nominalRates[0].nominal.platform_fee_bps) : "Shown with each rate"}</span></div>
-            <div className="kv-row"><span className="k">Daily limit</span><span className="leader" /><span className="v">CHF 100,000 equivalent</span></div>
-            <div className="kv-row"><span className="k">Executable quote lock</span><span className="leader" /><span className="v">60 seconds</span></div>
+            <div className="kv-row"><span className="k">Daily limit</span><span className="leader" /><span className="v">{fxTerms && fxTerms.daily_limit_chf_minor > 0 ? `${formatWholeAmount("CHF", fxTerms.daily_limit_chf_minor)} equivalent` : "Shown with each quote"}</span></div>
+            {fxTerms && fxTerms.daily_limit_chf_minor > 0 ? (
+              <div className="kv-row"><span className="k">Used today</span><span className="leader" /><span className="v num">{formatMoneyLabel("CHF", fxTerms.daily_limit_used_chf_minor)}</span></div>
+            ) : null}
+            <div className="kv-row"><span className="k">Executable quote lock</span><span className="leader" /><span className="v">{fxTerms && fxTerms.quote_ttl_seconds > 0 ? `${fxTerms.quote_ttl_seconds} seconds` : "Shown with each quote"}</span></div>
           </div>
         </section>
         <section className="card fx-advice-card">
@@ -8727,8 +9019,13 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           sourceMinor={liveQuote?.source_amount_minor ?? preview.source_amount_minor}
           feeMinor={liveQuote?.fee_minor ?? preview.fee_minor}
           targetMinor={liveQuote?.target_amount_minor ?? preview.target_amount_minor}
-          rate={Number(liveQuote?.effective_net_rate ?? preview.effective_net_rate)}
+          rate={fxNetRateLabel(liveQuote ?? preview)}
           quote={liveQuote}
+          quoteReceivedAt={quoteReceivedAt}
+          quoteTtlSeconds={fxTerms?.quote_ttl_seconds}
+          refreshing={quoteMutation.isPending}
+          refreshError={error}
+          onRefreshQuote={() => requestQuote()}
           onClose={() => setQuoteOpen(false)}
         />
       ) : null}
@@ -8736,15 +9033,69 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   );
 }
 
-function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, quote, onClose }: { from: string; to: string; sourceMinor: number; targetMinor: number; feeMinor: number; rate: number; quote: FxQuote | null; onClose: () => void }) {
+/** Seconds left on a quote, counted from when the browser received it (not browser clock vs server time). */
+function quoteSecondsLeft(quote: Pick<FxQuote, "issued_at" | "expires_at"> | null, receivedAtMs: number, nowMs: number, fallbackTtlSeconds?: number) {
+  if (!quote || receivedAtMs <= 0) return null;
+  const ttlMs = Date.parse(quote.expires_at) - Date.parse(quote.issued_at);
+  const lifetimeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : (fallbackTtlSeconds ?? 0) * 1000;
+  if (lifetimeMs <= 0) return null;
+  return Math.max(0, Math.ceil((receivedAtMs + lifetimeMs - nowMs) / 1000));
+}
+
+function formatCountdown(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function FxConfirmModal({
+  from,
+  to,
+  sourceMinor,
+  targetMinor,
+  feeMinor,
+  rate,
+  quote,
+  quoteReceivedAt = 0,
+  quoteTtlSeconds,
+  refreshing = false,
+  refreshError = "",
+  onRefreshQuote,
+  onClose
+}: {
+  from: string;
+  to: string;
+  sourceMinor: number;
+  targetMinor: number;
+  feeMinor: number;
+  rate: string;
+  quote: FxQuote | null;
+  quoteReceivedAt?: number;
+  quoteTtlSeconds?: number;
+  refreshing?: boolean;
+  refreshError?: string;
+  onRefreshQuote?: () => void;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const codeRequest = useSensitiveActionCode(ActionEnum.fx);
   useAutoRequestEmailCode(codeRequest, !done);
   const executeMutation = useV1FxQuotesExecuteCreate();
+  const secondsLeft = quoteSecondsLeft(quote, quoteReceivedAt, nowMs, quoteTtlSeconds);
+  const quoteExpired = secondsLeft !== null && secondsLeft <= 0;
+  const quoteId = quote?.id;
+  useEffect(() => {
+    // A new quote (refresh) restarts the countdown and asks for the terms again.
+    setNowMs(Date.now());
+    setAck(false);
+    setError("");
+    if (done || !quoteId) return undefined;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [done, quoteId]);
   const executeFx = () => {
     setError("");
     if (isFixturePreview) {
@@ -8755,11 +9106,16 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
       setError("Request an email code before confirming the executable quote.");
       return;
     }
+    if (quoteExpired) {
+      setError("This quote has expired. Refresh the quote to get a new rate.");
+      return;
+    }
     executeMutation.mutate(
       {
         quoteId: quote.id,
         data: {
-          idempotency_key: idempotencyKey("fx-execute"),
+          // One key per quote: a retry of the same quote is not executed twice.
+          idempotency_key: intentIdempotencyKey("fx-execute", { quote_id: quote.id }),
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code
         }
@@ -8776,21 +9132,41 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
   if (done) {
     return (
       <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Exchange settled">
-        <SuccessState title={`${to} ${formatMoneyMinor(targetMinor, to)} credited`}>
+        <SuccessState title={`${formatMoneyLabel(to, targetMinor)} credited`}>
           The new {to} lot inherits the deadline of the consumed source lots. FX does not reset the 60-day holding clock.
         </SuccessState>
       </Modal>
     );
   }
   return (
-    <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || executeMutation.isPending} variant="primary" onClick={executeFx}>{executeMutation.isPending ? "Executing..." : "Confirm exchange"}</Button></>} onClose={onClose} title="Confirm currency exchange">
+    <Modal
+      busy={executeMutation.isPending}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || executeMutation.isPending || quoteExpired || refreshing} variant="primary" onClick={executeFx}>{executeMutation.isPending ? "Executing..." : "Confirm exchange"}</Button></>}
+      onClose={onClose}
+      title="Confirm currency exchange"
+    >
       <div className="col gap-16 acct-modal">
-        <Banner icon="clock" tone="info" title="Executable quote locked">This quote is fixed for 60 seconds for confirmation.</Banner>
+        {quoteExpired ? (
+          <Banner
+            actions={onRefreshQuote ? <Button disabled={refreshing} size="sm" variant="primary" onClick={onRefreshQuote}>{refreshing ? "Refreshing..." : "Refresh quote"}</Button> : undefined}
+            icon="clock"
+            tone="warn"
+            title="This quote has expired"
+          >
+            Get a new quote to see the current rate. Nothing was exchanged.
+          </Banner>
+        ) : (
+          <Banner icon="clock" tone="info" title="Executable quote locked">
+            {secondsLeft !== null
+              ? <>This rate is fixed for <strong aria-live="off" className="num fx-quote-countdown">{formatCountdown(secondsLeft)}</strong>. Confirm before it runs out.</>
+              : "This rate is fixed for a short time. Confirm before it runs out."}
+          </Banner>
+        )}
         <Review rows={[
-          { label: "You exchange", value: `${from} ${formatMoneyMinor(sourceMinor, from)}` },
-          { label: "Rate, net of fees", value: `1 ${from} = ${rate.toFixed(4)} ${to}` },
-          { label: "Platform fee", value: `${to} ${formatMoneyMinor(feeMinor, to)}` },
-          { label: "You receive", value: `${to} ${formatMoneyMinor(targetMinor, to, 4)}`, total: true }
+          { label: "You exchange", value: formatMoneyLabel(from, sourceMinor) },
+          { label: "Rate, net of fees", value: `1 ${from} = ${rate} ${to}` },
+          { label: "Fee, included in the rate", value: formatMoneyLabel(to, feeMinor) },
+          { label: "You receive", value: formatMoneyLabel(to, targetMinor), total: true }
         ]} />
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
@@ -8801,10 +9177,9 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
           onChange={setCode}
           onRequest={codeRequest.requestCode}
         />
-        {quote?.expires_at ? <p className="acct-modal-note">Quote expires {formatDateTime(quote.expires_at)}.</p> : null}
         <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 60-day holding period.</Banner>
         <Check checked={ack} id="fx-ack" onChange={setAck}>I accept the currency-exchange terms and understand the rate, fee and inherited deadline.</Check>
-        {codeRequest.error || error ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error}</Banner> : null}
+        {codeRequest.error || error || (quoteExpired && refreshError) ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error || refreshError}</Banner> : null}
       </div>
     </Modal>
   );
@@ -8817,7 +9192,7 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   const portfolio = portfolioQuery.data;
   const activity = activityQuery.data;
   const orders = ordersQuery.data;
-  const [tab, setTab] = useState<"holdings" | "activity" | "orders">("holdings");
+  const [tab, setTab] = useState<"holdings" | "completed" | "activity" | "orders">("holdings");
   const [currency, setCurrency] = useState<string | null>(null);
   if ((portfolioQuery.isError && !portfolio) || (activityQuery.isError && !activity) || (ordersQuery.isError && !orders)) {
     return (
@@ -8836,6 +9211,7 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   if (!portfolio || !activity || !orders) return <ScreenLoading title="Portfolio" />;
   const openOrders = activePrimaryOrders(orders.orders);
   const active = pfActiveHoldings(portfolio.holdings);
+  const completed = completedHoldings(portfolio.holdings);
   const currencies = pfCurrencies(active);
   const scopedCurrency = currency && currencies.includes(currency) ? currency : currencies[0] ?? "CHF";
   const scoped = active.filter((holding) => holding.currency === scopedCurrency);
@@ -8853,23 +9229,24 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
         ) : undefined}
         className="pf-head"
         description="Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the schedule."
-        eyebrow={<>{scoped.length} {scoped.length === 1 ? "loan" : "loans"} · {pfMoneyLabel(scopedCurrency, totalMinor)} lent</>}
+        eyebrow={<>{pfLoansLabel(pfLoanCount(scoped))} · {pfMoneyLabel(scopedCurrency, totalMinor)} lent</>}
         title="Everything you own."
       />
       {scoped.length > 0 ? (
         <PfPortfolioWidgets currency={scopedCurrency} holdings={scoped} totalMinor={totalMinor} />
       ) : null}
       <div className="pf-tabs-row">
-        <nav aria-label="Portfolio sections" className="tabs pf-tabs" role="tablist">
-          <button aria-selected={tab === "holdings"} className={tab === "holdings" ? "on" : ""} onClick={() => setTab("holdings")} role="tab" type="button">My loans</button>
-          <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Activity</button>
+        <nav aria-label="Portfolio sections" className="tabs pf-tabs" onKeyDown={handleTabListKeyDown} role="tablist">
+          <button aria-controls="pf-tab-panel" aria-selected={tab === "holdings"} className={tab === "holdings" ? "on" : ""} id="pf-tab-holdings" onClick={() => setTab("holdings")} role="tab" tabIndex={tab === "holdings" ? 0 : -1} type="button">My loans</button>
+          <button aria-controls="pf-tab-panel" aria-selected={tab === "completed"} className={tab === "completed" ? "on" : ""} id="pf-tab-completed" onClick={() => setTab("completed")} role="tab" tabIndex={tab === "completed" ? 0 : -1} type="button">Completed</button>
+          <button aria-controls="pf-tab-panel" aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} id="pf-tab-activity" onClick={() => setTab("activity")} role="tab" tabIndex={tab === "activity" ? 0 : -1} type="button">Activity</button>
           <span className="pf-tab-item">
-            <button aria-selected={tab === "orders"} className={tab === "orders" ? "on" : ""} onClick={() => setTab("orders")} role="tab" type="button">Orders</button>
+            <button aria-controls="pf-tab-panel" aria-selected={tab === "orders"} className={tab === "orders" ? "on" : ""} id="pf-tab-orders" onClick={() => setTab("orders")} role="tab" tabIndex={tab === "orders" ? 0 : -1} type="button">Orders</button>
             <PrimaryOrdersInfo orders={openOrders} />
           </span>
         </nav>
       </div>
-      <div className="pf-tab-panel">
+      <div aria-labelledby={`pf-tab-${tab}`} className="pf-tab-panel" id="pf-tab-panel" role="tabpanel">
         {tab === "holdings" ? (
           scoped.length === 0 ? (
             openOrders.length > 0 ? (
@@ -8891,6 +9268,9 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
               totalMinor={totalMinor}
             />
           )
+        ) : null}
+        {tab === "completed" ? (
+          <CompletedHoldingsTable holdings={completed} onOpen={(holding) => goTo(setRoute, "investment", { holdingId: holding.id })} />
         ) : null}
         {tab === "activity" ? <ActivityTable entries={activity.entries} /> : null}
         {tab === "orders" ? <OrdersTable onBrowse={() => goTo(setRoute, "market")} orders={orders.orders} /> : null}
@@ -9029,6 +9409,27 @@ function pfActiveHoldings(holdings: Holding[]) {
   return holdings.filter((holding) => holding.status === "active" && holding.current_principal_minor > 0);
 }
 
+/** Number of distinct loans; one loan can be held in several lots (MKT-DEC-020). */
+function pfLoanCount(holdings: Pick<Holding, "loan">[]) {
+  return new Set(holdings.map((holding) => holding.loan.loan_id)).size;
+}
+
+function pfLoansLabel(count: number) {
+  return `${count} ${count === 1 ? "loan" : "loans"}`;
+}
+
+/** Loan ids held in more than one lot: their rows show when each lot was bought. */
+function pfMultiLotLoanIds(holdings: Pick<Holding, "loan">[]) {
+  const counts = new Map<string, number>();
+  for (const holding of holdings) counts.set(holding.loan.loan_id, (counts.get(holding.loan.loan_id) ?? 0) + 1);
+  return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([loanId]) => loanId));
+}
+
+function pfLotLabel(holding: Pick<Holding, "assignment_effective_at" | "source_type">) {
+  const verb = holding.source_type === "secondary_market" ? "bought" : "invested";
+  return `${verb} on ${formatDate(holding.assignment_effective_at)}`;
+}
+
 function pfCurrencies(holdings: Holding[]) {
   const totals = new Map<string, number>();
   for (const holding of holdings) {
@@ -9038,7 +9439,7 @@ function pfCurrencies(holdings: Holding[]) {
 }
 
 function pfMoneyLabel(currency: string, amountMinor: number) {
-  return `${currency === "EUR" ? "€" : currency} ${formatMoneyMinor(amountMinor, currency)}`;
+  return formatMoneyLabel(currency, amountMinor);
 }
 
 function pfWholeLabel(currency: string, amountMinor: number) {
@@ -9047,7 +9448,7 @@ function pfWholeLabel(currency: string, amountMinor: number) {
 
 function pfDefaultInterestLabel(values: number[]) {
   const configured = values.filter((value) => value > 0);
-  if (configured.length === 0) return "Not configured";
+  if (configured.length === 0) return "None";
   const minimum = Math.min(...configured);
   const maximum = Math.max(...configured);
   return minimum === maximum
@@ -9097,7 +9498,7 @@ function pfHoldingCollateralLabel(holding: Holding) {
 
 function pfShortDate(iso: string) {
   const date = new Date(`${iso}T00:00:00`);
-  const now = new Date();
+  const now = platformTodayLocalDate();
   const sameYear = date.getFullYear() === now.getFullYear();
   const label = date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   return sameYear ? label : `${label} ${date.getFullYear()}`;
@@ -9140,7 +9541,7 @@ function pfPayments(holdings: Holding[]): PfPayment[] {
         final: row.installment_number === holding.loan.term_months,
         balanceAfter: Math.max(0, remainingTotal - consumed),
         collateral: pfHoldingCollateralLabel(holding),
-        ltvBps: holding.loan.ltv_bps
+        ltvBps: loanLtvBps(holding.loan)
       });
     }
   }
@@ -9306,34 +9707,77 @@ function SortControl({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
     const listener = (event: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", listener);
+    // Keyboard users land on the current sort option (or the first one).
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? []);
+    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
     return () => document.removeEventListener("mousedown", listener);
   }, [open]);
+  const activeLabel = options.find((option) => option.key === activeKey)?.label;
+  const sortStateId = useId();
+  // Menu keys: arrows move, Home/End jump, Escape or Tab closes and returns to the Sort button.
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+    const index = items.findIndex((item) => item === document.activeElement);
+    if (event.key === "Escape" || event.key === "Tab") {
+      if (event.key === "Escape") event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    const next = event.key === "ArrowDown" ? (index + 1) % items.length
+      : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length
+        : event.key === "Home" ? 0
+          : event.key === "End" ? items.length - 1 : -1;
+    if (next < 0 || items.length === 0) return;
+    event.preventDefault();
+    items[next].focus();
+  };
   return (
     <div className="fs-sort-wrap" ref={wrapRef}>
-      <button aria-expanded={open} aria-haspopup="menu" className={`fs-pill${small ? " small" : ""}${open ? " on" : ""}`} onClick={() => setOpen((current) => !current)} type="button">
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-describedby={activeLabel ? sortStateId : undefined}
+        className={`fs-pill${small ? " small" : ""}${open ? " on" : ""}`}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && !open) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        ref={buttonRef}
+        type="button"
+      >
         <span>Sort</span>
         <span aria-hidden="true" className="fs-arrows">↑↓</span>
       </button>
+      {activeLabel ? <span className="sr-only" id={sortStateId}>Sorted by {activeLabel}, {dir === "asc" ? "ascending" : "descending"}</span> : null}
       {open ? (
-        <div className="fs-menu" role="menu">
-          <div className="fs-menu-cap">Sort by</div>
+        <div aria-label="Sort by" className="fs-menu" onKeyDown={onMenuKeyDown} ref={menuRef} role="menu">
+          <div aria-hidden="true" className="fs-menu-cap">Sort by</div>
           {options.map((option) => {
             const on = option.key === activeKey;
             return (
               <button
+                aria-checked={on}
                 className={`fs-menu-item${on ? " on" : ""}`}
                 key={option.key}
                 onClick={() => {
                   onPick(option.key);
                   setOpen(false);
+                  buttonRef.current?.focus();
                 }}
-                role="menuitem"
+                role="menuitemradio"
+                tabIndex={-1}
                 type="button"
               >
                 {option.label}
@@ -9428,6 +9872,7 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
     return dir === "asc" ? c : -c;
   });
   const largestMinor = holdings.reduce((max, holding) => Math.max(max, holding.current_principal_minor), 1);
+  const multiLotLoanIds = pfMultiLotLoanIds(holdings);
   const [totalWhole, totalCents = "00"] = formatMoneyMinor(totalMinor, currency).split(".");
 
   return (
@@ -9448,9 +9893,9 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
             options={view === "detailed" ? pfSortOptionsDetailed : pfSortOptionsFocused}
             small
           />
-          <div className="seg" role="tablist">
-            <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => selectView("focused")} role="tab" type="button">Focused</button>
-            <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => selectView("detailed")} role="tab" type="button">Detailed</button>
+          <div aria-label="Table view" className="seg" onKeyDown={handleTabListKeyDown} role="tablist">
+            <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => selectView("focused")} role="tab" tabIndex={view === "focused" ? 0 : -1} type="button">Focused</button>
+            <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => selectView("detailed")} role="tab" tabIndex={view === "detailed" ? 0 : -1} type="button">Detailed</button>
           </div>
         </div>
       </div>
@@ -9488,7 +9933,10 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
                       ) : null}
                       {listing ? <span className="pf-tag">{listingStatusLabel(listing.status)}</span> : null}
                     </span>
-                    <span className="pf-company-sub">{holding.loan.loan_title}</span>
+                    <span className="pf-company-sub">
+                      {holding.loan.loan_title}
+                      {multiLotLoanIds.has(holding.loan.loan_id) ? <span className="pf-lot-label"> · {pfLotLabel(holding)}</span> : null}
+                    </span>
                   </span>
                 </span>
                 <span className="detail-col num pf-col-rate strong">{formatRateBps(holding.loan.interest_rate_bps)}</span>
@@ -9513,9 +9961,9 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
           })}
         </div>
         <div className="tfoot">
-          <span className="pf-tfoot-count">{sorted.length} {sorted.length === 1 ? "loan" : "loans"}</span>
+          <span className="pf-tfoot-count">{pfLoansLabel(pfLoanCount(sorted))}{sorted.length > pfLoanCount(sorted) ? ` · ${sorted.length} lots` : ""}</span>
           <span className="pf-tfoot-note">The rule under each amount is that loan's share of your portfolio. Red marks a loan in arrears.</span>
-          <span className="pf-tfoot-ccy">{currency === "EUR" ? "€" : currency}</span>
+          <span className="pf-tfoot-ccy">{currency}</span>
           <span className="num pf-tfoot-total">{totalWhole}</span>
           <span className="num pf-tfoot-cents">.{totalCents}</span>
           <span aria-hidden="true" className="pf-col-chev" />
@@ -9532,7 +9980,7 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
   const lowestAxis = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
   const segments = pfRingSegments(holdings);
   const largestSegment = segments[0];
-  const securedLtvs = valuedSecuredHoldings(holdings).map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
+  const securedLtvs = valuedSecuredHoldings(holdings).map((holding) => (loanLtvBps(holding.loan) ?? 0) / 100);
   const weightedLtv = weightedLtvPercent(holdings);
   const defaultInterestBps = holdings.map((holding) => holding.loan.default_penalty_interest_bps);
   const configuredDefaultInterestBps = defaultInterestBps.filter((value) => value > 0);
@@ -9555,7 +10003,7 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
 
           <div className="pf-widget-card second">
             <PfCard
-              foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#b3261e" : "#0a0a0a" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#0a0a0a", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
+              foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#b3261e" : "#0a0a0a" }}>{lowestAxis.score}</span><span className="note">out of 100 is your lowest of six scores · <span style={{ color: "#0a0a0a", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
               lab="Spread of portfolio"
               onToggle={() => toggle("hex")}
               open={openPanel === "hex"}
@@ -9600,7 +10048,7 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
               </span>
             </PfCard>
           </div>
-          {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={holdings.length} segments={segments} totalMinor={totalMinor} /> : null}
+          {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={pfLoanCount(holdings)} segments={segments} totalMinor={totalMinor} /> : null}
 
           <div className="pf-widget-card second">
             <PfCard
@@ -9623,8 +10071,8 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
                 <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
                   <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
                   <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{pfLoanCount(unsecuredHoldings)} of {pfLoanCount(holdings)}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{pfLoanCount(lateHoldings)} of {pfLoanCount(holdings)}</span></span>
                 </span>
               </span>
             </PfCard>
@@ -9632,12 +10080,12 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
           {openPanel === "risk" ? (
             <PfProtectionPanel
               currency={currency}
-              holdingCount={holdings.length}
-              lateCount={lateHoldings.length}
+              holdingCount={pfLoanCount(holdings)}
+              lateCount={pfLoanCount(lateHoldings)}
               lateMinor={lateMinor}
               securedLtvs={securedLtvs}
               defaultInterestBps={defaultInterestBps}
-              unsecuredCount={unsecuredHoldings.length}
+              unsecuredCount={pfLoanCount(unsecuredHoldings)}
               unsecuredMinor={unsecuredMinor}
               weightedLtv={weightedLtv}
             />
@@ -9650,7 +10098,8 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
 }
 
 function PfCalendarCard({ currency, open, onToggle, payments }: { currency: string; open: boolean; onToggle: () => void; payments: PfPayment[] }) {
-  const now = new Date();
+  // "This month" and "next" follow the platform business date (QA clock), not the browser clock.
+  const now = platformTodayLocalDate();
   const monthPayments = payments.filter((payment) => payment.date.getFullYear() === now.getFullYear() && payment.date.getMonth() === now.getMonth());
   const paymentDays = new Set(monthPayments.map((payment) => payment.date.getDate()));
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -9679,7 +10128,7 @@ function PfCalendarCard({ currency, open, onToggle, payments }: { currency: stri
 function PfCalendarPanel({ currency, payments }: { currency: string; payments: PfPayment[] }) {
   const [monthIndex, setMonthIndex] = useState(0);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const now = new Date();
+  const now = platformTodayLocalDate();
   const months = Array.from({ length: 12 }, (_, index) => {
     const start = new Date(now.getFullYear(), now.getMonth() + index, 1);
     const rows = payments.filter((payment) => payment.date.getFullYear() === start.getFullYear() && payment.date.getMonth() === start.getMonth());
@@ -9793,7 +10242,7 @@ function PfCalendarPanel({ currency, payments }: { currency: string; payments: P
                   </div>
                   <div style={{ color: "#6e6e6e", fontSize: 13, lineHeight: 1.55 }}>
                     Secured by {row.collateral === "unsecured" ? "no pledged asset" : row.collateral}.
-                    {row.ltvBps !== null ? ` Lent against an independent valuation · ${(row.ltvBps / 100).toFixed(0)}% of the valuation.` : ""}
+                    {row.ltvBps !== null ? ` Lent against an independent valuation · ${formatRateBps(row.ltvBps)} of the valuation.` : ""}
                   </div>
                 </div>
               ))}
@@ -9989,6 +10438,8 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
 function activityCategory(entry: ActivityEntry) {
   if (entry.activity_type === "primary_order") return "order";
   if (entry.activity_type === "fx_exchange") return "fx";
+  if (entry.activity_type === "balance_penalty_charge") return "penalty";
+  if (entry.activity_type === "withdrawal_request" && safeMetadataFlag(entry.metadata, "is_forced")) return "forced return";
   if (entry.activity_type === "withdrawal_request") return "withdrawal";
   if (entry.activity_type === "withdrawal_cancellation") return "withdrawal reversal";
   if (entry.activity_type === "repayment_distribution") return "income";
@@ -9997,9 +10448,17 @@ function activityCategory(entry: ActivityEntry) {
   if (entry.activity_type === "secondary_purchase") return "purchase";
   if (entry.activity_type === "secondary_sale") return "sale";
   if (entry.activity_type.startsWith("balance_")) {
-    return entry.activity_type.replace("balance_", "").replaceAll("_", " ");
+    return sourceLabel(entry.activity_type.slice("balance_".length)).toLowerCase();
   }
   return safeMetadataCategory(entry.metadata);
+}
+
+// "email.magic_link_requested" -> "Magic link requested".
+// "3" -> "v3"; generated statements ("reporting-v2") -> "v2".
+function documentVersionLabel(version: string) {
+  if (/^\d+$/.test(version)) return `v${version}`;
+  const suffix = version.match(/-v(\d+)$/);
+  return suffix ? `v${suffix[1]}` : version;
 }
 
 function ActivityAmount({ entry }: { entry: ActivityEntry }) {
@@ -10031,22 +10490,22 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
         </PortfolioEmptyState>
       ) : (
       <div className="pf-data-table-wrap">
-        <table className={`pf-data-table pf-activity-table ${dense ? "dense" : ""}`}>
+        <table className={`pf-data-table pf-activity-table stack-on-phone ${dense ? "dense" : ""}`}>
           <thead><tr><th>Date</th><th>Activity</th><th>Reference</th><th>Type</th><th className="num">Amount</th></tr></thead>
           <tbody>
             {entries.map((entry) => {
               const category = activityCategory(entry);
               return (
                 <tr key={entry.id}>
-                  <td className="mono muted" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
-                  <td className="col-strong">
-                    {entry.title}
+                  <td className="mono muted" data-label="Date" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
+                  <td className="col-strong" data-label="Activity">
+                    {activityTitle(entry)}
                     <ActivityStatusTag entry={entry} />
                     {entry.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}
                   </td>
-                  <td className="sub mono">{entry.loan_title || humanizeToken(entry.activity_type) || "-"}</td>
-                  <td><ActivityTag category={category} /></td>
-                  <td className="num"><ActivityAmount entry={entry} /></td>
+                  <td className="sub mono" data-label="Reference">{activityReference(entry)}</td>
+                  <td data-label="Type"><ActivityTag category={category} /></td>
+                  <td className="num" data-label="Amount"><ActivityAmount entry={entry} /></td>
                 </tr>
               );
             })}
@@ -10077,8 +10536,12 @@ function ActivityStatusTag({ entry }: { entry: ActivityEntry }) {
   );
 }
 
+function safeMetadataFlag(metadata: unknown, key: string) {
+  return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && (metadata as Record<string, unknown>)[key] === true);
+}
+
 function ActivityTag({ category }: { category: string }) {
-  const tone = category === "income" || category === "deposit" || category === "sale" || category === "recovery" || category === "withdrawal reversal" ? "ok" : category === "cost" || category === "withdrawal" || category === "purchase" ? "bad" : category === "status" || category === "order" || category === "listing" ? "warn" : "neutral";
+  const tone = category === "income" || category === "deposit" || category === "sale" || category === "recovery" || category === "withdrawal reversal" ? "ok" : category === "cost" || category === "withdrawal" || category === "forced return" || category === "penalty" || category === "purchase" ? "bad" : category === "status" || category === "order" || category === "listing" ? "warn" : "neutral";
   return <Chip dot={false} tone={tone}>{category}</Chip>;
 }
 
@@ -10110,30 +10573,75 @@ function OrdersTable({ onBrowse, orders }: { onBrowse: () => void; orders: Prima
         </PortfolioEmptyState>
       ) : (
         <div className="pf-data-table-wrap">
-          <table className="pf-data-table pf-orders-table">
+          <table className="pf-data-table pf-orders-table stack-on-phone">
             <thead><tr><th>Order</th><th>Loan</th><th className="num">Requested</th><th className="num">Allocated</th><th>Placed</th><th>Status</th></tr></thead>
             <tbody>
               {orders.map((order, index) => (
                 <tr key={order.id}>
-                  <td>
+                  <td data-label="Order">
                     <span className="pf-order-reference">
                       <span className="pf-order-number">#{index + 1}</span>
                       <span className="mono pf-order-id">{compactOrderId(order.id)}</span>
                       <CopyIdButton ariaLabel="Copy order ID" iconOnly id={order.id} label="Copy order ID" />
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Loan">
                     <span className="pf-order-loan">
                       <strong>{order.loan_title}</strong>
                       <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={order.loan_id} label="Copy loan ID" />
                     </span>
                   </td>
-                  <td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td>
-                  <td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td>
-                  <td className="mono muted">{formatDateTime(order.created_at)}</td>
-                  <td><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td>
+                  <td className="num" data-label="Requested"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td>
+                  <td className="num" data-label="Allocated">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td>
+                  <td className="mono muted" data-label="Placed">{formatDateTime(order.created_at)}</td>
+                  <td data-label="Status"><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Repaid, sold and closed holdings. They leave "My loans" but stay one click away. */
+function CompletedHoldingsTable({ holdings, onOpen }: { holdings: Holding[]; onOpen: (holding: Holding) => void }) {
+  return (
+    <section className="pf-data-section">
+      <header className="pf-data-heading">
+        <h2 className="sect">Completed</h2>
+        <p>Loans that are repaid, sold or closed. Open one to see its payments.</p>
+      </header>
+      {holdings.length === 0 ? (
+        <PortfolioEmptyState icon="portfolio" title="No completed loans yet">
+          Loans appear here when they are repaid, sold or closed.
+        </PortfolioEmptyState>
+      ) : (
+        <div className="pf-data-table-wrap">
+          <table className="pf-data-table pf-completed-table">
+            <thead><tr><th>Loan</th><th>Result</th><th className="num">Invested</th><th className="num">Interest received</th><th>Since</th><th /></tr></thead>
+            <tbody>
+              {holdings.map((holding) => {
+                const interestMinor = holding.received_interest_minor
+                  + holding.recovered_contractual_interest_minor
+                  + holding.recovered_default_interest_minor;
+                return (
+                  <tr key={holding.id}>
+                    <td>
+                      <strong>{holding.loan.loan_title}</strong>
+                      <div className="muted">{holding.loan.borrower_name}</div>
+                    </td>
+                    <td><Chip dot={false} tone={holding.status === "transferred" ? "info" : holding.loan.loan_status === "written_off" ? "bad" : "ok"}>{completedHoldingLabel(holding)}</Chip></td>
+                    <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
+                    <td className="num"><Money amountMinor={interestMinor} currency={holding.currency} /></td>
+                    <td className="muted">{formatDate(holding.assignment_effective_at)}</td>
+                    <td className="right">
+                      <Button aria-label={`Open ${holding.loan.loan_title}`} onClick={() => onOpen(holding)} size="sm">Open</Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -10225,7 +10733,7 @@ function LoanSchedulePanels({
                   </thead>
                   <tbody>
                     {investmentSchedule.map((row) => {
-                      const tone = row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      const tone = scheduleStatusTone(row.status);
                       return (
                         <tr key={row.loan_installment_id}>
                           <td className="mono">{row.installment_number}</td>
@@ -10271,7 +10779,7 @@ function LoanSchedulePanels({
                   <tbody>
                     {loanSchedule.map((row) => {
                       const paidMinor = row.paid_principal_minor + row.paid_interest_minor;
-                      const tone = ["paid", "paid_in_advance"].includes(row.status) ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      const tone = scheduleStatusTone(row.status);
                       const displayDate = row.row_type === "repayment_event" && row.payment_date ? row.payment_date : row.due_date;
                       return (
                         <tr key={row.id}>
@@ -10322,11 +10830,8 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
     (left, right) => left.due_date.localeCompare(right.due_date) || left.installment_number - right.installment_number
   );
   const firstProjected = projectedRows[0];
-  const defaultSelectedKey = firstProjected
-    ? `projection:${firstProjected.loan_installment_id}`
-    : timelineRows.length > 0
-      ? `loan:${timelineRows[timelineRows.length - 1].id}`
-      : "";
+  const inDefault = loanIsInDefault(loan);
+  const defaultSelectedKey = defaultSelectedPaymentKey(loan, timelineRows, firstProjected?.loan_installment_id ?? null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [selectedPaymentKey, setSelectedPaymentKey] = useState(defaultSelectedKey);
@@ -10338,10 +10843,9 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
         (row) => row.installment_number === selectedProjection.installment_number && row.due_date === selectedProjection.due_date
       ) ?? null
     : timelineRows.find((row) => `loan:${row.id}` === selectedPaymentKey) ?? null;
-  const isPaidRow = (row: (typeof timelineRows)[number]) =>
-    row.is_paid || ["paid", "paid_in_advance"].includes(row.status);
-  const paidRows = timelineRows.filter(isPaidRow);
-  const progressPercent = timelineRows.length === 0 ? 0 : (paidRows.length / timelineRows.length) * 100;
+  const isPaidRow = isPaidScheduleRow;
+  const progress = installmentProgress(timelineRows);
+  const progressPercent = progress.total === 0 ? 0 : (progress.paid / progress.total) * 100;
   const years = Array.from(new Set(timelineRows.map((row) => Number((row.payment_date ?? row.due_date).slice(0, 4))))).sort();
   const selectedProjectionIndex = selectedProjection
     ? projectedRows.findIndex((row) => row.loan_installment_id === selectedProjection.loan_installment_id)
@@ -10376,7 +10880,10 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
   const impaired = ["late", "defaulted", "written_off"].includes(loan.loan_status);
   const collateralValueMinor = loan.collateral_value_minor;
   const collateralDescription = loan.collateral_description || humanizeToken(loan.collateral_type);
-  const ltvPercent = loan.ltv_bps === null ? null : loan.ltv_bps / 100;
+  // LTV on the principal still owed on the whole loan (one definition, see portfolioCollateral.ts).
+  const loanLtv = loanLtvBps(loan);
+  const ltvPercent = loanLtv === null ? null : loanLtv / 100;
+  const loanPrincipalNowMinor = currentLoanPrincipalMinor(loan) ?? loan.principal_minor;
   const futureTotals = projectedRows.reduce(
     (totals, row) => ({
       principal: totals.principal + row.projected_principal_minor,
@@ -10386,7 +10893,11 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
     { principal: 0, interest: 0, total: 0 }
   );
   const selectedDate = selectedProjection?.due_date ?? selectedLoanRow?.payment_date ?? selectedLoanRow?.due_date ?? "";
-  const selectedStatus = selectedProjection?.status ?? selectedLoanRow?.status ?? "unavailable";
+  const selectedStatus = selectedProjection
+    ? scheduleRowStatus(selectedProjection, loan)
+    : selectedLoanRow
+      ? scheduleRowStatus(selectedLoanRow, loan)
+      : "unavailable";
   const paymentCell = (year: number, month: number) => {
     const row = timelineRows.find((candidate) => {
       const date = candidate.payment_date ?? candidate.due_date;
@@ -10397,14 +10908,15 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
       (candidate) => candidate.installment_number === row.installment_number && candidate.due_date === row.due_date
     );
     const key = projection ? `projection:${projection.loan_installment_id}` : `loan:${row.id}`;
-    const state = isPaidRow(row) ? "paid" : row.status === "overdue" ? "overdue" : projection === firstProjected ? "next" : "future";
+    const state = isPaidRow(row) ? "paid" : row.status === "overdue" ? "overdue" : projection === firstProjected && !inDefault ? "next" : "future";
+    const rowStatus = humanizeToken(scheduleRowStatus(row, loan));
     return (
       <button
-        aria-label={`${formatDate(row.payment_date ?? row.due_date)}, ${humanizeToken(row.status)}`}
+        aria-label={`${formatDate(row.payment_date ?? row.due_date)}, ${rowStatus}`}
         className={`holding-v9-payment-cell ${state} ${selectedPaymentKey === key ? "selected" : ""}`}
         key={`${year}-${month}`}
         onClick={() => setSelectedPaymentKey(key)}
-        title={`${row.label}: ${humanizeToken(row.status)}`}
+        title={`${row.label}: ${rowStatus}`}
         type="button"
       >
         {isPaidRow(row) ? "Paid" : row.installment_number}
@@ -10431,7 +10943,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
             <h2 className="inv-borrower">{loan.borrower_name}</h2>
             <div className="inv-head-tags">
               <Chip status={loan.loan_status} tone={statusTone(loan.loan_status)} />
-              {holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, loan.loan_status)} /> : null}
+              {holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status)} /> : null}
               <Country code={loan.borrower_country} />
               <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={loan.loan_id} label="Copy loan ID" />
             </div>
@@ -10448,7 +10960,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
             <p>
               {loan.default_penalty_interest_bps > 0
                 ? `The loan terms specify a ${formatRateBps(loan.default_penalty_interest_bps)} annual default-interest rate. Any amount shown as received is based on recorded servicing or recovery evidence; BANXUM does not estimate accrued default interest from days past due.`
-                : "No non-zero default-interest rate is configured for this loan. Review recorded servicing and recovery evidence for amounts actually credited."}
+                : "This loan has no default interest rate. Late payments earn no extra interest; see the payments credited to you."}
             </p>
           </div>
         </section>
@@ -10472,9 +10984,13 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
         <dl className="inv-facts">
           <div><dt>Purpose</dt><dd>{humanizeToken(loan.purpose)}</dd></div>
           <div><dt>Annual yield</dt><dd>{formatRateBps(loan.yield_bps)}</dd></div>
-          <div><dt>Term</dt><dd>{loan.term_months} months</dd></div>
+          {loan.product_type === "originator_claim" && loan.maturity_date ? (
+            <div><dt>Matures</dt><dd>{formatDate(loan.maturity_date)}</dd></div>
+          ) : (
+            <div><dt>Term</dt><dd>{pluralize(loan.term_months, "month")}</dd></div>
+          )}
           <div><dt>Yours since</dt><dd>{formatDate(holding.assignment_effective_at)}</dd></div>
-          <div><dt>Repayment</dt><dd>{humanizeToken(loan.repayment_type)}</dd></div>
+          <div><dt>Repayment</dt><dd>{formatEnumLabel(loan.repayment_type)}</dd></div>
           <div><dt>Risk rating</dt><dd><Rating value={loan.risk_rating} /></dd></div>
         </dl>
       </article>
@@ -10508,7 +11024,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
                 <tbody>
                   {projectedRows.map((row, index) => {
                     const owedAfter = Math.max(0, holding.current_principal_minor - projectedRows.slice(0, index + 1).reduce((sum, item) => sum + item.projected_principal_minor, 0));
-                    return <tr className="clickable" key={row.loan_installment_id} onClick={() => setSelectedPaymentKey(`projection:${row.loan_installment_id}`)}><td>{formatDate(row.due_date)}</td><td><Chip dot={false} tone={row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral"}>{humanizeToken(row.status)}</Chip></td><td className="num pos"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td><td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td><td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td><td className="num"><Money amountMinor={owedAfter} currency={currency} /></td></tr>;
+                    return <tr className="clickable" key={row.loan_installment_id} onClick={() => setSelectedPaymentKey(`projection:${row.loan_installment_id}`)}><td>{formatDate(row.due_date)}</td><td><Chip dot={false} tone={scheduleStatusTone(row.status)}>{humanizeToken(row.status)}</Chip></td><td className="num pos"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td><td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td><td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td><td className="num"><Money amountMinor={owedAfter} currency={currency} /></td></tr>;
                   })}
                 </tbody>
                 <tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num"><Money amountMinor={futureTotals.interest} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.principal} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.total} currency={currency} /></th><th className="num">-</th></tr></tfoot>
@@ -10520,7 +11036,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
 
       <section className="card inv-card inv-progress">
         <button aria-expanded={timelineOpen} className="holding-v9-progress-toggle" onClick={() => setTimelineOpen((open) => !open)} type="button">
-          <span><strong>{paidRows.length} of {timelineRows.length}</strong> scheduled borrower payments recorded</span>
+          <span><strong>{progress.paid} of {progress.total}</strong> scheduled borrower payments recorded</span>
           <span className="inv-link">{timelineOpen ? "Hide timeline" : "Open timeline"}</span>
         </button>
         <div className="inv-progress-body">
@@ -10553,7 +11069,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
         <div className="card inv-card inv-payment">
           <div className="card-head inv-payment-head">
             <div><h3 className="card-title">Selected payment</h3><strong>{selectedDate ? formatDate(selectedDate) : "Unavailable"}</strong></div>
-            <Chip dot={false} tone={selectedStatus === "overdue" ? "bad" : selectedStatus === "due" ? "warn" : selectedStatus === "paid" ? "ok" : "neutral"}>{humanizeToken(selectedStatus)}</Chip>
+            <Chip dot={false} tone={scheduleStatusTone(selectedStatus)}>{humanizeToken(selectedStatus)}</Chip>
           </div>
           <div className="inv-card-body">
             {selectedProjection || selectedLoanRow ? (
@@ -10581,7 +11097,7 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
             {ltvPercent !== null && collateralValueMinor > 0 ? (
               <>
                 <div aria-label={`${ltvPercent.toFixed(1)}% loan to value`} className="holding-v9-ltv-bar" role="img"><span style={{ width: `${Math.min(100, Math.max(0, ltvPercent))}%` }} /></div>
-                <div className="holding-v9-ltv-label"><span><Money amountMinor={loan.principal_minor} currency={currency} /> current loan principal against <Money amountMinor={collateralValueMinor} currency={currency} /> valuation</span><strong>{ltvPercent.toFixed(1)}% LTV</strong></div>
+                <div className="holding-v9-ltv-label"><span><Money amountMinor={loanPrincipalNowMinor} currency={currency} /> current loan principal against <Money amountMinor={collateralValueMinor} currency={currency} /> valuation</span><strong>{formatRateBps(loanLtv ?? 0)} LTV</strong></div>
               </>
             ) : <p className="muted-2">No investor-facing collateral valuation or LTV is available.</p>}
             <p className="holding-v9-note">
@@ -10662,7 +11178,8 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
   const [buy, setBuy] = useState<SecondaryMarketBuyerListing | null>(null);
   const [sell, setSell] = useState<{ holding: Holding; listing: NonNullable<Holding["open_secondary_listing"]> | null } | null>(null);
   const [cancelListing, setCancelListing] = useState<{ holding: Holding; listing: NonNullable<Holding["open_secondary_listing"]> } | null>(null);
-  const frozen = demoState === "frozen";
+  const frozenAccount = useFrozenAccount();
+  const frozen = frozenAccount.frozen || demoState === "frozen";
   const sellable = portfolio?.holdings.filter((holding) => holding.current_principal_minor > 0) ?? [];
 
   useEffect(() => {
@@ -10672,32 +11189,41 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
   }, [initialTab]);
 
   const sellPositions = pfActiveHoldings(portfolio?.holdings ?? []);
-  const immediatelyListableCount = sellPositions.filter((holding) => holding.loan.loan_status === "active").length;
-  const approvalRequiredCount = sellPositions.filter((holding) => ["late", "defaulted"].includes(holding.loan.loan_status)).length;
+  // Holdings already on sale are not counted as "can be listed".
+  const immediatelyListableCount = sellPositions.filter((holding) => holding.loan.loan_status === "active" && !holding.open_secondary_listing).length;
+  // Rule C18: late or defaulted loans cannot be listed; there is no approval request.
+  const nonPerformingCount = sellPositions.filter((holding) => ["late", "defaulted"].includes(holding.loan.loan_status)).length;
   const pendingDisbursementCount = sellPositions.filter((holding) => holding.loan.loan_status === "funded").length;
   const purchaseBlockedReason = frozen
-    ? "Secondary-market purchases are frozen until a usable payout IBAN is available. You can still inspect every listing."
+    ? `${frozenActionReason(frozenAccount)} You can still inspect every listing.`
     : isReadonlyImpersonationActive()
       ? "This is a read-only investor view. Listing details are available, but purchases are disabled."
       : "";
   const listingsLoading = listingsQuery.isPending && listingsQuery.data === undefined;
   const activityLoading = activityQuery.isPending && activityQuery.data === undefined;
+  // The investor's own listings are shown as "Your listing", without Buy (audit A-35).
+  const ownListingIds = new Set([
+    ...listings.filter((listing) => listing.is_own_listing).map((listing) => listing.id),
+    ...(portfolio?.holdings ?? []).flatMap((holding) => (holding.open_secondary_listing ? [holding.open_secondary_listing.id] : []))
+  ]);
+  const otherListingCount = listings.filter((listing) => !ownListingIds.has(listing.id)).length;
+  const ownListingCount = listings.length - otherListingCount;
 
   return (
     <main className="content sm-page">
       <PageHead
         className="sm-head"
         description="Someone else lent this money and wants it back before the schedule ends. You take over their position, their collateral and their remaining term. Counterparties stay anonymous."
-        eyebrow={listingsLoading ? "Loading listings" : `${listings.length} ${listings.length === 1 ? "listing" : "listings"} · sold by other investors`}
+        eyebrow={listingsLoading ? "Loading listings" : `${otherListingCount} ${otherListingCount === 1 ? "listing" : "listings"} · sold by other investors${ownListingCount > 0 ? ` · ${ownListingCount} of yours` : ""}`}
         title="Loans other people want out of."
       />
-      {frozen ? <div className="sm-alerts"><Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner></div> : null}
-      <nav aria-label="Secondary market sections" className="tabs sm-tabs" role="tablist">
-        <button aria-selected={tab === "browse"} className={tab === "browse" ? "on" : ""} onClick={() => setTab("browse")} role="tab" type="button">For sale now</button>
-        <button aria-selected={tab === "sell"} className={tab === "sell" ? "on" : ""} onClick={() => setTab("sell")} role="tab" type="button">Sell a holding</button>
-        <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Secondary market activity</button>
+      {frozen ? <div className="sm-alerts"><Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">{frozenActionReason(frozenAccount)}</Banner></div> : null}
+      <nav aria-label="Secondary market sections" className="tabs sm-tabs" onKeyDown={handleTabListKeyDown} role="tablist">
+        <button aria-controls="sm-tab-panel" aria-selected={tab === "browse"} className={tab === "browse" ? "on" : ""} id="sm-tab-browse" onClick={() => setTab("browse")} role="tab" tabIndex={tab === "browse" ? 0 : -1} type="button">For sale now</button>
+        <button aria-controls="sm-tab-panel" aria-selected={tab === "sell"} className={tab === "sell" ? "on" : ""} id="sm-tab-sell" onClick={() => setTab("sell")} role="tab" tabIndex={tab === "sell" ? 0 : -1} type="button">Sell a holding</button>
+        <button aria-controls="sm-tab-panel" aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} id="sm-tab-activity" onClick={() => setTab("activity")} role="tab" tabIndex={tab === "activity" ? 0 : -1} type="button">Secondary market activity</button>
       </nav>
-      <div className="sm-tab-panel">
+      <div aria-labelledby={`sm-tab-${tab}`} className="sm-tab-panel" id="sm-tab-panel" role="tabpanel">
         {tab === "browse" ? (
           listingsLoading ? (
             <LoadingCard title="Loading secondary listings">Fetching current buyer-safe prices and loan context.</LoadingCard>
@@ -10707,9 +11233,10 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
             </DataErrorCard>
           ) : (
             <SmForSale
-              approvalRequiredCount={approvalRequiredCount}
+              nonPerformingCount={nonPerformingCount}
               immediatelyListableCount={immediatelyListableCount}
               listings={listings}
+              ownListingIds={ownListingIds}
               onBuy={setBuy}
               onChooseLoan={() => setTab("sell")}
               pendingDisbursementCount={pendingDisbursementCount}
@@ -10746,7 +11273,7 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
           )
         ) : null}
       </div>
-      {buy ? <BuyListingModal listing={buy} onClose={() => setBuy(null)} purchaseBlockedReason={purchaseBlockedReason} /> : null}
+      {buy ? <BuyListingModal listing={buy} onClose={() => setBuy(null)} ownListing={ownListingIds.has(buy.id)} purchaseBlockedReason={purchaseBlockedReason} /> : null}
       {sell ? <ListHoldingModal holding={sell.holding} listing={sell.listing} onClose={() => setSell(null)} /> : null}
       {cancelListing ? <CancelSecondaryListingModal holding={cancelListing.holding} listing={cancelListing.listing} onClose={() => setCancelListing(null)} /> : null}
     </main>
@@ -10755,24 +11282,26 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
 
 function smDiscountLabel(discountPremiumBps: number) {
   if (discountPremiumBps === 0) return { text: "par", tone: "mut" as const };
-  const pct = (Math.abs(discountPremiumBps) / 100).toFixed(1);
+  const pct = formatRateBps(Math.abs(discountPremiumBps));
   return discountPremiumBps < 0
-    ? { text: `−${pct}%`, tone: "good" as const }
-    : { text: `+${pct}%`, tone: "mut" as const };
+    ? { text: `${pct} discount`, tone: "good" as const }
+    : { text: `${pct} premium`, tone: "mut" as const };
 }
 
 function SmForSale({
-  approvalRequiredCount,
+  nonPerformingCount,
   immediatelyListableCount,
   listings,
+  ownListingIds,
   onBuy,
   onChooseLoan,
   pendingDisbursementCount,
   totalPositions
 }: {
-  approvalRequiredCount: number;
+  nonPerformingCount: number;
   immediatelyListableCount: number;
   listings: SecondaryMarketBuyerListing[];
+  ownListingIds: Set<string>;
   onBuy: (listing: SecondaryMarketBuyerListing) => void;
   onChooseLoan: () => void;
   pendingDisbursementCount: number;
@@ -10795,16 +11324,17 @@ function SmForSale({
               <span className="sm-col-loan">Loan</span>
               <span className="sm-col-outstanding">Outstanding</span>
               <span className="sm-col-asking">Asking</span>
-              <span className="sm-col-discount">Discount</span>
+              <span className="sm-col-discount">Price vs par</span>
               <span className="sm-col-left">Left to run</span>
               <span className="sm-col-cost">Buyer cost</span>
               <span className="sm-col-cta" />
             </div>
             {listings.map((listing) => {
               const discount = smDiscountLabel(listing.discount_premium_bps);
+              const own = ownListingIds.has(listing.id);
               return (
                 <button
-                  className="sm-row"
+                  className={`sm-row${own ? " is-own" : ""}`}
                   key={listing.id}
                   onClick={() => onBuy(listing)}
                   type="button"
@@ -10821,10 +11351,10 @@ function SmForSale({
                   </span>
                   <span className="num sm-col-outstanding" data-label="Outstanding">{pfMoneyLabel(listing.currency, listing.current_principal_minor)}</span>
                   <span className="num sm-col-asking" data-label="Asking">{pfMoneyLabel(listing.currency, listing.transfer_price_minor)}</span>
-                  <span className={`num sm-col-discount ${discount.tone}`} data-label="Discount">{discount.text}</span>
+                  <span className={`num sm-col-discount ${discount.tone}`} data-label="Price vs par">{discount.text}</span>
                   <span className="num sm-col-left" data-label="Left to run">{listing.remaining_term_months} mo</span>
                   <span className="num sm-col-cost" data-label="Buyer cost">{pfMoneyLabel(listing.currency, listing.buyer_total_cost_minor)}</span>
-                  <span className="sm-col-cta"><span className="sm-buy-pill">Buy</span></span>
+                  <span className="sm-col-cta">{own ? <span className="sm-own-pill">Your listing</span> : <span className="sm-buy-pill">Buy</span>}</span>
                 </button>
               );
             })}
@@ -10869,7 +11399,7 @@ function SmForSale({
               {totalPositions > 0 ? (
                 <>
                   <span className="sm-sell-count">{immediatelyListableCount} of your {totalPositions} {totalPositions === 1 ? "holding" : "holdings"}</span> can be listed immediately.
-                  {approvalRequiredCount > 0 ? ` ${approvalRequiredCount} non-performing ${approvalRequiredCount === 1 ? "holding can" : "holdings can"} be submitted for Garanta approval.` : ""}
+                  {nonPerformingCount > 0 ? ` ${nonPerformingCount} ${nonPerformingCount === 1 ? "holding is" : "holdings are"} late or in default and cannot be listed.` : ""}
                   {pendingDisbursementCount > 0 ? ` ${pendingDisbursementCount} ${pendingDisbursementCount === 1 ? "holding becomes" : "holdings become"} available after borrower disbursement.` : ""}{" "}
                 </>
               ) : null}
@@ -10896,33 +11426,28 @@ type OpenSecondaryListing = NonNullable<Holding["open_secondary_listing"]>;
 
 function listingStatusLabel(status: string) {
   if (status === "active") return "Listed";
-  if (status === "approval_requested") return "Approval pending";
   return humanizeToken(status);
 }
 
-function listingStatusTooltip(status: string, loanStatus: string) {
+function listingStatusTooltip(status: string) {
   if (status === "active") {
     return "Visible to eligible buyers. Servicing changes automatically recalculate the amounts while preserving the selected premium or discount.";
-  }
-  if (status === "approval_requested") {
-    if (["late", "defaulted"].includes(loanStatus)) {
-      return "Hidden from buyers because the loan is non-performing. Garanta must review the updated status and disclosure before republishing it.";
-    }
-    return "Hidden from buyers until Garanta completes the required listing review.";
   }
   return undefined;
 }
 
+// Rule C18: only loans that are paid on time can be listed. Late or defaulted loans
+// cannot be listed at all; there is no listing request or approval.
 function secondaryListingAction(loanStatus: string) {
   if (loanStatus === "active") {
     return { allowed: true, label: "List on secondary market", title: "Listing available", hint: "" };
   }
   if (["late", "defaulted"].includes(loanStatus)) {
     return {
-      allowed: true,
-      label: "Request listing",
-      title: "Garanta approval required",
-      hint: "This non-performing holding can be submitted for review but will remain hidden until Garanta approves its disclosure."
+      allowed: false,
+      label: "List on secondary market",
+      title: "Listing not available",
+      hint: `This loan is ${loanStatus === "late" ? "late" : "in default"}. Loans that are late or in default cannot be listed on the secondary market.`
     };
   }
   if (loanStatus === "funded") {
@@ -10957,6 +11482,7 @@ function SellableHoldingsTable({
   if (holdings.length === 0) {
     return <div className="portal-table-empty"><Empty icon="portfolio" title="No sellable holdings">Active holdings that can be listed will appear here.</Empty></div>;
   }
+  const multiLotLoanIds = pfMultiLotLoanIds(holdings);
 
   return (
     <div className="portal-data-surface">
@@ -10967,11 +11493,14 @@ function SellableHoldingsTable({
             const listing = holding.open_secondary_listing;
             const actionsDisabled = frozen || isReadonlyImpersonationActive();
             const listingAction = secondaryListingAction(holding.loan.loan_status);
+            const lotMeta = multiLotLoanIds.has(holding.loan.loan_id)
+              ? `${holding.loan.borrower_name} · ${pfLotLabel(holding)}`
+              : holding.loan.borrower_name;
             return (
               <tr key={holding.id}>
-                <td><div className="sm-holding-cell"><PfTile hints={[holding.loan.collateral_type, holding.loan.purpose]} /><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></div></td>
+                <td><div className="sm-holding-cell"><PfTile hints={[holding.loan.collateral_type, holding.loan.purpose]} /><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={lotMeta} title={holding.loan.loan_title} /></div></td>
                 <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
-                <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(listing.status, holding.loan.loan_status)} /> : <span className="muted">Not listed</span>}</td>
+                <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(listing.status)} /> : <span className="muted">Not listed</span>}</td>
                 <td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td>
                 <td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td>
                 <td className="right">
@@ -10989,7 +11518,7 @@ function SellableHoldingsTable({
                         >
                           <Button disabled={actionsDisabled || !listingAction.allowed} size="sm" onClick={() => onSell(holding)}>{listingAction.label === "List on secondary market" ? "List" : listingAction.label}</Button>
                         </Tooltip>
-                        {!listingAction.allowed ? <span className="sub">{holding.loan.loan_status === "funded" ? "Available after disbursement" : "Unavailable for this status"}</span> : null}
+                        {!listingAction.allowed ? <span className="sub">{holding.loan.loan_status === "funded" ? "Available after disbursement" : ["late", "defaulted"].includes(holding.loan.loan_status) ? "Late or in default: cannot be listed" : "Unavailable for this status"}</span> : null}
                       </div>
                     )}
                   </div>
@@ -11131,18 +11660,28 @@ function CancelSecondaryListingModal({
   );
 }
 
-function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing: SecondaryMarketBuyerListing; onClose: () => void; purchaseBlockedReason: string }) {
+function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlockedReason }: { listing: SecondaryMarketBuyerListing; onClose: () => void; ownListing?: boolean; purchaseBlockedReason: string }) {
   const queryClient = useQueryClient();
   const detailQuery = useSecondaryListingDetailData(listing.id);
   const detail = detailQuery.data;
+  // Your own listing can be viewed but not bought: no terms, no code, no acceptance.
+  const isOwnListing = ownListing || listing.is_own_listing || Boolean(detail?.is_own_listing);
   const [ack, setAck] = useState(false);
   const [extraAck, setExtraAck] = useState(false);
   const [code, setCode] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
-  const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
-  const [acceptanceKey] = useState(() => idempotencyKey("secondary-purchase-acceptance"));
-  const [purchaseKey] = useState(() => idempotencyKey("secondary-purchase"));
+  const [priceChangedMessage, setPriceChangedMessage] = useState("");
+  const priceChangedRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Bring the notice and the refreshed price rows below it into view.
+    if (priceChangedMessage) priceChangedRef.current?.scrollIntoView({ block: "center" });
+  }, [priceChangedMessage]);
+  // The acceptance evidence records the reviewed economics, so it is reused only
+  // for a retry of exactly the same price; a new price needs a new acceptance.
+  const [acceptance, setAcceptance] = useState<{ id: string; reviewKey: string } | null>(null);
+  const [acceptanceKey, setAcceptanceKey] = useState(() => idempotencyKey("secondary-purchase-acceptance"));
+  const [purchaseKey, setPurchaseKey] = useState(() => idempotencyKey("secondary-purchase"));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const purchaseMutation = useV1MarketplaceSecondaryListingsPurchaseCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_purchase);
@@ -11150,9 +11689,14 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
     { category: CategoryEnum.secondary_market_purchase },
     { query: { enabled: !isFixturePreview, retry: false } }
   );
-  const needsExtra = listing.risk_acknowledgement_required;
+  const needsExtra = detail?.risk_acknowledgement_required ?? listing.risk_acknowledgement_required;
   const submitPurchase = async () => {
     setError("");
+    setPriceChangedMessage("");
+    if (isOwnListing) {
+      setError("This is your own listing. You cannot buy it.");
+      return;
+    }
     if (isFixturePreview) {
       setDone(true);
       return;
@@ -11166,31 +11710,54 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
       setError("Request an email code before confirming the purchase.");
       return;
     }
+    if (!detail) {
+      setError("The current price of this listing is still loading.");
+      return;
+    }
+    // The buyer accepts exactly the prices shown below, all taken from the fresh
+    // listing detail. The server charges these values or rejects the purchase.
+    const reviewed = {
+      price_bps: detail.price_bps,
+      current_principal_minor: detail.current_principal_minor,
+      buyer_total_cost_minor: detail.buyer_total_cost_minor
+    };
+    const reviewKey = `${reviewed.price_bps}:${reviewed.current_principal_minor}:${reviewed.buyer_total_cost_minor}`;
     try {
-      const acceptance = acceptanceId
-        ? { id: acceptanceId }
-        : await acceptanceMutation.mutateAsync({
-            data: {
-              category: CategoryEnum.secondary_market_purchase,
-              expected_template_version_id: termsQuery.data.id,
-              accepted_checkbox_labels: labels,
-              context_type: "secondary_market_purchase",
-              context_id: listing.id,
-              data_snapshot: {
-                listing_id: listing.id,
-                buyer_total_cost_minor: listing.buyer_total_cost_minor,
-                currency: listing.currency
-              },
-              idempotency_key: acceptanceKey
-            }
-          });
-      setAcceptanceId(acceptance.id);
+      const accepted = acceptance && acceptance.reviewKey === reviewKey
+        ? acceptance
+        : {
+            id: (await acceptanceMutation.mutateAsync({
+              data: {
+                category: CategoryEnum.secondary_market_purchase,
+                expected_template_version_id: termsQuery.data.id,
+                accepted_checkbox_labels: labels,
+                context_type: "secondary_market_purchase",
+                context_id: listing.id,
+                data_snapshot: {
+                  listing_id: listing.id,
+                  currency: detail.currency,
+                  price_bps: reviewed.price_bps,
+                  current_principal_minor: reviewed.current_principal_minor,
+                  transfer_price_minor: detail.transfer_price_minor,
+                  accrued_interest_minor: detail.accrued_interest_minor,
+                  taker_fee_minor: detail.taker_fee_minor,
+                  buyer_total_cost_minor: reviewed.buyer_total_cost_minor
+                },
+                idempotency_key: `${acceptanceKey}:${reviewKey}`
+              }
+            })).id,
+            reviewKey
+          };
+      setAcceptance(accepted);
       await purchaseMutation.mutateAsync({
         listingId: listing.id,
         data: {
-          document_acceptance_id: acceptance.id,
+          document_acceptance_id: accepted.id,
           risk_acknowledgement_accepted: needsExtra ? extraAck : true,
           idempotency_key: purchaseKey,
+          expected_buyer_total_cost_minor: reviewed.buyer_total_cost_minor,
+          expected_price_bps: reviewed.price_bps,
+          expected_current_principal_minor: reviewed.current_principal_minor,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code
         }
@@ -11198,6 +11765,19 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
       void queryClient.invalidateQueries();
       setDone(true);
     } catch (mutationError) {
+      if (isSecondaryPriceChangedError(mutationError)) {
+        // Nothing was charged. Load the new price and ask the buyer to review
+        // and accept it again; the entered email code stays in the field.
+        setPriceChangedMessage(apiErrorMessage(mutationError));
+        setAcceptance(null);
+        setAcceptanceKey(idempotencyKey("secondary-purchase-acceptance"));
+        setPurchaseKey(idempotencyKey("secondary-purchase"));
+        setAck(false);
+        setExtraAck(false);
+        void detailQuery.refetch();
+        void queryClient.invalidateQueries({ queryKey: getV1MarketplaceSecondaryListingsListQueryKey() });
+        return;
+      }
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -11222,9 +11802,10 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
     0
   );
   return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={Boolean(purchaseBlockedReason) || !ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
+    <Modal xwide footer={isOwnListing ? <Button variant="ghost" onClick={onClose}>Close</Button> : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={Boolean(purchaseBlockedReason) || !ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || detailQuery.isFetching || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={isOwnListing ? `Your listing: ${listing.loan_title}` : `Buy ${listing.loan_title}`}>
       <div className="col gap-16">
-        {purchaseBlockedReason ? <Banner icon="lock" tone="neutral" title="Purchase unavailable in this view">{purchaseBlockedReason}</Banner> : null}
+        {isOwnListing ? <Banner icon="lock" tone="neutral" title="This is your listing">Other investors see it with this price. You cannot buy your own listing. To change or cancel it, open Sell a holding.</Banner> : null}
+        {purchaseBlockedReason && !isOwnListing ? <Banner icon="lock" tone="neutral" title="Purchase unavailable in this view">{purchaseBlockedReason}</Banner> : null}
         {needsExtra ? <Banner tone="bad" title="Non-standard listing - elevated risk">This listing is non-performing or otherwise non-standard. You may receive less than the principal shown, or nothing.</Banner> : null}
         <div className="row gap-8 wrap">
           <Chip status={detail.loan_status_at_listing} tone={statusTone(detail.loan_status_at_listing)} />
@@ -11237,16 +11818,17 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
           <Card padded><Stat amountMinor={detail.current_principal_minor} currency={detail.currency} label="Listed principal" /></Card>
           <Card padded><Stat amountMinor={projectedInterestMinor} currency={detail.currency} label="Projected remaining interest" /></Card>
           <Card padded><Stat label="Annual interest / term" raw={`${formatRateBps(detail.interest_rate_bps)} / ${detail.term_months}mo`} /></Card>
-          <Card padded><Stat label="LTV" raw={detail.ltv_bps === null ? "Not disclosed" : formatRateBps(detail.ltv_bps)} /></Card>
+          <Card padded><Stat label="LTV" raw={loanLtvBps(detail) === null ? "Not disclosed" : formatRateBps(loanLtvBps(detail) ?? 0)} /></Card>
         </div>
+        {priceChangedMessage ? <div ref={priceChangedRef}><Banner tone="warn" title="Price changed">{priceChangedMessage} Nothing was charged.</Banner></div> : null}
         <Review rows={[
           { label: "Listing", value: listing.loan_title },
-          { label: "Repayment type", value: humanizeToken(detail.repayment_type) },
-          { label: "Current principal", value: `${listing.currency} ${formatMoneyMinor(listing.current_principal_minor, listing.currency)}` },
-          { label: "Sale price", value: priceLabel(listing.discount_premium_bps) },
-          { label: "Accrued interest to seller", value: `${listing.currency} ${formatMoneyMinor(listing.accrued_interest_minor, listing.currency)}` },
-          { label: "Taker fee", value: `${listing.currency} ${formatMoneyMinor(listing.taker_fee_minor, listing.currency)}` },
-          { label: "Total cost", value: `${listing.currency} ${formatMoneyMinor(listing.buyer_total_cost_minor, listing.currency)}`, total: true }
+          { label: "Repayment type", value: formatEnumLabel(detail.repayment_type) },
+          { label: "Current principal", value: `${detail.currency} ${formatMoneyMinor(detail.current_principal_minor, detail.currency)}` },
+          { label: "Sale price", value: priceLabel(detail.discount_premium_bps) },
+          { label: "Accrued interest to seller", value: `${detail.currency} ${formatMoneyMinor(detail.accrued_interest_minor, detail.currency)}` },
+          { label: "Taker fee", value: `${detail.currency} ${formatMoneyMinor(detail.taker_fee_minor, detail.currency)}` },
+          { label: "Total cost", value: `${detail.currency} ${formatMoneyMinor(detail.buyer_total_cost_minor, detail.currency)}`, total: true }
         ]} />
         {detail.public_disclosure_note ? <Banner tone="warn" title="Listing disclosure">{detail.public_disclosure_note}</Banner> : null}
         {detail.latest_public_note ? <Card padded><div className="eyebrow" style={{ marginBottom: 6 }}>Latest public loan note</div><p className="muted-2">{detail.latest_public_note.title}</p><div className="sub">{formatDate(detail.latest_public_note.occurred_at)}</div></Card> : null}
@@ -11261,29 +11843,51 @@ function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing:
           projectionTitle="Listed claim projection"
           scheduleVersion={detail.schedule_version}
         />
-        <Check checked={ack} id="sm-buy-ack" onChange={setAck}>
-          I accept the{" "}
-          <LegalDocLink category="secondary_market_purchase">
-            secondary-market buyer terms and reassignment document
-          </LegalDocLink>
-          .
-        </Check>
-        {needsExtra ? <Check checked={extraAck} id="sm-extra-ack" onChange={setExtraAck}>I acknowledge this is a non-standard claim with heightened risk of partial or total loss.</Check> : null}
-        {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-        <CodeRequestField
-          hint={previewHint("Demo: any 6 digits")}
-          label="Email confirmation code"
-          requestDisabled={Boolean(purchaseBlockedReason) || emailCodeRequestDisabled(codeRequest)}
-          requestLabel={emailCodeRequestLabel(codeRequest)}
-          value={code}
-          onChange={setCode}
-          onRequest={codeRequest.requestCode}
-        />
-        <p className="muted" style={{ fontSize: 11.5 }}>Request the email code only after you have reviewed the claim, schedules, price, and terms and intend to buy.</p>
-        {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase listing">{codeRequest.error || error}</Banner> : null}
+        {isOwnListing ? null : (
+          <>
+            <Check checked={ack} id="sm-buy-ack" onChange={setAck}>
+              I accept the{" "}
+              <LegalDocLink category="secondary_market_purchase">
+                secondary-market buyer terms and reassignment document
+              </LegalDocLink>
+              .
+            </Check>
+            {needsExtra ? <Check checked={extraAck} id="sm-extra-ack" onChange={setExtraAck}>I acknowledge this is a non-standard claim with heightened risk of partial or total loss.</Check> : null}
+            {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
+            <CodeRequestField
+              hint={previewHint("Demo: any 6 digits")}
+              label="Email confirmation code"
+              requestDisabled={Boolean(purchaseBlockedReason) || emailCodeRequestDisabled(codeRequest)}
+              requestLabel={emailCodeRequestLabel(codeRequest)}
+              value={code}
+              onChange={setCode}
+              onRequest={codeRequest.requestCode}
+            />
+            <p className="muted" style={{ fontSize: 11.5 }}>Request the email code only after you have reviewed the claim, schedules, price, and terms and intend to buy.</p>
+            {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase listing">{codeRequest.error || error}</Banner> : null}
+          </>
+        )}
       </div>
     </Modal>
   );
+}
+
+// One listing confirmation attempt. The terms acceptance records the price, so the
+// attempt (acceptance and keys) is replaced when the price changes or the seller goes
+// back to the listing data (audit A-36).
+type ListingAttempt = { priceBps: number; acceptanceKey: string; listingKey: string; acceptanceId: string | null };
+
+function newListingAttempt(priceBps: number, isEdit: boolean): ListingAttempt {
+  return {
+    priceBps,
+    acceptanceKey: idempotencyKey(isEdit ? "secondary-listing-edit-acceptance" : "secondary-listing-acceptance"),
+    listingKey: idempotencyKey(isEdit ? "secondary-listing-edit" : "secondary-listing"),
+    acceptanceId: null
+  };
+}
+
+function listingPriceFromInput(value: string) {
+  return Math.max(1, Number(value || 0));
 }
 
 function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; listing: OpenSecondaryListing | null; onClose: () => void }) {
@@ -11295,9 +11899,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
   const [code, setCode] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
-  const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
-  const [acceptanceKey] = useState(() => idempotencyKey(isEdit ? "secondary-listing-edit-acceptance" : "secondary-listing-acceptance"));
-  const [listingKey] = useState(() => idempotencyKey(isEdit ? "secondary-listing-edit" : "secondary-listing"));
+  const [attempt, setAttempt] = useState<ListingAttempt>(() => newListingAttempt(listingPriceFromInput(String(listing?.price_bps ?? 10000)), isEdit));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const listingMutation = useV1MarketplaceSecondaryListingsCreate();
   const editMutation = useV1MarketplaceSecondaryListingsEditCreate();
@@ -11307,16 +11909,45 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
     { category: CategoryEnum.secondary_market_listing },
     { query: { enabled: !isFixturePreview, retry: false } }
   );
-  const price = Math.max(1, Number(priceBps || 0));
-  const transferPrice = Math.round((holding.current_principal_minor * price) / 10000);
-  const makerFee = Math.round(transferPrice * 0.0025);
-  const nonStandard = holding.loan.loan_status !== "active";
+  const price = listingPriceFromInput(priceBps);
+  // Seller pricing from the server (audit A-34): transfer price, accrued interest to
+  // today, the configured maker fee with its minimum, and the net proceeds. The preview
+  // fixture keeps a local estimate because it has no server.
+  const pricingQuery = useV1MarketplaceSecondaryListingsPricingPreviewRetrieve(
+    { holding_id: holding.id, price_bps: price },
+    { query: { enabled: !isFixturePreview && Number.isFinite(price) && price >= 1, retry: false, staleTime: 30_000 } }
+  );
+  const fixtureTransfer = Math.round((holding.current_principal_minor * price) / 10000);
+  const fixtureMakerFee = Math.round(fixtureTransfer * 0.0025);
+  const pricing: Pick<SecondaryMarketListingPricingPreview, "transfer_price_minor" | "accrued_interest_minor" | "maker_fee_minor" | "seller_net_proceeds_minor"> | null = isFixturePreview
+    ? { transfer_price_minor: fixtureTransfer, accrued_interest_minor: 0, maker_fee_minor: fixtureMakerFee, seller_net_proceeds_minor: fixtureTransfer - fixtureMakerFee }
+    : pricingQuery.data?.price_bps === price ? pricingQuery.data : null;
+  const pricingValue = (minor: number | undefined) =>
+    minor === undefined ? (pricingQuery.isError ? "Not available" : "Calculating...") : `${holding.currency} ${formatMoneyMinor(minor, holding.currency)}`;
+  const pricingRows = [
+    { label: "Transfer price", value: pricingValue(pricing?.transfer_price_minor) },
+    { label: "Accrued interest to you", value: pricingValue(pricing?.accrued_interest_minor) },
+    { label: "Maker fee", value: pricingValue(pricing?.maker_fee_minor) },
+    { label: "Seller net proceeds", value: pricingValue(pricing?.seller_net_proceeds_minor), total: true }
+  ];
+  const changePrice = (value: string) => {
+    setPriceBps(value);
+    setAttempt(newListingAttempt(listingPriceFromInput(value), isEdit));
+    // The terms are accepted for one price: a new price is accepted again.
+    setAck(false);
+  };
+  // Rule C18: only a performing (active) loan can be listed; no approval request exists.
+  const notListable = holding.loan.loan_status !== "active";
   const projectedInterestMinor = holding.investment_schedule.reduce(
     (sum, row) => sum + row.projected_interest_minor,
     0
   );
   const continueToVerification = () => {
     setError("");
+    if (notListable) {
+      setError(secondaryListingAction(holding.loan.loan_status).hint);
+      return;
+    }
     if (!ack) {
       setError("Accept the seller/listing terms before continuing.");
       return;
@@ -11327,6 +11958,10 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
     }
     if (!isFixturePreview && (!termsQuery.data || templateLabels(termsQuery.data).length === 0)) {
       setError("Current secondary-market listing terms are not available.");
+      return;
+    }
+    if (!pricing) {
+      setError("The listing price is still being calculated.");
       return;
     }
     setStep("verify");
@@ -11346,9 +11981,11 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
       setError("Request an email code before publishing the listing.");
       return;
     }
+    // Reuse the acceptance only for a retry of exactly this price.
+    let current = attempt.priceBps === price ? attempt : newListingAttempt(price, isEdit);
     try {
-      const acceptance = acceptanceId
-        ? { id: acceptanceId }
+      const acceptance = current.acceptanceId
+        ? { id: current.acceptanceId }
         : await acceptanceMutation.mutateAsync({
             data: {
               category: CategoryEnum.secondary_market_listing,
@@ -11362,19 +11999,26 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
                 action: isEdit ? "edit" : "create",
                 price_bps: price,
                 current_principal_minor: holding.current_principal_minor,
-                currency: holding.currency
+                currency: holding.currency,
+                ...(pricing ? {
+                  transfer_price_minor: pricing.transfer_price_minor,
+                  accrued_interest_minor: pricing.accrued_interest_minor,
+                  maker_fee_minor: pricing.maker_fee_minor,
+                  seller_net_proceeds_minor: pricing.seller_net_proceeds_minor
+                } : {})
               },
-              idempotency_key: acceptanceKey
+              idempotency_key: current.acceptanceKey
             }
           });
-      setAcceptanceId(acceptance.id);
+      current = { ...current, acceptanceId: acceptance.id };
+      setAttempt(current);
       if (listing) {
         await editMutation.mutateAsync({
           listingId: listing.id,
           data: {
             price_bps: price,
             document_acceptance_id: acceptance.id,
-            idempotency_key: listingKey,
+            idempotency_key: current.listingKey,
             sensitive_action_code_id: codeRequest.codeId,
             sensitive_action_code: code
           }
@@ -11385,7 +12029,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             holding_id: holding.id,
             price_bps: price,
             document_acceptance_id: acceptance.id,
-            idempotency_key: listingKey,
+            idempotency_key: current.listingKey,
             sensitive_action_code_id: codeRequest.codeId,
             sensitive_action_code: code
           }
@@ -11398,23 +12042,23 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
     }
   };
   if (done) {
-    const successTitle = nonStandard ? "Submitted for approval" : isEdit ? "Listing updated" : "Listing published";
-    return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={successTitle}><SuccessState title={successTitle}>{nonStandard ? "Garanta will review the revised listing before it becomes visible." : isEdit ? "Your revised price and economics are now visible to buyers anonymously." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
+    const successTitle = isEdit ? "Listing updated" : "Listing published";
+    return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={successTitle}><SuccessState title={successTitle}>{isEdit ? "Your revised price and economics are now visible to buyers anonymously." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
   }
   return (
     <Modal
       xwide
       footer={step === "review" ? (
-        <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || !Number.isFinite(price) || price < 1 || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
+        <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={notListable || !ack || !Number.isFinite(price) || price < 1 || !pricing || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
       ) : (
-        <><Button variant="ghost" onClick={() => { setError(""); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending ? "Submitting..." : nonStandard ? "Verify and submit" : isEdit ? "Verify and update" : "Verify and publish"}</Button></>
+        <><Button variant="ghost" onClick={() => { setError(""); setAttempt(newListingAttempt(price, isEdit)); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending ? "Submitting..." : isEdit ? "Verify and update" : "Verify and publish"}</Button></>
       )}
       onClose={onClose}
       title={`${isEdit ? "Edit listing for" : "List"} ${holding.loan.loan_title}`}
     >
       {step === "review" ? (
         <div className="col gap-16">
-          {nonStandard ? <Banner tone="warn" title="Requires Garanta approval">Non-performing holdings require approval and status disclosure before buyers can see them.</Banner> : null}
+          {notListable ? <Banner tone="bad" title="This holding cannot be listed">{secondaryListingAction(holding.loan.loan_status).hint}</Banner> : null}
           {isEdit ? <Banner tone="neutral" title="Editing an open listing">Changing the listing creates a new auditable revision and requires a fresh terms acceptance and email confirmation.</Banner> : null}
           <div className="row gap-8 wrap">
             <Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />
@@ -11429,18 +12073,18 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             <Card padded><Stat label="Annual interest / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
           </div>
           <Field hint="10000 = at par, 9800 = 2% discount, 10100 = 1% premium." label="Sale price bps">
-            <input className="input mono" inputMode="numeric" onChange={(event) => setPriceBps(event.target.value.replace(/\D/g, ""))} value={priceBps} />
+            <input className="input mono" inputMode="numeric" onChange={(event) => changePrice(event.target.value.replace(/\D/g, ""))} value={priceBps} />
           </Field>
           <Review rows={[
             { label: "Loan", value: holding.loan.loan_title },
             { label: "Borrower", value: holding.loan.borrower_name },
-            { label: "Repayment type", value: humanizeToken(holding.loan.repayment_type) },
-            { label: "LTV", value: holding.loan.ltv_bps === null ? "Not disclosed" : formatRateBps(holding.loan.ltv_bps) },
+            { label: "Repayment type", value: formatEnumLabel(holding.loan.repayment_type) },
+            { label: "LTV", value: loanLtvBps(holding.loan) === null ? "Not disclosed" : formatRateBps(loanLtvBps(holding.loan) ?? 0) },
             { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
-            { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
-            { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
-            { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
+            ...pricingRows
           ]} />
+          <p className="muted" style={{ fontSize: 11.5 }}>Figures for a sale today. Accrued interest grows each day until the sale, so you receive it up to the sale day.</p>
+          {pricingQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Price not available">{apiErrorMessage(pricingQuery.error)}</Banner> : null}
           <Check checked={ack} id="sm-list-ack" onChange={setAck}>
             I accept the{" "}
             <LegalDocLink category="secondary_market_listing">seller/listing terms</LegalDocLink> and
@@ -11469,9 +12113,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             { label: "Loan", value: holding.loan.loan_title },
             { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
             { label: "Sale price", value: priceLabel(price - 10000) },
-            { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
-            { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
-            { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
+            ...pricingRows
           ]} />
           <CodeRequestField
             hint={previewHint("Demo: any 6 digits")}
@@ -11547,7 +12189,7 @@ function DocumentsScreen() {
         <div aria-label="Document type" className="tabs doc-type-tabs" role="group">
           {types.map((item) => <button aria-pressed={type === item} className={type === item ? "on" : ""} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
         </div>
-        <span className="results-count">{rows.length} documents</span>
+        <span className="results-count">{pluralize(rows.length, "document")}</span>
       </div>
       <section className="card acct-table-card">
         {rows.length === 0 ? (
@@ -11559,10 +12201,10 @@ function DocumentsScreen() {
         ) : (
           <div className="portal-data-surface">
             <div className="tbl-wrap">
-              <table className="tbl portal-data-table documents-data-table"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
+              <table className="tbl portal-data-table documents-data-table stack-on-phone"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
               <tbody>{rows.map((document) => (
                 <tr key={document.id}>
-                  <td>
+                  <td data-label="Document">
                     <div className="doc-title-cell">
                       <Icon className="doc-title-icon" name="doc" size={16} />
                       <span>
@@ -11571,12 +12213,12 @@ function DocumentsScreen() {
                       </span>
                     </div>
                   </td>
-                  <td><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : "neutral"}>{document.document_type}</Chip></td>
-                  <td className="doc-muted">{document.version}</td>
-                  <td className="doc-muted">{document.context_label}</td>
-                  <td className="doc-muted doc-date">{formatDate(document.date)}</td>
-                  <td className="num doc-muted">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
-                  <td className="right">
+                  <td data-label="Type"><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : "neutral"}>{document.document_type}</Chip></td>
+                  <td className="doc-muted" data-label="Version">{documentVersionLabel(document.version)}</td>
+                  <td className="doc-muted doc-context" data-label="Context">{document.context_label}</td>
+                  <td className="doc-muted doc-date" data-label="Date">{formatDate(document.date)}</td>
+                  <td className="num doc-muted" data-label="Artifact">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
+                  <td className="right doc-downloads-cell">
                     <div className="doc-downloads">
                       {document.output_formats.includes("csv") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "csv")}>CSV</Button> : null}
                       {document.output_formats.includes("zip") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "zip")}>ZIP</Button> : null}
@@ -11666,7 +12308,7 @@ function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void
                     <p className="notice-body">{notification.body}</p>
                     <div className="notice-meta">
                       <span>{formatDateTime(notification.created_at)}</span>
-                      <span>{notification.topic}</span>
+                      <span>{notification.topic_label}</span>
                     </div>
                   </div>
                   <div className="notice-status">
@@ -12050,6 +12692,8 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
     query: {
       enabled: !isFixturePreview,
       retry: false,
+      // The portal gate already asked; never re-run a failed lookup just because this screen mounted.
+      retryOnMount: false,
       // While capture is still open (possibly on another device), poll until
       // the provider reports a result.
       refetchInterval: (query) => {
@@ -12063,8 +12707,11 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   const kycStatus = isFixturePreview ? "manual_review" : statusQuery.data?.status;
   const isApproved = kycStatus === "approved";
   const isWaitingForProvider = kycStatus === "pending";
+  // A case that waits for an admin decision cannot be restarted by the investor; re-verification
+  // is open only when an admin requested it (the case is then no longer flagged for review).
   const canStartKyc =
     !isFixturePreview &&
+    !statusQuery.data?.manual_review_required &&
     (kycStatus === "not_started" ||
       kycStatus === "expired" ||
       kycStatus === "reverification_required");
@@ -12093,16 +12740,16 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
       ? "Identity verification required"
       : isWaitingForProvider
         ? "Waiting for verification result"
-        : "Manual review";
+        : "Verification under review";
   const bannerMessage = isApproved
     ? "Financial access is available if phone verification and account status are also valid."
     : canStartKyc
       ? "Start identity verification with Didit. After you finish capture, this page will wait for the provider and compliance result."
       : isWaitingForProvider
         ? `Your identity capture has been submitted. We are waiting for Didit and ${operatorName} compliance to confirm the result. This page updates automatically. If it remains here for more than a few minutes, contact ${supportEmail}.`
-        : `Your case is being reviewed by ${operatorName}. Financial actions remain locked until KYC is approved. Contact ${supportEmail} if this takes longer than expected.`;
+        : `Your verification is under review. We will contact you. Financial actions stay locked until ${operatorName} completes the review. Contact ${supportEmail} with any questions.`;
 
-  if (!isFixturePreview && statusQuery.isPending && !statusQuery.data) {
+  if (!isFixturePreview && statusQuery.isPending && statusQuery.dataUpdatedAt === 0 && statusQuery.errorUpdatedAt === 0) {
     return <ScreenLoading title="Verification" />;
   }
 
@@ -12115,7 +12762,14 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
           <KycTimeline current={isApproved ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
         </div>
         <div className="col gap-12 acct-kyc-notes">
-          {statusQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load KYC status">Retry after signing in or when the API connection is restored.</Banner> : null}
+          {statusQuery.isError && !isFixturePreview ? (
+            <Banner tone="bad" title="Could not load KYC status">
+              The verification service did not answer.{" "}
+              <button className="btn btn-sm" disabled={statusQuery.isFetching} onClick={() => void statusQuery.refetch()} type="button">
+                Retry
+              </button>
+            </Banner>
+          ) : null}
           <Banner tone={isApproved ? "ok" : "info"} title={bannerTitle}>
             {bannerMessage}
           </Banner>
@@ -12276,9 +12930,10 @@ const faqSections: FaqSection[] = [
         question: "What happens at the 60-day deadline?",
         answer: (
           <>
-            If a verified usable payout IBAN is on file, the system can create a forced withdrawal. If there is
-            no usable IBAN, money-moving actions are blocked and the overdue balance can enter penalty mode.
-            The 60-day limit cannot be extended.
+            The deadline date is the last day: you can withdraw until the end of that day (Europe/Zurich). From
+            the next day, if a verified usable payout IBAN is on file, the system can create a forced withdrawal.
+            If there is no usable IBAN, money-moving actions are blocked and the overdue balance can enter
+            penalty mode. The 60-day limit cannot be extended.
           </>
         )
       }
@@ -12368,9 +13023,9 @@ const faqSections: FaqSection[] = [
         question: "Can I sell before maturity?",
         answer: (
           <>
-            You can list an entire holding on the secondary market when the platform permits it. Liquidity is
-            not guaranteed, and non-performing or non-standard listings require additional acknowledgement or
-            admin approval.
+            You can list an entire holding on the secondary market when the loan is paid on time. Liquidity is
+            not guaranteed. Loans that are late or in default cannot be listed, and an open listing is cancelled
+            when its loan becomes late or defaulted.
           </>
         )
       },
@@ -12576,6 +13231,36 @@ function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         }
         variant="site"
       />
+    </SiteShell>
+  );
+}
+
+// Unknown address (audit A-62): a real "page not found" page that keeps the bad URL visible,
+// instead of silently showing the home page or the Overview.
+function NotFoundPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  useEffect(() => {
+    document.title = `Page not found · ${platformName}`;
+  }, []);
+  return (
+    <SiteShell setRoute={setRoute}>
+      <section className="site-page-head">
+        <div className="site-wrap">
+          <span className="site-eyebrow">Error 404</span>
+          <h1 className="site-h1">Page not found</h1>
+          <p className="site-lead">
+            There is no page at this address. Check the link, or go to one of the pages below.
+          </p>
+        </div>
+      </section>
+      <section className="site-section no-rule site-flush-top">
+        <div className="site-wrap">
+          <div className="faq-cta not-found-actions">
+            <Button variant="primary" onClick={() => goTo(setRoute, "public")}>Home page</Button>
+            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "publicProjects")}>Projects</Button>
+            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "dashboard")}>My account</Button>
+          </div>
+        </div>
+      </section>
     </SiteShell>
   );
 }
@@ -12840,7 +13525,9 @@ function InvestAmountInput({ currency, label, value, onChange }: { currency: str
         aria-label={label}
         className="input mono iv-amount-input"
         inputMode="decimal"
-        onChange={(event) => onChange(event.target.value.replace(/[^0-9.]/g, ""))}
+        // Keep the decimal comma and the thousands separators the app prints (' ’ and
+        // spaces); the parser reads them and shows an error for anything ambiguous.
+        onChange={(event) => onChange(event.target.value.replace(/[^0-9.,'\u2019\s]/g, ""))}
         placeholder="0.00"
         value={value}
       />
@@ -12865,21 +13552,25 @@ function InvestPaidFrom({ currency, investableBalanceMinor }: { currency: string
   );
 }
 
-/** Success state of the invest page with the ways onward. */
+/** Result of the invest page with the ways onward ("refused": nothing was invested). */
 function InvestDone({
   title,
   children,
   onBackToLoan,
-  setRoute
+  setRoute,
+  outcome = "success"
 }: {
   title: string;
   children: ReactNode;
   onBackToLoan: () => void;
   setRoute: (route: AppRoute) => void;
+  outcome?: "success" | "refused";
 }) {
   return (
     <div className="card iv-card iv-done">
-      <SuccessState title={title}>{children}</SuccessState>
+      {outcome === "refused"
+        ? <Banner tone="bad" title={title}>{children}</Banner>
+        : <SuccessState title={title}>{children}</SuccessState>}
       <div className="iv-actions">
         <Button variant="primary" onClick={() => goTo(setRoute, "portfolio")}>My investments</Button>
         <Button onClick={onBackToLoan}>Back to the loan</Button>
@@ -12887,6 +13578,17 @@ function InvestDone({
       </div>
     </div>
   );
+}
+
+type ClaimPurchaseAttempt = { quoteId: string; acceptanceKey: string; purchaseKey: string; acceptanceId: string | null };
+
+function newClaimPurchaseAttempt(quoteId: string): ClaimPurchaseAttempt {
+  return {
+    quoteId,
+    acceptanceKey: idempotencyKey("originator-claim-acceptance"),
+    purchaseKey: idempotencyKey("originator-claim-purchase"),
+    acceptanceId: null
+  };
 }
 
 /** Legacy originator-claim purchase (immediate assignment): amount, executable quote, email code, done. */
@@ -12915,9 +13617,9 @@ function OriginatorClaimInvestFlow({
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [quote, setQuote] = useState<OriginatorClaimQuoteResponse | null>(null);
-  const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
-  const [acceptanceKey] = useState(() => idempotencyKey("originator-claim-acceptance"));
-  const [purchaseKey] = useState(() => idempotencyKey("originator-claim-purchase"));
+  // The terms acceptance and the purchase key belong to one quote: a new quote (Reprice,
+  // new amount) needs a new acceptance and a new key (audit A-37).
+  const [claimAttempt, setClaimAttempt] = useState<ClaimPurchaseAttempt | null>(null);
   const quoteMutation = useOriginatorClaimsLoansQuoteCreate();
   const purchaseMutation = useOriginatorClaimsQuotesPurchaseCreate();
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
@@ -12940,12 +13642,21 @@ function OriginatorClaimInvestFlow({
           money: (minor) => `${loan.currency} ${formatMoneyMinor(minor, loan.currency)}`
         }) ?? undefined);
 
+  const applyQuote = (nextQuote: OriginatorClaimQuoteResponse) => {
+    setQuote(nextQuote);
+    setClaimAttempt(newClaimPurchaseAttempt(nextQuote.quote_id));
+    // New economics: the investor reviews and accepts them again.
+    setAck1(false);
+    setAck2(false);
+    setStep("review");
+  };
+
   const requestQuote = async () => {
     setError("");
     if (amountError || amountMinor <= 0) return;
     if (isFixturePreview) {
       const assignedPrincipal = Math.min(amountMinor, loan.remaining_capacity_minor);
-      setQuote({
+      applyQuote({
         quote_id: "preview-originator-quote",
         loan_id: loan.loan_id,
         currency: loan.currency,
@@ -12971,7 +13682,6 @@ function OriginatorClaimInvestFlow({
           present_value_minor: 0
         }))
       });
-      setStep("review");
       return;
     }
     try {
@@ -12979,8 +13689,7 @@ function OriginatorClaimInvestFlow({
         loanId: loan.loan_id,
         data: { requested_cash_minor: amountMinor }
       });
-      setQuote(nextQuote);
-      setStep("review");
+      applyQuote(nextQuote);
     } catch (mutationError) {
       setError(apiErrorMessage(mutationError));
     }
@@ -13002,9 +13711,10 @@ function OriginatorClaimInvestFlow({
       setError("Request an email code before confirming the purchase.");
       return;
     }
+    let current = claimAttempt?.quoteId === quote.quote_id ? claimAttempt : newClaimPurchaseAttempt(quote.quote_id);
     try {
-      const acceptance = acceptanceId
-        ? { id: acceptanceId }
+      const acceptance = current.acceptanceId
+        ? { id: current.acceptanceId }
         : await acceptanceMutation.mutateAsync({
             data: {
               category: CategoryEnum.primary_market_investment,
@@ -13021,17 +13731,18 @@ function OriginatorClaimInvestFlow({
                 currency: quote.currency,
                 target_yield_bps: quote.target_yield_bps
               },
-              idempotency_key: acceptanceKey
+              idempotency_key: current.acceptanceKey
             }
           });
-      setAcceptanceId(acceptance.id);
+      current = { ...current, acceptanceId: acceptance.id };
+      setClaimAttempt(current);
       await purchaseMutation.mutateAsync({
         quoteId: quote.quote_id,
         data: {
           document_acceptance_id: acceptance.id,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code,
-          idempotency_key: purchaseKey
+          idempotency_key: current.purchaseKey
         }
       });
       void queryClient.invalidateQueries();
@@ -13047,7 +13758,7 @@ function OriginatorClaimInvestFlow({
     : step === "confirm"
       ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
       : step === "review"
-        ? <><Button onClick={() => { setQuote(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
+        ? <><Button onClick={() => { setQuote(null); setClaimAttempt(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
         : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
 
   const amountRows = [
@@ -13142,9 +13853,12 @@ function OriginatorClaimInvestFlow({
 // Invest flow as a page (design: project > Invest). Route: /marketplace/:loanId/invest.
 function InvestScreen({ loanId, initialAmount, setRoute }: { loanId: string; initialAmount?: string; setRoute: (route: AppRoute) => void }) {
   const loanQuery = useLoanDetailData(loanId);
+  const frozenAccount = useFrozenAccount();
   const loan = loanQuery.data;
   if (loanQuery.isError && !loan) {
-    return (
+    return isNotFoundError(loanQuery.error) ? (
+      <LoanNotFound setRoute={setRoute} title="Invest" />
+    ) : (
       <ScreenError title="Invest" onRetry={() => void loanQuery.refetch()}>
         We could not load this loan detail. Return to the marketplace or retry after the API is reachable.
       </ScreenError>
@@ -13152,13 +13866,137 @@ function InvestScreen({ loanId, initialAmount, setRoute }: { loanId: string; ini
   }
   if (!loan) return <ScreenLoading title="Invest" />;
   const backToLoan = () => goTo(setRoute, "loan", { loanId: loan.loan_id });
+  // A closed loan is handled in InvestEntry when the page opens (JOURNEY-09, FRONTCODE-24):
+  // a loan that fills while the investor is here keeps the flow, so the result shows.
+  if (frozenAccount.frozen) {
+    // Penalty mode blocks new orders (PAY-DEC-022): say so before any code is sent.
+    return (
+      <main className="content">
+        <PageHead back={{ label: "Back to the loan", onClick: backToLoan }} title="Invest" />
+        <Banner icon="lock" tone="bad" title="Financial actions frozen">{frozenActionReason(frozenAccount)}</Banner>
+      </main>
+    );
+  }
   // A new loan or a new handed-over amount starts a fresh flow (new idempotency keys).
   const flowKey = `${loan.loan_id}:${initialAmount ?? ""}`;
+  return <InvestEntry initialAmount={initialAmount} key={flowKey} loan={loan} onClose={backToLoan} setRoute={setRoute} />;
+}
+
+/** Why this invest page cannot take an order (closed loan, read-only view), or null. */
+function investUnavailableReason(loan: MarketplaceLoanDetail) {
+  if (isReadonlyImpersonationActive()) {
+    return { title: "Read-only view", detail: "This is a read-only investor view. You can see the loan, but you cannot invest." };
+  }
+  if (!isOpenMarketplaceLoan(loan)) {
+    return { title: "This loan is not open for investment", detail: "It is closed or fully funded. You can still read the loan page and its payments, or choose another loan on the primary market." };
+  }
+  return null;
+}
+
+// Decides once, when the page opens, whether the invest flow may start (FRONTCODE-24):
+// a closed loan or the read-only view shows a notice and no email code is sent. A loan
+// that fills while the investor is on the page keeps the flow, so the result shows.
+function InvestEntry({
+  loan,
+  initialAmount,
+  onClose,
+  setRoute
+}: {
+  loan: MarketplaceLoanDetail;
+  initialAmount?: string;
+  onClose: () => void;
+  setRoute: (route: AppRoute) => void;
+}) {
+  const [unavailable] = useState(() => investUnavailableReason(loan));
+  if (unavailable) {
+    return (
+      <main className="content iv-page">
+        <PageHead back={{ label: loan.title, onClick: onClose }} description={loan.title} title="Invest" />
+        <div className="card iv-card iv-done">
+          <Banner tone="neutral" title={unavailable.title}>{unavailable.detail}</Banner>
+          <div className="iv-actions">
+            <Button variant="primary" onClick={() => goTo(setRoute, "market")}>Primary market</Button>
+            <Button onClick={onClose}>Back to the loan</Button>
+          </div>
+        </div>
+      </main>
+    );
+  }
   return usesImmediateClaimAssignment(loan) ? (
-    <OriginatorClaimInvestFlow initialAmount={initialAmount} key={flowKey} loan={loan} onClose={backToLoan} setRoute={setRoute} />
+    <OriginatorClaimInvestFlow initialAmount={initialAmount} loan={loan} onClose={onClose} setRoute={setRoute} />
   ) : (
-    <InvestFlow initialAmount={initialAmount} key={flowKey} loan={loan} onClose={backToLoan} setRoute={setRoute} />
+    <InvestFlow initialAmount={initialAmount} loan={loan} onClose={onClose} setRoute={setRoute} />
   );
+}
+
+// One confirmation attempt of a primary order. The order, its terms acceptance and the
+// allocation all record one amount, so the attempt (with its keys) is replaced whenever
+// the amount changes or the investor goes back to the amount step (audit A-15).
+type PrimaryOrderAttempt = {
+  amountMinor: number;
+  orderKey: string;
+  acceptanceKey: string;
+  allocationKey: string;
+  orderId: string | null;
+  acceptanceId: string | null;
+};
+
+function newPrimaryOrderAttempt(amountMinor: number): PrimaryOrderAttempt {
+  return {
+    amountMinor,
+    orderKey: idempotencyKey("primary-order"),
+    acceptanceKey: idempotencyKey("primary-acceptance"),
+    allocationKey: idempotencyKey("primary-allocation"),
+    orderId: null,
+    acceptanceId: null
+  };
+}
+
+// The server closed the order before allocation (for example a newer order replaced
+// it). Nothing was invested; the next confirmation places a new order.
+function isOrderNotPendingError(error: unknown) {
+  if (!(error instanceof ApiClientError) || error.status !== 400) return false;
+  const payload = error.payload as { code?: unknown } | null | undefined;
+  return payload?.code === "order_not_pending";
+}
+
+/** Plain-English result of an allocated primary order, from the server's order. */
+function primaryOrderOutcome(
+  order: PrimaryInvestmentOrder,
+  loan: MarketplaceLoanDetail,
+  subscriptionClaim: boolean,
+  money: (minor: number) => string
+): { title: string; text: string; status: string; refused: boolean } {
+  if (order.status === "closed_not_invested") {
+    const reason = order.closed_reason.toLowerCase().includes("minimum")
+      ? `Less than the minimum order of ${money(loan.minimum_investment_minor)} was left in this loan.`
+      : "Other investors took the rest of this loan first.";
+    return { title: "Order not placed", text: `${reason} Nothing was invested and no money moved.`, status: "Not invested", refused: true };
+  }
+  if (order.status === "partially_allocated") {
+    return {
+      title: "Order partly placed",
+      text: `Only ${money(order.allocated_amount_minor)} was left in this loan. We reserved ${money(order.allocated_amount_minor)} of the ${money(order.requested_amount_minor)} you asked for. The rest stays in your balance.`,
+      status: "Partly allocated",
+      refused: false
+    };
+  }
+  if (order.status === "closed_invested") {
+    return {
+      title: "Investment made",
+      text: `${money(order.allocated_amount_minor)} is now invested. The funding round closed.`,
+      status: "Invested",
+      refused: false
+    };
+  }
+  return {
+    title: "Order placed",
+    text: subscriptionClaim
+      ? `${money(order.allocated_amount_minor)} of your balance is reserved for the Loan Originator funding round. It becomes an active holding automatically at funding close. The boundary installment belongs entirely to the LO. Reservations are returned if the round is cancelled before close.`
+      : `${money(order.allocated_amount_minor)} of your balance is reserved for this loan. The investment starts when funding closes. If the loan does not reach its minimum, the money goes back to your balance.`,
+    status: "Reserved until funding closes",
+    refused: false
+  };
 }
 
 /** Primary-market order (direct loans and Loan Originator subscriptions): amount, review, email code, done. */
@@ -13187,11 +14025,11 @@ function InvestFlow({
   const [ack2, setAck2] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
-  const [orderKey] = useState(() => idempotencyKey("primary-order"));
-  const [acceptanceKey] = useState(() => idempotencyKey("primary-acceptance"));
-  const [allocationKey] = useState(() => idempotencyKey("primary-allocation"));
+  const [attempt, setAttempt] = useState<PrimaryOrderAttempt>(() =>
+    newPrimaryOrderAttempt(parseMoneyInputToMinorUnits(initialAmount ?? "", loan.currency).amountMinor)
+  );
+  // The order as the server returned it after allocation: the done screen shows it.
+  const [placedOrder, setPlacedOrder] = useState<PrimaryInvestmentOrder | null>(null);
   const orderMutation = useV1MarketplacePrimaryOrdersCreate();
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const allocateMutation = useV1MarketplacePrimaryOrdersAllocateBalanceCreate();
@@ -13215,6 +14053,22 @@ function InvestFlow({
           money: (minor) => `${loan.currency} ${formatMoneyMinor(minor, loan.currency)}`
         }) ?? undefined);
   const submitting = orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending;
+  const money = (minor: number) => `${loan.currency} ${formatMoneyMinor(minor, loan.currency)}`;
+
+  // A new amount, or a return to the amount step, drops the cached order and terms
+  // acceptance: they recorded the old amount. New keys go with them.
+  const changeAmount = (value: string) => {
+    setAmount(value);
+    setAttempt(newPrimaryOrderAttempt(parseMoneyInputToMinorUnits(value, loan.currency).amountMinor));
+    // The terms are accepted for the order amount: a new amount is accepted again.
+    setAck1(false);
+    setAck2(false);
+  };
+  const backToAmount = () => {
+    setError("");
+    setAttempt(newPrimaryOrderAttempt(amountMinor));
+    setStep("amount");
+  };
 
   const confirmOrder = async () => {
     setError("");
@@ -13231,48 +14085,49 @@ function InvestFlow({
       setError("Request an email code before confirming the order.");
       return;
     }
+    // Reuse the order and acceptance only for a retry of exactly this amount.
+    let current = attempt.amountMinor === amountMinor ? attempt : newPrimaryOrderAttempt(amountMinor);
     try {
-      const order = orderId
-        ? { id: orderId }
-        : await orderMutation.mutateAsync({
-            data: {
-              loan_id: loan.loan_id,
-              amount_minor: amountMinor,
-              idempotency_key: orderKey
-            }
-          });
-      const createdOrderId = order.id;
-      setOrderId(createdOrderId);
-      const acceptance = acceptanceId
-        ? { id: acceptanceId }
-        : await acceptanceMutation.mutateAsync({
-            data: {
-              category: CategoryEnum.primary_market_investment,
-              expected_template_version_id: termsQuery.data.id,
-              accepted_checkbox_labels: labels,
-              context_type: "primary_order",
-              context_id: createdOrderId,
-              data_snapshot: {
-                loan_id: loan.loan_id,
-                amount_minor: amountMinor,
-                currency: loan.currency
-              },
-              idempotency_key: acceptanceKey
-            }
-          });
-      setAcceptanceId(acceptance.id);
-      await allocateMutation.mutateAsync({
-        orderId: createdOrderId,
+      const orderId = current.orderId ?? (await orderMutation.mutateAsync({
         data: {
-          document_acceptance_id: acceptance.id,
-          idempotency_key: allocationKey,
+          loan_id: loan.loan_id,
+          amount_minor: amountMinor,
+          idempotency_key: current.orderKey
+        }
+      })).id;
+      current = { ...current, orderId };
+      setAttempt(current);
+      const acceptanceId = current.acceptanceId ?? (await acceptanceMutation.mutateAsync({
+        data: {
+          category: CategoryEnum.primary_market_investment,
+          expected_template_version_id: termsQuery.data.id,
+          accepted_checkbox_labels: labels,
+          context_type: "primary_order",
+          context_id: orderId,
+          data_snapshot: {
+            loan_id: loan.loan_id,
+            amount_minor: amountMinor,
+            currency: loan.currency
+          },
+          idempotency_key: current.acceptanceKey
+        }
+      })).id;
+      current = { ...current, acceptanceId };
+      setAttempt(current);
+      const order = await allocateMutation.mutateAsync({
+        orderId,
+        data: {
+          document_acceptance_id: acceptanceId,
+          idempotency_key: current.allocationKey,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code
         }
       });
       void queryClient.invalidateQueries();
+      setPlacedOrder(order);
       setStep("done");
     } catch (mutationError) {
+      if (isOrderNotPendingError(mutationError)) setAttempt(newPrimaryOrderAttempt(amountMinor));
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -13282,8 +14137,12 @@ function InvestFlow({
     : step === "confirm"
       ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || submitting} variant="primary" onClick={() => void confirmOrder()}>{submitting ? "Submitting..." : "Confirm order"}</Button></>
       : step === "review"
-        ? <><Button onClick={() => setStep("amount")}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
+        ? <><Button onClick={backToAmount}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
         : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
+
+  // What the server did with the order (audit A-33 / SECONDARY-06): allocated in full,
+  // partly allocated, or closed with nothing invested.
+  const outcome = placedOrder ? primaryOrderOutcome(placedOrder, loan, subscriptionClaim, money) : null;
 
   // Summary card: the loan terms first, then the amounts (design: overview, then amount and fees).
   const orderRows = [
@@ -13299,9 +14158,14 @@ function InvestFlow({
         { label: "Boundary installment", value: loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available" }
       ] : [])
     ],
-    [
-      { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
-      { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+    placedOrder ? [
+      { label: "Order amount", value: money(placedOrder.requested_amount_minor) },
+      { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: money(placedOrder.allocated_amount_minor) },
+      { label: "Status", value: outcome?.status ?? humanizeToken(placedOrder.status) },
+      { label: "Platform fee", value: "None" }
+    ] : [
+      { label: "Order amount", value: money(amountMinor) },
+      { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: money(amountMinor) },
       { label: "Platform fee", value: "None" }
     ]
   ];
@@ -13322,7 +14186,7 @@ function InvestFlow({
         <div className="iv-form">
           <InvestLoanChip loan={loan} />
           <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
-            <InvestAmountInput currency={loan.currency} label="Investment amount" value={amount} onChange={setAmount} />
+            <InvestAmountInput currency={loan.currency} label="Investment amount" value={amount} onChange={changeAmount} />
           </Field>
           <InvestPaidFrom currency={loan.currency} investableBalanceMinor={investableBalanceMinor} />
           <Banner tone="neutral" title={subscriptionClaim ? "Subscription at par" : "Allocation"}>
@@ -13374,10 +14238,10 @@ function InvestFlow({
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
-        <InvestDone setRoute={setRoute} title="Order placed" onBackToLoan={onClose}>
-          {subscriptionClaim
+        <InvestDone outcome={outcome?.refused ? "refused" : "success"} setRoute={setRoute} title={outcome?.title ?? "Order placed"} onBackToLoan={onClose}>
+          {outcome?.text ?? (subscriptionClaim
             ? "Your balance is reserved for the Loan Originator funding round and becomes an active holding automatically at funding close. The boundary installment belongs entirely to the LO. Reservations are returned if the round is cancelled before close."
-            : "Your order is pending allocation. Investment evidence will be added to Documents when generated."}
+            : "Your balance is reserved for this loan. The investment starts when funding closes.")}
         </InvestDone>
       )}
     </InvestPageFrame>
@@ -13445,11 +14309,27 @@ function ScreenError({
   );
 }
 
+function LoanNotFound({ title, setRoute }: { title: string; setRoute: (route: AppRoute) => void }) {
+  return (
+    <main className="content">
+      <div className="page-head"><h1>{title}</h1></div>
+      <Card padded>
+        <Empty icon="search" title="Loan not found">
+          This loan does not exist, or it is no longer shown to investors.
+        </Empty>
+        <div className="row gap-8" style={{ justifyContent: "center", marginTop: 12 }}>
+          <Button variant="primary" onClick={() => goTo(setRoute, "market")}>Go to the primary market</Button>
+        </div>
+      </Card>
+    </main>
+  );
+}
+
 function ScreenLoading({ title }: { title: string }) {
   return <main className="content"><div className="page-head"><h1>{title}</h1></div><LoadingCard title="Loading">Loading investor portal data.</LoadingCard></main>;
 }
 
 function priceLabel(discountPremiumBps: number) {
   if (discountPremiumBps === 0) return "At par";
-  return discountPremiumBps < 0 ? `${Math.abs(discountPremiumBps / 100).toFixed(1)}% discount` : `${(discountPremiumBps / 100).toFixed(1)}% premium`;
+  return discountPremiumBps < 0 ? `${formatRateBps(Math.abs(discountPremiumBps))} discount` : `${formatRateBps(discountPremiumBps)} premium`;
 }

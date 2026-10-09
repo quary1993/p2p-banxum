@@ -2,20 +2,23 @@
 # build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
+import re
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 from importlib import import_module
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Q, Sum
 
+from backend.apps.marketplace_primary import notices as investor_notices
 from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
     PrimaryInvestmentOrderBatch,
@@ -62,9 +65,21 @@ class MarketplacePrimaryValidationError(MarketplacePrimaryError):
     pass
 
 
+class MarketplacePrimaryOrderNotPendingError(MarketplacePrimaryValidationError):
+    """The order was closed (for example replaced or expired) before allocation."""
+
+    code = "order_not_pending"
+
+
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 MAX_BATCH_IDEMPOTENCY_KEY_LENGTH = 128
 PENDING_ORDER_CAP_DEFAULT = 50
+# An order the investor did not confirm within this time no longer counts as an
+# open intent: the next order of the same investor closes it (no money moves).
+PENDING_ORDER_TTL_MINUTES_DEFAULT = 60
+ORDER_NOT_PENDING_MESSAGE = (
+    "This order was closed before it was confirmed. Nothing was invested. Place the order again."
+)
 ORDER_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 ALLOCATION_FINGERPRINT_METADATA_KEY = "allocation_request_fingerprint"
 ALLOCATION_IDEMPOTENCY_METADATA_KEY = "allocation_idempotency_key"
@@ -398,6 +413,76 @@ def _pending_order_cap() -> int:
     if type(value) is int and value > 0:
         return value
     return PENDING_ORDER_CAP_DEFAULT
+
+
+def _pending_order_ttl_minutes() -> int:
+    value = get_platform_setting_value(
+        "investment.pending_order_ttl_minutes",
+        PENDING_ORDER_TTL_MINUTES_DEFAULT,
+    )
+    if type(value) is int and value > 0:
+        return value
+    return PENDING_ORDER_TTL_MINUTES_DEFAULT
+
+
+def _close_abandoned_pending_orders(*, actor: Model, investor_user_id: str, loan_id: str) -> int:
+    """Close the investor's own unconfirmed orders before a new order is created.
+
+    A pending order holds no balance and no loan capacity. It is left behind when a
+    confirmation fails (wrong or expired code, lost race) or is abandoned. The
+    investor cannot cancel it, so the platform closes it here: every earlier
+    pending order on the same loan (replaced by the new order) and every pending
+    order older than the pending-order time limit. This keeps the pending-order
+    cap for spam control without blocking an investor with their own abandoned
+    attempts.
+    """
+    cutoff = now_utc() - timedelta(minutes=_pending_order_ttl_minutes())
+    stale_orders = list(
+        PrimaryInvestmentOrder.objects.select_for_update()
+        .filter(
+            investor_user_id=investor_user_id,
+            status=PrimaryInvestmentOrderStatus.PENDING,
+            allocated_amount_minor=0,
+        )
+        .filter(Q(loan_id=loan_id) | Q(created_at__lt=cutoff))
+        .order_by("created_at", "id")
+    )
+    closed_at = now_utc()
+    for order in stale_orders:
+        same_loan = str(order.loan_id) == str(loan_id)
+        reason_code = "replaced_by_new_order" if same_loan else "pending_order_expired"
+        reason = (
+            "Replaced by a newer order on the same loan before confirmation."
+            if same_loan
+            else "Not confirmed within the pending-order time limit."
+        )
+        previous_status = str(order.status)
+        order.status = PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        order.closed_at = closed_at
+        order.metadata = {
+            **dict(cast(dict[str, Any], order.metadata)),
+            "closed_reason": reason,
+            "closed_reason_code": reason_code,
+        }
+        order.save(update_fields=["status", "closed_at", "metadata", "updated_at"])
+        _record_order_event(
+            order=order,
+            actor=actor,
+            event_type=PrimaryInvestmentOrderEventType.CLOSED_NOT_INVESTED,
+            previous_status=previous_status,
+            new_status=order.status,
+            metadata={"reason": reason_code},
+        )
+    return len(stale_orders)
+
+
+def _raise_order_not_pending(order: PrimaryInvestmentOrder) -> NoReturn:
+    if (
+        order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        and int(order.allocated_amount_minor) == 0
+    ):
+        raise MarketplacePrimaryOrderNotPendingError(ORDER_NOT_PENDING_MESSAGE)
+    raise MarketplacePrimaryOrderNotPendingError("Only pending orders can be allocated.")
 
 
 def _assert_pending_order_cap(investor_user_id: str) -> None:
@@ -823,6 +908,17 @@ def _validate_primary_document_acceptance(
     return acceptance
 
 
+def _require_not_in_penalty_mode(actor: Model) -> None:
+    """PAY-DEC-022: no new investment while a balance is frozen in penalty mode.
+
+    The ledger reservation enforces the same rule; this check gives the clear message
+    before an order or a batch is started.
+    """
+    ledger = _ledger_services()
+    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
+        raise MarketplacePrimaryValidationError(ledger.penalty_mode_frozen_message("Investing"))
+
+
 def _ledger_services() -> Any:
     return import_module("backend.apps.ledger.services")
 
@@ -883,6 +979,12 @@ def create_primary_investment_order(
     )
     if existing is not None:
         return existing
+    _require_not_in_penalty_mode(command.actor)
+    _close_abandoned_pending_orders(
+        actor=command.actor,
+        investor_user_id=investor_id,
+        loan_id=str(loan_ref.id),
+    )
     _assert_pending_order_cap(investor_id)
     metadata = {
         ORDER_FINGERPRINT_METADATA_KEY: request_fingerprint,
@@ -965,7 +1067,14 @@ def allocate_primary_order_from_balance(
             return order
         raise MarketplacePrimaryValidationError("Primary investment order is already allocated.")
     if order.status != PrimaryInvestmentOrderStatus.PENDING:
-        raise MarketplacePrimaryValidationError("Only pending orders can be allocated.")
+        if (
+            order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+            and metadata.get(ALLOCATION_IDEMPOTENCY_METADATA_KEY) == idempotency_key
+            and metadata.get(ALLOCATION_FINGERPRINT_METADATA_KEY) == allocation_fingerprint
+        ):
+            # Replay of an allocation that closed the order as not invested.
+            return order
+        _raise_order_not_pending(order)
     _validate_primary_document_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -1248,6 +1357,7 @@ def place_primary_order_batch(
             orders=existing.orders,
         )
         return existing
+    _require_not_in_penalty_mode(command.actor)
     acceptance, accepted_currency_by_loan = _validate_batch_document_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -1558,7 +1668,14 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             return order
         raise MarketplacePrimaryValidationError("Primary investment order is already allocated.")
     if order.status != PrimaryInvestmentOrderStatus.PENDING:
-        raise MarketplacePrimaryValidationError("Only pending orders can be allocated.")
+        if (
+            order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+            and metadata.get(ALLOCATION_IDEMPOTENCY_METADATA_KEY) == idempotency_key
+            and metadata.get(ALLOCATION_FINGERPRINT_METADATA_KEY) == allocation_fingerprint
+        ):
+            # Replay of an allocation that closed the order as not invested.
+            return order
+        _raise_order_not_pending(order)
     _assert_published_loan_open(loan)
     loan_ref = cast(Any, loan)
     if order.currency_id != str(loan_ref.currency_id):
@@ -1590,9 +1707,15 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         )
         return order
     subscription_profile = _originator_subscription_profile(loan)
-    if subscription_profile is not None and remaining_capacity < _loan_minimum_investment_minor(
-        loan
-    ):
+    minimum_order_minor = _loan_minimum_investment_minor(loan)
+    # A partial allocation must still reach the loan's minimum order. Direct loans
+    # follow the Loan Originator rule: when another investor took the capacity and
+    # less than the minimum is left, the order closes as not invested and no money
+    # moves (no allocation below the minimum).
+    below_minimum = remaining_capacity < minimum_order_minor and (
+        subscription_profile is not None or remaining_capacity < order.requested_amount_minor
+    )
+    if below_minimum:
         previous_status = str(order.status)
         order.status = PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
         order.closed_at = now_utc()
@@ -1602,7 +1725,11 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             ALLOCATION_FINGERPRINT_METADATA_KEY: allocation_fingerprint,
             "closed_reason": (
                 "Remaining Loan Originator subscription capacity was below the loan minimum."
+                if subscription_profile is not None
+                else "Remaining loan capacity was below the minimum order."
             ),
+            "remaining_capacity_at_allocation_minor": remaining_capacity,
+            "minimum_order_minor": minimum_order_minor,
         }
         order.save(update_fields=["status", "closed_at", "metadata", "updated_at"])
         _record_order_event(
@@ -1691,6 +1818,7 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         order=order,
         metadata=event_metadata,
     )
+    investor_notices.notify_order_allocated(order)
     return order
 
 
@@ -1871,6 +1999,9 @@ def release_primary_order_balance(
         order=order,
         metadata=event_metadata,
     )
+    if not funding_resolution:
+        # Funding cancellations send their own notice with the investor message.
+        investor_notices.notify_order_released(order)
     return order
 
 
@@ -2434,6 +2565,7 @@ def close_primary_loan_funding(
             idempotency_key=f"primary-loan-close:{close.id}:closed",
         )
     )
+    investor_notices.notify_funding_closed(close)
     return close
 
 
@@ -2627,6 +2759,7 @@ def cancel_primary_loan_funding(
             idempotency_key=f"primary-loan-cancellation:{cancellation.id}:cancelled",
         )
     )
+    investor_notices.notify_funding_cancelled(cancellation)
     return cancellation
 
 
@@ -2952,7 +3085,13 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     return payload
 
 
-def list_public_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
+def list_open_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
+    """Every open opportunity with its full investor-facing preview data.
+
+    Not for anonymous visitors: risk, collateral, funding progress, deadlines and
+    participation terms are shown only after registration and KYC (MKT-DEC-002).
+    Anonymous callers use :func:`list_public_marketplace_loans`.
+    """
     loan_model = _model("loans", "Loan")
     loans = loan_model.objects.filter(status="published", product_type="direct").order_by(
         "funding_deadline", "id"
@@ -2971,6 +3110,90 @@ def list_public_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
     )[:limit]
 
 
+def list_investor_marketplace_loans(*, actor: Model, limit: int = 100) -> list[dict[str, Any]]:
+    """The investor marketplace list: full preview data, behind KYC (MKT-DEC-002)."""
+    _require_investor_financial_access(actor)
+    return list_open_marketplace_loans(limit=limit)
+
+
+PUBLIC_MARKETPLACE_STATUS_OPEN = "open"
+
+
+def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
+    """True while an investor can still put money into this loan or claim."""
+    available = payload.get("fillable_amount_minor")
+    if available is None:
+        available = payload.get("remaining_capacity_minor", 0)
+    return int(available or 0) > 0
+
+
+def _public_borrower_identity(payloads: list[dict[str, Any]]) -> dict[str, tuple[str, str]]:
+    """Borrower name and country per loan id, as the public preview may show them.
+
+    Direct loans show the borrower's legal name. Loan Originator claims show the
+    anonymized borrower name unless the originator published the legal name.
+    """
+    direct_ids = [row["loan_id"] for row in payloads if row.get("product_type") == "direct"]
+    originator_ids = [
+        row["loan_id"] for row in payloads if row.get("product_type") == "originator_claim"
+    ]
+    identity: dict[str, tuple[str, str]] = {}
+    loan_model = _model("loans", "Loan")
+    for loan in loan_model.objects.select_related("borrower").filter(id__in=direct_ids):
+        borrower = cast(Any, loan).borrower
+        identity[str(cast(Any, loan).id)] = (
+            str(getattr(borrower, "legal_name", "") or ""),
+            str(getattr(borrower, "country", "") or ""),
+        )
+    profile_model = _model("originator_claims", "OriginatorLoanProfile")
+    for row in profile_model.objects.filter(loan_id__in=originator_ids).values(
+        "loan_id",
+        "borrower_display_name",
+        "borrower_legal_name",
+        "borrower_legal_name_public",
+        "borrower_country",
+    ):
+        name = (
+            row["borrower_legal_name"]
+            if row["borrower_legal_name_public"]
+            else row["borrower_display_name"]
+        )
+        identity[str(row["loan_id"])] = (str(name or ""), str(row["borrower_country"] or ""))
+    return identity
+
+
+def list_public_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
+    """Anonymous preview of open loans with only the MKT-DEC-002 fields.
+
+    Borrower, amount, interest, period, loan type (Direct or Loan Originator claim, new
+    or refinancing), status, borrower country and currency, plus the loan id for the
+    public detail link. Nothing else leaves the server before login.
+    """
+    # A loan with nothing left to invest is not "open" for a visitor (the status below
+    # promises it); it closes after the funding round ends.
+    payloads = [
+        row
+        for row in list_open_marketplace_loans(limit=limit)
+        if marketplace_payload_has_capacity(row)
+    ]
+    identity = _public_borrower_identity(payloads)
+    return [
+        {
+            "loan_id": str(row["loan_id"]),
+            "borrower_name": identity.get(str(row["loan_id"]), ("", ""))[0],
+            "borrower_country": identity.get(str(row["loan_id"]), ("", ""))[1],
+            "product_type": str(row["product_type"]),
+            "is_refinancing": bool(row.get("is_refinancing", False)),
+            "currency": str(row["currency"]),
+            "principal_minor": int(row["principal_minor"]),
+            "interest_rate_bps": int(row.get("yield_bps") or row["interest_rate_bps"]),
+            "term_months": int(row["term_months"]),
+            "status": PUBLIC_MARKETPLACE_STATUS_OPEN,
+        }
+        for row in payloads
+    ]
+
+
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
     _require_investor_financial_access(actor)
     loan = _loan_for_read(loan_id)
@@ -2986,6 +3209,12 @@ def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
             )
         except originator_services.OriginatorClaimsError as exc:
             raise MarketplacePrimaryValidationError(str(exc)) from exc
+    _assert_direct_loan_readable(loan)
+    return full_marketplace_listing_payload(loan)
+
+
+def _assert_direct_loan_readable(loan: Model) -> None:
+    """An investor can read a Direct loan while it is open or after it was published and funded."""
     if str(cast(Any, loan).status) not in {
         "funded",
         "active",
@@ -2997,7 +3226,53 @@ def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
         _assert_published_loan_open(loan)
     elif cast(Any, loan).published_at is None:
         raise MarketplacePrimaryValidationError("This loan has not been published.")
-    return full_marketplace_listing_payload(loan)
+
+
+def download_marketplace_borrower_document(
+    *,
+    actor: Model,
+    loan_id: str,
+    document_id: str,
+    audit_actor: Model | None = None,
+) -> dict[str, Any]:
+    """File of a borrower document listed on a loan page, for an investor who can read the loan."""
+    _require_investor_financial_access(actor)
+    loan = _loan_for_read(loan_id)
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim" or loan_ref.borrower_id is None:
+        raise MarketplacePrimaryValidationError("Document not found.")
+    _assert_direct_loan_readable(loan)
+    entities_services = _entities_services()
+    try:
+        document_file = entities_services.read_investor_visible_borrower_document(
+            borrower_id=str(loan_ref.borrower_id),
+            document_id=str(document_id),
+        )
+    except entities_services.BorrowerValidationError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(audit_actor or actor),
+            action="marketplace.borrower_document_downloaded",
+            target_type="BorrowerDocument",
+            target_id=document_file.document_id,
+            metadata={
+                "loan_id": str(loan_ref.pk),
+                "investor_user_id": str(actor.pk),
+                "content_sha256": document_file.checksum_sha256,
+            },
+        )
+    )
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", document_file.filename).strip("-") or "document"
+    return {
+        "document_id": document_file.document_id,
+        "display_name": document_file.display_name,
+        "filename": filename[:120],
+        "content_type": document_file.content_type,
+        "content_encoding": "base64",
+        "content": base64.b64encode(document_file.content).decode("ascii"),
+        "content_sha256": document_file.checksum_sha256,
+    }
 
 
 def allocated_primary_order_total_minor(*, loan_id: str) -> int:

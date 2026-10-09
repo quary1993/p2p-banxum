@@ -874,11 +874,15 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
         )
     )
     statement_rows = _csv_rows(statement.content)
-    assert statement_rows
-    assert {row["participant_id"] for row in statement_rows} == {str(investor.pk)}
-    assert "principal_or_settlement_movement" in {
-        row["statement_section"] for row in statement_rows
-    }
+    assert [row["row_type"] for row in statement_rows] == [
+        "opening_balance",
+        "movement",
+        "closing_balance",
+    ]
+    assert {row["investor"] for row in statement_rows} == {cast(Any, investor).investor_reference}
+    assert statement_rows[1]["description"] == "Deposit by bank transfer"
+    assert statement_rows[1]["amount"] == "100.00"
+    assert statement_rows[2]["balance"] == "100.00"
 
     tax_info = generate_report(
         GenerateReportCommand(
@@ -887,6 +891,8 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
             period_preset=ReportPeriodPreset.CALENDAR_YEAR,
             period_anchor_date=date(2026, 6, 1),
             filters={"participant_type": "garanta"},
+            # Annual tax information is only available once the year has ended.
+            as_of=datetime(2027, 1, 10, 12, 0, tzinfo=business_timezone()),
         )
     )
     tax_rows = _csv_rows(tax_info.content)
@@ -923,14 +929,13 @@ def test_lender_statement_shows_originator_cash_flows_without_internal_legs(
     )
 
     rows = _csv_rows(artifact.content)
-    assert len(rows) == 2
-    assert {row["participant_id"] for row in rows} == {str(investor.pk)}
-    assert {row["account_type"] for row in rows} == {"investor_balance_liability"}
-    assert {row["event_type"] for row in rows} == {
-        "originator_claim_purchase",
-        "originator_claim_repayment",
-    }
-    assert {int(row["signed_amount_minor"]) for row in rows} == {100_00, -25_00}
+    movements = [row for row in rows if row["row_type"] == "movement"]
+    assert len(movements) == 2
+    assert {row["investor"] for row in rows} == {cast(Any, investor).investor_reference}
+    # Investor view: the purchase is money out, the repayment money in.
+    assert {row["amount"] for row in movements} == {"-100.00", "25.00"}
+    assert rows[-1]["balance"] == "-75.00"
+    assert "investor_balance_liability" not in artifact.content
     assert "originator_settlement_payable" not in artifact.content
     assert "originator_servicing_payable" not in artifact.content
     assert "platform_fee_revenue" not in artifact.content

@@ -4,8 +4,12 @@
 
 type CollateralLoan = {
   collateral_type: string;
-  collateral_value_minor: number;
+  /** Unknown on some list payloads (the marketplace preview); LTV null then means "no value". */
+  collateral_value_minor?: number;
   ltv_bps: number | null;
+  product_type?: string;
+  principal_minor?: number;
+  schedule?: Array<{ outstanding_principal_minor: number }>;
 };
 
 type CollateralHolding = {
@@ -13,8 +17,44 @@ type CollateralHolding = {
   loan: CollateralLoan;
 };
 
+/**
+ * The one "unsecured" rule for every screen (marketplace, Smart Invest, loan sheet, portfolio):
+ * an unsecured type, no pledged collateral value, or no LTV because there is no value.
+ */
+export function isUnsecuredLoan(loan: CollateralLoan) {
+  if (/unsecured/i.test(loan.collateral_type)) return true;
+  if (loan.collateral_value_minor !== undefined) return !(loan.collateral_value_minor > 0);
+  return loan.ltv_bps === null;
+}
+
 export function isUnsecuredHolding(holding: CollateralHolding) {
-  return holding.loan.collateral_type === "unsecured_exception" || !(holding.loan.collateral_value_minor > 0);
+  return isUnsecuredLoan(holding.loan);
+}
+
+/**
+ * Principal still owed on the whole loan. Originator claims report it as `principal_minor`; for
+ * direct loans it is the unpaid principal of the current schedule (falls back to the loan amount).
+ */
+export function currentLoanPrincipalMinor(loan: CollateralLoan) {
+  if (loan.product_type === "originator_claim") return loan.principal_minor ?? null;
+  if (loan.schedule && loan.schedule.length > 0) {
+    return loan.schedule.reduce((sum, row) => sum + Math.max(0, row.outstanding_principal_minor), 0);
+  }
+  return loan.principal_minor ?? null;
+}
+
+/**
+ * LTV, one definition everywhere: principal still owed on the loan divided by the collateral
+ * valuation (for an open loan that is the loan amount). Null when nothing is pledged.
+ */
+export function loanLtvBps(loan: CollateralLoan) {
+  if (isUnsecuredLoan(loan)) return null;
+  const valuation = loan.collateral_value_minor;
+  const principal = currentLoanPrincipalMinor(loan);
+  if (valuation !== undefined && valuation > 0 && principal !== null) {
+    return Math.round((principal * 10_000) / valuation);
+  }
+  return loan.ltv_bps;
 }
 
 /** Principal per collateral group (largest first) for secured holdings, and the unsecured remainder. */
@@ -40,7 +80,7 @@ export function collateralBreakdown<T extends CollateralHolding>(holdings: T[], 
 
 /** Secured holdings that carry a loan-to-value figure. */
 export function valuedSecuredHoldings<T extends CollateralHolding>(holdings: T[]) {
-  return holdings.filter((holding) => !isUnsecuredHolding(holding) && holding.loan.ltv_bps !== null);
+  return holdings.filter((holding) => !isUnsecuredHolding(holding) && loanLtvBps(holding.loan) !== null);
 }
 
 /** Principal-weighted LTV in percent across valued secured holdings, or null when none is valued. */
@@ -48,5 +88,5 @@ export function weightedLtvPercent(holdings: CollateralHolding[]) {
   const valued = valuedSecuredHoldings(holdings);
   const principal = valued.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
   if (principal <= 0) return null;
-  return valued.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / principal;
+  return valued.reduce((sum, holding) => sum + ((loanLtvBps(holding.loan) ?? 0) / 100) * holding.current_principal_minor, 0) / principal;
 }

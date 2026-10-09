@@ -8,11 +8,13 @@ from backend.apps.accounts_auth import session_lifetime
 from backend.apps.accounts_auth.models import (
     AccountStatus,
     AccountType,
+    EmailLoginToken,
     SensitiveActionCode,
     User,
 )
 from backend.apps.accounts_auth.services import (
     MagicLinkRequestCommand,
+    delivery_secret_for_magic_link,
     delivery_secret_for_sensitive_action_code,
     issue_magic_link,
 )
@@ -175,7 +177,14 @@ def test_expired_session_does_not_block_public_and_login_endpoints(
     assert response.status_code == 202
     _assert_session_expired(client.get("/api/v1/auth/me/"))
 
-    _magic_link_login(client, investor)
+    # The link that request sent signs the investor in again.
+    sent = EmailLoginToken.objects.filter(user=investor, used_at__isnull=True).get()
+    consumed = client.post(
+        "/api/v1/auth/magic-link/consume/",
+        data={"token": delivery_secret_for_magic_link(sent)},
+        content_type="application/json",
+    )
+    assert consumed.status_code == 200
     assert client.get("/api/v1/auth/me/").status_code == 200
     assert session_lifetime.SESSION_EXPIRED_AT_KEY not in client.session
 

@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.marketplace_primary.api.serializers import (
+    MarketplaceBorrowerDocumentDownloadSerializer,
     MarketplaceLoanDetailSerializer,
     MarketplaceLoanPreviewSerializer,
     PrimaryInvestmentOrderAllocateRequestSerializer,
@@ -26,6 +27,7 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryOrderBatchRequestSerializer,
     PrimaryOrderBatchResponseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
+    PublicMarketplaceLoanSerializer,
     serialize_primary_expiry_scan_result,
     serialize_primary_loan_cancellation,
     serialize_primary_loan_close,
@@ -37,6 +39,7 @@ from backend.apps.marketplace_primary.services import (
     ClosePrimaryLoanFundingCommand,
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
+    MarketplacePrimaryOrderNotPendingError,
     MarketplacePrimaryValidationError,
     PlacePrimaryOrderBatchCommand,
     PrimaryOrderBatchItemCommand,
@@ -46,7 +49,9 @@ from backend.apps.marketplace_primary.services import (
     cancel_primary_loan_funding,
     close_primary_loan_funding,
     create_primary_investment_order,
+    download_marketplace_borrower_document,
     get_full_marketplace_loan,
+    list_investor_marketplace_loans,
     list_public_marketplace_loans,
     place_primary_order_batch,
     release_primary_order_balance,
@@ -65,11 +70,37 @@ def _error_response(exc: Exception) -> Response:
         if isinstance(exc, MarketplacePrimaryAuthorizationError)
         else status.HTTP_400_BAD_REQUEST
     )
-    return Response({"detail": str(exc)}, status=status_code)
+    payload: dict[str, str] = {"detail": str(exc)}
+    if isinstance(exc, MarketplacePrimaryOrderNotPendingError):
+        # The client drops the closed order and creates a new one on retry.
+        payload["code"] = MarketplacePrimaryOrderNotPendingError.code
+    return Response(payload, status=status_code)
 
 
 class PublicMarketplaceLoanListView(APIView):
+    """Anonymous preview: only the MKT-DEC-002 public fields, for everyone."""
+
     permission_classes = [AllowAny]
+
+    @extend_schema(
+        parameters=[PublicMarketplaceLoanListQuerySerializer],
+        responses={200: PublicMarketplaceLoanSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = PublicMarketplaceLoanListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        public_loans = PublicMarketplaceLoanSerializer(
+            list_public_marketplace_loans(limit=data["limit"]),
+            many=True,
+        )
+        return Response(public_loans.data, status=status.HTTP_200_OK)
+
+
+class MarketplaceOpportunityListView(APIView):
+    """Investor marketplace list with full preview data (registration and KYC required)."""
+
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         parameters=[PublicMarketplaceLoanListQuerySerializer],
@@ -79,10 +110,14 @@ class PublicMarketplaceLoanListView(APIView):
         serializer = PublicMarketplaceLoanListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
-        return Response(
-            list_public_marketplace_loans(limit=data["limit"]),
-            status=status.HTTP_200_OK,
-        )
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = list_investor_marketplace_loans(actor=actor, limit=data["limit"])
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class MarketplaceLoanDetailView(APIView):
@@ -93,6 +128,26 @@ class MarketplaceLoanDetailView(APIView):
         try:
             actor, _audit_actor = readonly_read_actor_from_request(request)
             payload = get_full_marketplace_loan(actor=actor, loan_id=loan_id)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class MarketplaceLoanDocumentDownloadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: MarketplaceBorrowerDocumentDownloadSerializer})
+    def get(self, request: Request, loan_id: str, document_id: str) -> Response:
+        try:
+            actor, audit_actor = readonly_read_actor_from_request(request)
+            payload = download_marketplace_borrower_document(
+                actor=actor,
+                audit_actor=audit_actor,
+                loan_id=str(loan_id),
+                document_id=str(document_id),
+            )
         except ReadOnlyImpersonationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:

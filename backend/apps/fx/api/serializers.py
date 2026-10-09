@@ -171,7 +171,27 @@ class FxExternalSettlementDeclareRequestSerializer(serializers.Serializer[Any]):
     end_date = serializers.DateField()
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    collection_account_identifier = serializers.CharField(
+        max_length=128,
+        allow_blank=True,
+        required=False,
+        help_text=(
+            "Legacy: one account for both sides. Leave blank to use the configured "
+            "collection account of each currency."
+        ),
+    )
+    sold_collection_account_identifier = serializers.CharField(
+        max_length=128,
+        allow_blank=True,
+        required=False,
+        help_text="Blank uses the configured collection account of the sold currency.",
+    )
+    bought_collection_account_identifier = serializers.CharField(
+        max_length=128,
+        allow_blank=True,
+        required=False,
+        help_text="Blank uses the configured collection account of the bought currency.",
+    )
     bank_reference = serializers.CharField(max_length=160, allow_blank=True, required=False)
     payment_reference = serializers.CharField(max_length=160, allow_blank=True, required=False)
     evidence_reference = serializers.CharField(max_length=255, allow_blank=True, required=False)

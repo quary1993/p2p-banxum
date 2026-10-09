@@ -3,8 +3,12 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.ledger.api.views import (
+    AdminPayoutInstructionDetailView,
+    AdminPayoutInstructionRevokeView,
+    AdminPayoutInstructionVerifyView,
     BalanceAgeingScanView,
     BorrowerDisbursementFinalizeView,
+    CollectionAccountListView,
     InvestorBalanceSummaryView,
     InvestorPayoutInstructionRegisterView,
     InvestorSelfServicePayoutInstructionRegisterView,
@@ -26,6 +30,26 @@ urlpatterns = [
         "admin/payout-instructions/",
         InvestorPayoutInstructionRegisterView.as_view(),
         name="ledger-investor-payout-instruction-register",
+    ),
+    path(
+        "admin/payout-instructions/<uuid:instruction_id>/",
+        AdminPayoutInstructionDetailView.as_view(),
+        name="ledger-admin-payout-instruction-detail",
+    ),
+    path(
+        "admin/payout-instructions/<uuid:instruction_id>/verify/",
+        AdminPayoutInstructionVerifyView.as_view(),
+        name="ledger-admin-payout-instruction-verify",
+    ),
+    path(
+        "admin/payout-instructions/<uuid:instruction_id>/revoke/",
+        AdminPayoutInstructionRevokeView.as_view(),
+        name="ledger-admin-payout-instruction-revoke",
+    ),
+    path(
+        "admin/collection-accounts/",
+        CollectionAccountListView.as_view(),
+        name="ledger-admin-collection-accounts",
     ),
     path(
         "payout-instructions/",

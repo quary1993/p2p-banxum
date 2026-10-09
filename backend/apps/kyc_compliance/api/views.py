@@ -31,15 +31,16 @@ from backend.apps.kyc_compliance.services import (
     CreateKycSessionCommand,
     DiditApiError,
     KycManualReviewError,
+    KycSessionStartBlockedError,
     KycWebhookMatchError,
     KycWebhookSignatureError,
     ManualReviewDecisionCommand,
     create_kyc_session,
     process_didit_event,
-    provider_event_command_from_payload,
+    provider_event_command_from_verified_webhook,
     record_manual_review_decision,
     refresh_user_kyc_status_from_provider,
-    verify_didit_webhook_signature,
+    verify_didit_webhook,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -89,6 +90,12 @@ class KycSessionCreateView(APIView):
     def post(self, request: Request) -> Response:
         try:
             result = create_kyc_session(CreateKycSessionCommand(user=cast(Model, request.user)))
+        except KycSessionStartBlockedError as exc:
+            # Deliberately generic: the investor is not told why the case is held.
+            return Response(
+                {"detail": str(exc), "code": exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
         except DiditApiError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(
@@ -183,17 +190,20 @@ class DiditWebhookView(APIView):
             request.META.get("HTTP_X_SIGNATURE", "")
             or request.META.get("HTTP_X_DIDIT_SIGNATURE", "")
         )
-        if not verify_didit_webhook_signature(
+        verification = verify_didit_webhook(
             raw_body=raw_body,
             signature=signature,
             payload=payload,
             signature_v2=str(request.META.get("HTTP_X_SIGNATURE_V2", "")),
             signature_simple=str(request.META.get("HTTP_X_SIGNATURE_SIMPLE", "")),
             timestamp=str(request.META.get("HTTP_X_TIMESTAMP", "")),
-        ):
+        )
+        if verification is None:
             raise KycWebhookSignatureError("Didit webhook signature is invalid.")
         try:
-            result = process_didit_event(provider_event_command_from_payload(payload))
+            result = process_didit_event(
+                provider_event_command_from_verified_webhook(payload, verification)
+            )
         except KycWebhookMatchError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(

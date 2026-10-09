@@ -77,6 +77,9 @@ from backend.apps.platform_core.services.events import (
     enqueue_outbox_message,
     record_domain_event,
 )
+from backend.apps.platform_core.services.investor_notices import (
+    notify_loan_holders_of_status_change,
+)
 from backend.apps.platform_core.services.sensitive_actions import (
     PRIMARY_INVESTMENT_ACTION,
     SensitiveActionVerificationCommand,
@@ -173,12 +176,23 @@ class HoldOriginatorLoanCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ResumeOriginatorSubscriptionCommand:
+    actor: Model
+    loan_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class CloseOriginatorSubscriptionRoundCommand:
     actor: Model
     loan_id: str
     as_of_date: date
     close_reason: str
     idempotency_key: str
+    # Explicit admin decision from the admin console. Only such a close may end a
+    # paused round, and only on or after its funding deadline. The daily job
+    # never closes a paused round.
+    admin_decision: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +323,21 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
         "investor_story",
     }
 )
+
+
+# A loan becomes Late on day 5 after a missed due date (SERV-DEC-008).
+LATE_THRESHOLD_DAYS = 5
+
+
+def _schedule_row_status(*, due_date: date, as_of_date: date, is_outstanding: bool) -> str:
+    """Investor-facing row status: "due" in the grace period, "overdue" once Late."""
+    if not is_outstanding:
+        return "due" if due_date == as_of_date else "historical"
+    if (as_of_date - due_date).days >= LATE_THRESHOLD_DAYS:
+        return "overdue"
+    if due_date <= as_of_date:
+        return "due"
+    return "upcoming"
 
 
 def _require_admin(actor: Model) -> None:
@@ -1433,6 +1462,9 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
             for row in loan_import.payment_rows.all()
         ],
         "is_on_hold": profile.is_on_hold,
+        # Paused by an admin (not an automatic close-failure hold).
+        "is_subscription_paused": _is_par_subscription(profile)
+        and _has_explicit_subscription_hold(profile, str(profile.loan.status)),
         "hold_reason": profile.hold_reason,
     }
 
@@ -1986,10 +2018,18 @@ def close_originator_subscription_round(
         raise OriginatorClaimsAuthorizationError(
             "Only an admin can retry a failed originator funding close."
         )
-    if _has_explicit_subscription_hold(profile, str(loan.status)):
-        raise OriginatorClaimsValidationError(
-            "A held originator funding round cannot close; resolve the explicit hold first."
-        )
+    paused = _has_explicit_subscription_hold(profile, str(loan.status))
+    if paused:
+        if not (command.admin_decision and is_admin_actor(command.actor)):
+            raise OriginatorClaimsValidationError(
+                "This funding round is paused. An admin must resume the subscription, or "
+                "close or cancel the round on or after its funding deadline."
+            )
+        if profile.funding_deadline is None or command.as_of_date < profile.funding_deadline:
+            raise OriginatorClaimsValidationError(
+                "A paused funding round can be closed only on or after its funding deadline "
+                f"({profile.funding_deadline}). Resume the subscription to close it earlier."
+            )
     if profile.originator.status != LoanOriginatorStatus.ACTIVE:
         raise OriginatorClaimsValidationError(
             "The Loan Originator must be active before its funding round can close."
@@ -2066,6 +2106,7 @@ def close_originator_subscription_round(
         "fully_subscribed": fully_subscribed,
         "allocated_order_ids": [str(order.id) for order in allocated_orders],
         "pending_order_ids_closed_not_invested": pending_ids,
+        "paused_round_closed_by_admin": paused,
     }
     try:
         with transaction.atomic():
@@ -2103,7 +2144,7 @@ def close_originator_subscription_round(
     profile.closed_at = closed_at
     profile.close_reason = close_reason
     profile_update_fields = ["opportunity_status", "closed_at", "close_reason", "updated_at"]
-    if retrying_failed_close:
+    if retrying_failed_close or paused:
         profile.is_on_hold = False
         profile.hold_reason = ""
         profile.held_at = None
@@ -2137,6 +2178,12 @@ def close_originator_subscription_round(
             actor=operations_actor,
             loan_id=str(loan.id),
             completion_note=f"Originator funding round closed successfully as {close.id}.",
+        )
+    if paused:
+        admin_ops.resolve_paused_subscription_round_task(
+            actor=operations_actor,
+            loan_id=str(loan.id),
+            completion_note=f"Paused funding round closed by an admin as {close.id}.",
         )
     return close
 
@@ -2850,15 +2897,19 @@ def cancel_originator_subscription(
         raise OriginatorClaimsValidationError("Originator subscription cannot be cancelled now.")
     if OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).exists():
         raise OriginatorClaimsValidationError("Activated subscriptions cannot be cancelled.")
+    paused = _has_explicit_subscription_hold(profile, str(loan.status))
     if (
         profile.opportunity_status == OriginatorOpportunityStatus.OPEN
         and int(loan.committed_principal_minor) > 0
+        and not paused
         and (
             loan.status == "funding_close_failed"
             or profile.funding_deadline is None
             or profile.funding_deadline < business_date(now_utc())
         )
     ):
+        # A paused round is the exception: an admin paused it to investigate, so an
+        # admin may also cancel and refund it after its deadline.
         raise OriginatorClaimsValidationError(
             "The published subscription condition is met. Funding must resolve automatically; "
             "an admin cannot replace that result with cancellation."
@@ -3015,6 +3066,13 @@ def cancel_originator_subscription(
             f"Failed funding round cancelled and reservations released as {cancellation.id}."
         ),
     )
+    admin_ops.resolve_paused_subscription_round_task(
+        actor=command.actor,
+        loan_id=str(loan.id),
+        completion_note=(
+            f"Funding round cancelled and reservations released as {cancellation.id}."
+        ),
+    )
     for investor_id in investor_ids:
         _enqueue_investor_email(
             investor_user_id=investor_id,
@@ -3069,6 +3127,80 @@ def place_originator_loan_on_hold(command: HoldOriginatorLoanCommand) -> Origina
         loan_id=profile.loan_id,
         note=reason,
         metadata={"close_reason": "administrative_hold"},
+    )
+    return profile
+
+
+@transaction.atomic
+def resume_originator_subscription(
+    command: ResumeOriginatorSubscriptionCommand,
+) -> OriginatorLoanProfile:
+    """Lift an admin pause from an open subscription round.
+
+    Before the funding deadline the round is public again. After the deadline the
+    round resolves at its published outcome (close, or cancel when empty) on the
+    next daily run, or at once when an admin closes it.
+    """
+
+    _require_admin(command.actor)
+    reason = _required(command.reason, "Resume reason")
+    loan_model = apps.get_model("loans", "Loan")
+    loan = loan_model.objects.select_for_update().filter(id=command.loan_id).first()
+    if loan is None:
+        raise OriginatorClaimsValidationError("Originator claim loan does not exist.")
+    profile = _locked_profile_for_loan(command.loan_id, "originator")
+    if not _is_par_subscription(profile):
+        raise OriginatorClaimsValidationError(
+            "Legacy originator opportunities do not use subscription rounds."
+        )
+    if profile.opportunity_status != OriginatorOpportunityStatus.OPEN or str(
+        loan.status
+    ) not in {"published", "funding_close_failed"}:
+        raise OriginatorClaimsValidationError("Only an open subscription round can be resumed.")
+    if not _has_explicit_subscription_hold(profile, str(loan.status)):
+        raise OriginatorClaimsValidationError("This subscription round is not paused.")
+    previous_hold = {
+        "reason": str(profile.hold_reason),
+        "held_at": profile.held_at.isoformat() if profile.held_at else None,
+        "held_by_admin_id": str(profile.held_by_admin_id) if profile.held_by_admin_id else None,
+    }
+    profile.is_on_hold = False
+    profile.hold_reason = ""
+    profile.held_at = None
+    profile.held_by_admin_id = None
+    profile.save(
+        update_fields=["is_on_hold", "hold_reason", "held_at", "held_by_admin_id", "updated_at"]
+    )
+    today = business_date(now_utc())
+    deadline_passed = profile.funding_deadline is None or today > profile.funding_deadline
+    metadata = {
+        "loan_id": str(loan.id),
+        "previous_hold": previous_hold,
+        "loan_status": str(loan.status),
+        "funding_deadline": (
+            profile.funding_deadline.isoformat() if profile.funding_deadline else None
+        ),
+        "funding_deadline_passed": deadline_passed,
+        "reserved_principal_minor": int(loan.committed_principal_minor),
+    }
+    _record_event(
+        actor=command.actor,
+        event_type=OriginatorClaimEventType.OPPORTUNITY_RESUMED,
+        originator=profile.originator,
+        loan_id=loan.id,
+        note=reason,
+        metadata=metadata,
+    )
+    admin_ops = import_module("backend.apps.admin_ops.services")
+    admin_ops.resolve_paused_subscription_round_task(
+        actor=command.actor,
+        loan_id=str(loan.id),
+        completion_note=(
+            "Subscription resumed. The round resolves at its published result on the next "
+            "daily run."
+            if deadline_passed
+            else "Subscription resumed before its funding deadline."
+        ),
     )
     return profile
 
@@ -3251,14 +3383,10 @@ def originator_portfolio_schedule_payload(
                 "outstanding_total_minor": (int(schedule_row.total_minor) if is_outstanding else 0),
                 "is_paid": not is_outstanding,
                 "days_past_due": days_past_due,
-                "status": (
-                    "due"
-                    if schedule_row.due_date == as_of_date
-                    else (
-                        "overdue"
-                        if is_outstanding and schedule_row.due_date < as_of_date
-                        else ("upcoming" if is_outstanding else "historical")
-                    )
+                "status": _schedule_row_status(
+                    due_date=schedule_row.due_date,
+                    as_of_date=as_of_date,
+                    is_outstanding=is_outstanding,
                 ),
                 "row_type": "originator_schedule",
                 "label": (
@@ -3462,10 +3590,10 @@ def get_originator_holding_schedule_payloads(
                         "projected_fee_minor": 0,
                         "projected_total_minor": (principal_minor + interest_minor + penalty_minor),
                         "days_past_due": max(0, (as_of_date - row.due_date).days),
-                        "status": (
-                            "overdue"
-                            if row.due_date < as_of_date
-                            else ("due" if row.due_date == as_of_date else "upcoming")
+                        "status": _schedule_row_status(
+                            due_date=row.due_date,
+                            as_of_date=as_of_date,
+                            is_outstanding=True,
                         ),
                         "accrual_start_date": row.accrual_start_date,
                     }
@@ -3551,16 +3679,13 @@ def originator_portfolio_loan_payload(
     }
 
 
-def originator_marketplace_payload(
+def _originator_opportunity_closed_reason(
     profile: OriginatorLoanProfile,
     *,
-    include_detail: bool,
-    pricing_date: date | None = None,
-) -> dict[str, Any]:
-    profile = OriginatorLoanProfile.objects.select_related(
-        "loan__currency", "originator", "current_import"
-    ).get(id=profile.id)
-    is_par_subscription = _is_par_subscription(profile)
+    is_par_subscription: bool,
+    as_of_date: date,
+) -> str:
+    """Why the opportunity cannot take investment today; empty when it is open."""
     expected_loan_status = "published" if is_par_subscription else "active"
     if (
         profile.opportunity_status != OriginatorOpportunityStatus.OPEN
@@ -3569,20 +3694,61 @@ def originator_marketplace_payload(
         or originator_sellable_principal_minor(profile) <= 0
         or profile.is_on_hold
     ):
-        raise OriginatorClaimsValidationError("Originator claim opportunity is not open.")
-    as_of_date = pricing_date or business_date(now_utc())
+        return "Originator claim opportunity is not open."
     if is_par_subscription and (
         profile.funding_deadline is None or as_of_date > profile.funding_deadline
     ):
-        raise OriginatorClaimsValidationError("Originator subscription funding period has ended.")
+        return "Originator subscription funding period has ended."
     if profile.maturity_date <= as_of_date + timedelta(days=30):
-        raise OriginatorClaimsValidationError(
-            "Originator claim opportunity is within 30 days of maturity."
-        )
+        return "Originator claim opportunity is within 30 days of maturity."
     if _originator_days_past_due(profile, as_of_date=as_of_date) >= 5:
-        raise OriginatorClaimsValidationError(
-            "Originator claim opportunity is unavailable because the loan is late."
-        )
+        return "Originator claim opportunity is unavailable because the loan is late."
+    return ""
+
+
+# A published opportunity stays readable after its round closes (JOURNEY-09): holders
+# and other investors open it from emails, notices and the portfolio, read-only.
+READABLE_CLOSED_OPPORTUNITY_STATUSES = frozenset(
+    {
+        OriginatorOpportunityStatus.OPEN,
+        OriginatorOpportunityStatus.AWAITING_ACTIVATION,
+        OriginatorOpportunityStatus.ACTIVE,
+        OriginatorOpportunityStatus.CLOSED,
+    }
+)
+
+
+def originator_marketplace_payload(
+    profile: OriginatorLoanProfile,
+    *,
+    include_detail: bool,
+    pricing_date: date | None = None,
+    allow_closed: bool = False,
+) -> dict[str, Any]:
+    """Marketplace projection of an originator opportunity.
+
+    By default only an open opportunity is returned (the list, Smart Invest). With
+    ``allow_closed`` a published opportunity whose round has closed is returned
+    read-only: no capacity is offered, and investing is still refused by the quote and
+    order services.
+    """
+    profile = OriginatorLoanProfile.objects.select_related(
+        "loan__currency", "originator", "current_import"
+    ).get(id=profile.id)
+    is_par_subscription = _is_par_subscription(profile)
+    as_of_date = pricing_date or business_date(now_utc())
+    closed_reason = _originator_opportunity_closed_reason(
+        profile,
+        is_par_subscription=is_par_subscription,
+        as_of_date=as_of_date,
+    )
+    if closed_reason and not allow_closed:
+        raise OriginatorClaimsValidationError(closed_reason)
+    if closed_reason and (
+        profile.opportunity_status not in READABLE_CLOSED_OPPORTUNITY_STATUSES
+        or profile.loan.status in {"draft", "cancelled"}
+    ):
+        raise OriginatorClaimsValidationError(closed_reason)
     loan_import = profile.current_import
     if loan_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
@@ -3598,9 +3764,13 @@ def originator_marketplace_payload(
         if is_par_subscription
         else sellable_principal_minor
     )
-    if remaining_capacity_minor <= 0:
+    investable = not closed_reason and remaining_capacity_minor > 0
+    if not investable and not allow_closed:
         raise OriginatorClaimsValidationError("Originator claim opportunity is fully subscribed.")
-    if is_par_subscription:
+    if not investable:
+        remaining_capacity_minor = 0
+        fillable_amount_minor = 0
+    elif is_par_subscription:
         fillable_amount_minor = remaining_capacity_minor
     else:
         try:
@@ -3641,7 +3811,8 @@ def originator_marketplace_payload(
         "risk_rating": profile.loan.risk_rating,
         "funding_deadline": profile.funding_deadline,
         "maturity_date": profile.maturity_date,
-        "status": "published",
+        # A closed round reports the loan's own status, like a funded Direct loan.
+        "status": "published" if investable else str(profile.loan.status),
         "loan_status": profile.loan.status,
         "opportunity_status": profile.opportunity_status,
         "currency": profile.loan.currency_id,
@@ -3733,7 +3904,7 @@ def get_originator_marketplace_payload(*, actor: Model, loan_id: str) -> dict[st
     profile = OriginatorLoanProfile.objects.filter(loan_id=loan_id).first()
     if profile is None:
         raise OriginatorClaimsValidationError("Originator claim opportunity does not exist.")
-    return originator_marketplace_payload(profile, include_detail=True)
+    return originator_marketplace_payload(profile, include_detail=True, allow_closed=True)
 
 
 def _quote_fingerprint(payload: dict[str, Any]) -> str:
@@ -4356,6 +4527,40 @@ def _repayment_accrual_start(
     return rows[0].accrual_start_date
 
 
+_WATERFALL_COMPONENT_FIELDS = ("fee_minor", "penalty_minor", "interest_minor", "principal_minor")
+
+
+def _schedule_amounts_settled(*, rows: list[Any], prior_payments: list[Any]) -> dict[str, int]:
+    """Return how much of each component of the current schedule rows is already paid.
+
+    A regular payment only pays scheduled rows, so all of it counts. A repayment in
+    advance first pays what is overdue on the rows due by its bank date; its remainder
+    (accrued stub interest and prepaid principal) belongs to no row of the current
+    schedule, because the replacement schedule is re-amortized on the reduced principal
+    with interest from the advance bank date. Netting that remainder against the
+    replacement rows again would count the prepayment twice.
+    """
+    settled = dict.fromkeys(_WATERFALL_COMPONENT_FIELDS, 0)
+    # Same-day regular installments are settled before an advance on that date.
+    ordered = sorted(
+        prior_payments,
+        key=lambda item: (
+            item.value_date,
+            item.payment_type == OriginatorImportPaymentType.REPAYMENT_IN_ADVANCE,
+        ),
+    )
+    for prior in ordered:
+        if prior.payment_type != OriginatorImportPaymentType.REPAYMENT_IN_ADVANCE:
+            for field in _WATERFALL_COMPONENT_FIELDS:
+                settled[field] += int(getattr(prior, field))
+            continue
+        rows_due = [row for row in rows if row.due_date <= prior.value_date]
+        for field in _WATERFALL_COMPONENT_FIELDS:
+            overdue = max(0, sum(int(getattr(row, field)) for row in rows_due) - settled[field])
+            settled[field] += min(int(getattr(prior, field)), overdue)
+    return settled
+
+
 def _originator_payment_waterfall(
     *,
     loan_import: OriginatorLoanImport,
@@ -4372,13 +4577,14 @@ def _originator_payment_waterfall(
         if next_rows and (next_rows[0].due_date - payment.value_date).days <= 1:
             due_rows.append(next_rows[0])
 
-    prior_fee = sum(int(row.fee_minor) for row in prior_payments)
-    prior_penalty = sum(int(row.penalty_minor) for row in prior_payments)
-    prior_interest = sum(int(row.interest_minor) for row in prior_payments)
-    prior_principal = sum(int(row.principal_minor) for row in prior_payments)
-    fee_due = max(0, sum(int(row.fee_minor) for row in due_rows) - prior_fee)
-    penalty_due = max(0, sum(int(row.penalty_minor) for row in due_rows) - prior_penalty)
-    interest_due = max(0, sum(int(row.interest_minor) for row in due_rows) - prior_interest)
+    settled = _schedule_amounts_settled(rows=rows, prior_payments=prior_payments)
+    fee_due = max(0, sum(int(row.fee_minor) for row in due_rows) - settled["fee_minor"])
+    penalty_due = max(
+        0, sum(int(row.penalty_minor) for row in due_rows) - settled["penalty_minor"]
+    )
+    interest_due = max(
+        0, sum(int(row.interest_minor) for row in due_rows) - settled["interest_minor"]
+    )
 
     if payment.payment_type == "repayment_in_advance":
         containing = [
@@ -4386,8 +4592,21 @@ def _originator_payment_waterfall(
         ]
         if containing:
             row = containing[-1]
-            period_days = max(1, (row.due_date - row.accrual_start_date).days)
-            elapsed_days = max(0, (payment.value_date - row.accrual_start_date).days)
+            # An earlier advance in this period already collected interest up to its bank
+            # date; the replacement row's interest accrues only from that date.
+            accrual_start = max(
+                [
+                    row.accrual_start_date,
+                    *(
+                        prior.value_date
+                        for prior in prior_payments
+                        if prior.payment_type == OriginatorImportPaymentType.REPAYMENT_IN_ADVANCE
+                        and row.accrual_start_date <= prior.value_date <= payment.value_date
+                    ),
+                ]
+            )
+            period_days = max(1, (row.due_date - accrual_start).days)
+            elapsed_days = max(0, (payment.value_date - accrual_start).days)
             prorated_interest = int(
                 (
                     Decimal(int(row.interest_minor)) * Decimal(elapsed_days) / Decimal(period_days)
@@ -4399,14 +4618,17 @@ def _originator_payment_waterfall(
                     0,
                     sum(int(item.interest_minor) for item in due_rows)
                     + prorated_interest
-                    - prior_interest,
+                    - settled["interest_minor"],
                 ),
             )
         principal_due = outstanding_principal_minor
     else:
-        principal_due = max(
-            0,
-            sum(int(row.principal_minor) for row in due_rows) - prior_principal,
+        principal_due = min(
+            outstanding_principal_minor,
+            max(
+                0,
+                sum(int(row.principal_minor) for row in due_rows) - settled["principal_minor"],
+            ),
         )
 
     try:
@@ -4717,6 +4939,17 @@ def record_originator_borrower_repayment(
         raise OriginatorClaimsValidationError(
             "Replacement schedule as-of date cannot precede the repayment value date."
         )
+    today = business_date(now_utc())
+    for label, value in (
+        ("Value date", command.value_date),
+        ("Booking date", command.booking_date),
+        ("Import as-of date", command.as_of_date),
+    ):
+        if value > today:
+            raise OriginatorClaimsValidationError(
+                f"{label} cannot be in the future: {value.isoformat()} is after today "
+                f"({today.isoformat()}, Europe/Zurich)."
+            )
     if _is_par_subscription(profile):
         close = OriginatorFundingRoundClose.objects.filter(loan_profile=profile).first()
         if close is not None:
@@ -5226,12 +5459,6 @@ def finalize_originator_settlement(
     idempotency_key = _required(command.idempotency_key, "Idempotency key")
     if len(idempotency_key) > 160:
         raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
-    existing = _existing_settlement(idempotency_key=idempotency_key)
-    if existing is not None:
-        return existing
-    originator = LoanOriginator.objects.select_for_update().filter(id=command.originator_id).first()
-    if originator is None:
-        raise OriginatorClaimsValidationError("Loan Originator does not exist.")
     currency_code = command.currency.strip().upper()
     requested_ids = sorted(
         {str(item).strip() for item in command.purchase_ids if str(item).strip()}
@@ -5239,6 +5466,48 @@ def finalize_originator_settlement(
     requested_repayment_ids = sorted(
         {str(item).strip() for item in command.repayment_ids if str(item).strip()}
     )
+    existing = _existing_settlement(idempotency_key=idempotency_key)
+    if existing is not None:
+        # A retry must be the same request: the same items, amounts and bank data.
+        # Otherwise the new items would look settled while they are not.
+        replay_purchase_amount = sum(
+            int(amount)
+            for amount in OriginatorClaimPurchase.objects.filter(
+                id__in=requested_ids
+            ).values_list("originator_payable_minor", flat=True)
+        )
+        replay_servicing_amount = sum(
+            int(amount)
+            for amount in OriginatorBorrowerRepayment.objects.filter(
+                id__in=requested_repayment_ids
+            ).values_list("originator_payable_minor", flat=True)
+        )
+        replay_fingerprint = _settlement_request_fingerprint(
+            command,
+            purchase_ids=requested_ids,
+            repayment_ids=requested_repayment_ids,
+            amount_minor=replay_purchase_amount + replay_servicing_amount,
+            purchase_amount_minor=replay_purchase_amount,
+            servicing_amount_minor=replay_servicing_amount,
+        )
+        if existing.request_fingerprint != replay_fingerprint:
+            raise OriginatorClaimsValidationError(
+                "Idempotency key was already used for a different originator settlement."
+            )
+        return existing
+    today = business_date(now_utc())
+    for label, value in (
+        ("Value date", command.value_date),
+        ("Booking date", command.booking_date),
+    ):
+        if value > today:
+            raise OriginatorClaimsValidationError(
+                f"{label} cannot be in the future: {value.isoformat()} is after today "
+                f"({today.isoformat()}, Europe/Zurich)."
+            )
+    originator = LoanOriginator.objects.select_for_update().filter(id=command.originator_id).first()
+    if originator is None:
+        raise OriginatorClaimsValidationError("Loan Originator does not exist.")
     if not requested_ids and not requested_repayment_ids:
         raise OriginatorClaimsValidationError(
             "At least one purchase or servicing repayment must be settled."
@@ -5593,6 +5862,12 @@ def _scan_originator_profile_lifecycle(
                     as_of_date=as_of_date,
                     days_past_due=days_past_due,
                 )
+            notify_loan_holders_of_status_change(
+                loan=loan,
+                new_status=new_loan_status,
+                as_of_date=as_of_date,
+                days_past_due=days_past_due,
+            )
 
     # Subscription opportunities leave the marketplace at their funding close and
     # remain ACTIVE only as servicing records. Historical v1 rows retain the old
@@ -5629,6 +5904,40 @@ def _scan_originator_profile_lifecycle(
         metadata={"close_reason": reason, "as_of_date": as_of_date.isoformat()},
     )
     return {"loan_id": str(profile.loan_id), "reason": reason}
+
+
+def _ensure_paused_round_task_if_paused(
+    *,
+    actor: Model,
+    profile_id: str,
+    as_of_date: date,
+) -> dict[str, str] | None:
+    profile = (
+        OriginatorLoanProfile.objects.select_related("loan")
+        .filter(id=profile_id)
+        .first()
+    )
+    if profile is None or not _has_explicit_subscription_hold(profile, str(profile.loan.status)):
+        return None
+    loan = profile.loan
+    admin_ops = import_module("backend.apps.admin_ops.services")
+    task = admin_ops.ensure_paused_subscription_round_task(
+        admin_ops.EnsurePausedSubscriptionRoundTaskCommand(
+            actor=actor,
+            loan_id=str(loan.id),
+            loan_title=str(loan.title),
+            currency=str(loan.currency_id),
+            reserved_principal_minor=int(loan.committed_principal_minor),
+            funding_deadline=profile.funding_deadline,
+            hold_reason=str(profile.hold_reason),
+        )
+    )
+    return {
+        "loan_id": str(loan.id),
+        "reason": "paused_round_awaiting_admin",
+        "task_id": str(task.id),
+        "as_of_date": as_of_date.isoformat(),
+    }
 
 
 def scan_originator_opportunity_lifecycle(
@@ -5703,6 +6012,17 @@ def scan_originator_opportunity_lifecycle(
             and deadline is not None
             and (as_of_date > deadline or row["loan__status"] == "funding_close_failed")
         )
+        if is_expired_open_round and row["is_on_hold"]:
+            paused_action = _ensure_paused_round_task_if_paused(
+                actor=actor,
+                profile_id=str(row["id"]),
+                as_of_date=as_of_date,
+            )
+            if paused_action is not None:
+                # A paused round waits for an admin decision. It is not a failure:
+                # the daily job does not try to close it and sends no daily alert.
+                closed.append(paused_action)
+                continue
         if is_expired_open_round:
             loan_id = str(row["loan_id"])
             resolution_action = (

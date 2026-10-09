@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from importlib import import_module
@@ -8,8 +9,9 @@ from typing import Any, cast
 
 from django.apps import apps
 from django.conf import settings
-from django.contrib.auth.hashers import identify_hasher
+from django.contrib.auth.hashers import identify_hasher, make_password
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
@@ -32,6 +34,10 @@ from backend.apps.accounts_auth.models import (
     SensitiveAction,
     SensitiveActionCode,
     User,
+)
+from backend.apps.accounts_auth.phone_numbers import (
+    InvalidPhoneNumberError,
+    normalize_e164_phone_number,
 )
 from backend.apps.accounts_auth.phone_providers import (
     PhoneProviderError,
@@ -66,6 +72,10 @@ class DuplicateEmailError(AccountsAuthError):
 
 class InvalidOrExpiredTokenError(AccountsAuthError):
     pass
+
+
+class MagicLinkSuppressedError(InvalidOrExpiredTokenError):
+    """An unused link went to this address moments ago, so no new email is sent."""
 
 
 class AccountLoginBlockedError(InvalidOrExpiredTokenError):
@@ -138,6 +148,14 @@ INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES = MAGIC_LINK_ACCOUNT_TYPES
 LOGIN_BLOCKED_NOTICE_STATUSES = frozenset({AccountStatus.RESTRICTED, AccountStatus.LOCKED})
 TWILIO_VERIFY_PROVIDER = "twilio_verify"
 LOCAL_PHONE_VERIFICATION_PROVIDERS = {"mock", "local"}
+# Why a login link is sent. "existing_account" answers a registration attempt for an
+# address that already has an account (the email says so instead of the API).
+MAGIC_LINK_PURPOSE_LOGIN = "login"
+MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT = "existing_account"
+MAGIC_LINK_PURPOSES = frozenset({MAGIC_LINK_PURPOSE_LOGIN, MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT})
+REGISTRATION_OUTCOME_CREATED = "created"
+REGISTRATION_OUTCOME_INCOMPLETE = "incomplete_existing"
+REGISTRATION_OUTCOME_EXISTING = "existing"
 
 
 def _dispatch_auth_email_after_commit(outbox_message_id: int) -> None:
@@ -371,11 +389,21 @@ class RegisterNaturalPersonCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class RegistrationResult:
+    """What a registration request did. For the service caller only: the API answers
+    every outcome the same way, so it does not reveal which emails have an account."""
+
+    user: User
+    outcome: str
+
+
+@dataclass(frozen=True, slots=True)
 class MagicLinkRequestCommand:
     email: str
     ip_address: str | None = None
     user_agent: str = ""
     ttl: timedelta = timedelta(minutes=15)
+    purpose: str = MAGIC_LINK_PURPOSE_LOGIN
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,6 +453,8 @@ class PhoneVerificationRequestCommand:
     user_agent: str = ""
     ttl: timedelta | None = None
     max_attempts: int | None = None
+    # The signed-in owner may correct the number before it is verified.
+    phone_number: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,46 +525,71 @@ class BootstrapEnvSuperadminResult:
     disabled_user_ids: tuple[str, ...] = ()
 
 
+class InvalidRegistrationDataError(AccountsAuthError):
+    pass
+
+
+def _record_repeated_registration(
+    user: User,
+    command: RegisterNaturalPersonCommand,
+) -> RegistrationResult:
+    """A registration for an address that already has an account.
+
+    Nothing stored changes: an unauthenticated request must not rewrite another
+    person's profile (audit A-50). The owner gets an email instead (see
+    send_registration_follow_up_email) and can correct an unverified phone number
+    after signing in.
+    """
+
+    outcome = (
+        REGISTRATION_OUTCOME_INCOMPLETE
+        if _can_recover_incomplete_registration(user)
+        else REGISTRATION_OUTCOME_EXISTING
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="account.registration_repeated",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={
+                "outcome": outcome,
+                "requested_ip": command.ip_address or "",
+                "profile_changed": False,
+            },
+        )
+    )
+    return RegistrationResult(user=user, outcome=outcome)
+
+
 @transaction.atomic
-def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> User:
+def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> RegistrationResult:
     email = normalize_email(command.email)
+    try:
+        phone_number = normalize_e164_phone_number(command.phone_number)
+    except InvalidPhoneNumberError as exc:
+        raise InvalidRegistrationDataError(str(exc)) from exc
     terms_version, terms_hash = _registration_terms_evidence_values(command)
     current_risk_template = _validate_registration_risk_disclosure(command)
 
     user = User.objects.select_for_update().filter(email=email).first()
-    is_recovered_incomplete_registration = False
-    if user is None:
-        try:
-            with transaction.atomic():
-                user = User.objects.create_user(
-                    email=email,
-                    full_name=command.full_name.strip(),
-                    account_type=AccountType.NATURAL_PERSON_LENDER,
-                    status=AccountStatus.PENDING_KYC,
-                    phone_number=command.phone_number.strip(),
-                    marketing_consent=command.marketing_consent,
-                )
-        except IntegrityError as exc:
-            user = User.objects.select_for_update().filter(email=email).first()
-            if user is None or not _can_recover_incomplete_registration(user):
-                raise DuplicateEmailError("An account already exists for this email.") from exc
-            is_recovered_incomplete_registration = True
-    elif _can_recover_incomplete_registration(user):
-        is_recovered_incomplete_registration = True
-    else:
-        raise DuplicateEmailError("An account already exists for this email.")
-
-    if is_recovered_incomplete_registration:
-        user.full_name = command.full_name.strip()
-        user.phone_number = command.phone_number.strip()
-        user.marketing_consent = command.marketing_consent
-        user.save(update_fields=["full_name", "phone_number", "marketing_consent"])
-        now = timezone.now()
-        PhoneVerificationChallenge.objects.filter(
-            user=user,
-            status=PhoneVerificationStatus.PENDING,
-            superseded_at__isnull=True,
-        ).update(status=PhoneVerificationStatus.SUPERSEDED, superseded_at=now)
+    if user is not None:
+        return _record_repeated_registration(user, command)
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(
+                email=email,
+                full_name=command.full_name.strip(),
+                account_type=AccountType.NATURAL_PERSON_LENDER,
+                status=AccountStatus.PENDING_KYC,
+                phone_number=phone_number,
+                marketing_consent=command.marketing_consent,
+            )
+    except IntegrityError:
+        existing = User.objects.select_for_update().filter(email=email).first()
+        if existing is None:
+            raise
+        return _record_repeated_registration(existing, command)
 
     terms_acceptance = RegistrationTermsAcceptance.objects.create(
         user=user,
@@ -558,39 +613,65 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
     record_audit_event(
         AuditCommand(
             actor=actor,
-            action=(
-                "account.registration_recovered"
-                if is_recovered_incomplete_registration
-                else "account.registered"
-            ),
+            action="account.registered",
             target_type="User",
             target_id=str(user.id),
             metadata={
                 "account_type": user.account_type,
                 "terms_version": terms_version,
                 "marketing_consent": command.marketing_consent,
-                "incomplete_registration_recovered": is_recovered_incomplete_registration,
             },
         )
     )
     record_domain_event(
         DomainEventCommand(
-            event_type=(
-                "NaturalPersonLenderRegistrationRecovered"
-                if is_recovered_incomplete_registration
-                else "NaturalPersonLenderRegistered"
-            ),
+            event_type="NaturalPersonLenderRegistered",
             aggregate_type="User",
             aggregate_id=str(user.id),
             payload={"email": user.email, "phone_number_present": bool(user.phone_number)},
-            idempotency_key=(
-                f"user:{user.id}:registration-recovered:{terms_acceptance.id}"
-                if is_recovered_incomplete_registration
-                else f"user:{user.id}:registered"
-            ),
+            idempotency_key=f"user:{user.id}:registered",
         )
     )
-    return user
+    return RegistrationResult(user=user, outcome=REGISTRATION_OUTCOME_CREATED)
+
+
+def send_registration_follow_up_email(
+    result: RegistrationResult,
+    *,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> None:
+    """Email the address owner after any registration request; never raises.
+
+    New and unfinished accounts get a sign-in link to continue. A finished account
+    gets a sign-in link that says the account already exists; a restricted or locked
+    one gets the blocked notice; admins and closed accounts get a notice without a
+    link. Every email is limited per address (link backoff or once an hour).
+    """
+
+    user = result.user
+    try:
+        if (
+            user.is_active
+            and user.account_type in MAGIC_LINK_ACCOUNT_TYPES
+            and (user.can_login or user.status in LOGIN_BLOCKED_NOTICE_STATUSES)
+        ):
+            issue_magic_link(
+                MagicLinkRequestCommand(
+                    email=user.email,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    purpose=(
+                        MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT
+                        if result.outcome == REGISTRATION_OUTCOME_EXISTING
+                        else MAGIC_LINK_PURPOSE_LOGIN
+                    ),
+                )
+            )
+        else:
+            _enqueue_existing_account_notice(user)
+    except AccountsAuthError:
+        return
 
 
 @transaction.atomic
@@ -678,7 +759,85 @@ def _enqueue_login_blocked_notice(user: User) -> None:
     )
 
 
+@transaction.atomic
+def _enqueue_existing_account_notice(user: User) -> None:
+    """Tell the owner that someone tried to register their address again (no link)."""
+
+    brand = settings.PLATFORM_BRAND_NAME
+    hour_bucket = timezone.now().strftime("%Y%m%d%H")
+    outbox_message = enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"account-exists-notice:{user.id}:{hour_bucket}",
+            topic="email.account_exists_notice",
+            payload={
+                "user_id": str(user.id),
+                "email": user.email,
+                "subject": f"Your {brand} account already exists",
+                "headline": f"Your {brand} account already exists",
+                "notice_label": "Account notice",
+                "status_label": "Information",
+                "status_tone": "info",
+                "body_text": (
+                    f"We received a request to open a new {brand} account with this email "
+                    "address. An account with this address already exists, so we did not "
+                    "open a new one.\n\n"
+                    "If you did not make this request, you can ignore this email.\n\n"
+                    f"For help, contact support at {_support_email()}."
+                ),
+                "template_key": "accounts.account_exists.v1",
+            },
+        )
+    )
+    _dispatch_auth_email_after_commit(outbox_message.id)
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="auth.account_exists_notice_requested",
+            target_type="User",
+            target_id=str(user.id),
+        )
+    )
+
+
+def _magic_link_send_history_key(user: User) -> str:
+    return f"auth:magic-link-sends:{user.id}"
+
+
+def _recent_magic_link_sends(user: User) -> list[float]:
+    """Wall-clock times of links sent to this account in the last hour."""
+
+    now = time.time()
+    history = cache.get(_magic_link_send_history_key(user)) or []
+    return [float(sent_at) for sent_at in history if now - float(sent_at) < 60 * 60]
+
+
+def _remember_magic_link_send(user: User) -> None:
+    history = _recent_magic_link_sends(user)
+    history.append(time.time())
+    cache.set(_magic_link_send_history_key(user), history[-50:], timeout=60 * 60)
+
+
+def _magic_link_backoff_seconds(*, sent_last_hour: int, ttl: timedelta) -> float:
+    """How long an unused link protects the address from another email.
+
+    Doubles with every link sent in the last hour, and always stays at least a minute
+    shorter than the link lifetime, so the newest link in the inbox is still valid when
+    a new one may be sent.
+    """
+
+    base = int(settings.AUTH_MAGIC_LINK_EMAIL_BACKOFF_SECONDS)
+    if base <= 0 or sent_last_hour <= 0:
+        return 0.0
+    cap = min(
+        float(settings.AUTH_MAGIC_LINK_EMAIL_MAX_BACKOFF_SECONDS),
+        max(ttl.total_seconds() - 60, 0.0),
+    )
+    return float(min(base * (2 ** min(sent_last_hour - 1, 20)), cap))
+
+
 def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
+    if command.purpose not in MAGIC_LINK_PURPOSES:
+        raise AccountsAuthError("Unknown login-link purpose.")
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
     if (
@@ -690,14 +849,18 @@ def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
         # Tell the owner why no link arrives. The caller still gets the generic error.
         _enqueue_login_blocked_notice(user)
         raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
-    return _issue_magic_link_for_user(command, user)
+    result = _issue_magic_link_for_user(command, user)
+    if result is None:
+        raise MagicLinkSuppressedError("A login link was sent moments ago.")
+    return result
 
 
 @transaction.atomic
 def _issue_magic_link_for_user(
     command: MagicLinkRequestCommand,
     user: User | None,
-) -> MagicLinkIssueResult:
+) -> MagicLinkIssueResult | None:
+    """Create and queue a login link; ``None`` when the per-address backoff holds it."""
     if (
         user is None
         or not user.can_login
@@ -705,13 +868,43 @@ def _issue_magic_link_for_user(
     ):
         raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
 
+    # Serialize link issuance per account.
+    User.objects.select_for_update().filter(id=user.id).first()
+    now = timezone.now()
+    usable_links = EmailLoginToken.objects.filter(
+        user=user,
+        used_at__isnull=True,
+        superseded_at__isnull=True,
+        expires_at__gt=now,
+    )
+    recent_sends = _recent_magic_link_sends(user)
+    if recent_sends and usable_links.exists():
+        backoff = _magic_link_backoff_seconds(sent_last_hour=len(recent_sends), ttl=command.ttl)
+        if time.time() - max(recent_sends) < backoff:
+            # The newest link in the inbox still works; do not send another email.
+            record_audit_event(
+                AuditCommand(
+                    actor=ActorRef("investor", str(user.id)),
+                    action="auth.magic_link_request_suppressed",
+                    target_type="User",
+                    target_id=str(user.id),
+                    metadata={
+                        "purpose": command.purpose,
+                        "links_sent_last_hour": len(recent_sends),
+                    },
+                )
+            )
+            return None
+
+    # Only the newest link logs in (audit SECCODE-15).
+    superseded_count = usable_links.update(superseded_at=now)
     raw_token = secrets.token_urlsafe(32)
     token = EmailLoginToken.objects.create(
         user=user,
         email=user.email,
         token_digest=digest_secret(raw_token),
         encrypted_token=encrypt_delivery_secret(raw_token),
-        expires_at=timezone.now() + command.ttl,
+        expires_at=now + command.ttl,
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
     )
@@ -726,9 +919,11 @@ def _issue_magic_link_for_user(
                 "delivery_secret_ref": str(token.id),
                 "secret_redacted": True,
                 "expires_at": token.expires_at.isoformat(),
+                "purpose": command.purpose,
             },
         )
     )
+    _remember_magic_link_send(user)
     _dispatch_auth_email_after_commit(outbox_message.id)
     record_audit_event(
         AuditCommand(
@@ -736,6 +931,7 @@ def _issue_magic_link_for_user(
             action="auth.magic_link_requested",
             target_type="User",
             target_id=str(user.id),
+            metadata={"purpose": command.purpose, "superseded_links": superseded_count},
         )
     )
     return MagicLinkIssueResult(login_token=token, raw_token=raw_token)
@@ -750,11 +946,22 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
             .first()
         )
         now = timezone.now()
-        if token is None or token.used_at is not None or token.expires_at <= now:
+        if (
+            token is None
+            or token.used_at is not None
+            or token.superseded_at is not None
+            or token.expires_at <= now
+        ):
             _audit_auth_failure(
                 action="auth.magic_link_failed",
                 user_id=str(token.user_id) if token is not None else "",
-                metadata={"reason": "invalid_or_expired"},
+                metadata={
+                    "reason": (
+                        "superseded"
+                        if token is not None and token.superseded_at is not None
+                        else "invalid_or_expired"
+                    )
+                },
             )
             failure = InvalidOrExpiredTokenError("Login link is invalid or expired.")
         elif not token.user.can_login or token.user.account_type not in MAGIC_LINK_ACCOUNT_TYPES:
@@ -833,7 +1040,10 @@ def issue_sensitive_action_code(
         .first()
     )
     if latest_active is not None:
-        elapsed = now - latest_active.created_at
+        # created_at follows the platform (QA) clock, expires_at real time. Measure the
+        # cooldown in real time: after a QA clock advance the QA-time created_at lies in
+        # the future, and no new code could be sent until the old one expired.
+        elapsed = now - (latest_active.expires_at - command.ttl)
         if elapsed < timedelta(seconds=cooldown_seconds):
             raise SensitiveActionCodeThrottleError("Sensitive-action code requested too recently.")
 
@@ -884,6 +1094,53 @@ def issue_sensitive_action_code(
     return SensitiveActionCodeIssueResult(code_record=code_record, raw_code=raw_code)
 
 
+def _comparable_phone_number(value: str) -> str:
+    try:
+        return normalize_e164_phone_number(value)
+    except InvalidPhoneNumberError:
+        return value.strip()
+
+
+def _correct_unverified_phone_number(user: User, raw_phone_number: str) -> None:
+    """Let the signed-in owner fix the number before it is verified.
+
+    A repeated registration never changes stored data (audit A-50); this is the path
+    for an owner who typed a wrong number: they prove inbox ownership by signing in
+    first. Allowed only until the phone is verified and KYC has started.
+    """
+
+    try:
+        phone_number = normalize_e164_phone_number(raw_phone_number)
+    except InvalidPhoneNumberError as exc:
+        raise AccountsAuthError(str(exc)) from exc
+    if phone_number == _comparable_phone_number(user.phone_number):
+        return
+    locked = User.objects.select_for_update().get(id=user.id)
+    if not _can_recover_incomplete_registration(locked):
+        raise AccountsAuthError(
+            "The phone number can no longer be changed here. Contact support for help."
+        )
+    previous_present = bool(locked.phone_number.strip())
+    locked.phone_number = phone_number
+    locked.save(update_fields=["phone_number"])
+    user.phone_number = phone_number
+    now = timezone.now()
+    PhoneVerificationChallenge.objects.filter(
+        user=locked,
+        status=PhoneVerificationStatus.PENDING,
+        superseded_at__isnull=True,
+    ).update(status=PhoneVerificationStatus.SUPERSEDED, superseded_at=now)
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef("investor", str(locked.id)),
+            action="account.unverified_phone_number_changed",
+            target_type="User",
+            target_id=str(locked.id),
+            metadata={"previous_number_present": previous_present},
+        )
+    )
+
+
 @transaction.atomic
 def request_phone_verification(
     command: PhoneVerificationRequestCommand,
@@ -893,6 +1150,8 @@ def request_phone_verification(
         raise InvalidOrExpiredCodeError("Account cannot receive a phone verification code.")
     if user.is_phone_verified:
         raise PhoneAlreadyVerifiedError("Phone number is already verified.")
+    if command.phone_number is not None and command.phone_number.strip():
+        _correct_unverified_phone_number(user, command.phone_number)
     if not user.phone_number.strip():
         raise AccountsAuthError("Phone number is required.")
 
@@ -909,7 +1168,9 @@ def request_phone_verification(
         .first()
     )
     if latest_active is not None:
-        elapsed = now - latest_active.created_at
+        # Real-time cooldown, as for sensitive-action codes (QA clock safe).
+        ttl = command.ttl or timedelta(seconds=settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS)
+        elapsed = now - (latest_active.expires_at - ttl)
         if elapsed < timedelta(seconds=cooldown_seconds):
             retry_after_seconds = max(
                 1,
@@ -1543,14 +1804,25 @@ def change_account_access(command: ChangeAccountAccessCommand) -> AccountAccessE
     return cast(AccountAccessEvent, event)
 
 
+def _spend_password_hash_time(password: str) -> None:
+    """Run the password hasher once, like a real password check.
+
+    Without it an unknown or non-admin email answers in milliseconds and an admin
+    email in about 0.4 s, which reveals the admin addresses (audit A-57).
+    """
+
+    make_password(password)
+
+
 def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
-    if (
-        user is None
-        or not is_admin_actor(user)
-        or not user.check_password(command.password)
-    ):
+    if user is not None and is_admin_actor(user) and user.has_usable_password():
+        password_ok = user.check_password(command.password)
+    else:
+        _spend_password_hash_time(command.password)
+        password_ok = False
+    if user is None or not password_ok:
         _audit_auth_failure(
             action="auth.admin_login_failed",
             user_id=str(user.id) if user is not None else "",

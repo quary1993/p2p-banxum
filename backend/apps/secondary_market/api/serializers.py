@@ -89,6 +89,14 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     projected_yield_bps = serializers.SerializerMethodField()
     collateral_type = serializers.CharField(source="loan.collateral_type")
     remaining_term_months = serializers.SerializerMethodField()
+    # True for the viewer's own listing: it is shown without a Buy action.
+    is_own_listing = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_own_listing(self, listing: Any) -> bool:
+        if isinstance(listing, dict):
+            return bool(listing.get("is_own_listing", False))
+        return bool(getattr(listing, "is_own_listing", False))
 
     @extend_schema_field(serializers.IntegerField())
     def get_remaining_term_months(self, listing: Any) -> int:
@@ -117,6 +125,30 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_yield_bps(self, listing: Any) -> int | None:
         return self.get_projected_yield_bps(listing)
+
+
+class SecondaryMarketListingPricingPreviewQuerySerializer(serializers.Serializer[Any]):
+    holding_id = serializers.UUIDField()
+    price_bps = serializers.IntegerField(min_value=1)
+
+
+class SecondaryMarketListingPricingPreviewSerializer(serializers.Serializer[Any]):
+    holding_id = serializers.UUIDField()
+    currency = serializers.CharField()
+    price_bps = serializers.IntegerField()
+    pricing_date = serializers.DateField()
+    current_principal_minor = serializers.IntegerField()
+    transfer_price_minor = serializers.IntegerField()
+    discount_premium_bps = serializers.IntegerField()
+    accrued_interest_minor = serializers.IntegerField()
+    accrued_interest_from_date = serializers.DateField(allow_null=True)
+    accrued_interest_to_date = serializers.DateField()
+    maker_fee_bps = serializers.IntegerField()
+    minimum_maker_fee_minor = serializers.IntegerField()
+    maker_fee_minor = serializers.IntegerField()
+    seller_net_proceeds_minor = serializers.IntegerField()
+    taker_fee_minor = serializers.IntegerField()
+    buyer_total_cost_minor = serializers.IntegerField()
 
 
 class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
@@ -238,6 +270,11 @@ class SecondaryMarketPurchaseRequestSerializer(serializers.Serializer[Any]):
     document_acceptance_id = serializers.UUIDField()
     risk_acknowledgement_accepted = serializers.BooleanField(required=False, default=False)
     idempotency_key = serializers.CharField(max_length=160)
+    # The economics shown in the buyer's review. The purchase settles only when
+    # the current price still matches them exactly (409 secondary_price_changed).
+    expected_buyer_total_cost_minor = serializers.IntegerField(min_value=1)
+    expected_price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
+    expected_current_principal_minor = serializers.IntegerField(min_value=1)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 

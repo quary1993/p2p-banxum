@@ -7,6 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
+from importlib import import_module
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -35,6 +36,7 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features as platform_user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -83,8 +85,44 @@ NON_OVERRIDABLE_APPROVAL_STATUSES = frozenset(
     }
 )
 
+# The only statuses from which the investor may start (or restart) a provider session. Every
+# other status waits for an admin decision (plan/02 KYC-DEC-006); an admin request for
+# re-verification is the one decision that hands the case back to the investor.
+INVESTOR_STARTABLE_STATUSES = frozenset(
+    {
+        KycStatus.NOT_STARTED,
+        KycStatus.PENDING,
+        KycStatus.EXPIRED,
+    }
+)
+
+# AML screening outcomes are shown to the investor as a plain manual review, so the
+# investor-facing API never discloses a sanctions, PEP or adverse-media hit.
+INVESTOR_MASKED_REVIEW_STATUSES = frozenset(
+    {
+        KycStatus.HIGH_RISK,
+        KycStatus.SANCTIONS_HIT,
+        KycStatus.PEP_HIT,
+        KycStatus.ADVERSE_MEDIA_HIT,
+    }
+)
+
+KYC_REVIEW_IN_PROGRESS_MESSAGE = "Your verification is under review. We will contact you."
+
+
 class KycComplianceError(ValueError):
     pass
+
+
+class KycSessionStartBlockedError(KycComplianceError):
+    """The case waits for an admin decision; the investor cannot start a new session."""
+
+    code = "kyc_review_in_progress"
+
+    def __init__(self, *, case_id: str = "", reason: str = "") -> None:
+        super().__init__(KYC_REVIEW_IN_PROGRESS_MESSAGE)
+        self.case_id = case_id
+        self.reason = reason
 
 
 class KycWebhookSignatureError(KycComplianceError):
@@ -140,6 +178,17 @@ class ProviderKycEventCommand:
     risk_classification: str = ""
     detected_flags: list[str] = field(default_factory=list)
     raw_payload: dict[str, Any] = field(default_factory=dict)
+    # Set when only part of the event was signed (Didit "simple" signature): an
+    # approval then waits for an admin instead of activating the account.
+    approval_needs_review: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DiditWebhookVerification:
+    """How a webhook proved it came from Didit, and the signed send time."""
+
+    method: str
+    signed_timestamp: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +196,7 @@ class ProviderKycEventResult:
     event: KycProviderEvent
     case: KycVerificationCase
     idempotent: bool = False
+    held_for_review: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,6 +583,8 @@ def _retrieve_didit_session_decision(session: KycProviderSession) -> dict[str, A
 def _can_poll_didit_session(case: KycVerificationCase, session: KycProviderSession) -> bool:
     if case.status not in {KycStatus.NOT_STARTED, KycStatus.PENDING}:
         return False
+    if session.superseded_at is not None:
+        return False
     payload = session.provider_payload if isinstance(session.provider_payload, dict) else {}
     provider_mode = str(payload.get("mode", "")).strip().lower()
     return provider_mode == "api" or _didit_session_provider() in {"api", "didit", "live"}
@@ -676,17 +728,85 @@ def latest_active_session(case: KycVerificationCase) -> KycProviderSession | Non
             case=case,
             status=KycStatus.PENDING,
             expires_at__gt=now,
+            superseded_at__isnull=True,
         )
         .order_by("-created_at")
         .first()
     )
 
 
-@transaction.atomic
+def _latest_manual_review_decision(case: KycVerificationCase) -> KycManualReviewDecision | None:
+    return cast(
+        KycManualReviewDecision | None,
+        KycManualReviewDecision.objects.filter(case=case).order_by("-decided_at", "-id").first(),
+    )
+
+
+def _admin_requested_reverification(case: KycVerificationCase) -> bool:
+    """True while an admin re-verification request is waiting for the investor.
+
+    The request is used up once the investor starts a new session (the case moves to pending
+    and the session is not superseded); a re-check reported later by the provider needs a
+    fresh admin decision.
+    """
+
+    if case.status != KycStatus.REVERIFICATION_REQUIRED or case.manual_review_required:
+        return False
+    decision = _latest_manual_review_decision(case)
+    if decision is None or decision.decision != KycManualReviewDecisionType.REQUEST_REVERIFICATION:
+        return False
+    return not KycProviderSession.objects.filter(case=case, superseded_at__isnull=True).exists()
+
+
+def investor_session_start_block_reason(case: KycVerificationCase) -> str:
+    """Why the investor may not start a provider session now; empty when allowed."""
+
+    if case.manual_review_required:
+        return "manual_review_required"
+    if case.status in INVESTOR_STARTABLE_STATUSES:
+        return ""
+    if _admin_requested_reverification(case):
+        return ""
+    return f"status:{case.status}"
+
+
+def investor_visible_kyc_status(status: str) -> KycStatus:
+    if status in INVESTOR_MASKED_REVIEW_STATUSES:
+        return KycStatus.MANUAL_REVIEW
+    return KycStatus(status)
+
+
 def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
+    """Start (or resume) the investor's provider session.
+
+    Refused with ``KycSessionStartBlockedError`` while the case waits for an admin decision.
+    The refusal is audited outside the session transaction so the attempt stays on record.
+    """
+
+    try:
+        return _create_kyc_session(command)
+    except KycSessionStartBlockedError as exc:
+        record_audit_event(
+            AuditCommand(
+                actor=_user_actor(str(command.user.pk)),
+                action="kyc.session_start_refused",
+                target_type="KycVerificationCase",
+                target_id=exc.case_id,
+                metadata={"reason": exc.reason},
+            )
+        )
+        raise
+
+
+@transaction.atomic
+def _create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
     case = get_or_create_user_kyc_case(command.user)
-    if case.status == KycStatus.APPROVED and not command.force_new:
+    case = KycVerificationCase.objects.select_for_update().get(pk=case.pk)
+    if case.status == KycStatus.APPROVED:
         return KycSessionResult(case=case, already_approved=True)
+    block_reason = investor_session_start_block_reason(case)
+    if block_reason:
+        raise KycSessionStartBlockedError(case_id=str(case.id), reason=block_reason)
 
     if not command.force_new:
         existing = latest_active_session(case)
@@ -718,13 +838,14 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
         expires_at=now + command.ttl,
         provider_payload=hosted_session.provider_payload,
     )
+    previous_status = case.status
+    # An investor action never clears an admin flag or block reason: only the status moves to
+    # pending, and only from a status the investor is allowed to restart.
     case.status = KycStatus.PENDING
     case.provider_environment = session.provider_environment
     case.workflow_id = workflow_id
     case.vendor_data = vendor_data
     case.provider_session_id = hosted_session.provider_session_id
-    case.manual_review_required = False
-    case.blocking_reason = ""
     case.save(
         update_fields=[
             "status",
@@ -732,8 +853,6 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
             "workflow_id",
             "vendor_data",
             "provider_session_id",
-            "manual_review_required",
-            "blocking_reason",
             "updated_at",
         ]
     )
@@ -749,6 +868,7 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
                 "provider_session_id": hosted_session.provider_session_id,
                 "provider_mode": hosted_session.provider_payload.get("mode", ""),
                 "provider_status": hosted_session.provider_status,
+                "previous_status": previous_status,
             },
         )
     )
@@ -878,6 +998,115 @@ def _activate_user_after_kyc_approval(case: KycVerificationCase, actor: ActorRef
     )
 
 
+def _admin_ops_services() -> Any:
+    return import_module("backend.apps.admin_ops.services")
+
+
+def _subject_label(case: KycVerificationCase) -> str:
+    user = case.user
+    if user is not None:
+        for attribute in ("full_name", "email"):
+            value = str(getattr(user, attribute, "") or "").strip()
+            if value:
+                return value
+    return case.subject_reference or str(case.id)
+
+
+def _ensure_kyc_review_task(case: KycVerificationCase, *, finding: str, urgent: bool) -> None:
+    """Keep one open admin task for a case that needs a decision (plan/02 webhook handling)."""
+
+    if case.user is None:
+        return
+    admin_ops = _admin_ops_services()
+    admin_ops.ensure_kyc_review_task(
+        admin_ops.EnsureKycReviewTaskCommand(
+            recorded_for=case.user,
+            case_id=str(case.id),
+            subject_label=_subject_label(case),
+            case_status=str(case.status),
+            finding=finding,
+            urgent=urgent,
+        )
+    )
+
+
+def _provider_event_hold_reason(
+    *,
+    case: KycVerificationCase,
+    session: KycProviderSession | None,
+    normalized_status: KycStatus,
+) -> str:
+    """Why a provider result may not change the case; empty when it may.
+
+    Provider results drive a case only while the provider owns it (not started, pending or
+    expired). They never overturn an admin decision or a status that waits for one; on an
+    approved case only a result that needs review (a new flag, a decline) still applies.
+    """
+
+    if session is not None and session.superseded_at is not None:
+        return "session_superseded_by_admin_decision"
+    if session is None and KycManualReviewDecision.objects.filter(case=case).exists():
+        return "unknown_session_after_admin_decision"
+    if case.manual_review_required or case.status in ADMIN_REVIEW_REQUIRED_STATUSES:
+        return "case_awaiting_admin_decision"
+    if (
+        case.status == KycStatus.APPROVED
+        and normalized_status not in ADMIN_REVIEW_REQUIRED_STATUSES
+    ):
+        return "case_already_approved"
+    return ""
+
+
+def _hold_provider_event(
+    *,
+    case: KycVerificationCase,
+    event: KycProviderEvent,
+    command: ProviderKycEventCommand,
+    normalized_status: KycStatus,
+    reason: str,
+) -> ProviderKycEventResult:
+    """Keep the result as evidence and put a disagreeing result in front of an admin."""
+
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="kyc.didit_event_held_for_review",
+            target_type="KycVerificationCase",
+            target_id=str(case.id),
+            metadata={
+                "provider_event_id": command.provider_event_id,
+                "provider_session_id": command.provider_session_id,
+                "provider_status": command.provider_status,
+                "normalized_status": normalized_status,
+                "case_status": case.status,
+                "reason": reason,
+            },
+        )
+    )
+    # While the investor re-verifies after an admin request (pending), a result for a
+    # superseded session is evidence only; on a held or approved case a disagreeing result
+    # goes to an admin.
+    needs_attention = (
+        case.status not in INVESTOR_STARTABLE_STATUSES
+        and normalized_status != case.status
+        and (
+            normalized_status == KycStatus.APPROVED
+            or normalized_status in ADMIN_REVIEW_REQUIRED_STATUSES
+        )
+    )
+    if needs_attention:
+        session_label = command.provider_session_id or "an unknown session"
+        _ensure_kyc_review_task(
+            case,
+            finding=(
+                f"Didit reported {command.provider_status or 'a result'} ({normalized_status}) "
+                f"for {session_label} after the case was held; the case was not changed."
+            ),
+            urgent=KycStatus.SANCTIONS_HIT in {normalized_status, case.status},
+        )
+    return ProviderKycEventResult(event=event, case=case, held_for_review=True)
+
+
 @transaction.atomic
 def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventResult:
     existing = KycProviderEvent.objects.filter(
@@ -886,12 +1115,21 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     if existing is not None:
         return ProviderKycEventResult(event=existing, case=existing.case, idempotent=True)
 
-    case, session = _case_from_event_command(command)
+    matched_case, session = _case_from_event_command(command)
+    case = KycVerificationCase.objects.select_for_update().get(pk=matched_case.pk)
     normalized_status = normalize_didit_status(
         provider_status=command.provider_status,
         detected_flags=command.detected_flags,
         risk_classification=command.risk_classification,
     )
+    if (
+        normalized_status == KycStatus.APPROVED
+        and command.approval_needs_review
+        and case.status != KycStatus.APPROVED
+    ):
+        # The approval came without a full signature (screening results unsigned), so
+        # an admin decides. On an approved case it is only evidence (held below).
+        normalized_status = KycStatus.MANUAL_REVIEW
     now = timezone.now()
     try:
         with transaction.atomic():
@@ -911,6 +1149,20 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     except IntegrityError:
         existing = KycProviderEvent.objects.get(provider_event_id=command.provider_event_id)
         return ProviderKycEventResult(event=existing, case=existing.case, idempotent=True)
+
+    hold_reason = _provider_event_hold_reason(
+        case=case,
+        session=session,
+        normalized_status=normalized_status,
+    )
+    if hold_reason:
+        return _hold_provider_event(
+            case=case,
+            event=event,
+            command=command,
+            normalized_status=normalized_status,
+            reason=hold_reason,
+        )
 
     case.status = normalized_status
     case.risk_classification = command.risk_classification
@@ -946,6 +1198,15 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
         session.save(update_fields=["status", "updated_at"])
     if normalized_status == KycStatus.APPROVED:
         _activate_user_after_kyc_approval(case, ActorRef.system())
+    if normalized_status in ADMIN_REVIEW_REQUIRED_STATUSES:
+        _ensure_kyc_review_task(
+            case,
+            finding=(
+                f"Didit reported {command.provider_status or 'a result'} ({normalized_status}) "
+                f"for {command.provider_session_id or 'an unknown session'}."
+            ),
+            urgent=normalized_status == KycStatus.SANCTIONS_HIT,
+        )
 
     record_audit_event(
         AuditCommand(
@@ -1031,6 +1292,21 @@ def record_manual_review_decision(
         evidence_summary=command.evidence_summary.strip(),
         decided_at=now,
     )
+    # Provider results for sessions that existed when the admin decided are evidence only;
+    # after a re-verification request only the investor's next session can change the case.
+    KycProviderSession.objects.filter(case=case, superseded_at__isnull=True).update(
+        superseded_at=now,
+        updated_at=now_utc(),
+    )
+    if command.decision != KycManualReviewDecisionType.REOPEN:
+        _admin_ops_services().resolve_kyc_review_task(
+            actor=command.actor,
+            case_id=str(case.id),
+            completion_note=(
+                f"KYC decision recorded: {command.decision} ({command.reason_code}); "
+                f"case is now {new_status}."
+            ),
+        )
     record_audit_event(
         AuditCommand(
             actor=actor_ref_for_user(command.actor),
@@ -1097,12 +1373,31 @@ def _shorten_whole_floats(value: Any) -> Any:
     return value
 
 
-def _timestamp_is_fresh(timestamp: str) -> bool:
-    try:
-        timestamp_int = int(timestamp)
-    except (TypeError, ValueError):
-        return False
-    return abs(int(time.time()) - timestamp_int) <= 300
+WEBHOOK_MAX_AGE_SECONDS = 300
+SIMPLE_SIGNATURE_FIELDS = ("timestamp", "session_id", "status", "webhook_type")
+
+
+def _timestamp_is_fresh(timestamp: int) -> bool:
+    return abs(int(time.time()) - timestamp) <= WEBHOOK_MAX_AGE_SECONDS
+
+
+def _signed_payload_timestamp(payload: dict[str, Any]) -> int | None:
+    """The send time inside the payload, which every Didit signature covers.
+
+    The ``X-Timestamp`` header is not signed, so a replayer can set it to anything;
+    freshness is checked on this value instead (audit A-53).
+    """
+
+    value = payload.get("timestamp")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def _compare_digest(signature: str, digest: str) -> bool:
@@ -1116,10 +1411,9 @@ def _verify_didit_signature_v2(
     *,
     payload: dict[str, Any],
     signature: str,
-    timestamp: str,
     secret: str,
 ) -> bool:
-    if not signature or not timestamp or not _timestamp_is_fresh(timestamp):
+    if not signature:
         return False
     canonical = json.dumps(
         _shorten_whole_floats(payload),
@@ -1135,19 +1429,11 @@ def _verify_didit_signature_simple(
     *,
     payload: dict[str, Any],
     signature: str,
-    timestamp: str,
     secret: str,
 ) -> bool:
-    if not signature or not timestamp or not _timestamp_is_fresh(timestamp):
+    if not signature:
         return False
-    canonical = ":".join(
-        [
-            str(payload.get("timestamp", "")),
-            str(payload.get("session_id", "")),
-            str(payload.get("status", "")),
-            str(payload.get("webhook_type", "")),
-        ]
-    )
+    canonical = ":".join(str(payload.get(key, "")) for key in SIMPLE_SIGNATURE_FIELDS)
     digest = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
     return _compare_digest(signature, digest)
 
@@ -1159,6 +1445,44 @@ def _verify_didit_raw_signature(*, raw_body: bytes, signature: str, secret: str)
     return _compare_digest(signature, digest)
 
 
+def verify_didit_webhook(
+    *,
+    raw_body: bytes,
+    signature: str = "",
+    payload: dict[str, Any] | None = None,
+    signature_v2: str = "",
+    signature_simple: str = "",
+    timestamp: str = "",
+) -> DiditWebhookVerification | None:
+    """Check a Didit webhook; ``None`` when it must be refused.
+
+    Every accepted signature must cover a fresh ``timestamp`` in the payload, so an
+    old signed webhook cannot be replayed with a new header (audit A-53). The
+    ``timestamp`` argument (the unsigned header) is ignored on purpose.
+    """
+
+    del timestamp
+    signature_required = (
+        bool(settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE)
+        or str(settings.ENVIRONMENT).lower() != "local"
+    )
+    if not signature_required:
+        return DiditWebhookVerification(method="unsigned_local")
+    secret = str(settings.DIDIT_WEBHOOK_SECRET)
+    if not secret or payload is None:
+        return None
+    signed_timestamp = _signed_payload_timestamp(payload)
+    if signed_timestamp is None or not _timestamp_is_fresh(signed_timestamp):
+        return None
+    if _verify_didit_signature_v2(payload=payload, signature=signature_v2, secret=secret):
+        return DiditWebhookVerification(method="v2", signed_timestamp=signed_timestamp)
+    if _verify_didit_raw_signature(raw_body=raw_body, signature=signature, secret=secret):
+        return DiditWebhookVerification(method="raw", signed_timestamp=signed_timestamp)
+    if _verify_didit_signature_simple(payload=payload, signature=signature_simple, secret=secret):
+        return DiditWebhookVerification(method="simple", signed_timestamp=signed_timestamp)
+    return None
+
+
 def verify_didit_webhook_signature(
     *,
     raw_body: bytes,
@@ -1168,30 +1492,55 @@ def verify_didit_webhook_signature(
     signature_simple: str = "",
     timestamp: str = "",
 ) -> bool:
-    secret = str(settings.DIDIT_WEBHOOK_SECRET)
-    signature_required = (
-        bool(settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE)
-        or str(settings.ENVIRONMENT).lower() != "local"
-    )
-    if not signature_required:
-        return True
-    if not secret:
-        return False
-    if payload is not None and _verify_didit_signature_v2(
-        payload=payload,
-        signature=signature_v2,
-        timestamp=timestamp,
-        secret=secret,
-    ):
-        return True
-    if _verify_didit_raw_signature(raw_body=raw_body, signature=signature, secret=secret):
-        return True
-    return bool(
-        payload is not None
-        and _verify_didit_signature_simple(
+    return (
+        verify_didit_webhook(
+            raw_body=raw_body,
+            signature=signature,
             payload=payload,
-            signature=signature_simple,
+            signature_v2=signature_v2,
+            signature_simple=signature_simple,
             timestamp=timestamp,
-            secret=secret,
         )
+        is not None
+    )
+
+
+def provider_event_command_from_verified_webhook(
+    payload: dict[str, Any],
+    verification: DiditWebhookVerification,
+) -> ProviderKycEventCommand:
+    """Build the event from the fields the accepted signature covers.
+
+    The "simple" signature covers only timestamp, session id, status and webhook
+    type. Nothing else in the body is trusted then: no event id, user mapping,
+    screening flags or risk class; the event id comes from the signed fields, and an
+    approval waits for an admin.
+    """
+
+    if verification.method != "simple":
+        # The whole body is signed. Without an event id, a digest of the signed body
+        # (which includes the fresh timestamp) keeps processing idempotent.
+        return provider_event_command_from_payload(
+            payload,
+            provider_event_id_fallback=f"didit-signed:{_safe_json_hash(payload)[:48]}",
+        )
+    signed = {key: payload.get(key) for key in SIMPLE_SIGNATURE_FIELDS}
+    session_id = str(signed.get("session_id") or "").strip()
+    if not session_id:
+        raise KycWebhookMatchError("Didit webhook is missing a session ID.")
+    signed_key = ":".join(str(signed.get(key, "")) for key in SIMPLE_SIGNATURE_FIELDS)
+    event_id = "didit-simple:" + hashlib.sha256(signed_key.encode("utf-8")).hexdigest()[:48]
+    return ProviderKycEventCommand(
+        provider_event_id=event_id,
+        provider_event_type=str(signed.get("webhook_type") or "") or "verification.updated",
+        provider_status=str(signed.get("status") or ""),
+        provider_session_id=session_id,
+        raw_payload={
+            "signature_method": "simple",
+            "signed_fields": signed,
+            "unsigned_fields_ignored": sorted(
+                str(key) for key in payload if key not in SIMPLE_SIGNATURE_FIELDS
+            ),
+        },
+        approval_needs_review=True,
     )

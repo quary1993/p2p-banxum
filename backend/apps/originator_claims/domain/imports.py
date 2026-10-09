@@ -360,7 +360,24 @@ def parse_originator_import_csv(
         raise OriginatorImportValidationError(
             "An outstanding loan requires at least one future schedule row."
         )
-    if sum(row.principal_minor for row in future_rows) != running_principal:
+    future_principal = sum(row.principal_minor for row in future_rows)
+    if future_principal != running_principal:
+        paid_ahead = [
+            row
+            for row in future_rows
+            if row.principal_minor > 0 and row.closing_principal_minor == running_principal
+        ]
+        if future_principal > running_principal and paid_ahead:
+            # A receipt that arrives before its due date: the payments already
+            # include an installment that is not due yet at the import as-of date.
+            paid_row = paid_ahead[-1]
+            due = paid_row.due_date.isoformat()
+            raise OriginatorImportValidationError(
+                f"Installment {paid_row.installment_number} is due on {due}, after the "
+                f"import as-of date {as_of_date.isoformat()}, but this file shows it as "
+                f"paid. Record a payment for the installment due on {due} with an import "
+                f"as-of date on or after {due}. The value date can be earlier."
+            )
         raise OriginatorImportValidationError(
             "Future schedule principal must equal current outstanding principal."
         )

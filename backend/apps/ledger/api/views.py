@@ -11,14 +11,21 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.ledger.api.serializers import (
+    AdminPayoutInstructionListQuerySerializer,
+    AdminPayoutInstructionListResponseSerializer,
+    AdminPayoutInstructionRowSerializer,
     BalanceAgeingScanRequestSerializer,
     BalanceAgeingScanResponseSerializer,
     BorrowerDisbursementFinalizeRequestSerializer,
     BorrowerDisbursementFinalizeResponseSerializer,
+    CollectionAccountSerializer,
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
     InvestorPayoutInstructionRegisterRequestSerializer,
     InvestorPayoutInstructionRegisterResponseSerializer,
+    InvestorPayoutInstructionRevokeRequestSerializer,
+    InvestorPayoutInstructionRevokeResponseSerializer,
+    InvestorPayoutInstructionVerifyRequestSerializer,
     InvestorSelfServicePayoutInstructionRegisterRequestSerializer,
     InvestorWithdrawalCancelRequestSerializer,
     InvestorWithdrawalCancelResponseSerializer,
@@ -41,7 +48,12 @@ from backend.apps.ledger.api.serializers import (
     serialize_reconciliation_snapshot,
     serialize_withdrawal_request,
 )
-from backend.apps.ledger.selectors import list_closed_investor_withdrawals
+from backend.apps.ledger.selectors import (
+    admin_payout_instruction_detail,
+    list_admin_payout_instructions,
+    list_closed_investor_withdrawals,
+    list_collection_accounts,
+)
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
     CreateReconciliationSnapshotCommand,
@@ -49,12 +61,15 @@ from backend.apps.ledger.services import (
     FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerAuthorizationError,
+    LedgerConflictError,
     LedgerDuplicateDepositError,
     LedgerValidationError,
     RegisterInvestorPayoutInstructionCommand,
     RegisterInvestorSelfServicePayoutInstructionCommand,
     RequestInvestorWithdrawalCommand,
+    RevokeInvestorPayoutInstructionCommand,
     RunBalanceAgeingScanCommand,
+    VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
     declare_lender_deposit,
@@ -63,8 +78,10 @@ from backend.apps.ledger.services import (
     register_investor_payout_instruction,
     register_investor_self_service_payout_instruction,
     request_investor_withdrawal,
+    revoke_investor_payout_instruction,
     run_balance_ageing_scan,
     summarize_investor_balance,
+    verify_investor_payout_instruction,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.platform_core.domain.access import is_admin_actor
@@ -74,6 +91,13 @@ def _admin_forbidden_response() -> Response:
     return Response(
         {"detail": "Only an active admin can manage ledger operations."},
         status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _conflict_response(exc: LedgerConflictError) -> Response:
+    return Response(
+        {"detail": str(exc), "code": exc.code, **exc.details},
+        status=status.HTTP_409_CONFLICT,
     )
 
 
@@ -99,7 +123,7 @@ class LenderDepositDeclareView(APIView):
                     currency=data["currency"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
                     payer_name=data.get("payer_name", ""),
                     payer_account_identifier=data["payer_account_identifier"],
                     bank_reference=data.get("bank_reference", ""),
@@ -143,6 +167,30 @@ class InvestorPayoutInstructionRegisterView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        operation_id="v1_ledger_admin_payout_instructions_list",
+        parameters=[AdminPayoutInstructionListQuerySerializer],
+        responses={200: AdminPayoutInstructionListResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = AdminPayoutInstructionListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        payload = list_admin_payout_instructions(
+            state=str(data.get("state") or ""),
+            investor_user_id=str(data.get("investor_user_id") or ""),
+            currency=str(data.get("currency") or ""),
+            query=str(data.get("q") or ""),
+            limit=cast(int, data.get("limit", 50)),
+            offset=cast(int, data.get("offset", 0)),
+        )
+        return Response(
+            AdminPayoutInstructionListResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         request=InvestorPayoutInstructionRegisterRequestSerializer,
         responses={201: InvestorPayoutInstructionRegisterResponseSerializer},
     )
@@ -163,15 +211,131 @@ class InvestorPayoutInstructionRegisterView(APIView):
                     is_verified_usable=data.get("is_verified_usable", True),
                     notes=data.get("notes", ""),
                     metadata=data.get("metadata"),
+                    evidence_reference=data.get("evidence_reference", ""),
+                    other_investor_override_reason=data.get(
+                        "other_investor_override_reason", ""
+                    ),
                 )
             )
         except LedgerAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerConflictError as exc:
+            return _conflict_response(exc)
         except LedgerValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             {"payout_instruction": serialize_payout_instruction(payout_instruction)},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminPayoutInstructionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: AdminPayoutInstructionRowSerializer})
+    def get(self, request: Request, instruction_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        row = admin_payout_instruction_detail(str(instruction_id))
+        if row is None:
+            return Response(
+                {"detail": "Payout IBAN does not exist."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(AdminPayoutInstructionRowSerializer(row).data, status=status.HTTP_200_OK)
+
+
+class AdminPayoutInstructionVerifyView(APIView):
+    """Verify an investor's pending payout-IBAN request with evidence."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorPayoutInstructionVerifyRequestSerializer,
+        responses={200: InvestorPayoutInstructionRegisterResponseSerializer},
+    )
+    def post(self, request: Request, instruction_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = InvestorPayoutInstructionVerifyRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            instruction = verify_investor_payout_instruction(
+                VerifyInvestorPayoutInstructionCommand(
+                    actor=cast(Model, request.user),
+                    instruction_id=str(instruction_id),
+                    evidence_reference=data["evidence_reference"],
+                    notes=data.get("notes", ""),
+                    other_investor_override_reason=data.get(
+                        "other_investor_override_reason", ""
+                    ),
+                    destination_account_name=data.get("destination_account_name", ""),
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerConflictError as exc:
+            return _conflict_response(exc)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"payout_instruction": serialize_payout_instruction(instruction)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminPayoutInstructionRevokeView(APIView):
+    """Revoke a verified payout IBAN, or reject a pending request."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorPayoutInstructionRevokeRequestSerializer,
+        responses={200: InvestorPayoutInstructionRevokeResponseSerializer},
+    )
+    def post(self, request: Request, instruction_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = InvestorPayoutInstructionRevokeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = revoke_investor_payout_instruction(
+                RevokeInvestorPayoutInstructionCommand(
+                    actor=cast(Model, request.user),
+                    instruction_id=str(instruction_id),
+                    reason=data["reason"],
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerConflictError as exc:
+            return _conflict_response(exc)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "payout_instruction": serialize_payout_instruction(result.instruction),
+                "action": result.action,
+                "flagged_withdrawal_request_ids": result.flagged_withdrawal_request_ids,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CollectionAccountListView(APIView):
+    """Configured collection accounts, so admin forms do not retype them."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: CollectionAccountSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        return Response(
+            CollectionAccountSerializer(list_collection_accounts(), many=True).data,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -328,7 +492,7 @@ class InvestorWithdrawalFinalizeView(APIView):
                     withdrawal_request_id=withdrawal_request_id,
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
                     bank_reference=data.get("bank_reference", ""),
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),
@@ -338,6 +502,8 @@ class InvestorWithdrawalFinalizeView(APIView):
             )
         except LedgerAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerConflictError as exc:
+            return _conflict_response(exc)
         except LedgerValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(

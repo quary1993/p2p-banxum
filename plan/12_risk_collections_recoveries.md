@@ -112,6 +112,10 @@ Investors see the loan status and days past due for loans in their portfolio. Ad
 
 Investor updates are event-driven. Admin notifies investors when something material changes through email and/or public loan note.
 
+Loan notes (public, email or both) work the same for Direct and Loan Originator loans; an LO loan note has no BANXUM borrower and is sent from the LO Manage screen (audit A-29, 2026-10-09).
+
+Schedule labels follow the status timing of SERV-DEC-008 (audit A-30, 2026-10-09): an unpaid installment is "Due" (neutral) on its due date and during the grace period (days 1-4), and "Overdue" (red) from day 5, when the loan becomes Late. Investor and admin views use the same server status.
+
 Rationale:
 This gives lenders essential status transparency without forcing a fixed investor-reporting cadence or detailed internal recovery disclosure.
 

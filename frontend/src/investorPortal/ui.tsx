@@ -1,18 +1,21 @@
 //IP of Webby-Soft SRL.
 // source-seal: SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=
 import {
+  cloneElement,
+  isValidElement,
   useCallback,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type ReactElement,
   type ReactNode
 } from "react";
 import { createPortal } from "react-dom";
 
-import { formatMoneyMinor } from "./format";
+import { handleTabListKeyDown, useDialog } from "./dialog";
+import { formatMoneyMinor, humanizeEnum } from "./format";
 
 type IconName =
   | "dashboard"
@@ -392,7 +395,18 @@ const statusMap: Record<string, { tone: Tone; label: string }> = {
   investable: { tone: "ok", label: "Investable" },
   withdraw_only: { tone: "warn", label: "Withdraw-only" },
   overdue: { tone: "warn", label: "Overdue" },
-  penalty: { tone: "bad", label: "Penalty mode" }
+  penalty: { tone: "bad", label: "Frozen, penalty charged" },
+  penalty_mode: { tone: "bad", label: "Frozen, penalty charged" },
+  penalty_exhausted: { tone: "bad", label: "Used up by penalty" },
+  frozen: { tone: "bad", label: "Frozen" },
+  consumed: { tone: "neutral", label: "Used" },
+  requested: { tone: "warn", label: "Pending" },
+  finalized: { tone: "ok", label: "Paid out" },
+  cancelled: { tone: "neutral", label: "Cancelled" },
+  pending_verification: { tone: "warn", label: "Pending verification" },
+  revoked: { tone: "bad", label: "Revoked" },
+  rejected: { tone: "bad", label: "Rejected" },
+  disabled: { tone: "neutral", label: "Not in use" }
 };
 
 export type Tone = "ok" | "warn" | "bad" | "info" | "neutral" | "accent";
@@ -414,7 +428,8 @@ export function Chip({
 }) {
   const mapped = status ? statusMap[status] : undefined;
   const finalTone = tone ?? mapped?.tone ?? "neutral";
-  const label = children ?? mapped?.label ?? status;
+  // Unknown API values are shown as readable words, never as raw enum keys.
+  const label = children ?? mapped?.label ?? humanizeEnum(status);
   const accessibleLabel = tooltip && typeof label === "string" ? `${label}. ${tooltip}` : undefined;
   const chip = (
     <span
@@ -501,22 +516,68 @@ export function Banner({
   );
 }
 
+const fieldControlSelector = "input:not([type=hidden]), select, textarea";
+
+function mergeIdList(existing: string | null | undefined, add: string | undefined, remove?: string) {
+  const ids = (existing ?? "").split(/\s+/).filter((item) => item && item !== remove && item !== add);
+  if (add) ids.push(add);
+  return ids.length > 0 ? ids.join(" ") : undefined;
+}
+
+// A labelled form field. The label is linked to its control (htmlFor/id) and the hint or error is
+// linked with aria-describedby, so assistive technology and getByLabelText find the control. A
+// direct <input>/<select>/<textarea> child gets the id at once; a control nested in a wrapper is
+// found after render (the first one without its own aria-label, e.g. the number next to a prefix).
 export function Field({
   label,
   hint,
   error,
-  children
+  children,
+  id
 }: {
   label?: string;
   hint?: string;
   error?: string;
   children: ReactNode;
+  id?: string;
 }) {
+  const autoId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [controlId, setControlId] = useState(id ?? `${autoId}control`);
+  const descriptionId = `${autoId}description`;
+  const description = error || hint ? descriptionId : undefined;
+  let content = children;
+  if (isValidElement(children) && typeof children.type === "string" && ["input", "select", "textarea"].includes(children.type)) {
+    const props = children.props as { id?: string; "aria-describedby"?: string; "aria-invalid"?: boolean | "true" | "false" };
+    content = cloneElement(children as ReactElement<Record<string, unknown>>, {
+      id: props.id ?? controlId,
+      "aria-describedby": mergeIdList(props["aria-describedby"], description, descriptionId),
+      "aria-invalid": error ? true : props["aria-invalid"]
+    });
+  }
+  useLayoutEffect(() => {
+    const controls = Array.from(containerRef.current?.querySelectorAll<HTMLElement>(fieldControlSelector) ?? []);
+    const control = controls.find((item) => item.id === controlId)
+      ?? controls.find((item) => !item.hasAttribute("aria-label") && !item.hasAttribute("aria-labelledby"))
+      ?? controls[0];
+    if (!control) return;
+    if (!control.id) control.id = controlId;
+    if (control.id !== controlId) {
+      setControlId(control.id);
+      return;
+    }
+    const describedBy = mergeIdList(control.getAttribute("aria-describedby"), description, descriptionId);
+    if (describedBy) control.setAttribute("aria-describedby", describedBy);
+    else control.removeAttribute("aria-describedby");
+    if (error) control.setAttribute("aria-invalid", "true");
+    else if (control.dataset.fieldInvalid === "true") control.removeAttribute("aria-invalid");
+    control.dataset.fieldInvalid = error ? "true" : "false";
+  }, [children, controlId, description, descriptionId, error]);
   return (
-    <div className="field">
-      {label ? <label>{label}</label> : null}
-      {children}
-      {error ? <span className="err">{error}</span> : hint ? <span className="hint">{hint}</span> : null}
+    <div className="field" ref={containerRef}>
+      {label ? <label htmlFor={controlId}>{label}</label> : null}
+      {content}
+      {error ? <span className="err" id={descriptionId}>{error}</span> : hint ? <span className="hint" id={descriptionId}>{hint}</span> : null}
     </div>
   );
 }
@@ -548,14 +609,16 @@ export function Check({
 export function Segmented<T extends string>({
   options,
   value,
-  onChange
+  onChange,
+  label
 }: {
   options: Array<{ value: T; label: string }>;
   value: T;
   onChange: (value: T) => void;
+  label?: string;
 }) {
   return (
-    <div className="seg" role="tablist">
+    <div aria-label={label} className="seg" onKeyDown={handleTabListKeyDown} role="tablist">
       {options.map((option) => (
         <button
           aria-selected={value === option.value}
@@ -563,6 +626,7 @@ export function Segmented<T extends string>({
           key={option.value}
           onClick={() => onChange(option.value)}
           role="tab"
+          tabIndex={value === option.value ? 0 : -1}
           type="button"
         >
           {option.label}
@@ -575,21 +639,29 @@ export function Segmented<T extends string>({
 export function Tabs<T extends string>({
   tabs,
   value,
-  onChange
+  onChange,
+  label,
+  idPrefix
 }: {
   tabs: Array<{ value: T; label: string }>;
   value: T;
   onChange: (value: T) => void;
+  label?: string;
+  /** When set, tab i controls the panel `${idPrefix}-panel-${value}` (see tabPanelProps). */
+  idPrefix?: string;
 }) {
   return (
-    <div className="tabs" role="tablist">
+    <div aria-label={label} className="tabs" onKeyDown={handleTabListKeyDown} role="tablist">
       {tabs.map((tab) => (
         <button
+          aria-controls={idPrefix ? `${idPrefix}-panel-${tab.value}` : undefined}
           aria-selected={value === tab.value}
           className={value === tab.value ? "on" : ""}
+          id={idPrefix ? `${idPrefix}-tab-${tab.value}` : undefined}
           key={tab.value}
           onClick={() => onChange(tab.value)}
           role="tab"
+          tabIndex={value === tab.value ? 0 : -1}
           type="button"
         >
           {tab.label}
@@ -606,7 +678,8 @@ export function Modal({
   footer,
   wide = false,
   xwide = false,
-  drawer = false
+  drawer = false,
+  busy = false
 }: {
   title: string;
   onClose: () => void;
@@ -615,25 +688,19 @@ export function Modal({
   wide?: boolean;
   xwide?: boolean;
   drawer?: boolean;
+  /** A money action is running: Escape, the backdrop and the close button do nothing. */
+  busy?: boolean;
 }) {
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", listener);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", listener);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const { blocked, dismissFromBackdrop } = useDialog({ dialogRef, onDismiss: onClose, busy });
 
   return (
-    <div className="scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div aria-label={title} aria-modal="true" className={`modal ${wide ? "wide" : ""} ${xwide ? "xwide" : ""} ${drawer ? "drawer" : ""}`} role="dialog">
+    <div className="scrim" onMouseDown={(event) => event.target === event.currentTarget && dismissFromBackdrop()}>
+      <div aria-busy={blocked || undefined} aria-labelledby={titleId} aria-modal="true" className={`modal ${wide ? "wide" : ""} ${xwide ? "xwide" : ""} ${drawer ? "drawer" : ""}`} ref={dialogRef} role="dialog">
         <div className="modal-head">
-          <h3>{title}</h3>
-          <button aria-label="Close" className="x-btn" onClick={onClose} type="button">
+          <h3 id={titleId}>{title}</h3>
+          <button aria-label="Close" className="x-btn" disabled={blocked} onClick={onClose} type="button">
             <Icon name="x" size={17} />
           </button>
         </div>

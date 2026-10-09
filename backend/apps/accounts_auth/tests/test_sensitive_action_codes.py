@@ -9,6 +9,7 @@ import pytest
 from django.apps import apps
 from django.test import Client
 from django.test.utils import override_settings
+from django.utils import timezone
 
 from backend.apps.accounts_auth.models import (
     AccountStatus,
@@ -228,6 +229,39 @@ def test_sensitive_action_code_issue_enforces_cooldown(investor: User) -> None:
         SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
     )
 
+    with pytest.raises(SensitiveActionCodeThrottleError):
+        issue_sensitive_action_code(
+            SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+        )
+
+
+@pytest.mark.django_db
+def test_cooldown_is_measured_in_real_time_when_the_qa_clock_is_ahead(
+    investor: User,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # QA testers could not get a new email code after moving the QA clock forward: the
+    # QA-time created_at was in the future, so the cooldown lasted until the code expired.
+    settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = 60
+    time_module = import_module("backend.apps.platform_core.domain.time")
+    ahead = timezone.now() + timedelta(days=30)
+    monkeypatch.setattr(time_module, "_qa_dev_mode_time_override", lambda: ahead)
+    first = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+    )
+    first.code_record.refresh_from_db()
+    assert first.code_record.created_at > timezone.now() + timedelta(days=29)
+    # Two real minutes pass.
+    SensitiveActionCode.objects.filter(pk=first.code_record.pk).update(
+        expires_at=first.code_record.expires_at - timedelta(minutes=2)
+    )
+
+    second = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+    )
+
+    assert second.code_record.pk != first.code_record.pk
     with pytest.raises(SensitiveActionCodeThrottleError):
         issue_sensitive_action_code(
             SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)

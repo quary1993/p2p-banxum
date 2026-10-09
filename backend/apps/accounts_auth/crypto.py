@@ -6,12 +6,22 @@ import hmac
 
 from cryptography.fernet import Fernet
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+
+
+def _is_local_environment() -> bool:
+    return str(getattr(settings, "ENVIRONMENT", "local")).strip().lower() == "local"
 
 
 def _fernet() -> Fernet:
     configured_key = getattr(settings, "AUTH_DELIVERY_SECRET_ENCRYPTION_KEY", "")
     if configured_key:
         return Fernet(configured_key.encode("ascii"))
+    if not _is_local_environment():
+        # Never derive the key from SECRET_KEY outside local development (audit A-51).
+        raise ImproperlyConfigured(
+            "AUTH_DELIVERY_SECRET_ENCRYPTION_KEY is required outside local development."
+        )
 
     key_material = f"{settings.SECRET_KEY}:accounts-auth-delivery-secret:v1".encode()
     derived_key = base64.urlsafe_b64encode(hashlib.sha256(key_material).digest())
@@ -28,5 +38,9 @@ def decrypt_delivery_secret(ciphertext: str) -> str:
 
 def digest_secret(secret: str) -> str:
     pepper = getattr(settings, "AUTH_SECRET_DIGEST_PEPPER", "")
+    if not pepper and not _is_local_environment():
+        raise ImproperlyConfigured(
+            "AUTH_SECRET_DIGEST_PEPPER is required outside local development."
+        )
     key_material = f"{settings.SECRET_KEY}:{pepper}:accounts-auth-digest:v1".encode()
     return hmac.new(key_material, secret.encode("utf-8"), hashlib.sha256).hexdigest()

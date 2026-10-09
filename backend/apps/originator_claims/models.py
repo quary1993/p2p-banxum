@@ -45,6 +45,7 @@ class OriginatorClaimEventType(models.TextChoices):
     OPPORTUNITY_PUBLISHED = "opportunity_published", "Opportunity published"
     OPPORTUNITY_CLOSED = "opportunity_closed", "Opportunity closed"
     OPPORTUNITY_HELD = "opportunity_held", "Opportunity held"
+    OPPORTUNITY_RESUMED = "opportunity_resumed", "Opportunity resumed"
     FUNDING_ROUND_CLOSED = "funding_round_closed", "Funding round closed"
     FUNDING_ROUND_CLOSE_FAILED = "funding_round_close_failed", "Funding round close failed"
     SUBSCRIPTION_ACTIVATION_OVERDUE = (

@@ -1,3 +1,4 @@
+# BANXUM backend deploy image. IP of Webby-Soft SRL.
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
@@ -6,11 +7,25 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
 
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --python 3.12 --no-dev
+# Unprivileged runtime user (audit A-55). Static files, media and QA snapshots
+# (tmp/) are the only places the app writes to.
+RUN groupadd --system --gid 10001 banxum \
+    && useradd --system --uid 10001 --gid banxum --home-dir /app --no-create-home banxum
 
-COPY . .
+COPY pyproject.toml uv.lock ./
+RUN uv sync --python 3.12 --no-dev --frozen
+
+# Only what the backend needs: no .git, env files, media, QA snapshots or frontend
+# (see also .dockerignore).
+COPY backend/ ./backend/
+
+RUN find /app/backend -type d -exec chmod 0755 {} + \
+    && find /app/backend -type f -exec chmod 0644 {} + \
+    && mkdir -p /app/staticfiles /app/backend/media /app/tmp \
+    && chown -R banxum:banxum /app/staticfiles /app/backend/media /app/tmp
+
+USER banxum
 
 EXPOSE 8000
 
-CMD [".venv/bin/gunicorn", "backend.config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "60"]
+CMD ["sh", "-c", ".venv/bin/python backend/manage.py check --deploy --fail-level ERROR && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 60"]

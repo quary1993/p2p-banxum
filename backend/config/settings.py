@@ -4,30 +4,43 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import environ
 
+from backend.config.deploy_safety import DEV_SECRET_KEY, require_non_local_secrets
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 env = environ.Env(
-    DJANGO_DEBUG=(bool, True),
     DJANGO_ALLOWED_HOSTS=(list[str], ["localhost", "127.0.0.1", "0.0.0.0"]),
 )
-environ.Env.read_env(BASE_DIR / ".env")
+# A declared non-local process must use only its injected environment. Otherwise a
+# repository .env can silently replace secure staging defaults with local debug,
+# cookie, and proxy settings. Local development still loads the convenience file.
+declared_environment = os.environ.get("ENVIRONMENT", "local").strip().lower()
+if declared_environment == "local":
+    environ.Env.read_env(BASE_DIR / ".env")
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="unsafe-local-dev-key-change-me")
 ENVIRONMENT = env("ENVIRONMENT", default="local")
+# Only local development may run with development defaults. Every other environment
+# (staging, production, anything else) gets the safe defaults below and refuses to
+# start without its own secrets (audit A-51).
+IS_LOCAL = str(ENVIRONMENT).strip().lower() == "local"
 IS_PRODUCTION = ENVIRONMENT == "production"
+SECRET_KEY = env("DJANGO_SECRET_KEY", default=DEV_SECRET_KEY if IS_LOCAL else "")
 
-DEBUG = env.bool("DJANGO_DEBUG", default=not IS_PRODUCTION)
+DEBUG = env.bool("DJANGO_DEBUG", default=IS_LOCAL)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
-DJANGO_ADMIN_ENABLED = env.bool("DJANGO_ADMIN_ENABLED", default=ENVIRONMENT == "local")
+# The Django admin has a password-only login (no admin email code, no throttle), so it
+# is never mounted outside local development, whatever the variable says (audit A-52).
+DJANGO_ADMIN_ENABLED = IS_LOCAL and env.bool("DJANGO_ADMIN_ENABLED", default=True)
 API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=ENVIRONMENT == "local")
 
 INSTALLED_APPS = [
@@ -105,9 +118,20 @@ else:
         }
     }
 
+# Debug pages and error reports mask URL/DSN settings too (they carry passwords).
+DEFAULT_EXCEPTION_REPORTER_FILTER = (
+    "backend.config.error_reporting.SettingsMaskingExceptionReporterFilter"
+)
+
+# Only admin accounts have passwords (investors use login links). Admin passwords need
+# 12+ characters and must not be on Django's offline list of 20,000 common/breached
+# passwords (audit SECCODE-17).
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -132,35 +156,64 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts_auth.User"
 
-SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=IS_PRODUCTION)
-CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not IS_LOCAL)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not IS_LOCAL)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
 CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
 # Absolute lifetime of an authenticated investor or admin session, counted from login.
 # Enforced server-side by accounts_auth.middleware.SessionLifetimeMiddleware.
 AUTH_SESSION_MAX_AGE_SECONDS = env.int("AUTH_SESSION_MAX_AGE_SECONDS", default=2 * 60 * 60)
-SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=IS_PRODUCTION)
-SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000 if IS_PRODUCTION else 0)
+# TLS ends at the edge proxy (Caddy); Django sees the scheme in X-Forwarded-Proto.
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not IS_LOCAL)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if IS_LOCAL else 31536000)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
     "SECURE_HSTS_INCLUDE_SUBDOMAINS",
-    default=IS_PRODUCTION,
+    default=not IS_LOCAL,
 )
 SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=IS_PRODUCTION)
-if env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=IS_PRODUCTION):
+DJANGO_USE_X_FORWARDED_PROTO = env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=not IS_LOCAL)
+if DJANGO_USE_X_FORWARDED_PROTO:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-TRUST_X_FORWARDED_FOR = env.bool("TRUST_X_FORWARDED_FOR", default=False)
+# Client IP behind reverse proxies (audit A-48). The number of proxies in front of
+# Django that each append one X-Forwarded-For entry; the client address is the entry
+# that many places from the right. 0 ignores X-Forwarded-For and uses the socket
+# address. Deployment chain Caddy -> nginx -> gunicorn: 2. The old
+# TRUST_X_FORWARDED_FOR=true maps to 1 (the rightmost entry), never the spoofable
+# leftmost one.
+TRUSTED_PROXY_COUNT = env.int(
+    "TRUSTED_PROXY_COUNT",
+    default=1 if env.bool("TRUST_X_FORWARDED_FOR", default=False) else 0,
+)
 
 REGISTRATION_TERMS_VERSION = env("REGISTRATION_TERMS_VERSION", default="registration-v1")
 REGISTRATION_TERMS_HASH = env(
     "REGISTRATION_TERMS_HASH",
     default="3b0ba70e0b1d68a6acd2135c832cf114f6db2fb5c8896625c1f28f3ba7bd8dca",
 )
+# Fernet key for the encrypted copy of login links and codes, and the pepper of their
+# digests. Required outside local development (no fallback to SECRET_KEY there).
 AUTH_DELIVERY_SECRET_ENCRYPTION_KEY = env("AUTH_DELIVERY_SECRET_ENCRYPTION_KEY", default="")
 AUTH_SECRET_DIGEST_PEPPER = env("AUTH_SECRET_DIGEST_PEPPER", default="")
+require_non_local_secrets(
+    environment="local" if IS_LOCAL else str(ENVIRONMENT),
+    secret_key=SECRET_KEY,
+    delivery_key=AUTH_DELIVERY_SECRET_ENCRYPTION_KEY,
+    digest_pepper=AUTH_SECRET_DIGEST_PEPPER,
+)
 AUTH_MAGIC_LINK_COOLDOWN_SECONDS = env.int("AUTH_MAGIC_LINK_COOLDOWN_SECONDS", default=60)
 AUTH_MAGIC_LINK_HOURLY_LIMIT = env.int("AUTH_MAGIC_LINK_HOURLY_LIMIT", default=5)
 AUTH_MAGIC_LINK_DAILY_LIMIT = env.int("AUTH_MAGIC_LINK_DAILY_LIMIT", default=20)
+# Per address (all callers together): while the last link sent to an address is
+# still unused, a new one is sent only after this backoff, which doubles with each
+# link sent in the last hour up to the maximum. Requests inside the backoff get the
+# normal "check your inbox" answer and the last link stays valid, so nobody can lock
+# the owner out (audit A-47) or flood the inbox.
+AUTH_MAGIC_LINK_EMAIL_BACKOFF_SECONDS = env.int("AUTH_MAGIC_LINK_EMAIL_BACKOFF_SECONDS", default=60)
+AUTH_MAGIC_LINK_EMAIL_MAX_BACKOFF_SECONDS = env.int(
+    "AUTH_MAGIC_LINK_EMAIL_MAX_BACKOFF_SECONDS",
+    default=600,
+)
 AUTH_REGISTRATION_COOLDOWN_SECONDS = env.int("AUTH_REGISTRATION_COOLDOWN_SECONDS", default=10)
 AUTH_REGISTRATION_HOURLY_LIMIT = env.int("AUTH_REGISTRATION_HOURLY_LIMIT", default=20)
 AUTH_REGISTRATION_DAILY_LIMIT = env.int("AUTH_REGISTRATION_DAILY_LIMIT", default=100)
@@ -196,6 +249,17 @@ AUTH_PHONE_VERIFICATION_CONFIRM_DAILY_LIMIT = env.int(
 AUTH_ADMIN_LOGIN_COOLDOWN_SECONDS = env.int("AUTH_ADMIN_LOGIN_COOLDOWN_SECONDS", default=5)
 AUTH_ADMIN_LOGIN_HOURLY_LIMIT = env.int("AUTH_ADMIN_LOGIN_HOURLY_LIMIT", default=20)
 AUTH_ADMIN_LOGIN_DAILY_LIMIT = env.int("AUTH_ADMIN_LOGIN_DAILY_LIMIT", default=100)
+# Wrong admin passwords, counted per (email, IP): the first ones are free, then each
+# failure doubles the wait from the base up to the maximum (audit A-47).
+AUTH_ADMIN_LOGIN_FREE_FAILURES = env.int("AUTH_ADMIN_LOGIN_FREE_FAILURES", default=5)
+AUTH_ADMIN_LOGIN_BACKOFF_BASE_SECONDS = env.int(
+    "AUTH_ADMIN_LOGIN_BACKOFF_BASE_SECONDS",
+    default=15,
+)
+AUTH_ADMIN_LOGIN_BACKOFF_MAX_SECONDS = env.int(
+    "AUTH_ADMIN_LOGIN_BACKOFF_MAX_SECONDS",
+    default=900,
+)
 AUTH_ADMIN_LOGIN_CONFIRM_HOURLY_LIMIT = env.int(
     "AUTH_ADMIN_LOGIN_CONFIRM_HOURLY_LIMIT",
     default=20,

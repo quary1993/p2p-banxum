@@ -1433,3 +1433,66 @@ def test_fx_api_reports_provider_network_failure_generically_and_logs_reason(
     assert response.json()["detail"] == FX_TEMPORARILY_UNAVAILABLE_MESSAGE
     assert "Yahoo Finance rate request failed" in caplog.text
     assert "Name or service not known" in caplog.text
+
+
+@pytest.mark.django_db
+def test_fx_settlement_api_without_collection_account_uses_each_currencys_account(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # The admin form has no collection-account field and used to send "" (A-17).
+    platform_setting_model = apps.get_model("platform_core", "PlatformSetting")
+    platform_setting_model.objects.update_or_create(
+        key="payments.deposit_instructions_by_currency",
+        defaults={
+            "value": {
+                "CHF": {"collection_account_identifier": "Garanta_CHF"},
+                "EUR": {"collection_account_identifier": "Garanta_EUR"},
+            }
+        },
+    )
+    _approve_financial_access(investor)
+    as_of = _as_of()
+    _deposit(admin_user, investor, amount_minor=1_000_00, idempotency_key="fx-blank-deposit")
+    quote = issue_fx_quote(
+        _quote_command(investor, amount_minor=1_000_00, idempotency_key="fx-blank-q", as_of=as_of)
+    )
+    execute_fx_quote(
+        ExecuteFxQuoteCommand(
+            actor=investor,
+            quote_id=str(quote.id),
+            idempotency_key="fx-blank-execute",
+            as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
+        )
+    )
+    client.force_login(cast(Any, admin_user))
+    payload = {
+        "sold_currency": "CHF",
+        "bought_currency": "EUR",
+        "sold_amount_minor": 1_000_00,
+        "bought_amount_minor": 1_098_00,
+        "start_date": as_of.date().isoformat(),
+        "end_date": as_of.date().isoformat(),
+        "booking_date": as_of.date().isoformat(),
+        "value_date": as_of.date().isoformat(),
+        "collection_account_identifier": "",
+        "bank_reference": "FX-BANK-UI",
+        "evidence_reference": "statement:fx-ui",
+        "idempotency_key": "fx-blank-settlement",
+    }
+
+    response = client.post(
+        "/api/v1/fx/admin/external-settlements/",
+        data=payload,
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201, response.json()
+    settlement = FxExternalSettlement.objects.get(id=response.json()["id"])
+    assert settlement.sold_bank_operation.collection_account_identifier == "Garanta_CHF"
+    assert settlement.bought_bank_operation.collection_account_identifier == "Garanta_EUR"
+    assert settlement.bought_bank_operation.payee_account_identifier == "Garanta_EUR"
+    assert settlement.collection_account_identifier == "Garanta_CHF"
+    assert settlement.metadata["bought_collection_account_identifier"] == "Garanta_EUR"

@@ -33,6 +33,7 @@ from backend.apps.documents.services import (
     AcceptDocumentTermsCommand,
     CreateDocumentTemplateVersionCommand,
     DocumentAuthorizationError,
+    DocumentConflictError,
     DocumentValidationError,
     PublishDocumentTemplateVersionCommand,
     RenderDocumentAcceptanceArtifactCommand,
@@ -241,6 +242,12 @@ class DocumentAcceptanceCreateView(APIView):
             )
         except DocumentAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except DocumentConflictError as exc:
+            # A price change since the buyer's review: the UI reloads it and asks again.
+            return Response(
+                {"detail": str(exc), "code": exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
         except DocumentValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_acceptance(acceptance), status=status.HTTP_201_CREATED)

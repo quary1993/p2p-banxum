@@ -1,9 +1,25 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
+import { idempotencyKeyFromBody, releaseIdempotencyKey } from "./idempotency";
 import { readReadonlyImpersonationToken } from "./impersonation";
 import { isSessionExpiredPayload, reportSessionExpired } from "./sessionExpiry";
 
 const csrfSafeMethods = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
+
+/** Shown when no answer came back (offline, timeout, dropped connection). */
+export const NETWORK_ERROR_MESSAGE =
+  "No answer from the server. Check your internet connection and try again.";
+/** Status of an ApiClientError when the request got no HTTP answer. */
+export const NETWORK_ERROR_STATUS = 0;
+
+function isAbortError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
 
 export class ApiClientError extends Error {
   status: number;
@@ -118,14 +134,28 @@ export async function httpClient<T>(requestOrUrl: LegacyHttpClientRequest | stri
     requestHeaders.set("X-BANXUM-Impersonate", readonlyImpersonationToken);
   }
 
-  const response = await fetch(requestUrl, {
-    ...options,
-    method,
-    headers: requestHeaders,
-    body,
-    credentials: "same-origin",
-    signal
-  });
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      ...options,
+      method,
+      headers: requestHeaders,
+      body,
+      credentials: "same-origin",
+      signal
+    });
+  } catch (fetchError) {
+    if (isAbortError(fetchError)) throw fetchError;
+    // "Failed to fetch" and similar browser texts mean nothing to users. The request
+    // may still have reached the server: a retry with the same idempotency key is safe.
+    throw new ApiClientError(NETWORK_ERROR_STATUS, NETWORK_ERROR_MESSAGE, null);
+  }
+
+  if (response.ok && !csrfSafeMethods.has(method.toUpperCase())) {
+    // The server accepted this intent; the same values again are a new action.
+    const acceptedKey = idempotencyKeyFromBody(body);
+    if (acceptedKey) releaseIdempotencyKey(acceptedKey);
+  }
 
   if (!response.ok) {
     const { payload, text } = await readErrorPayload(response);

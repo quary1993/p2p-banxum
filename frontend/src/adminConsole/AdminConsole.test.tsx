@@ -36,7 +36,9 @@ test("reloading an admin page keeps the section, filters and open record", async
   renderAdmin("/admin");
   fireEvent.click(within(nav()).getByRole("button", { name: "Tasks" }));
   expect(window.location.pathname).toBe("/admin/tasks");
-  fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "urgent" } });
+  // Labels are linked to their inputs, so the open task's own "Priority" also matches: use the filter.
+  const priorityFilter = () => within(document.querySelector(".admin-task-filters") as HTMLElement).getByLabelText("Priority");
+  fireEvent.change(priorityFilter(), { target: { value: "urgent" } });
   expect(currentUrl()).toBe("/admin/tasks?priority=urgent");
   const task = adminTasksFixture[0];
   fireEvent.click(screen.getByText(task.title));
@@ -44,7 +46,7 @@ test("reloading an admin page keeps the section, filters and open record", async
 
   reload();
   expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
-  expect(screen.getByLabelText("Priority")).toHaveValue("urgent");
+  expect(priorityFilter()).toHaveValue("urgent");
   expect(screen.getByRole("dialog", { name: task.title })).toBeInTheDocument();
 
   // Back closes the task, Back again leaves Tasks for the dashboard.
@@ -101,8 +103,16 @@ test("a forced withdrawal is listed once in pending finance operations and count
 test("finance ops shows withdrawal history and calls payout checks IBAN verification", () => {
   renderAdmin("/admin/finance");
   expect(screen.getByRole("heading", { name: "IBAN verification" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Save IBAN verification" })).toBeInTheDocument();
   expect(screen.queryByText(/payout instruction/i)).not.toBeInTheDocument();
+  // The admin picks the investor's pending request instead of retyping the IBAN (A-13).
+  const ibans = screen.getByRole("table", { name: "Payout IBANs" });
+  fireEvent.click(within(ibans).getByRole("button", { name: "Open" }));
+  const actions = screen.getByTestId("payout-iban-actions");
+  expect(within(actions).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
+  expect(within(actions).getByRole("button", { name: "Verify IBAN" })).toBeDisabled();
+  fireEvent.change(within(actions).getByLabelText("Evidence reference"), { target: { value: "bank-letter:1" } });
+  expect(within(actions).getByRole("button", { name: "Verify IBAN" })).toBeEnabled();
+  expect(within(actions).getByRole("button", { name: "Reject request" })).toBeDisabled();
 
   const history = screen.getByRole("table", { name: "Withdrawals history" });
   expect(within(history).getByText("L4F8K2Q9R")).toBeInTheDocument();
@@ -114,6 +124,10 @@ test("finance ops shows withdrawal history and calls payout checks IBAN verifica
   const filtered = screen.getByRole("table", { name: "Withdrawals history" });
   expect(within(filtered).queryByText("L4F8K2Q9R")).not.toBeInTheDocument();
   expect(within(filtered).getByText("L7MPX3TDA")).toBeInTheDocument();
+
+  // Forced returns have their own filter (MONEY-24).
+  fireEvent.change(screen.getByLabelText("Filter withdrawal history by type"), { target: { value: "forced" } });
+  expect(currentUrl()).toBe("/admin/finance?history_status=cancelled&history_kind=forced");
 });
 
 test("resolving a task asks for confirmation that it does not perform the action", () => {

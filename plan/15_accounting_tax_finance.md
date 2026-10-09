@@ -108,6 +108,8 @@ The annual cutoff is the calendar year ending December 31 by default. Reports sh
 
 Every annual tax information statement must state that it is informational only and is not tax advice. Final tax treatment remains the responsibility of each party and its advisors.
 
+Implementation notes (2026-10-09): tax information is only produced for a period that has ended (its end date is before the platform business date); the investor portal lists only finished calendar years. Direct-loan repayments and recoveries count in the year of the payment value date, not the recording time. Borrower tax information takes the BANXUM fee and the net amount paid to the borrower from the disbursement booking (the fee can change at payout), in the year of its value date.
+
 Rationale:
 All participant-facing and internal tax information should be derived from the same complete ledger-backed annual statement, avoiding separate tax logic that could drift from account statements or accounting exports.
 

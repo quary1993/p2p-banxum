@@ -8,6 +8,7 @@ from typing import Any, cast
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Model, Sum
 
@@ -22,6 +23,7 @@ from backend.apps.admin_ops.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.funding import balance_is_overdue
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -390,6 +392,17 @@ class EnsureLoanFundingCloseFailureTaskCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class EnsurePausedSubscriptionRoundTaskCommand:
+    actor: Model
+    loan_id: str
+    loan_title: str
+    currency: str
+    reserved_principal_minor: int
+    funding_deadline: date | None
+    hold_reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class EnsureLoanDefaultReviewTaskCommand:
     actor: Model
     loan_id: str
@@ -641,6 +654,120 @@ def resolve_loan_funding_close_failure_task(
         .filter(
             task_type=AdminTaskType.LOAN_SETUP,
             related_object_type="LoanFundingCloseFailure",
+            related_object_id=loan_id,
+        )
+        .first()
+    )
+    if task is None or task.status == AdminTaskStatus.RESOLVED:
+        return task
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note=completion_note,
+        )
+    )
+
+
+PAUSED_SUBSCRIPTION_ROUND_RELATED_OBJECT_TYPE = "PausedSubscriptionRound"
+
+
+def _paused_subscription_round_notes(command: EnsurePausedSubscriptionRoundTaskCommand) -> str:
+    deadline = command.funding_deadline.isoformat() if command.funding_deadline else "not set"
+    reserved = format_amount_minor(command.reserved_principal_minor, command.currency)
+    return (
+        "This Loan Originator subscription is paused and its funding deadline has passed. "
+        "The daily job does not close or cancel a paused round. Investor money stays "
+        "reserved until an admin decides.\n\n"
+        "Open the loan in Loans > Manage and choose one:\n"
+        "- Resume subscription: the next daily run closes the round at its published "
+        "result.\n"
+        "- Close funding round: close it now at the subscribed amount.\n"
+        "- Cancel and refund reservations: release every reservation to the investors.\n\n"
+        f"Loan ID: {command.loan_id}\n"
+        f"Funding deadline: {deadline}\n"
+        f"Reserved: {reserved}\n"
+        f"Pause reason: {command.hold_reason.strip() or 'not given'}"
+    )
+
+
+@transaction.atomic
+def ensure_paused_subscription_round_task(
+    command: EnsurePausedSubscriptionRoundTaskCommand,
+) -> AdminTask:
+    """Keep one open task for a paused round that passed its funding deadline."""
+
+    _require_admin_actor(command.actor)
+    loan_title = _clean_required(command.loan_title, "Loan title")
+    title = f"Paused LO round past its deadline: {loan_title}"
+    notes = _paused_subscription_round_notes(command)
+    existing = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type=PAUSED_SUBSCRIPTION_ROUND_RELATED_OBJECT_TYPE,
+            related_object_id=command.loan_id,
+        )
+        .first()
+    )
+    if existing is None:
+        try:
+            with transaction.atomic():
+                return create_admin_task(
+                    CreateAdminTaskCommand(
+                        actor=command.actor,
+                        task_type=AdminTaskType.LOAN_SETUP,
+                        title=title,
+                        priority=AdminTaskPriority.HIGH,
+                        due_at=now_utc(),
+                        notes=notes,
+                        related_object_type=PAUSED_SUBSCRIPTION_ROUND_RELATED_OBJECT_TYPE,
+                        related_object_id=command.loan_id,
+                    )
+                )
+        except IntegrityError:
+            existing = AdminTask.objects.select_for_update().get(
+                task_type=AdminTaskType.LOAN_SETUP,
+                related_object_type=PAUSED_SUBSCRIPTION_ROUND_RELATED_OBJECT_TYPE,
+                related_object_id=command.loan_id,
+            )
+    if (
+        existing.status != AdminTaskStatus.RESOLVED
+        and existing.title == title
+        and existing.notes == notes
+    ):
+        # Already open with the same facts: the daily run changes nothing.
+        return existing
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=command.actor,
+            task_id=str(existing.id),
+            title=title,
+            priority=AdminTaskPriority.HIGH,
+            status=(
+                AdminTaskStatus.OPEN
+                if existing.status == AdminTaskStatus.RESOLVED
+                else existing.status
+            ),
+            notes=notes,
+        )
+    )
+
+
+@transaction.atomic
+def resolve_paused_subscription_round_task(
+    *,
+    actor: Model,
+    loan_id: str,
+    completion_note: str,
+) -> AdminTask | None:
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type=PAUSED_SUBSCRIPTION_ROUND_RELATED_OBJECT_TYPE,
             related_object_id=loan_id,
         )
         .first()
@@ -1055,6 +1182,17 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
 
     if not changes:
         raise AdminTaskValidationError("No task changes were provided.")
+    if (
+        "status" in changes
+        and task.status in TERMINAL_ADMIN_TASK_STATUSES
+        and task.task_type == AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION
+        and _payout_instruction_is_pending(task.related_object_id)
+    ):
+        # Closing the task alone would leave the IBAN request pending in no queue.
+        raise AdminTaskValidationError(
+            "Verify or reject the IBAN first. This task closes when the IBAN is verified "
+            "or rejected."
+        )
 
     task.save(
         update_fields=[
@@ -1077,12 +1215,14 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
     elif "assigned_admin_id" in changes:
         event_type = AdminTaskEventType.ASSIGNED
     metadata = {"changes": changes}
+    # Only a real status change carries a status pair (no "Resolved -> Resolved").
+    status_changed = "status" in changes
     event = _record_task_event(
         task=task,
         actor=command.actor,
         event_type=event_type,
-        previous_status=previous_status,
-        new_status=task.status,
+        previous_status=previous_status if status_changed else "",
+        new_status=task.status if status_changed else "",
         note=command.notes or command.completion_note or "",
         metadata=metadata,
     )
@@ -1105,7 +1245,20 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
             idempotency_key=f"admin-task:{task.id}:event:{event.id}",
         )
     )
+    # An IBAN request is rejected only through the ledger reject action, which sends the
+    # investor notice; the verification task cannot be closed while the request is pending.
     return task
+
+
+def _payout_instruction_is_pending(instruction_id: str) -> bool:
+    try:
+        return bool(
+            _model("ledger", "InvestorPayoutInstruction")
+            .objects.filter(id=instruction_id, status="active", is_verified_usable=False)
+            .exists()
+        )
+    except (ValueError, DjangoValidationError):
+        return False
 
 
 def _payout_instruction_task_notes(
@@ -1268,6 +1421,202 @@ def resolve_payout_instruction_verification_task(
     )
     if task is None or task.status == AdminTaskStatus.RESOLVED:
         return task
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note=completion_note,
+        )
+    )
+
+
+KYC_REVIEW_RELATED_OBJECT_TYPE = "KycVerificationCase"
+
+
+@dataclass(frozen=True, slots=True)
+class EnsureKycReviewTaskCommand:
+    """Open, or reopen, the single admin review task of a KYC case.
+
+    Provider results arrive without a signed-in admin, so ``recorded_for`` is the case's
+    investor (the task row needs a user reference, as for payout-IBAN verification tasks);
+    the audit trail records the platform system as the actor. KYC callers hold the case row
+    lock, which keeps this to one task per case.
+    """
+
+    recorded_for: Model
+    case_id: str
+    subject_label: str
+    case_status: str
+    finding: str
+    urgent: bool = False
+
+
+def _kyc_review_task_notes(command: EnsureKycReviewTaskCommand) -> str:
+    return "\n".join(
+        [
+            "This KYC case needs an admin decision. The investor cannot start a new "
+            "verification and has no financial access until an admin records a decision in "
+            "KYC manual review (approve, decline, request re-verification or reopen).",
+            "",
+            f"Case status: {command.case_status}",
+            f"Latest: {command.finding.strip()}",
+        ]
+    )
+
+
+@transaction.atomic
+def ensure_kyc_review_task(command: EnsureKycReviewTaskCommand) -> AdminTask:
+    title = f"KYC review: {_clean_required(command.subject_label, 'Subject')}"[:255]
+    notes = _kyc_review_task_notes(command)
+    priority = AdminTaskPriority.URGENT if command.urgent else AdminTaskPriority.HIGH
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.KYC_MANUAL_REVIEW,
+            related_object_type=KYC_REVIEW_RELATED_OBJECT_TYPE,
+            related_object_id=command.case_id,
+        )
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    metadata: dict[str, Any] = {
+        "task_type": AdminTaskType.KYC_MANUAL_REVIEW,
+        "related_object_type": KYC_REVIEW_RELATED_OBJECT_TYPE,
+        "related_object_id": command.case_id,
+        "case_status": command.case_status,
+    }
+    if task is None:
+        task = AdminTask.objects.create(
+            task_type=AdminTaskType.KYC_MANUAL_REVIEW,
+            title=title,
+            priority=priority,
+            status=AdminTaskStatus.OPEN,
+            created_by=cast(Any, command.recorded_for),
+            due_at=now_utc(),
+            notes=notes,
+            related_object_type=KYC_REVIEW_RELATED_OBJECT_TYPE,
+            related_object_id=command.case_id,
+        )
+        metadata.update({"priority": task.priority, "status": task.status})
+        _record_task_event(
+            task=task,
+            actor=command.recorded_for,
+            event_type=AdminTaskEventType.CREATED,
+            new_status=task.status,
+            note=notes,
+            metadata=metadata,
+        )
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef.system(),
+                action="admin_task.kyc_review_requested",
+                target_type="AdminTask",
+                target_id=str(task.id),
+                metadata=metadata,
+            )
+        )
+        record_domain_event(
+            DomainEventCommand(
+                event_type="KycReviewTaskCreated",
+                aggregate_type="AdminTask",
+                aggregate_id=str(task.id),
+                payload=metadata,
+                idempotency_key=f"admin-task:{task.id}:created",
+            )
+        )
+        return task
+
+    previous_status = task.status
+    changed = False
+    if task.notes != notes:
+        task.notes = notes
+        changed = True
+    if command.urgent and task.priority != AdminTaskPriority.URGENT:
+        task.priority = AdminTaskPriority.URGENT
+        changed = True
+    if task.status in TERMINAL_ADMIN_TASK_STATUSES:
+        task.status = AdminTaskStatus.OPEN
+        task.completed_at = None
+        task.completion_note = ""
+        task.due_at = now_utc()
+        changed = True
+    if not changed:
+        return task
+    task.save(
+        update_fields=[
+            "notes",
+            "priority",
+            "status",
+            "completed_at",
+            "completion_note",
+            "due_at",
+            "updated_at",
+        ]
+    )
+    metadata.update(
+        {
+            "priority": task.priority,
+            "previous_status": previous_status,
+            "status": task.status,
+            "reopened": previous_status in TERMINAL_ADMIN_TASK_STATUSES,
+        }
+    )
+    event = _record_task_event(
+        task=task,
+        actor=command.recorded_for,
+        event_type=(
+            AdminTaskEventType.STATUS_CHANGED
+            if previous_status != task.status
+            else AdminTaskEventType.UPDATED
+        ),
+        previous_status=previous_status,
+        new_status=task.status,
+        note=command.finding,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="admin_task.kyc_review_updated",
+            target_type="AdminTask",
+            target_id=str(task.id),
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="KycReviewTaskUpdated",
+            aggregate_type="AdminTask",
+            aggregate_id=str(task.id),
+            payload=metadata,
+            idempotency_key=f"admin-task:{task.id}:event:{event.id}",
+        )
+    )
+    return task
+
+
+@transaction.atomic
+def resolve_kyc_review_task(
+    *,
+    actor: Model,
+    case_id: str,
+    completion_note: str,
+) -> AdminTask | None:
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.KYC_MANUAL_REVIEW,
+            related_object_type=KYC_REVIEW_RELATED_OBJECT_TYPE,
+            related_object_id=case_id,
+        )
+        .exclude(status__in=TERMINAL_ADMIN_TASK_STATUSES)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if task is None:
+        return None
     return update_admin_task(
         UpdateAdminTaskCommand(
             actor=actor,
@@ -1476,21 +1825,52 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
     ):
         summary = _currency_summary(currency_summaries, str(row["currency_id"]))
         summary["forced_withdrawal_minor"] = int(row["total"] or 0)
-    for request in requested_withdrawals.order_by("requested_at", "id")[:queue_limit]:
+    queued_withdrawals = list(requested_withdrawals.order_by("requested_at", "id")[:queue_limit])
+    withdrawal_owners = {
+        str(user.pk): user
+        for user in get_user_model().objects.filter(
+            id__in={request.investor_user_id for request in queued_withdrawals}
+        )
+    }
+    for request in queued_withdrawals:
+        is_forced = bool(getattr(request, "is_forced", False))
+        request_metadata = cast(dict[str, Any], getattr(request, "metadata", {}) or {})
+        owner = withdrawal_owners.get(str(request.investor_user_id))
+        withdrawal_item_metadata: dict[str, Any] = {
+            "investor_name": str(getattr(owner, "full_name", "") or ""),
+            "investor_email": str(getattr(owner, "email", "") or ""),
+            "investor_reference": str(getattr(owner, "investor_reference", "") or ""),
+            "investor_user_id": str(getattr(request, "investor_user_id", "")),
+            "destination_iban": str(getattr(request, "destination_iban", "")),
+            "destination_account_name": str(getattr(request, "destination_account_name", "")),
+            "is_forced": is_forced,
+        }
+        selection = request_metadata.get("destination_selection")
+        if is_forced and isinstance(selection, dict):
+            withdrawal_item_metadata["destination_reason"] = str(selection.get("reason", ""))
+        revoked = request_metadata.get("destination_revoked")
+        if isinstance(revoked, dict):
+            withdrawal_item_metadata["destination_revoked"] = (
+                "IBAN revoked: " + str(revoked.get("reason", ""))
+            )
         item = _queue_item(
             kind="withdrawal_request",
             item_id=str(request.pk),
-            title="Investor withdrawal awaiting bank execution",
+            title=(
+                "Destination IBAN revoked: cancel this withdrawal"
+                if isinstance(revoked, dict)
+                else "Forced return awaiting bank execution"
+                if is_forced
+                else "Investor withdrawal awaiting bank execution"
+            ),
             status=str(getattr(request, "status", "")),
+            priority="high" if isinstance(revoked, dict) or is_forced else "",
             due_at=getattr(request, "requested_at", None),
             currency=_currency_code(request),
             amount_minor=int(getattr(request, "amount_minor", 0)),
             object_type="InvestorWithdrawalRequest",
             object_id=str(request.pk),
-            metadata={
-                "investor_user_id": str(getattr(request, "investor_user_id", "")),
-                "is_forced": bool(getattr(request, "is_forced", False)),
-            },
+            metadata=withdrawal_item_metadata,
         )
         queues["withdrawals_requested"].append(item)
         if (
@@ -1522,7 +1902,10 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         summary["available_balance_minor"] += amount
         status = str(lot_ref.status)
         if status == BALANCE_AVAILABLE_STATUS:
-            if business_date(lot_ref.withdrawal_deadline_at) <= business_date(as_of):
+            if balance_is_overdue(
+                withdrawal_deadline_at=lot_ref.withdrawal_deadline_at,
+                as_of=as_of,
+            ):
                 summary["overdue_available_minor"] += amount
                 balance_lots_overdue_count += 1
                 if len(queues["balance_ageing_actions"]) < queue_limit:

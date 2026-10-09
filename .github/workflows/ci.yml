@@ -75,8 +75,33 @@ jobs:
       - name: Postgres hardening tests
         run: make test-postgres-hardening
 
+      - name: Backend dependency audit
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit --strict --disable-pip --no-deps -r "$RUNNER_TEMP/requirements.txt"
+
       - name: Frontend dependency audit
-        run: npm --prefix frontend audit --omit=optional
+        run: npm --prefix frontend audit --omit=dev
+
+      - name: Deploy settings check (staging-like environment)
+        # The deploy containers run the same check before they start (audit A-51).
+        run: |
+          export ENVIRONMENT=staging
+          export DJANGO_DEBUG=false
+          export DJANGO_SECRET_KEY="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(64))')"
+          export AUTH_DELIVERY_SECRET_ENCRYPTION_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          export AUTH_SECRET_DIGEST_PEPPER="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          export TRUSTED_PROXY_COUNT=2
+          export SCHEDULED_JOBS_ACTOR_EMAIL=scheduler@example.test
+          export PHONE_VERIFICATION_PROVIDER=twilio_verify
+          export TWILIO_API_KEY_SID=SKci TWILIO_API_KEY_SECRET=ci-secret TWILIO_VERIFY_SERVICE_SID=VAci
+          export COMMUNICATIONS_EMAIL_PROVIDER=twilio_email
+          export TWILIO_EMAIL_API_KEY_SID=SKci TWILIO_EMAIL_API_KEY_SECRET=ci-secret
+          export DIDIT_SESSION_PROVIDER=api DIDIT_API_KEY=ci-key DIDIT_WEBHOOK_SECRET=ci-secret
+          export DIDIT_WORKFLOW_ID=00000000-0000-0000-0000-000000000000
+          export DIDIT_WEBHOOK_REQUIRE_SIGNATURE=true
+          export FX_RATE_PROVIDER=yahoo_finance
+          uv run python backend/manage.py check --deploy --fail-level ERROR
 
       - name: Docker build
         run: make docker-build

@@ -8,9 +8,29 @@
 # Production and staging should use separate domains/subdomains, separate
 # environment files, separate Compose project names, and separate provider
 # credentials or sandbox/mock provider settings.
+#
+# Caddy is the TLS edge. It sets X-Forwarded-For to the client address and
+# X-Forwarded-Proto to https itself, and ignores values sent by clients (do not add
+# trusted_proxies here). The backend therefore runs with TRUSTED_PROXY_COUNT=2
+# (Caddy, then the nginx frontend container).
+#
+# HSTS and default security headers are set here (audit A-54). "?" sets a header
+# only when the upstream response has none, so app and API headers win.
+
+(banxum_security_headers) {
+    header {
+        ?Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        ?X-Content-Type-Options "nosniff"
+        ?X-Frame-Options "DENY"
+        ?Referrer-Policy "no-referrer"
+        ?Content-Security-Policy "frame-ancestors 'none'"
+        -Server
+    }
+}
 
 banxum.example.com {
     encode gzip
+    import banxum_security_headers
     header X-BANXUM-Software-IP "IP of Webby-Soft SRL."
     header X-BANXUM-Build-Origin "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA=="
     reverse_proxy 127.0.0.1:8082
@@ -18,6 +38,7 @@ banxum.example.com {
 
 staging.banxum.example.com {
     encode gzip
+    import banxum_security_headers
     header X-BANXUM-Software-IP "IP of Webby-Soft SRL."
     header X-BANXUM-Build-Origin "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA=="
     reverse_proxy 127.0.0.1:8081

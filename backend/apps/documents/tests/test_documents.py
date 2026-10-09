@@ -1445,3 +1445,81 @@ def test_investment_summary_marks_legacy_lo_quote_purchases_as_lo_claims() -> No
         "Loan Originator": "QA Test Originator AG",
         "Agreement no.": "LOQ-1234ABCD",
     }
+
+
+MARKDOWN_TERMS_BODY = (
+    "# Investment terms\n\n"
+    "The lender **{{user.full_name}}** acquires a *participation* in {{loan.title}} "
+    "under [the platform terms](https://banxum.example/terms).\n\n"
+    "## Assignment\n\n"
+    "- The claim share is assigned at funding close.\n"
+    "- Repayments follow the **payment waterfall**.\n\n"
+    "1. First step\n"
+    "2. Second step\n\n"
+    "| Item | Value |\n"
+    "|---|---|\n"
+    "| Rate | **8.4%** |\n\n"
+    "Raw <b>tags</b> stay text (and a back\\slash)."
+)
+
+
+def _content_streams(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    streams = [page.get_contents() for page in reader.pages]
+    return "\n".join(
+        stream.get_data().decode("latin-1") for stream in streams if stream is not None
+    )
+
+
+@pytest.mark.django_db
+def test_agreement_pdf_renders_template_markdown_like_the_web_page(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    # JOURNEY-13: agreement and terms PDFs printed "# Investment terms" literally and the
+    # table of contents said "No section headings detected".
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-markdown-pdf",
+        body=MARKDOWN_TERMS_BODY,
+    )
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor, acceptance_id=str(acceptance.id), output_format="pdf"
+        )
+    )
+    pdf_bytes = base64.b64decode(artifact.content.encode("ascii"))
+    text = _pdf_text(pdf_bytes)
+
+    assert "Investment terms" in text
+    assert "Assignment" in text
+    for literal in ("# Investment", "## Assignment", "**", "](", "|---", "No section headings"):
+        assert literal not in text, literal
+    assert "the platform terms (https://banxum.example/terms)" in text
+    assert "The claim share is assigned at funding close." in text
+    assert "1. First step" in text and "2. Second step" in text
+    assert "Rate 8.4%" in text
+    assert "Raw <b>tags</b> stay text (and a back\\slash)." in text
+    # The headings fill the table of contents.
+    toc_page = " ".join(PdfReader(io.BytesIO(pdf_bytes)).pages[1].extract_text().split())
+    assert "Table of contents" in toc_page
+    assert "Investment terms" in toc_page and "Assignment" in toc_page
+    streams = _content_streams(pdf_bytes)
+    # Bold and italic runs print in the bold and italic fonts; list items get a bullet.
+    assert "/F2 8.3 Tf (payment waterfall) Tj" in streams
+    assert "/F4 8.3 Tf (participation) Tj" in streams
+    assert "(\x95) Tj" in streams
+
+
+@pytest.mark.django_db
+def test_template_preview_pdf_renders_markdown_headings() -> None:
+    documents_services.seed_placeholder_legal_templates()
+    payload = documents_services.render_current_template_preview(category="risk_disclosure")
+    pdf_bytes = base64.b64decode(payload["content"])
+    text = _pdf_text(pdf_bytes)
+    toc_page = " ".join(PdfReader(io.BytesIO(pdf_bytes)).pages[1].extract_text().split())
+
+    assert "# Generic" not in text and "## Credit" not in text
+    assert "Credit and repayment risk" in toc_page
+    assert "Liquidity risk" in toc_page

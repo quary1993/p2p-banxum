@@ -28,6 +28,7 @@ from backend.apps.marketplace_primary.services import (
     ClosePrimaryLoanFundingCommand,
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
+    MarketplacePrimaryOrderNotPendingError,
     MarketplacePrimaryValidationError,
     PlacePrimaryOrderBatchCommand,
     PrimaryOrderBatchItemCommand,
@@ -194,23 +195,28 @@ def _declare_deposit(
         # Relative dates keep the source eligible through the test campaign's close.
         value_date = business_date(timezone.now())
     ledger = import_module("backend.apps.ledger.services")
-    return ledger.declare_lender_deposit(
-        ledger.DeclareLenderDepositCommand(
-            actor=admin_user,
-            investor_user_id=str(investor.pk),
-            amount_minor=amount_minor,
-            currency=currency,
-            booking_date=value_date,
-            value_date=value_date,
-            collection_account_identifier="CH00GARANTAMARKET",
-            payer_name="Market Investor",
-            payer_account_identifier="CH9300762011623852957",
-            bank_reference=f"BANK-{idempotency_key}",
-            payment_reference=f"INV-{investor.pk}",
-            evidence_reference=f"statement:{idempotency_key}",
-            idempotency_key=idempotency_key,
+    # Deposits cannot be dated in the future: book later-dated ones on their own platform day.
+    clock = ledger.now_utc()
+    if value_date > business_date(clock):
+        clock = datetime.combine(value_date, time(12), UTC)
+    with patch("backend.apps.ledger.services.now_utc", return_value=clock):
+        return ledger.declare_lender_deposit(
+            ledger.DeclareLenderDepositCommand(
+                actor=admin_user,
+                investor_user_id=str(investor.pk),
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=value_date,
+                value_date=value_date,
+                collection_account_identifier="CH00GARANTAMARKET",
+                payer_name="Market Investor",
+                payer_account_identifier="CH9300762011623852957",
+                bank_reference=f"BANK-{idempotency_key}",
+                payment_reference=f"INV-{investor.pk}",
+                evidence_reference=f"statement:{idempotency_key}",
+                idempotency_key=idempotency_key,
+            )
         )
-    )
 
 
 def _create_originator_batch_loan(admin_user: Model, *, suffix: str) -> Model:
@@ -691,13 +697,16 @@ def test_balance_allocation_allows_pledge_before_lot_investment_deadline(
 
 
 @pytest.mark.django_db
-def test_allocation_accepts_subminimum_final_capacity_fill(
+def test_allocation_refuses_a_partial_fill_below_the_minimum_order(
     admin_user: Model,
     investor: Model,
 ) -> None:
+    # Audit A-33 / SECONDARY-05: another investor took the capacity first and only
+    # CHF 500 is left; the minimum order is CHF 1,000. The order closes as not
+    # invested (as Loan Originator rounds do) and no money moves.
     _approve_financial_access(investor)
     loan = _create_published_loan(admin_user, principal_minor=10_500_00)
-    _declare_deposit(admin_user, investor, amount_minor=2_000_00)
+    deposit = _declare_deposit(admin_user, investor, amount_minor=2_000_00)
     order = create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
             actor=investor,
@@ -713,19 +722,72 @@ def test_allocation_accepts_subminimum_final_capacity_fill(
         order_id=str(order.id),
         idempotency_key="market-accept-final-fill",
     )
+    command = AllocatePrimaryInvestmentOrderCommand(
+        actor=investor,
+        order_id=str(order.id),
+        document_acceptance_id=str(acceptance.pk),
+        idempotency_key="market-allocate-final-fill",
+        **_sensitive_code_payload(investor, "primary_investment"),
+    )
+
+    allocated = allocate_primary_order_from_balance(command)
+    deposit.balance_lot.refresh_from_db()
+    loan.refresh_from_db()
+
+    assert allocated.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert allocated.allocated_amount_minor == 0
+    assert allocated.reservation_journal_entry_id is None
+    assert cast(dict[str, Any], allocated.metadata)["closed_reason"] == (
+        "Remaining loan capacity was below the minimum order."
+    )
+    assert deposit.balance_lot.available_amount_minor == 2_000_00
+    assert cast(Any, loan).committed_principal_minor == 10_000_00
+    # A retry of the same request returns the same result and still moves nothing.
+    replay = allocate_primary_order_from_balance(command)
+    deposit.balance_lot.refresh_from_db()
+    assert replay.id == allocated.id
+    assert replay.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert deposit.balance_lot.available_amount_minor == 2_000_00
+
+
+@pytest.mark.django_db
+def test_allocation_keeps_a_partial_fill_that_reaches_the_minimum_order(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=11_000_00)
+    deposit = _declare_deposit(admin_user, investor, amount_minor=5_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=4_500_00,
+            idempotency_key="market-order-fill-at-minimum",
+        )
+    )
+    cast(Any, loan).committed_principal_minor = 10_000_00
+    loan.save(update_fields=["committed_principal_minor"])
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-fill-at-minimum",
+    )
 
     allocated = allocate_primary_order_from_balance(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
-            idempotency_key="market-allocate-final-fill",
+            idempotency_key="market-allocate-fill-at-minimum",
             **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
+    deposit.balance_lot.refresh_from_db()
 
     assert allocated.status == PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED
-    assert allocated.allocated_amount_minor == 500_00
+    assert allocated.allocated_amount_minor == 1_000_00
+    assert deposit.balance_lot.available_amount_minor == 4_000_00
 
 
 @pytest.mark.django_db
@@ -946,6 +1008,190 @@ def test_allocation_closes_not_invested_when_no_capacity_remains(
 
     assert allocated.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
     assert allocated.allocated_amount_minor == 0
+
+
+@pytest.mark.django_db
+def test_new_order_closes_the_investors_unconfirmed_order_on_the_same_loan(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # Audit SECONDARY-09: a failed or abandoned confirmation leaves a pending order
+    # that the investor cannot cancel. A new order on the same loan replaces it.
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor, amount_minor=5_000_00)
+    first = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="market-order-abandoned",
+        )
+    )
+    first_acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(first.id),
+        idempotency_key="market-accept-abandoned",
+    )
+    second_command = CreatePrimaryInvestmentOrderCommand(
+        actor=investor,
+        loan_id=str(loan.pk),
+        amount_minor=2_000_00,
+        idempotency_key="market-order-replacement",
+    )
+    second = create_primary_investment_order(second_command)
+    first.refresh_from_db()
+
+    assert first.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert first.allocated_amount_minor == 0
+    assert cast(dict[str, Any], first.metadata)["closed_reason_code"] == "replaced_by_new_order"
+    assert PrimaryInvestmentOrderEvent.objects.filter(
+        order=first,
+        event_type="closed_not_invested",
+    ).exists()
+    assert second.status == PrimaryInvestmentOrderStatus.PENDING
+    # A replay of the new order returns it unchanged; it does not replace itself.
+    assert create_primary_investment_order(second_command).id == second.id
+    second.refresh_from_db()
+    assert second.status == PrimaryInvestmentOrderStatus.PENDING
+
+    # The replaced order cannot be allocated, and the email code is not used up.
+    code = _sensitive_code_payload(investor, "primary_investment")
+    with pytest.raises(MarketplacePrimaryOrderNotPendingError) as closed_error:
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(first.id),
+                document_acceptance_id=str(first_acceptance.pk),
+                idempotency_key="market-allocate-abandoned",
+                **code,
+            )
+        )
+    assert "closed before it was confirmed" in str(closed_error.value)
+    second_acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(second.id),
+        idempotency_key="market-accept-replacement",
+    )
+    allocated = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(second.id),
+            document_acceptance_id=str(second_acceptance.pk),
+            idempotency_key="market-allocate-replacement",
+            **code,
+        )
+    )
+    assert allocated.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+    assert allocated.allocated_amount_minor == 2_000_00
+
+
+@pytest.mark.django_db
+def test_abandoned_pending_orders_expire_and_do_not_block_new_orders(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loans = [_create_published_loan(admin_user) for _ in range(3)]
+    services = import_module("backend.apps.marketplace_primary.services")
+    with patch.object(services, "_pending_order_cap", return_value=2):
+        abandoned = [
+            create_primary_investment_order(
+                CreatePrimaryInvestmentOrderCommand(
+                    actor=investor,
+                    loan_id=str(loan.pk),
+                    amount_minor=1_000_00,
+                    idempotency_key=f"market-order-cap-{index}",
+                )
+            )
+            for index, loan in enumerate(loans[:2])
+        ]
+        with pytest.raises(MarketplacePrimaryValidationError, match="too many pending orders"):
+            create_primary_investment_order(
+                CreatePrimaryInvestmentOrderCommand(
+                    actor=investor,
+                    loan_id=str(loans[2].pk),
+                    amount_minor=1_000_00,
+                    idempotency_key="market-order-cap-blocked",
+                )
+            )
+        later = timezone.now() + timedelta(minutes=services.PENDING_ORDER_TTL_MINUTES_DEFAULT + 1)
+        with patch.object(services, "now_utc", return_value=later):
+            fresh = create_primary_investment_order(
+                CreatePrimaryInvestmentOrderCommand(
+                    actor=investor,
+                    loan_id=str(loans[2].pk),
+                    amount_minor=1_000_00,
+                    idempotency_key="market-order-cap-after-expiry",
+                )
+            )
+
+    assert fresh.status == PrimaryInvestmentOrderStatus.PENDING
+    for order in abandoned:
+        order.refresh_from_db()
+        assert order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        assert cast(dict[str, Any], order.metadata)["closed_reason_code"] == (
+            "pending_order_expired"
+        )
+
+
+@pytest.mark.django_db
+def test_order_api_reports_closed_orders_clearly(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_500_00)
+    _declare_deposit(admin_user, investor, amount_minor=2_000_00)
+    client.force_login(cast(Any, investor))
+    replaced = client.post(
+        "/api/v1/marketplace/primary/orders/",
+        data={"loan_id": str(loan.pk), "amount_minor": 1_000_00, "idempotency_key": "api-r-1"},
+        content_type="application/json",
+    ).json()
+    replaced_acceptance = _create_primary_acceptance(
+        investor, order_id=replaced["id"], idempotency_key="api-r-accept-1"
+    )
+    current = client.post(
+        "/api/v1/marketplace/primary/orders/",
+        data={"loan_id": str(loan.pk), "amount_minor": 1_000_00, "idempotency_key": "api-r-2"},
+        content_type="application/json",
+    ).json()
+    code = _sensitive_code_payload(investor, "primary_investment")
+    not_pending = client.post(
+        f"/api/v1/marketplace/primary/orders/{replaced['id']}/allocate-balance/",
+        data={
+            "document_acceptance_id": str(replaced_acceptance.pk),
+            "idempotency_key": "api-r-allocate-1",
+            **code,
+        },
+        content_type="application/json",
+    )
+    cast(Any, loan).committed_principal_minor = 10_000_00
+    loan.save(update_fields=["committed_principal_minor"])
+    current_acceptance = _create_primary_acceptance(
+        investor, order_id=current["id"], idempotency_key="api-r-accept-2"
+    )
+    below_minimum = client.post(
+        f"/api/v1/marketplace/primary/orders/{current['id']}/allocate-balance/",
+        data={
+            "document_acceptance_id": str(current_acceptance.pk),
+            "idempotency_key": "api-r-allocate-2",
+            **code,
+        },
+        content_type="application/json",
+    )
+
+    assert not_pending.status_code == 400
+    assert not_pending.json()["code"] == "order_not_pending"
+    assert below_minimum.status_code == 200
+    assert below_minimum.json()["status"] == "closed_not_invested"
+    assert below_minimum.json()["allocated_amount_minor"] == 0
+    assert below_minimum.json()["closed_reason"] == (
+        "Remaining loan capacity was below the minimum order."
+    )
+    assert "metadata" not in below_minimum.json()
 
 
 @pytest.mark.django_db
@@ -1186,6 +1432,14 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
         amount_minor=10_000_00,
         idempotency_key="market-close-deposit-2",
     )
+    first_order = _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=20_000_00,
+        idempotency_prefix="market-close-first",
+    )
+    # Created after the investor's allocated order: a newer order on the same loan
+    # would close this unconfirmed one as replaced.
     pending_order = create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
             actor=investor,
@@ -1193,12 +1447,6 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
             amount_minor=1_000_00,
             idempotency_key="market-close-pending-order",
         )
-    )
-    first_order = _create_and_allocate_order(
-        investor=investor,
-        loan=loan,
-        amount_minor=20_000_00,
-        idempotency_prefix="market-close-first",
     )
     second_order = _create_and_allocate_order(
         investor=other_investor,
@@ -1536,6 +1784,14 @@ def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
         amount_minor=25_000_00,
         idempotency_key="cancel-deposit",
     )
+    allocated_order = _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=20_000_00,
+        idempotency_prefix="market-cancel-allocated",
+    )
+    # Created after the allocated order: a newer order on the same loan would close
+    # this unconfirmed one as replaced.
     pending_order = create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
             actor=investor,
@@ -1543,12 +1799,6 @@ def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
             amount_minor=1_000_00,
             idempotency_key="cancel-pending-order",
         )
-    )
-    allocated_order = _create_and_allocate_order(
-        investor=investor,
-        loan=loan,
-        amount_minor=20_000_00,
-        idempotency_prefix="market-cancel-allocated",
     )
 
     cancellation = cancel_primary_loan_funding(
@@ -2170,8 +2420,14 @@ def test_primary_marketplace_api_flow(
 
     assert preview_response.status_code == 200
     assert preview_response.json()[0]["loan_id"] == str(loan.pk)
-    assert preview_response.json()[0]["minimum_investment_minor"] == 100000
-    assert preview_response.json()[0]["ltv_bps"] == 6667
+    # Before login only the MKT-DEC-002 fields leave the server.
+    assert "minimum_investment_minor" not in preview_response.json()[0]
+    assert "ltv_bps" not in preview_response.json()[0]
+    opportunities_response = client.get("/api/v1/marketplace/primary/opportunities/")
+    assert opportunities_response.status_code == 200
+    assert opportunities_response.json()[0]["loan_id"] == str(loan.pk)
+    assert opportunities_response.json()[0]["minimum_investment_minor"] == 100000
+    assert opportunities_response.json()[0]["ltv_bps"] == 6667
     assert detail_response.status_code == 200
     assert detail_response.json()["investor_summary"]
     assert order_response.status_code == 201
@@ -2612,7 +2868,7 @@ def test_mixed_primary_batch_rolls_back_direct_order_when_claim_balance_is_short
         },
     )
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Insufficient eligible balance"):
+    with pytest.raises(MarketplacePrimaryValidationError, match="Your available CHF balance is"):
         place_primary_order_batch(
             PlacePrimaryOrderBatchCommand(
                 actor=investor,
@@ -2891,7 +3147,10 @@ def test_primary_order_batch_rolls_back_both_currencies_when_one_balance_is_shor
         },
     )
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Insufficient eligible balance"):
+    with pytest.raises(
+        MarketplacePrimaryValidationError,
+        match="You have no available EUR balance",
+    ):
         place_primary_order_batch(
             PlacePrimaryOrderBatchCommand(
                 actor=investor,
@@ -3016,3 +3275,212 @@ def test_primary_order_batch_has_app_and_db_append_only_guards(
                     else result.batch.id
                 ],
             )
+
+
+@pytest.mark.django_db
+def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    today = business_date(timezone.now())
+    # An order placed before the freeze, still pending.
+    _declare_deposit(admin_user, investor, amount_minor=5_000_00, idempotency_key="fresh")
+    pending = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="penalty-pending-order",
+        )
+    )
+    ledger = import_module("backend.apps.ledger.services")
+    old = _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=500_00,
+        value_date=today - timedelta(days=70),
+        idempotency_key="old-deposit",
+    )
+    # No usable IBAN is left at day 60, so the scan puts the old balance in penalty mode.
+    for instruction in apps.get_model("ledger", "InvestorPayoutInstruction").objects.filter(
+        investor_user_id=investor.pk, status="active"
+    ):
+        ledger.revoke_investor_payout_instruction(
+            ledger.RevokeInvestorPayoutInstructionCommand(
+                actor=admin_user,
+                instruction_id=str(instruction.pk),
+                reason="Returned by the bank.",
+            )
+        )
+    ledger.run_balance_ageing_scan(ledger.RunBalanceAgeingScanCommand(actor=admin_user))
+    old.balance_lot.refresh_from_db()
+    assert old.balance_lot.status == "penalty_mode"
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Investing is not possible"):
+        create_primary_investment_order(
+            CreatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                loan_id=str(loan.pk),
+                amount_minor=1_000_00,
+                idempotency_key="penalty-new-order",
+            )
+        )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(pending.id),
+        idempotency_key="penalty-pending-accept",
+    )
+    with pytest.raises(MarketplacePrimaryValidationError, match="Investing is not possible"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(pending.id),
+                document_acceptance_id=str(acceptance.pk),
+                idempotency_key="penalty-pending-allocate",
+                **_sensitive_code_payload(investor, "primary_investment"),
+            )
+        )
+    pending.refresh_from_db()
+    assert pending.status == PrimaryInvestmentOrderStatus.PENDING
+    assert pending.allocated_amount_minor == 0
+
+PUBLIC_PREVIEW_FIELDS = {
+    "loan_id",
+    "borrower_name",
+    "borrower_country",
+    "product_type",
+    "is_refinancing",
+    "currency",
+    "principal_minor",
+    "interest_rate_bps",
+    "term_months",
+    "status",
+}
+
+
+@pytest.mark.django_db
+def test_anonymous_marketplace_preview_returns_only_public_fields(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """MKT-DEC-002 / SECCODE-06: the public preview carries 8 facts and the loan id."""
+    direct = _create_published_loan(admin_user)
+    originator_loan = _create_originator_batch_loan(admin_user, suffix="PUBLIC")
+    profile_model = apps.get_model("originator_claims", "OriginatorLoanProfile")
+    profile_model.objects.filter(loan_id=originator_loan.pk).update(borrower_country="DE")
+
+    response = client.get("/api/v1/marketplace/primary/loans/")
+
+    assert response.status_code == 200
+    rows = {row["loan_id"]: row for row in response.json()}
+    assert set(rows) == {str(direct.pk), str(originator_loan.pk)}
+    for row in rows.values():
+        assert set(row) == PUBLIC_PREVIEW_FIELDS
+        assert row["status"] == "open"
+    assert rows[str(direct.pk)] == {
+        "loan_id": str(direct.pk),
+        "borrower_name": "Marketplace Borrower AG",
+        "borrower_country": "CH",
+        "product_type": "direct",
+        "is_refinancing": False,
+        "currency": "CHF",
+        "principal_minor": 100_000_00,
+        "interest_rate_bps": 1000,
+        "term_months": 12,
+        "status": "open",
+    }
+    lo_row = rows[str(originator_loan.pk)]
+    # The anonymized borrower name, never the confidential legal name.
+    assert lo_row["borrower_name"] == "Batch borrower PUBLIC"
+    assert lo_row["borrower_country"] == "DE"
+    assert lo_row["product_type"] == "originator_claim"
+    assert lo_row["interest_rate_bps"] == 800
+    body = response.content.decode()
+    for hidden in (
+        "Confidential Batch Borrower",
+        "risk_rating",
+        "ltv_bps",
+        "collateral",
+        "committed_principal_minor",
+        "funding_deadline",
+        "minimum_investment_minor",
+        "participation_bps",
+        "originator_name",
+        "title",
+        "published",
+    ):
+        assert hidden not in body
+
+    # A logged-in investor gets the same public payload here, the full list elsewhere.
+    _approve_financial_access(investor)
+    client.force_login(cast(Any, investor))
+    assert client.get("/api/v1/marketplace/primary/loans/").json() == response.json()
+    full = client.get("/api/v1/marketplace/primary/opportunities/")
+    assert full.status_code == 200
+    full_rows = {row["loan_id"]: row for row in full.json()}
+    assert full_rows[str(direct.pk)]["risk_rating"] == "BBB"
+    assert full_rows[str(direct.pk)]["committed_principal_minor"] == 0
+
+
+@pytest.mark.django_db
+def test_public_preview_leaves_out_a_fully_funded_loan(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Verify 2026-10-09: a fully committed loan was still shown to visitors as "open"."""
+    open_loan = _create_published_loan(admin_user)
+    full_loan = _create_published_loan(admin_user)
+    loan_model = apps.get_model("loans", "Loan")
+    loan_model.objects.filter(pk=full_loan.pk).update(
+        committed_principal_minor=cast(Any, full_loan).principal_minor
+    )
+
+    public_ids = {row["loan_id"] for row in client.get("/api/v1/marketplace/primary/loans/").json()}
+    assert public_ids == {str(open_loan.pk)}
+
+    # Investors still see it in their list, shown as fully funded by the portal.
+    _approve_financial_access(investor)
+    client.force_login(cast(Any, investor))
+    rows = {
+        row["loan_id"]: row
+        for row in client.get("/api/v1/marketplace/primary/opportunities/").json()
+    }
+    assert rows[str(full_loan.pk)]["fillable_amount_minor"] == 0
+
+
+@pytest.mark.django_db
+def test_investor_opportunity_list_requires_login_and_kyc(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _create_published_loan(admin_user)
+
+    anonymous = client.get("/api/v1/marketplace/primary/opportunities/")
+    assert anonymous.status_code in {401, 403}
+    client.force_login(cast(Any, investor))
+    unverified = client.get("/api/v1/marketplace/primary/opportunities/")
+    assert unverified.status_code == 403
+
+
+def test_openapi_schema_describes_the_public_preview_payload() -> None:
+    generators: Any = import_module("drf_spectacular.generators")
+    schema = generators.SchemaGenerator().get_schema(request=None, public=True)
+    operation = schema["paths"]["/api/v1/marketplace/primary/loans/"]["get"]
+    items = operation["responses"]["200"]["content"]["application/json"]["schema"]["items"]
+    component = schema["components"]["schemas"][items["$ref"].rsplit("/", 1)[-1]]
+    assert set(component["properties"]) == PUBLIC_PREVIEW_FIELDS
+    investor_operation = schema["paths"]["/api/v1/marketplace/primary/opportunities/"]["get"]
+    investor_items = investor_operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]["items"]
+    investor_component = schema["components"]["schemas"][
+        investor_items["$ref"].rsplit("/", 1)[-1]
+    ]
+    assert {"risk_rating", "ltv_bps", "minimum_investment_minor"} <= set(
+        investor_component["properties"]
+    )

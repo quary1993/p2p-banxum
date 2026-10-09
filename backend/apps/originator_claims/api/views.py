@@ -32,6 +32,7 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorSettlementResponseSerializer,
     OriginatorSubscriptionActivationRequestSerializer,
     OriginatorSubscriptionCancellationRequestSerializer,
+    OriginatorSubscriptionResumeSerializer,
 )
 from backend.apps.originator_claims.services import (
     ActivateOriginatorSubscriptionCommand,
@@ -47,6 +48,7 @@ from backend.apps.originator_claims.services import (
     PublishOriginatorLoanCommand,
     PurchaseOriginatorClaimCommand,
     RecordOriginatorBorrowerRepaymentCommand,
+    ResumeOriginatorSubscriptionCommand,
     UpdateLoanOriginatorCommand,
     activate_originator_subscription,
     cancel_originator_subscription,
@@ -65,6 +67,7 @@ from backend.apps.originator_claims.services import (
     purchase_originator_claim,
     record_originator_borrower_repayment,
     replace_originator_loan_draft,
+    resume_originator_subscription,
     update_loan_originator,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
@@ -308,6 +311,7 @@ class OriginatorFundingRoundCloseView(APIView):
                     as_of_date=data["as_of_date"],
                     close_reason=str(data["close_reason"]),
                     idempotency_key=str(data["idempotency_key"]),
+                    admin_decision=True,
                 )
             )
             profile = evidence.loan_profile
@@ -390,6 +394,30 @@ class OriginatorLoanHoldView(APIView):
         try:
             profile = place_originator_loan_on_hold(
                 HoldOriginatorLoanCommand(
+                    actor=_actor(request),
+                    loan_id=str(loan_id),
+                    reason=str(serializer.validated_data["reason"]),
+                )
+            )
+        except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
+            return _error_response(exc)
+        return Response(_profile_payload(profile))
+
+
+class OriginatorSubscriptionResumeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="originator_claims_admin_loans_subscription_resume",
+        request=OriginatorSubscriptionResumeSerializer,
+        responses={200: OriginatorLoanProfileResponseSerializer},
+    )
+    def post(self, request: Request, loan_id: Any) -> Response:
+        serializer = OriginatorSubscriptionResumeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            profile = resume_originator_subscription(
+                ResumeOriginatorSubscriptionCommand(
                     actor=_actor(request),
                     loan_id=str(loan_id),
                     reason=str(serializer.validated_data["reason"]),

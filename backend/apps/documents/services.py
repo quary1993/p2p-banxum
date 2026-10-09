@@ -13,6 +13,7 @@ import textwrap
 import uuid
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -21,6 +22,11 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max, Model
 from django.utils import timezone
 
+from backend.apps.documents.markdown import (
+    InlineRun,
+    MarkdownBlock,
+    parse_markdown_blocks,
+)
 from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
     DocumentArtifactOutputFormat,
@@ -41,6 +47,11 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.pdf_text import (
+    PDF_STANDARD_FONT_OBJECTS,
+    pdf_literal,
+    pdf_text_width,
+)
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
@@ -59,6 +70,14 @@ class DocumentAuthorizationError(DocumentsError):
 
 class DocumentValidationError(DocumentsError):
     pass
+
+
+class DocumentConflictError(DocumentValidationError):
+    """The referenced transaction changed since the investor reviewed it (HTTP 409)."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 DEFAULT_TEMPLATE_KEY = "default"
@@ -926,6 +945,89 @@ def _originator_claim_context_snapshot(
     }
 
 
+SECONDARY_LISTING_CONTEXT_TYPE = "secondary_market_listing"
+SECONDARY_PURCHASE_CONTEXT_TYPE = "secondary_market_purchase"
+ORIGINATOR_CLAIM_QUOTE_CONTEXT_TYPE = "originator_claim_quote"
+
+
+def _secondary_market_services() -> Any:
+    return import_module("backend.apps.secondary_market.services")
+
+
+def _require_own_originator_claim_quote(actor: Model, context_id: str) -> None:
+    try:
+        quote_id = uuid.UUID(str(context_id))
+    except ValueError:
+        quote_id = None
+    quote_model = apps.get_model("originator_claims", "OriginatorClaimQuote")
+    if (
+        quote_id is None
+        or not quote_model.objects.filter(id=quote_id, investor_user_id=actor.pk).exists()
+    ):
+        raise DocumentValidationError("Originator claim quote does not exist.")
+
+
+def _server_built_transaction_snapshot(
+    actor: Model,
+    raw_snapshot: dict[str, Any],
+    *,
+    category: DocumentCategory,
+    context_type: str,
+    context_id: str,
+) -> dict[str, Any] | None:
+    """Transaction terms the platform builds itself from the referenced record.
+
+    Secondary listing/purchase and Loan Originator claim acceptances must not carry
+    money terms written by the investor (SECCODE-11). The referenced holding, listing
+    or quote must exist and belong to (or be open to) the investor. Returns ``None``
+    for contexts that keep the client snapshot.
+    """
+    if category == DocumentCategory.SECONDARY_MARKET_LISTING:
+        if context_type != SECONDARY_LISTING_CONTEXT_TYPE:
+            raise DocumentValidationError(
+                "Secondary-market listing terms must reference the holding to list."
+            )
+        secondary = _secondary_market_services()
+        try:
+            return cast(
+                dict[str, Any],
+                secondary.listing_terms_acceptance_snapshot(
+                    actor=actor,
+                    holding_id=context_id,
+                    price_bps=raw_snapshot.get("price_bps"),
+                    listing_id=str(raw_snapshot.get("listing_id") or ""),
+                ),
+            )
+        except secondary.SecondaryMarketError as exc:
+            raise DocumentValidationError(str(exc)) from exc
+    if category == DocumentCategory.SECONDARY_MARKET_PURCHASE:
+        if context_type != SECONDARY_PURCHASE_CONTEXT_TYPE:
+            raise DocumentValidationError(
+                "Secondary-market purchase terms must reference the listing to buy."
+            )
+        secondary = _secondary_market_services()
+        try:
+            return cast(
+                dict[str, Any],
+                secondary.purchase_terms_acceptance_snapshot(
+                    actor=actor,
+                    listing_id=context_id,
+                    reviewed=raw_snapshot,
+                ),
+            )
+        except secondary.SecondaryMarketPriceChangedError as exc:
+            raise DocumentConflictError(str(exc), code=exc.code) from exc
+        except secondary.SecondaryMarketError as exc:
+            raise DocumentValidationError(str(exc)) from exc
+    if (
+        category == DocumentCategory.PRIMARY_MARKET_INVESTMENT
+        and context_type == ORIGINATOR_CLAIM_QUOTE_CONTEXT_TYPE
+    ):
+        _require_own_originator_claim_quote(actor, context_id)
+        return _originator_claim_context_snapshot(context_type=context_type, context_id=context_id)
+    return None
+
+
 def _acceptance_data_snapshot(
     actor: Model,
     raw_snapshot: dict[str, Any],
@@ -934,7 +1036,15 @@ def _acceptance_data_snapshot(
     context_type: str,
     context_id: str,
 ) -> dict[str, Any]:
-    snapshot = dict(raw_snapshot)
+    server_built = _server_built_transaction_snapshot(
+        actor,
+        raw_snapshot,
+        category=category,
+        context_type=context_type,
+        context_id=context_id,
+    )
+    # Server-built transaction terms replace the client snapshot entirely.
+    snapshot = dict(raw_snapshot) if server_built is None else server_built
     # These economics are always reconstructed from the immutable loan import.
     snapshot.pop("originator_subscription", None)
     authoritative = {
@@ -966,7 +1076,8 @@ def _acceptance_data_snapshot(
         )
     # Authoritative user/platform/operator values are set server-side so generated documents
     # cannot be made to evidence a forged brand, operator, accepting party, or transaction
-    # details when the context is a primary-market order known to the platform.
+    # details when the context is a primary-market order, a Loan Originator claim quote, or
+    # a secondary-market listing or purchase known to the platform.
     return _deep_merge(snapshot, authoritative)
 
 
@@ -1291,8 +1402,7 @@ def _content_sha256_bytes(content: bytes) -> str:
 
 
 def _pdf_escape(text: str) -> str:
-    ascii_text = text.encode("latin-1", errors="replace").decode("latin-1")
-    return ascii_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return pdf_literal(text)
 
 
 PDF_PAGE_WIDTH = 612.0
@@ -1349,6 +1459,26 @@ class _PdfDocumentCanvas:
             f"{_pdf_number(x)} {_pdf_number(y)} Td "
             f"({_pdf_escape(text)}) Tj ET"
         )
+
+    def text_runs(
+        self,
+        *,
+        x: float,
+        y: float,
+        parts: list[tuple[str, str]],
+        size: float = 8.3,
+        color: tuple[int, int, int] = PDF_PRIMARY_DARK,
+    ) -> None:
+        """One line of text whose parts change font (bold, italic) in place."""
+        commands = [
+            "BT",
+            f"{_pdf_color(color)} rg",
+            f"{_pdf_number(x)} {_pdf_number(y)} Td",
+        ]
+        for text, font in parts:
+            commands.append(f"/{font} {_pdf_number(size)} Tf ({_pdf_escape(text)}) Tj")
+        commands.append("ET")
+        self.current.append(" ".join(commands))
 
     def rect(
         self,
@@ -1718,67 +1848,282 @@ def _document_heading_level(text: str) -> int | None:
     return None
 
 
+PDF_BODY_FONT_SIZE = 8.3
+PDF_BODY_LINE_HEIGHT = 11.1
+PDF_HEADING_STYLES = {
+    # level: (font size, space needed, space after)
+    1: (12.3, 35.0, 23.0),
+    2: (10.2, 25.0, 17.0),
+    3: (9.0, 22.0, 15.0),
+}
+
+
+def _run_font(run: InlineRun) -> str:
+    if run.bold and run.italic:
+        return "F5"
+    if run.bold:
+        return "F2"
+    if run.italic:
+        return "F4"
+    return "F1"
+
+
+def _layout_runs(
+    runs: tuple[InlineRun, ...] | list[InlineRun],
+    *,
+    width: float,
+    size: float,
+) -> list[list[tuple[str, str]]]:
+    """Break styled runs into lines that fit ``width`` (measured with Helvetica metrics)."""
+    lines: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]] = []
+    current_width = 0.0
+
+    def finish_line() -> None:
+        nonlocal current, current_width
+        while current and current[-1][0] == " ":
+            current.pop()
+        if current:
+            lines.append(current)
+        current = []
+        current_width = 0.0
+
+    for run in runs:
+        font = _run_font(run)
+        for token in re.findall(r"\S+|\s+", run.text):
+            if token.isspace():
+                if current and current[-1][0] != " ":
+                    current.append((" ", font))
+                    current_width += pdf_text_width(" ", size=size, font=font)
+                continue
+            token_width = pdf_text_width(token, size=size, font=font)
+            if current and current_width + token_width > width:
+                finish_line()
+            while token_width > width and len(token) > 1:
+                # A single word wider than the line: split it.
+                cut = len(token)
+                while cut > 1 and pdf_text_width(token[:cut], size=size, font=font) > width:
+                    cut -= 1
+                current.append((token[:cut], font))
+                finish_line()
+                token = token[cut:]
+                token_width = pdf_text_width(token, size=size, font=font)
+            current.append((token, font))
+            current_width += token_width
+    finish_line()
+    merged_lines: list[list[tuple[str, str]]] = []
+    for line in lines:
+        merged: list[tuple[str, str]] = []
+        for text, font in line:
+            if merged and merged[-1][1] == font:
+                merged[-1] = (merged[-1][0] + text, font)
+            else:
+                merged.append((text, font))
+        merged_lines.append(merged)
+    return merged_lines or [[("", "F1")]]
+
+
+def _pdf_draw_runs(
+    canvas: _PdfDocumentCanvas,
+    *,
+    y: float,
+    runs: tuple[InlineRun, ...] | list[InlineRun],
+    document_title: str,
+    x: float = PDF_MARGIN_X,
+    width: float = PDF_CONTENT_WIDTH,
+    size: float = PDF_BODY_FONT_SIZE,
+    line_height: float = PDF_BODY_LINE_HEIGHT,
+    color: tuple[int, int, int] = PDF_PRIMARY_DARK,
+    after: float = 7.0,
+    first_line_marker: tuple[float, str] | None = None,
+) -> float:
+    lines = _layout_runs(runs, width=width, size=size)
+    page_body_height = PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - 49 - PDF_BODY_BOTTOM
+    total_height = len(lines) * line_height + after
+    if total_height <= page_body_height:
+        # Keep a paragraph on one page when it fits on one.
+        y = _pdf_ensure_space(
+            canvas, y=y, required_height=total_height, document_title=document_title
+        )
+    for index, parts in enumerate(lines):
+        y = _pdf_ensure_space(
+            canvas, y=y, required_height=line_height, document_title=document_title
+        )
+        if index == 0 and first_line_marker is not None:
+            marker_x, marker = first_line_marker
+            canvas.text(x=marker_x, y=y, text=marker, size=size, color=color)
+        canvas.text_runs(x=x, y=y, parts=parts, size=size, color=color)
+        y -= line_height
+    return y - after
+
+
+def _pdf_draw_heading(
+    canvas: _PdfDocumentCanvas,
+    *,
+    y: float,
+    title: str,
+    level: int,
+    document_title: str,
+    toc_entries: list[_DocumentTocEntry] | None,
+    page_offset: int,
+) -> float:
+    level = max(1, min(3, level))
+    size, required, after = PDF_HEADING_STYLES[level]
+    lines = _pdf_wrap_text(title, width=PDF_CONTENT_WIDTH, font_size=size * 1.08)
+    y = _pdf_ensure_space(
+        canvas,
+        y=y - (4 if level == 1 else 3),
+        required_height=required + (len(lines) - 1) * (size + 3),
+        document_title=document_title,
+    )
+    if toc_entries is not None:
+        toc_entries.append(
+            _DocumentTocEntry(title=title, page_number=len(canvas.pages) + page_offset, level=level)
+        )
+    color = PDF_PRIMARY if level == 1 else PDF_PRIMARY_DARK
+    for index, line in enumerate(lines):
+        if index:
+            y -= size + 3
+        canvas.text(x=PDF_MARGIN_X, y=y, text=line, size=size, font="F2", color=color)
+    if level == 1:
+        canvas.line(x1=PDF_MARGIN_X, y1=y - 7, x2=PDF_PAGE_WIDTH - PDF_MARGIN_X, y2=y - 7)
+    return y - after
+
+
+def _pdf_draw_markdown_block(
+    canvas: _PdfDocumentCanvas,
+    *,
+    y: float,
+    block: MarkdownBlock,
+    document_title: str,
+    toc_entries: list[_DocumentTocEntry] | None,
+    page_offset: int,
+) -> float:
+    if block.kind == "heading":
+        title = " ".join("".join(run.text for run in block.runs).split())
+        if not title:
+            return y
+        return _pdf_draw_heading(
+            canvas,
+            y=y,
+            title=title,
+            level=block.level,
+            document_title=document_title,
+            toc_entries=toc_entries,
+            page_offset=page_offset,
+        )
+    if block.kind == "table":
+        return _pdf_draw_table(
+            canvas, y=y, rows=[list(row) for row in block.rows], document_title=document_title
+        )
+    if block.kind == "rule":
+        y = _pdf_ensure_space(canvas, y=y, required_height=14, document_title=document_title)
+        canvas.line(x1=PDF_MARGIN_X, y1=y + 3, x2=PDF_PAGE_WIDTH - PDF_MARGIN_X, y2=y + 3)
+        return y - 11
+    if block.kind == "quote":
+        start_page = len(canvas.pages)
+        top = y + PDF_BODY_FONT_SIZE
+        end_y = _pdf_draw_runs(
+            canvas,
+            y=y,
+            runs=block.runs,
+            document_title=document_title,
+            x=PDF_MARGIN_X + 12,
+            width=PDF_CONTENT_WIDTH - 12,
+            color=PDF_MUTED,
+        )
+        if len(canvas.pages) == start_page:
+            canvas.line(
+                x1=PDF_MARGIN_X + 3,
+                y1=top,
+                x2=PDF_MARGIN_X + 3,
+                y2=end_y + 7,
+                color=PDF_RULE,
+                line_width=1.6,
+            )
+        return end_y
+    if block.kind in {"bullet_list", "ordered_list"}:
+        for item in block.items:
+            indent = 10.0 + (item.depth * 14.0)
+            marker = item.marker or "\u2022"
+            marker_width = max(
+                9.0, pdf_text_width(marker, size=PDF_BODY_FONT_SIZE, font="F1") + 4.0
+            )
+            y = _pdf_draw_runs(
+                canvas,
+                y=y,
+                runs=item.runs,
+                document_title=document_title,
+                x=PDF_MARGIN_X + indent + marker_width,
+                width=PDF_CONTENT_WIDTH - indent - marker_width,
+                after=2.5,
+                first_line_marker=(PDF_MARGIN_X + indent, marker),
+            )
+        return y - 4.5
+    return _pdf_draw_runs(canvas, y=y, runs=block.runs, document_title=document_title)
+
+
 def _pdf_draw_body_block(
     canvas: _PdfDocumentCanvas,
     *,
     y: float,
     block: str,
     document_title: str,
-) -> tuple[float, int | None]:
+    toc_entries: list[_DocumentTocEntry] | None = None,
+    page_offset: int = 0,
+) -> float:
     cleaned = block.strip()
     rows = _table_rows_from_block(cleaned)
     if rows:
-        return _pdf_draw_table(canvas, y=y, rows=rows, document_title=document_title), None
+        return _pdf_draw_table(canvas, y=y, rows=rows, document_title=document_title)
 
-    heading_level = _document_heading_level(cleaned)
-    if heading_level == 1:
-        y = _pdf_ensure_space(canvas, y=y - 4, required_height=35, document_title=document_title)
-        canvas.text(x=PDF_MARGIN_X, y=y, text=cleaned, size=12.3, font="F2", color=PDF_PRIMARY)
-        canvas.line(x1=PDF_MARGIN_X, y1=y - 7, x2=PDF_PAGE_WIDTH - PDF_MARGIN_X, y2=y - 7)
-        return y - 23, heading_level
-    if heading_level == 2:
-        y = _pdf_ensure_space(canvas, y=y - 3, required_height=25, document_title=document_title)
-        canvas.text(x=PDF_MARGIN_X, y=y, text=cleaned, size=10.2, font="F2", color=PDF_PRIMARY_DARK)
-        return y - 17, heading_level
+    # Headings of imported Word templates ("Main Agreement", "Annex 1", "1. Purpose").
+    heading_level = _document_heading_level(cleaned) if "\n" not in cleaned else None
+    if heading_level is not None:
+        return _pdf_draw_heading(
+            canvas,
+            y=y,
+            title=" ".join(cleaned.split()),
+            level=heading_level,
+            document_title=document_title,
+            toc_entries=toc_entries,
+            page_offset=page_offset,
+        )
     if cleaned == str(settings.LEGAL_OPERATOR_NAME).upper():
-        return (
-            _pdf_draw_wrapped_text(
-                canvas,
-                y=y,
-                text=cleaned,
-                document_title=document_title,
-                size=7.4,
-                line_height=9.5,
-                font="F2",
-                color=PDF_PRIMARY,
-                after=5,
-            ),
-            None,
-        )
-    if cleaned == document_title:
-        return (
-            _pdf_draw_wrapped_text(
-                canvas,
-                y=y,
-                text=cleaned,
-                document_title=document_title,
-                size=14.2,
-                line_height=16.0,
-                font="F2",
-                color=PDF_PRIMARY_DARK,
-                after=8,
-            ),
-            None,
-        )
-    return (
-        _pdf_draw_wrapped_text(
+        return _pdf_draw_wrapped_text(
             canvas,
             y=y,
             text=cleaned,
             document_title=document_title,
-        ),
-        None,
-    )
+            size=7.4,
+            line_height=9.5,
+            font="F2",
+            color=PDF_PRIMARY,
+            after=5,
+        )
+    if cleaned == document_title:
+        return _pdf_draw_wrapped_text(
+            canvas,
+            y=y,
+            text=cleaned,
+            document_title=document_title,
+            size=14.2,
+            line_height=16.0,
+            font="F2",
+            color=PDF_PRIMARY_DARK,
+            after=8,
+        )
+    # Template bodies are Markdown, the same text the web legal page shows.
+    for markdown_block in parse_markdown_blocks(cleaned):
+        y = _pdf_draw_markdown_block(
+            canvas,
+            y=y,
+            block=markdown_block,
+            document_title=document_title,
+            toc_entries=toc_entries,
+            page_offset=page_offset,
+        )
+    return y
 
 
 def _pdf_key_value_box(
@@ -2037,7 +2382,7 @@ def _render_acceptance_toc_page(
         canvas.text(
             x=PDF_MARGIN_X,
             y=y,
-            text="No section headings detected.",
+            text="This document has no section headings. The full text follows.",
             size=8.2,
             color=PDF_MUTED,
         )
@@ -2082,25 +2427,18 @@ def _render_document_body_canvas(
     body_canvas = _PdfDocumentCanvas()
     y = _pdf_page_header(body_canvas, document_title=document_title, compact=True)
     toc_entries: list[_DocumentTocEntry] = []
-    for raw_block in rendered_body.split("\n\n"):
+    for raw_block in re.split(r"\n[ \t]*\n", rendered_body):
         block = raw_block.strip()
         if not block:
             continue
-        page_before = len(body_canvas.pages) + page_offset
-        y, heading_level = _pdf_draw_body_block(
+        y = _pdf_draw_body_block(
             body_canvas,
             y=y,
             block=block,
             document_title=document_title,
+            toc_entries=toc_entries,
+            page_offset=page_offset,
         )
-        if heading_level is not None:
-            toc_entries.append(
-                _DocumentTocEntry(
-                    title=" ".join(block.split()),
-                    page_number=page_before,
-                    level=heading_level,
-                )
-            )
     return body_canvas, y, toc_entries
 
 
@@ -2193,11 +2531,13 @@ def _pdf_canvas_bytes(canvas: _PdfDocumentCanvas) -> bytes:
     objects: dict[int, bytes] = {}
     page_object_ids: list[int] = []
     objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
-    objects[3] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
-    objects[4] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
-    objects[5] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
+    font_ids: dict[str, int] = {}
+    for offset, (font_name, font_object) in enumerate(PDF_STANDARD_FONT_OBJECTS.items()):
+        font_ids[font_name] = 3 + offset
+        objects[3 + offset] = font_object
+    font_resources = " ".join(f"/{name} {object_id} 0 R" for name, object_id in font_ids.items())
 
-    next_id = 6
+    next_id = 3 + len(font_ids)
     for page_commands in canvas.pages:
         content_id = next_id
         page_id = next_id + 1
@@ -2211,8 +2551,7 @@ def _pdf_canvas_bytes(canvas: _PdfDocumentCanvas) -> bytes:
             f"<< /Type /Page /Parent 2 0 R "
             f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
         ).encode("ascii") + (
-            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
-            f"/Contents {content_id} 0 R >>"
+            f"/Resources << /Font << {font_resources} >> >> /Contents {content_id} 0 R >>"
         ).encode("ascii")
 
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)

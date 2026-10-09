@@ -1,5 +1,12 @@
 # Claude Design TODO
 
+## 2026-10-09: Public Preview Fields, Listing Rule C18 And Lot Labels (QA audit round 2)
+
+- Screen or component: public home carousel, `/projects` cards and `/projects/{loan-id}`; Secondary market "Sell a holding"; My investments loan table.
+- Current behavior: the public pages read only the MKT-DEC-002 preview (borrower name, borrower country as a country name, loan type "Direct loan"/"Loan Originator claim" plus "Refinanced", amount, interest, term, status "Open for investment", currency); title and purpose are no longer public. Late or defaulted holdings show a disabled "List" with "Late or in default: cannot be listed"; there is no "Request listing" or "Approval pending". Two lots of one loan count as one loan; each lot row says "invested on <date>" or "bought on <date>", and the table footer says "N loans · M lots".
+- Suggested improvement: design a proper country/flag treatment and a loan-type badge for the public cards; consider grouping lots under one loan row with an expandable lot list.
+- Priority: nice-to-have.
+
 ## 2026-10-09: Public Project Routes And Page Titles
 
 - Screen or component: public project list/detail routes and browser page titles.
@@ -543,3 +550,59 @@ Before launch, Claude Design should produce or implement:
 - Current behavior: sessions end 2 hours after login; the next API call returns the investor to Log in with a "Your session has expired" notice (kept until a new link is requested). A restricted, locked or closed account with an open session sees an "Account access" page with the status and support address instead of portal screens; a valid link of a restricted or locked account shows "Your account is restricted/locked" with a Contact support button. The expired-link screen keeps its email field while typing and sends only on Enter or the button. Every logo outside the portal links to the Overview when an investor is signed in and to the home page otherwise.
 - Suggested improvement: decide whether to warn shortly before the 2-hour limit (the API does not expose the expiry time yet), and review the Account access page copy with compliance for each status.
 - Priority: nice-to-have.
+
+## 2026-10-09: KYC Verification Under Review
+
+- Screen or component: investor Verification page (KYC status) and registration KYC step.
+- Current behavior: a case that waits for an admin decision (decline, manual review, AML hit, provider re-check) shows "Verification under review" with "Your verification is under review. We will contact you." and no start button; the API refuses a new session with the same text (409). AML hits read as manual review in the investor API. The start button returns only after an admin requests re-verification.
+- Suggested improvement: keep the copy non-revealing (never name sanctions, PEP or adverse media); consider a restart action on the "Waiting for verification result" state when the Didit session has expired, and a timeline step label for "under review".
+- Priority: nice-to-have.
+
+## 2026-10-09: Secondary Buy Modal Price Lock
+
+- Screen or component: secondary-market Buy modal ("For sale now" > Buy).
+- Current behavior: the review rows (principal, sale price, accrued interest, taker fee, total cost) come from the freshly loaded listing detail, and the purchase sends those reviewed values. If the price changed before confirm (seller edit, repayment repricing, or a new day's accrued interest), the server rejects the purchase with nothing charged; the modal shows a "Price changed" banner, reloads the new price, unticks the terms checkbox and keeps the entered email code so the buyer can review and confirm again.
+- Suggested improvement: highlight which rows changed (old vs new total) and consider a short note that accrued interest grows daily, so a review left open overnight must be refreshed.
+- Priority: nice-to-have.
+
+## 2026-10-09: Notification Centre Content
+
+- Screen or component: investor Notifications page and header bell.
+- Current behavior: only real notices are listed (sign-in links and confirmation codes are left out and never counted as unread). Each row shows the notice time (when the event happened, platform clock) and a short label such as Deposit, Withdrawal, Funding, Loan status or Balance reminder. New notices cover deposits, withdrawals, forced returns, penalty mode, payout IBANs, currency exchange, primary orders, funding close/cancel, order release and Late/Defaulted loans; each opens its balance, FX, portfolio or holding page.
+- Suggested improvement: filter chips by label, group same-day balance reminders of different currencies, and a calmer layout for long bodies (the full email body is shown today).
+- Priority: nice-to-have.
+
+## 2026-10-09: Login Links, Repeated Registration, Phone Correction
+
+- Screen or component: login-link and registration emails, registration step 2 ("Verify your phone").
+- Current behavior: login emails link to `/login#token=...`; the portal removes the token from the address bar before any request. A registration for an address that already has an account gets the same "Magic link sent" screen; the owner gets an email that says the account already exists (with a sign-in link for investors). Nothing stored changes. On the phone step, "Send SMS" uses the number typed at registration; until the phone is verified, this corrects a wrong stored number. The page does not show the stored number when it differs.
+- Suggested improvement: show the stored number (masked) on the phone step with an explicit "Change number" control, and review the "account already exists" email copy.
+- Priority: nice-to-have.
+
+## 2026-10-09: Withdrawal Review, Forced Returns and Penalties in Activity
+
+- Screen or component: Withdraw modal (Review step) and the My investments > Activity table.
+- Current behavior: the Review step shows the destination IBAN and account name before the email code. Activity lists each day-60 penalty charge ("Penalty charged: balance past the 60-day limit", tag "penalty") and labels forced returns "Forced return to your bank account" (tag "forced return"); a cancelled one reads "Forced return cancelled". Payee names come from the verified payout IBAN.
+- Suggested improvement: link a forced-return or penalty line to a short explanation of the 60-day rule and the payout IBAN used; group daily penalty lines per lot when there are many.
+- Priority: important.
+
+## 2026-10-09: Completed Holdings, Holding Page States, Borrower Document Download
+
+- Screen or component: My investments (new "Completed" tab), holding page, loan page "Documents" card.
+- Current behavior: repaid, sold and closed holdings are listed under My investments > Completed with the result (Repaid, Sold, Written off), invested amount and interest received; Open goes to the holding page. The holding page counts borrower installments (not payment rows), shows "Matures <date>" for Loan Originator claims, and a loan in default opens on the overdue payment; its future installments read "Not expected". Each borrower document on a loan page has a Download button; a refused download shows the reason under the list.
+- Suggested improvement: add a final summary for completed holdings (total received, return, end date) and filters by result; decide the wording for future installments of a defaulted loan with compliance.
+- Priority: important.
+
+## 2026-10-09: Invest Results, Seller Pricing, Own Listings
+
+- Screen or component: invest page result step, Smart Invest batch review, loan quick-view sheet, listing form, "For sale now".
+- Current behavior: the invest result shows what the server did: "Order placed" (reserved), "Order partly placed" (only part of the amount was left) or "Order not placed" (less than the minimum was left; red banner, nothing moved). A new amount or Back to the amount step needs the terms ticked again. The batch review needs the same risk acknowledgement as a single investment. The listing form shows the server's transfer price, accrued interest, maker fee and net proceeds for a sale today. Your own listing shows a grey "Your listing" pill instead of Buy and opens a view without terms or code. Amount fields keep the decimal comma and accept ' ’ and spaces.
+- Suggested improvement: design the partly placed / not placed states (icon, next step such as "Find another loan"), show the accrued-interest growth per day on the listing form, and style "Your listing" rows (badge, muted row) at phone width.
+- Priority: nice-to-have.
+
+## 2026-10-09: Frozen Account Banner, Account Page, Phone Tables, Dialogs
+
+- Screen or component: investor shell banner (day-60 penalty mode), Account page (payout IBANs, pending withdrawals), phone tables (Account lots, Activity, Orders, Documents, Smart Invest matches), all dialogs, FX confirmation.
+- Current behavior: the frozen state comes from the balances API; one red banner on every page says what is frozen, the daily penalty, and to add a payout IBAN (button opens the IBAN dialog); Invest, FX, secondary trades and Add Funds are blocked with the reason. IBANs show Verified / Pending verification; pending withdrawals list forced returns with a "Forced return" chip. Below 640 px tables become stacked label/value rows. Dialogs take focus, keep Tab inside, give focus back, and ignore Escape while a money action runs. The FX confirmation counts the quote down and offers "Refresh quote". Unknown addresses show a "Page not found" page.
+- Suggested improvement: design the stacked phone rows (spacing, which fields lead), a compact variant of the frozen banner after the first visit, the empty-IBAN state of the Withdraw dialog, and the 404 page artwork. Portfolio widget cards are still whole-card buttons (long accessible names) and some pages jump heading levels (Banner titles are h4).
+- Priority: important.

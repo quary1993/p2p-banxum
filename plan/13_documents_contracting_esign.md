@@ -179,7 +179,7 @@ Follow-ups:
 Define whether partially funded orders generate one final assignment document for the accepted amount or a corrected/replaced version.
 
 Implementation status:
-The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance can render a generated PDF/CSV on demand from immutable clickwrap evidence in the investor portal or admin Users document-history modal. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
+The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance can render a generated PDF/CSV on demand from immutable clickwrap evidence in the investor portal or admin Users document-history modal. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Since 2026-10-09 (QA audit SECCODE-11) secondary-market listing, secondary-market purchase and Loan Originator claim-quote acceptances store only a server-built snapshot: the holding, listing or quote must exist and belong to (or, for a purchase, be open to) the investor, or the acceptance is refused. A listing snapshot takes only the chosen price from the client and the listing must use that price. A purchase snapshot holds the fresh buyer price; if the buyer's reviewed figures differ, the API answers 409 `secondary_price_changed` and records nothing. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
 
 ### DOC-DEC-006: Pre-Investment Borrower Documents
 
@@ -206,6 +206,9 @@ Impacted modules:
 
 Follow-ups:
 Define default visibility for generic borrower documents and whether each upload has an internal/public flag.
+
+Implementation status (2026-10-09):
+Each listed borrower document has a Download button on the loan page. The download uses the same checks as the list: the investor has financial access, the Direct loan is readable (open, or published and funded), the document is investor-visible and its file is scanned clean with an unchanged checksum. Each download is audit logged. There is no admin upload screen yet, so files are still attached outside the console.
 
 ### DOC-DEC-007: Investor Document Delivery and Download
 
@@ -256,6 +259,8 @@ Define whether regulator/auditor exports require materialized PDFs to be generat
 
 Implementation status:
 Generic template-driven acceptance evidence PDFs and CSVs are implemented. The renderer replaces approved template variables from the stored acceptance data snapshot, rejects missing template variables instead of silently emitting incomplete legal documents, neutralizes CSV formula cells, records append-only `DocumentRenderedArtifact` metadata with checksum/manifest and renderer version, and exposes a self/admin-scoped artifact API. The current backend PDF renderer includes BANXUM/Garanta branding, evidence cover page, table of contents, and real table rendering for imported legal templates, but it is still a deterministic backend artifact generator rather than a final counsel-approved WeasyPrint layout engine. Production layout polish and final legal wording remain separate tasks.
+
+Template bodies are Markdown (2026-10-09). The PDF renderer prints headings (also in the table of contents), paragraphs, bullet and numbered lists, tables, quotes, bold and italic, as the web legal page shows them. Links print as text with the address in brackets. HTML is never interpreted: tags print as text. Headings of imported Word templates ("Main Agreement", "Annex 1", "1. ...") still work. PDF fonts use WinAnsi encoding, so letters such as "ü" print correctly.
 
 ### DOC-DEC-009: Template Change Definition
 

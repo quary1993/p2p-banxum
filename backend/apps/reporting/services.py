@@ -6,10 +6,12 @@ import csv
 import hashlib
 import io
 import json
+import re
 import textwrap
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from importlib import import_module
 from typing import Any
 
@@ -19,12 +21,20 @@ from django.db import transaction
 from django.db.models import F, Model, Q
 
 from backend.apps.platform_core.domain.access import (
+    LENDER_ACCOUNT_TYPES,
     actor_ref_for_user,
     is_admin_actor,
     is_superadmin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.money import minor_units_to_decimal
+from backend.apps.platform_core.domain.pdf_text import (
+    PDF_STANDARD_FONT_OBJECTS,
+    pdf_literal,
+    pdf_text_width,
+)
 from backend.apps.platform_core.domain.time import (
+    business_date,
     business_timezone,
     calendar_day_difference,
     now_utc,
@@ -32,6 +42,11 @@ from backend.apps.platform_core.domain.time import (
 from backend.apps.platform_core.models import AuditEvent, Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.reporting.investor_statement import (
+    StatementSection,
+    build_investor_statement_sections,
+    money_text,
+)
 from backend.apps.reporting.models import (
     ReportEvent,
     ReportEventType,
@@ -55,7 +70,7 @@ class ReportingValidationError(ReportingError):
     pass
 
 
-REPORT_DEFINITION_VERSION = "reporting-v3"
+REPORT_DEFINITION_VERSION = "reporting-v4"
 CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
 PDF_CONTENT_TYPE = "application/pdf"
 ZIP_CONTENT_TYPE = "application/zip"
@@ -64,6 +79,7 @@ BASE64_CONTENT_ENCODING = "base64"
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
 NO_ACCOUNT_ACTIVITY_CATEGORY = "no_account_activity_in_period"
+BORROWER_DISBURSEMENT_EVENT_TYPE = "borrower_loan_disbursement_finalized"
 HOLDING_PRINCIPAL_REDUCTION_KEYS = (
     "principal_repaid_minor",
     "principal_recovered_minor",
@@ -158,6 +174,8 @@ class ReportDataset:
     rows: list[dict[str, Any]]
     source_counts: dict[str, int]
     notes: list[str] = field(default_factory=list)
+    # Structured data for a report-specific PDF layout (not written to CSV).
+    presentation: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +347,9 @@ def _csv_cell(value: Any) -> str | int:
         return "true" if value else "false"
     if isinstance(value, int):
         return value
+    if isinstance(value, Decimal):
+        # A plain number (digits, sign, point) cannot start a spreadsheet formula.
+        return format(value, "f")
     if isinstance(value, date | datetime):
         return value.isoformat()
     if isinstance(value, dict | list):
@@ -1203,6 +1224,14 @@ def _withdrawals_dataset(
     )
 
 
+LOAN_FUNDING_RULE_NOTE = (
+    "A loan is listed when, in the period, it was published, an investment order was placed, "
+    "its funding closed or was cancelled, or its funding deadline fell. Period columns count "
+    "orders placed in the period. Other order columns count orders placed up to the period "
+    "end, with their status today. Close columns show the close up to the period end."
+)
+
+
 def _loan_funding_dataset(
     *,
     start_date: date,
@@ -1214,9 +1243,15 @@ def _loan_funding_dataset(
     loan_model = _external_model("loans", "Loan")
     order_model = _external_model("marketplace_primary", "PrimaryInvestmentOrder")
     close_model = _external_model("marketplace_primary", "PrimaryLoanClose")
+    cancellation_model = _external_model("marketplace_primary", "PrimaryLoanCancellation")
+    round_close_model = _external_model("originator_claims", "OriginatorFundingRoundClose")
+    start_dt, end_dt = _date_time_bounds(start_date, end_date)
     columns = [
         "loan_id",
+        "product_type",
         "borrower_id",
+        "borrower_name",
+        "loan_originator",
         "title",
         "status",
         "currency",
@@ -1224,6 +1259,8 @@ def _loan_funding_dataset(
         "committed_principal_minor",
         "funding_deadline",
         "published_at",
+        "orders_in_period",
+        "ordered_amount_in_period_minor",
         "order_count",
         "pending_order_count",
         "allocated_order_count",
@@ -1233,22 +1270,80 @@ def _loan_funding_dataset(
         "accepted_principal_minor",
         "borrower_success_fee_minor",
         "borrower_disbursement_payable_minor",
+        "cancelled_at",
     ]
+    # The report describes funding events, so a loan is selected by the dates of those events.
+    loan_ids: set[str] = set()
+    for queryset, field_name in (
+        (loan_model.objects.filter(funding_deadline__range=(start_date, end_date)), "id"),
+        (loan_model.objects.filter(published_at__range=(start_dt, end_dt)), "id"),
+        (order_model.objects.filter(created_at__range=(start_dt, end_dt)), "loan_id"),
+        (close_model.objects.filter(closed_at__range=(start_dt, end_dt)), "loan_id"),
+        (cancellation_model.objects.filter(cancelled_at__range=(start_dt, end_dt)), "loan_id"),
+        (
+            round_close_model.objects.filter(closed_at__range=(start_dt, end_dt)),
+            "loan_profile__loan_id",
+        ),
+    ):
+        loan_ids.update(str(value) for value in queryset.values_list(field_name, flat=True))
     queryset = (
-        loan_model.objects.select_related("currency")
-        .filter(funding_deadline__gte=start_date, funding_deadline__lte=end_date)
-        .order_by("funding_deadline", "id")
+        loan_model.objects.select_related(
+            "currency",
+            "borrower",
+            "originator_profile",
+            "originator_profile__originator",
+        )
+        .filter(id__in=loan_ids)
+        .order_by("funding_deadline", "title", "id")
     )
     queryset = _apply_currency_filter(queryset, filters)
     rows: list[dict[str, Any]] = []
     for loan in list(queryset):
-        orders = list(order_model.objects.filter(loan_id=loan.id))
-        close = close_model.objects.filter(loan_id=loan.id).order_by("-closed_at").first()
-        allocated_amount = sum(int(order.allocated_amount_minor) for order in orders)
+        is_originator_claim = str(loan.product_type) == "originator_claim"
+        profile = getattr(loan, "originator_profile", None) if is_originator_claim else None
+        originator = getattr(profile, "originator", None) if profile is not None else None
+        orders = list(order_model.objects.filter(loan_id=loan.id, created_at__lte=end_dt))
+        period_orders = [order for order in orders if order.created_at >= start_dt]
+        close = (
+            close_model.objects.filter(loan_id=loan.id, closed_at__lte=end_dt)
+            .order_by("-closed_at")
+            .first()
+        )
+        round_close = (
+            round_close_model.objects.filter(loan_profile__loan_id=loan.id, closed_at__lte=end_dt)
+            .order_by("-closed_at")
+            .first()
+            if is_originator_claim
+            else None
+        )
+        cancellation = (
+            cancellation_model.objects.filter(loan_id=loan.id, cancelled_at__lte=end_dt)
+            .order_by("-cancelled_at")
+            .first()
+        )
+        if close is not None:
+            closed_at = close.closed_at
+            close_type = str(close.close_type)
+            accepted_principal = int(close.accepted_principal_minor or 0)
+        elif round_close is not None:
+            closed_at = round_close.closed_at
+            close_type = f"originator_round:{round_close.close_reason}"
+            accepted_principal = int(round_close.subscribed_principal_minor or 0)
+        else:
+            closed_at = None
+            close_type = ""
+            accepted_principal = 0
         rows.append(
             {
                 "loan_id": str(loan.id),
-                "borrower_id": str(loan.borrower_id),
+                "product_type": str(loan.product_type),
+                "borrower_id": str(loan.borrower_id or ""),
+                "borrower_name": (
+                    str(getattr(profile, "borrower_display_name", ""))
+                    if is_originator_claim
+                    else str(getattr(loan.borrower, "legal_name", ""))
+                ),
+                "loan_originator": str(getattr(originator, "public_name", "")),
                 "title": loan.title,
                 "status": loan.status,
                 "currency": loan.currency.code,
@@ -1256,6 +1351,10 @@ def _loan_funding_dataset(
                 "committed_principal_minor": loan.committed_principal_minor,
                 "funding_deadline": loan.funding_deadline,
                 "published_at": loan.published_at,
+                "orders_in_period": len(period_orders),
+                "ordered_amount_in_period_minor": sum(
+                    int(order.requested_amount_minor) for order in period_orders
+                ),
                 "order_count": len(orders),
                 "pending_order_count": sum(1 for order in orders if order.status == "pending"),
                 "allocated_order_count": sum(
@@ -1264,23 +1363,28 @@ def _loan_funding_dataset(
                     if order.status
                     in {"balance_allocated", "partially_allocated", "closed_invested"}
                 ),
-                "allocated_amount_minor": allocated_amount,
-                "closed_at": getattr(close, "closed_at", None),
-                "close_type": getattr(close, "close_type", ""),
-                "accepted_principal_minor": getattr(close, "accepted_principal_minor", 0) or 0,
-                "borrower_success_fee_minor": getattr(close, "borrower_success_fee_minor", 0) or 0,
-                "borrower_disbursement_payable_minor": getattr(
-                    close,
-                    "borrower_disbursement_payable_minor",
-                    0,
+                "allocated_amount_minor": sum(
+                    int(order.allocated_amount_minor) for order in orders
+                ),
+                "closed_at": closed_at,
+                "close_type": close_type,
+                "accepted_principal_minor": accepted_principal,
+                "borrower_success_fee_minor": int(getattr(close, "borrower_success_fee_minor", 0))
+                if close is not None
+                else 0,
+                "borrower_disbursement_payable_minor": int(
+                    getattr(close, "borrower_disbursement_payable_minor", 0)
                 )
-                or 0,
+                if close is not None
+                else 0,
+                "cancelled_at": getattr(cancellation, "cancelled_at", None),
             }
         )
     return ReportDataset(
         columns=columns,
         rows=rows,
         source_counts={"loans": len(rows)},
+        notes=[LOAN_FUNDING_RULE_NOTE],
     )
 
 
@@ -2122,6 +2226,13 @@ def _participant_account_statement_dataset(
 ) -> ReportDataset:
     participant_type = str(filters.get("participant_type", "lender")).lower()
     participant_id = str(filters.get("participant_id", "") or "")
+    if participant_type == "lender":
+        return _investor_statement_dataset(
+            start_date=start_date,
+            end_date=end_date,
+            redaction_mode=redaction_mode,
+            filters=filters,
+        )
     posting_model = _ledger_model("LedgerPosting")
     columns = [
         "participant_type",
@@ -2249,6 +2360,152 @@ def _participant_account_statement_dataset(
     )
 
 
+INVESTOR_STATEMENT_COLUMNS = [
+    "investor",
+    "currency",
+    "row_type",
+    "value_date",
+    "booking_date",
+    "movement_type",
+    "description",
+    "loan",
+    "details",
+    "amount",
+    "principal",
+    "interest",
+    "fees",
+    "other",
+    "balance",
+    "reference",
+]
+INVESTOR_STATEMENT_NOTES = [
+    "Amounts are from the investor's point of view: money in is positive, money out is negative.",
+    "Dates are value dates in Swiss time (Europe/Zurich). Balance is the running balance "
+    "after each movement. The closing balance is the platform balance at the end of the "
+    "period.",
+    "Principal, interest, fees and other show the parts of a movement where they apply.",
+]
+NO_STATEMENT_ACTIVITY_TEXT = "No account activity in this period."
+
+
+def _major_units(amount_minor: int | None, minor_units: int) -> Decimal | None:
+    if amount_minor is None:
+        return None
+    exponent = Decimal(1).scaleb(-minor_units)
+    return minor_units_to_decimal(amount_minor, minor_units=minor_units).quantize(exponent)
+
+
+def _investor_labels(investor_ids: list[str], *, redaction_mode: str) -> dict[str, dict[str, str]]:
+    if redaction_mode != ReportRedactionMode.FULL:
+        return {
+            investor_id: {"reference": "REDACTED", "name": "REDACTED"}
+            for investor_id in investor_ids
+        }
+    user_model = _external_model("accounts_auth", "User")
+    labels = {
+        str(user.pk): {
+            "reference": str(user.investor_reference or ""),
+            "name": str(user.full_name or ""),
+        }
+        for user in user_model.objects.filter(pk__in=investor_ids).only(
+            "id", "investor_reference", "full_name"
+        )
+    }
+    for investor_id in investor_ids:
+        labels.setdefault(investor_id, {"reference": "", "name": ""})
+    return labels
+
+
+def _investor_statement_dataset(
+    *,
+    start_date: date,
+    end_date: date,
+    redaction_mode: str,
+    filters: dict[str, Any],
+) -> ReportDataset:
+    participant_id = str(filters.get("participant_id", "") or "")
+    sections = build_investor_statement_sections(
+        start_date=start_date,
+        end_date=end_date,
+        investor_user_id=participant_id,
+        currency_code=str(filters.get("currency", "") or ""),
+        show_references=redaction_mode == ReportRedactionMode.FULL,
+    )
+    investor_ids = sorted(
+        {section.investor_user_id for section in sections}
+        | ({participant_id} if participant_id else set())
+    )
+    labels = _investor_labels(investor_ids, redaction_mode=redaction_mode)
+    rows: list[dict[str, Any]] = []
+    movement_count = 0
+    for section in sections:
+        units = section.minor_units
+        investor = labels[section.investor_user_id]["reference"] or "REDACTED"
+        base = {"investor": investor, "currency": section.currency}
+        rows.append(
+            {
+                **base,
+                "row_type": "opening_balance",
+                "value_date": start_date,
+                "description": "Opening balance",
+                "balance": _major_units(section.opening_balance_minor, units),
+            }
+        )
+        for movement in section.movements:
+            movement_count += 1
+            rows.append(
+                {
+                    **base,
+                    "row_type": "movement",
+                    "value_date": movement.value_date,
+                    "booking_date": movement.booking_date,
+                    "movement_type": movement.movement_type,
+                    "description": movement.description,
+                    "loan": movement.loan_title,
+                    "details": movement.details,
+                    "amount": _major_units(movement.amount_minor, units),
+                    "principal": _major_units(movement.principal_minor, units),
+                    "interest": _major_units(movement.interest_minor, units),
+                    "fees": _major_units(movement.fees_minor, units),
+                    "other": _major_units(movement.other_minor, units),
+                    "balance": _major_units(movement.balance_after_minor, units),
+                    "reference": movement.reference,
+                }
+            )
+        rows.append(
+            {
+                **base,
+                "row_type": "closing_balance",
+                "value_date": end_date,
+                "description": "Closing balance",
+                "balance": _major_units(section.closing_balance_minor, units),
+            }
+        )
+    if not rows:
+        investor = (labels[participant_id]["reference"] or "REDACTED") if participant_id else ""
+        rows.append(
+            {
+                "investor": investor,
+                "row_type": "no_activity",
+                "value_date": end_date,
+                "description": NO_STATEMENT_ACTIVITY_TEXT,
+            }
+        )
+    return ReportDataset(
+        columns=list(INVESTOR_STATEMENT_COLUMNS),
+        rows=rows,
+        source_counts={"statement_movements": movement_count, "statement_sections": len(sections)},
+        notes=list(INVESTOR_STATEMENT_NOTES),
+        presentation={
+            "investor_statement": {
+                "sections": sections,
+                "labels": labels,
+                "participant_id": participant_id,
+            }
+        },
+    )
+
+
 def _holding_principal_at_period_end(holding: Any, events: list[Any]) -> int:
     """Principal of one lot after its holding events up to the period end."""
     principal = int(holding.original_principal_minor)
@@ -2335,9 +2592,11 @@ def _annual_tax_information_dataset(
         holding_event_model = _external_model("holdings", "InvestorLoanHoldingEvent")
         start_dt, end_dt = _date_time_bounds(start_date, end_date)
 
+        # Income belongs to the tax year of the payment's value date, not the time the
+        # platform recorded it (a 31 Dec payment recorded on 4 Jan is still last year's).
         repayment_queryset = repayment_line_model.objects.select_related("currency").filter(
-            occurred_at__gte=start_dt,
-            occurred_at__lte=end_dt,
+            repayment_event__value_date__gte=start_date,
+            repayment_event__value_date__lte=end_date,
         )
         originator_repayment_queryset = originator_repayment_line_model.objects.select_related(
             "currency",
@@ -2353,8 +2612,8 @@ def _annual_tax_information_dataset(
             purchased_at__lte=end_dt,
         )
         recovery_queryset = recovery_line_model.objects.select_related("currency").filter(
-            occurred_at__gte=start_dt,
-            occurred_at__lte=end_dt,
+            recovery_event__value_date__gte=start_date,
+            recovery_event__value_date__lte=end_date,
         )
         fx_queryset = fx_exchange_model.objects.select_related(
             "source_currency", "target_currency"
@@ -2555,18 +2814,22 @@ def _annual_tax_information_dataset(
             )
     elif participant_type == "borrower":
         repayment_model = _external_model("servicing", "BorrowerRepaymentEvent")
-        close_model = _external_model("marketplace_primary", "PrimaryLoanClose")
+        journal_model = _ledger_model("LedgerJournalEntry")
         repayment_queryset = repayment_model.objects.select_related("currency").filter(
             value_date__gte=start_date,
             value_date__lte=end_date,
         )
-        close_queryset = close_model.objects.select_related("currency", "loan").filter(
-            closed_at__gte=_date_time_bounds(start_date, end_date)[0],
-            closed_at__lte=_date_time_bounds(start_date, end_date)[1],
+        # The BANXUM fee is booked when the loan is paid out to the borrower (and can be
+        # changed there), so the fee and the net transfer come from that booking, in the
+        # year of its value date, not from the fee planned at funding close.
+        disbursement_queryset = journal_model.objects.select_related("currency").filter(
+            event_type=BORROWER_DISBURSEMENT_EVENT_TYPE,
+            value_date__gte=start_date,
+            value_date__lte=end_date,
         )
         if participant_id:
             repayment_queryset = repayment_queryset.filter(loan__borrower_id=participant_id)
-            close_queryset = close_queryset.filter(loan__borrower_id=participant_id)
+            disbursement_queryset = disbursement_queryset.filter(borrower_id=participant_id)
         by_key: dict[tuple[str, str, str], dict[str, int]] = {}
 
         def bump(currency: str, section: str, category: str, amount: int) -> None:
@@ -2587,24 +2850,20 @@ def _annual_tax_information_dataset(
             bump(
                 event.currency.code, "tax_summary", "penalties_paid", event.penalties_applied_minor
             )
-        for close in list(close_queryset):
+        for disbursement in list(disbursement_queryset):
+            fee_minor = int(disbursement.gross_amount_minor) - int(disbursement.net_amount_minor)
+            bump(disbursement.currency.code, "tax_summary", "borrower_success_fee", fee_minor)
             bump(
-                close.currency.code,
-                "tax_summary",
-                "borrower_success_fee",
-                close.borrower_success_fee_minor,
-            )
-            bump(
-                close.currency.code,
+                disbursement.currency.code,
                 "information_only",
                 "principal_received",
-                close.accepted_principal_minor,
+                disbursement.gross_amount_minor,
             )
             bump(
-                close.currency.code,
+                disbursement.currency.code,
                 "information_only",
-                "net_disbursement_payable",
-                close.borrower_disbursement_payable_minor,
+                "net_disbursement_paid",
+                disbursement.net_amount_minor,
             )
         for (currency, section, category), value in sorted(by_key.items()):
             add_row(
@@ -2723,8 +2982,7 @@ def _report_semantics(report_type: str) -> str:
 
 
 def _pdf_escape(text: str) -> str:
-    ascii_text = text.encode("latin-1", errors="replace").decode("latin-1")
-    return ascii_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return pdf_literal(text)
 
 
 def _pdf_number(value: float) -> str:
@@ -2911,7 +3169,15 @@ def _pdf_page_header(
     return y - (43 if compact else 50)
 
 
-def _pdf_footer(canvas: _PdfReportCanvas, *, page_number: int, page_count: int) -> None:
+def _pdf_footer(
+    canvas: _PdfReportCanvas,
+    *,
+    page_number: int,
+    page_count: int,
+    label: str = (
+        "Confidential export. Content checksum is recorded in the report manifest and audit trail."
+    ),
+) -> None:
     footer_y = 22.0
     canvas.line(
         x1=PDF_MARGIN_X,
@@ -2922,10 +3188,7 @@ def _pdf_footer(canvas: _PdfReportCanvas, *, page_number: int, page_count: int) 
     canvas.text(
         x=PDF_MARGIN_X,
         y=footer_y,
-        text=(
-            "Confidential export. Content checksum is recorded in the report manifest "
-            "and audit trail."
-        ),
+        text=label,
         size=6.3,
         color=PDF_MUTED,
     )
@@ -3208,15 +3471,20 @@ def _report_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> by
     for page_number in range(1, page_count + 1):
         canvas.pages[page_number - 1].append("")
         _pdf_footer(canvas, page_number=page_number, page_count=page_count)
+    return _pdf_document_bytes(canvas)
 
+
+def _pdf_document_bytes(canvas: _PdfReportCanvas) -> bytes:
     objects: dict[int, bytes] = {}
     page_object_ids: list[int] = []
     objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
-    objects[3] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
-    objects[4] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
-    objects[5] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
+    font_ids: dict[str, int] = {}
+    for offset, (font_name, font_object) in enumerate(PDF_STANDARD_FONT_OBJECTS.items()):
+        font_ids[font_name] = 3 + offset
+        objects[3 + offset] = font_object
+    font_resources = " ".join(f"/{name} {object_id} 0 R" for name, object_id in font_ids.items())
 
-    next_id = 6
+    next_id = 3 + len(font_ids)
     for page_commands in canvas.pages:
         content_id = next_id
         page_id = next_id + 1
@@ -3230,8 +3498,7 @@ def _report_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> by
             f"<< /Type /Page /Parent 2 0 R "
             f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
         ).encode("ascii") + (
-            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
-            f"/Contents {content_id} 0 R >>"
+            f"/Resources << /Font << {font_resources} >> >> /Contents {content_id} 0 R >>"
         ).encode("ascii")
 
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
@@ -3316,6 +3583,12 @@ TAX_INFORMATION_ITEM_LABELS = {
     "secondary_market_maker_fees_paid": "Secondary market seller fees paid",
     "secondary_market_seller_net_proceeds": "Secondary market sales (net proceeds)",
     "outstanding_principal_at_period_end": "Outstanding principal at period end",
+    "interest_paid": "Interest paid",
+    "fees_paid": "Fees paid",
+    "penalties_paid": "Penalties paid",
+    "borrower_success_fee": "BANXUM fee",
+    "principal_received": "Principal received",
+    "net_disbursement_paid": "Net amount paid to the borrower",
     NO_ACCOUNT_ACTIVITY_CATEGORY: "No account activity in this period",
     "informational_only_not_tax_advice": "Informational only, not tax advice",
 }
@@ -3375,6 +3648,296 @@ def _annual_tax_information_pdf_dataset(dataset: ReportDataset) -> ReportDataset
     )
 
 
+STATEMENT_TABLE_FONT_SIZE = 7.2
+STATEMENT_TABLE_LINE_HEIGHT = 9.2
+STATEMENT_TABLE_COLUMNS = (
+    ("Date", 64.0, "left"),
+    ("Description", 214.0, "left"),
+    ("Details", 276.0, "left"),
+    ("Amount", 105.0, "right"),
+    ("Balance", PDF_CONTENT_WIDTH - 659.0, "right"),
+)
+
+
+def _statement_date_text(value: date) -> str:
+    return f"{value.day:02d} {calendar.month_abbr[value.month]} {value.year}"
+
+
+def _wrap_to_width(text: str, *, width: float, size: float, font: str, max_lines: int) -> list[str]:
+    words = " ".join(str(text).split()).split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and pdf_text_width(candidate, size=size, font=font) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current or not lines:
+        lines.append(current)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1].rstrip(" .,") + "..."
+    return lines
+
+
+def _signed_amount_text(amount_minor: int, minor_units: int) -> str:
+    text = _major_amount_text(amount_minor, minor_units)
+    return f"+{text}" if amount_minor > 0 else text
+
+
+def _statement_table_header(canvas: _PdfReportCanvas, *, y: float) -> float:
+    height = 17.0
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - height,
+        width=PDF_CONTENT_WIDTH,
+        height=height,
+        fill=PDF_TABLE_HEADER_FILL,
+        stroke=PDF_RULE,
+    )
+    x = PDF_MARGIN_X
+    for label, width, align in STATEMENT_TABLE_COLUMNS:
+        text_x = x + PDF_TABLE_CELL_PADDING_X
+        if align == "right":
+            text_x = (
+                x
+                + width
+                - PDF_TABLE_CELL_PADDING_X
+                - pdf_text_width(label, size=STATEMENT_TABLE_FONT_SIZE, font="F2")
+            )
+        canvas.text(
+            x=text_x,
+            y=y - 11.5,
+            text=label,
+            size=STATEMENT_TABLE_FONT_SIZE,
+            font="F2",
+            color=PDF_PRIMARY,
+        )
+        x += width
+    return y - height
+
+
+def _statement_table_row(
+    canvas: _PdfReportCanvas,
+    *,
+    y: float,
+    cells: list[str],
+    bold: bool,
+    fill: tuple[int, int, int],
+) -> float:
+    font = "F2" if bold else "F1"
+    wrapped: list[list[str]] = []
+    for (_label, width, _align), cell in zip(STATEMENT_TABLE_COLUMNS, cells, strict=True):
+        wrapped.append(
+            _wrap_to_width(
+                cell,
+                width=width - (PDF_TABLE_CELL_PADDING_X * 2),
+                size=STATEMENT_TABLE_FONT_SIZE,
+                font=font,
+                max_lines=4,
+            )
+        )
+    line_count = max(len(lines) for lines in wrapped)
+    height = (line_count * STATEMENT_TABLE_LINE_HEIGHT) + (PDF_TABLE_CELL_PADDING_Y * 2) + 1.5
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - height,
+        width=PDF_CONTENT_WIDTH,
+        height=height,
+        fill=fill,
+        stroke=PDF_RULE,
+        line_width=0.35,
+    )
+    x = PDF_MARGIN_X
+    for (_label, width, align), lines in zip(STATEMENT_TABLE_COLUMNS, wrapped, strict=True):
+        text_y = y - 11.0
+        for line in lines:
+            text_x = x + PDF_TABLE_CELL_PADDING_X
+            if align == "right":
+                text_x = (
+                    x
+                    + width
+                    - PDF_TABLE_CELL_PADDING_X
+                    - pdf_text_width(line, size=STATEMENT_TABLE_FONT_SIZE, font=font)
+                )
+            canvas.text(x=text_x, y=text_y, text=line, size=STATEMENT_TABLE_FONT_SIZE, font=font)
+            text_y -= STATEMENT_TABLE_LINE_HEIGHT
+        x += width
+    return y - height
+
+
+def _statement_row_height(cells: list[str], *, bold: bool) -> float:
+    font = "F2" if bold else "F1"
+    line_count = max(
+        len(
+            _wrap_to_width(
+                cell,
+                width=width - (PDF_TABLE_CELL_PADDING_X * 2),
+                size=STATEMENT_TABLE_FONT_SIZE,
+                font=font,
+                max_lines=4,
+            )
+        )
+        for (_label, width, _align), cell in zip(STATEMENT_TABLE_COLUMNS, cells, strict=True)
+    )
+    return (line_count * STATEMENT_TABLE_LINE_HEIGHT) + (PDF_TABLE_CELL_PADDING_Y * 2) + 1.5
+
+
+def _investor_statement_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> bytes:
+    """Investor account statement: one table per currency, amounts in currency units."""
+    statement = dataset.presentation["investor_statement"]
+    sections: list[StatementSection] = statement["sections"]
+    labels: dict[str, dict[str, str]] = statement["labels"]
+    participant_id = str(statement.get("participant_id") or "")
+    start_date = date.fromisoformat(str(manifest["start_date"]))
+    end_date = date.fromisoformat(str(manifest["end_date"]))
+    generated_on = business_date(datetime.fromisoformat(str(manifest["generated_at"])))
+    title = "Account statement"
+    period_text = f"{_statement_date_text(start_date)} to {_statement_date_text(end_date)}"
+    canvas = _PdfReportCanvas()
+    bottom_limit = PDF_MARGIN_BOTTOM + 26
+    y = _pdf_page_header(canvas, report_title=title, compact=False)
+    canvas.text(x=PDF_MARGIN_X, y=y, text=title, size=18, font="F2")
+    canvas.text(x=PDF_MARGIN_X, y=y - 17, text=period_text, size=8.6, color=PDF_MUTED)
+    y -= 38
+    box_width = (PDF_CONTENT_WIDTH - 14) / 2
+    if participant_id:
+        label = labels.get(participant_id, {"reference": "", "name": ""})
+        account_items = [
+            ("Investor", label["name"] or "-"),
+            ("Investor reference", label["reference"] or "-"),
+        ]
+    else:
+        account_items = [("Investors", str(len({s.investor_user_id for s in sections})))]
+    account_items += [
+        ("Period", period_text),
+        ("Created on", _statement_date_text(generated_on)),
+    ]
+    left_y = _pdf_key_value_box(
+        canvas, x=PDF_MARGIN_X, y=y, width=box_width, title="Account", items=account_items
+    )
+    summary_items: list[tuple[str, str]] = []
+    for section in sections[:6]:
+        summary_items.append(
+            (
+                f"{section.currency} closing balance",
+                money_text(section.closing_balance_minor, section.currency, section.minor_units),
+            )
+        )
+    if not summary_items:
+        summary_items = [("Activity", NO_STATEMENT_ACTIVITY_TEXT)]
+    right_y = _pdf_key_value_box(
+        canvas,
+        x=PDF_MARGIN_X + box_width + 14,
+        y=y,
+        width=box_width,
+        title="Balances at the end of the period",
+        items=summary_items,
+    )
+    y = min(left_y, right_y) - 14
+    y = _pdf_notes_box(canvas, y=y, notes=dataset.notes)
+
+    def new_page() -> float:
+        canvas.new_page()
+        return _pdf_page_header(canvas, report_title=title, compact=True)
+
+    if not sections:
+        canvas.text(x=PDF_MARGIN_X, y=y - 8, text=NO_STATEMENT_ACTIVITY_TEXT, size=9, font="F2")
+    for section in sections:
+        units = section.minor_units
+        code = section.currency
+        heading = f"{code} account"
+        if not participant_id:
+            label = labels.get(section.investor_user_id, {"reference": "", "name": ""})
+            heading += f" - investor {label['reference'] or 'REDACTED'}"
+        if y < bottom_limit + 90:
+            y = new_page()
+        canvas.text(x=PDF_MARGIN_X, y=y - 4, text=heading, size=11.5, font="F2", color=PDF_PRIMARY)
+        summary = (
+            f"Opening balance {money_text(section.opening_balance_minor, code, units)}    "
+            f"Money in {money_text(section.money_in_minor, code, units)}    "
+            f"Money out {money_text(section.money_out_minor, code, units)}    "
+            f"Closing balance {money_text(section.closing_balance_minor, code, units)}"
+        )
+        canvas.text(x=PDF_MARGIN_X, y=y - 18, text=summary, size=7.6, color=PDF_PRIMARY_DARK)
+        y = _statement_table_header(canvas, y=y - 26)
+        table_rows: list[tuple[list[str], bool]] = [
+            (
+                [
+                    _statement_date_text(start_date),
+                    "Opening balance",
+                    "",
+                    "",
+                    _major_amount_text(section.opening_balance_minor, units),
+                ],
+                True,
+            )
+        ]
+        for movement in section.movements:
+            description = movement.description
+            details = movement.details
+            if movement.reference:
+                details = f"{details} Ref. {movement.reference}".strip()
+            table_rows.append(
+                (
+                    [
+                        _statement_date_text(movement.value_date),
+                        description,
+                        details,
+                        _signed_amount_text(movement.amount_minor, units),
+                        _major_amount_text(movement.balance_after_minor, units),
+                    ],
+                    False,
+                )
+            )
+        table_rows.append(
+            (
+                [
+                    _statement_date_text(end_date),
+                    "Closing balance",
+                    "",
+                    "",
+                    _major_amount_text(section.closing_balance_minor, units),
+                ],
+                True,
+            )
+        )
+        for index, (cells, bold) in enumerate(table_rows):
+            if y - _statement_row_height(cells, bold=bold) < bottom_limit:
+                y = new_page()
+                canvas.text(
+                    x=PDF_MARGIN_X,
+                    y=y - 4,
+                    text=f"{heading} (continued)",
+                    size=9,
+                    font="F2",
+                    color=PDF_PRIMARY,
+                )
+                y = _statement_table_header(canvas, y=y - 12)
+            fill = (
+                PDF_TOTAL_FILL
+                if bold
+                else (PDF_ROW_ALT_FILL if index % 2 == 0 else (255, 255, 255))
+            )
+            y = _statement_table_row(canvas, y=y, cells=cells, bold=bold, fill=fill)
+        y -= 22
+
+    page_count = len(canvas.pages)
+    for page_number in range(1, page_count + 1):
+        _pdf_footer(
+            canvas,
+            page_number=page_number,
+            page_count=page_count,
+            label=(
+                f"{settings.PLATFORM_BRAND_NAME} account statement for information. "
+                f"Operator: {settings.LEGAL_OPERATOR_NAME}."
+            ),
+        )
+    return _pdf_document_bytes(canvas)
+
+
 def _render_pdf(
     *,
     report_type: str,
@@ -3391,7 +3954,10 @@ def _render_pdf(
     )
     if report_type == ReportType.ANNUAL_TAX_INFORMATION:
         dataset = _annual_tax_information_pdf_dataset(dataset)
-    pdf_bytes = _report_pdf_bytes(manifest=manifest, dataset=dataset)
+    if "investor_statement" in dataset.presentation:
+        pdf_bytes = _investor_statement_pdf_bytes(manifest=manifest, dataset=dataset)
+    else:
+        pdf_bytes = _report_pdf_bytes(manifest=manifest, dataset=dataset)
     checksum = _content_checksum_bytes(pdf_bytes)
     return RenderedReport(
         content_type=PDF_CONTENT_TYPE,
@@ -3550,6 +4116,82 @@ def _require_investor_self_service_report_access(
         raise ReportingValidationError("This report type is not available for investor download.")
 
 
+REDACTED_VALUE = "REDACTED"
+UUID_PATTERN = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+EMAIL_PATTERN = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+INVESTOR_REFERENCE_PATTERN = r"\bL[0-9A-Z]{8}\b"
+INVESTOR_IDENTIFIER_RE = re.compile(
+    f"(?P<uuid>{UUID_PATTERN})|(?P<email>{EMAIL_PATTERN})|(?P<reference>{INVESTOR_REFERENCE_PATTERN})"
+)
+
+
+class _InvestorIdentifierScrubber:
+    """Masks every investor identifier (user id, email, investor reference) in a redacted export.
+
+    Column-level redaction misses identifiers embedded in other values, such as ledger account
+    codes, lot source ids or bank operation links. This pass replaces each known investor
+    identifier wherever it appears in a cell.
+    """
+
+    def __init__(self) -> None:
+        user_model = _external_model("accounts_auth", "User")
+        self.ids: set[str] = set()
+        self.emails: set[str] = set()
+        self.references: set[str] = set()
+        for user_id, email, reference in user_model.objects.filter(
+            account_type__in=LENDER_ACCOUNT_TYPES
+        ).values_list("id", "email", "investor_reference"):
+            self.ids.add(str(user_id).lower())
+            if email:
+                self.emails.add(str(email).lower())
+            if reference:
+                self.references.add(str(reference))
+
+    def _replace(self, match: re.Match[str]) -> str:
+        value = match.group(0)
+        if match.group("uuid") and value.lower() in self.ids:
+            return REDACTED_VALUE
+        if match.group("email") and value.lower() in self.emails:
+            return REDACTED_VALUE
+        if match.group("reference") and value in self.references:
+            return REDACTED_VALUE
+        return value
+
+    def scrub(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return INVESTOR_IDENTIFIER_RE.sub(self._replace, value)
+        if isinstance(value, dict):
+            return {key: self.scrub(item) for key, item in value.items()}
+        if isinstance(value, list | tuple):
+            return [self.scrub(item) for item in value]
+        return value
+
+    def scrub_dataset(self, dataset: ReportDataset) -> ReportDataset:
+        rows = [{key: self.scrub(value) for key, value in row.items()} for row in dataset.rows]
+        return ReportDataset(
+            columns=dataset.columns,
+            rows=rows,
+            source_counts=dataset.source_counts,
+            notes=dataset.notes,
+            presentation=dataset.presentation,
+        )
+
+
+def _require_period_available(*, report_type: str, period: ReportPeriod, as_of: datetime) -> None:
+    """Statements and tax information never describe days that have not happened yet."""
+    today = business_date(as_of)
+    if report_type == ReportType.ANNUAL_TAX_INFORMATION and period.end_date >= today:
+        raise ReportingValidationError(
+            "Tax information is only available for a period that has ended. This period ends "
+            f"on {period.end_date.isoformat()}. Today is {today.isoformat()}."
+        )
+    if report_type == ReportType.PARTICIPANT_ACCOUNT_STATEMENT and period.end_date > today:
+        raise ReportingValidationError(
+            "An account statement cannot end after today. This period ends on "
+            f"{period.end_date.isoformat()}. Today is {today.isoformat()}."
+        )
+
+
 def _generate_report_artifact(
     *,
     actor: Model,
@@ -3573,6 +4215,7 @@ def _generate_report_artifact(
         period_anchor_date=period_anchor_date,
         as_of=generated_at,
     )
+    _require_period_available(report_type=report_type, period=period, as_of=generated_at)
 
     dataset = _build_dataset(
         report_type=report_type,
@@ -3581,6 +4224,11 @@ def _generate_report_artifact(
         redaction_mode=redaction_mode,
         filters=filters,
     )
+    exported_filters: dict[str, Any] = filters
+    if redaction_mode != ReportRedactionMode.FULL:
+        scrubber = _InvestorIdentifierScrubber()
+        dataset = scrubber.scrub_dataset(dataset)
+        exported_filters = scrubber.scrub(filters)
     manifest: dict[str, Any] = {
         "report_type": report_type,
         "output_format": output_format,
@@ -3594,7 +4242,7 @@ def _generate_report_artifact(
         "run_mode": run_mode,
         "definition_version": REPORT_DEFINITION_VERSION,
         "semantics": _report_semantics(report_type),
-        "filters": filters,
+        "filters": exported_filters,
         "columns": dataset.columns,
         "row_count": len(dataset.rows),
         "source_counts": dataset.source_counts,

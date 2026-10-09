@@ -25,6 +25,8 @@ from backend.apps.secondary_market.api.serializers import (
     SecondaryMarketListingCreateRequestSerializer,
     SecondaryMarketListingEditRequestSerializer,
     SecondaryMarketListingListQuerySerializer,
+    SecondaryMarketListingPricingPreviewQuerySerializer,
+    SecondaryMarketListingPricingPreviewSerializer,
     SecondaryMarketListingRejectRequestSerializer,
     SecondaryMarketListingRemoveRequestSerializer,
     SecondaryMarketListingSerializer,
@@ -43,6 +45,7 @@ from backend.apps.secondary_market.services import (
     RejectSecondaryMarketListingCommand,
     RemoveSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
+    SecondaryMarketPriceChangedError,
     SecondaryMarketValidationError,
     approve_secondary_market_listing,
     cancel_secondary_market_listing,
@@ -51,6 +54,7 @@ from backend.apps.secondary_market.services import (
     get_active_secondary_market_listing_detail,
     list_active_secondary_market_listings,
     list_admin_secondary_market_listings,
+    preview_secondary_market_listing_pricing,
     purchase_secondary_market_listing,
     reject_secondary_market_listing,
     remove_secondary_market_listing,
@@ -118,6 +122,36 @@ class SecondaryMarketListingListCreateView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_201_CREATED)
+
+
+class SecondaryMarketListingPricingPreviewView(APIView):
+    """Seller-side pricing of a holding at a price (the listing form's net proceeds)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[SecondaryMarketListingPricingPreviewQuerySerializer],
+        responses={200: SecondaryMarketListingPricingPreviewSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = SecondaryMarketListingPricingPreviewQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = preview_secondary_market_listing_pricing(
+                actor=actor,
+                holding_id=str(data["holding_id"]),
+                price_bps=data["price_bps"],
+            )
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(
+            SecondaryMarketListingPricingPreviewSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class SecondaryMarketListingDetailView(APIView):
@@ -314,11 +348,20 @@ class SecondaryMarketListingPurchaseView(APIView):
                     document_acceptance_id=str(data["document_acceptance_id"]),
                     risk_acknowledgement_accepted=data["risk_acknowledgement_accepted"],
                     idempotency_key=data["idempotency_key"],
+                    expected_buyer_total_cost_minor=data["expected_buyer_total_cost_minor"],
+                    expected_price_bps=data["expected_price_bps"],
+                    expected_current_principal_minor=data["expected_current_principal_minor"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
+            )
+        except SecondaryMarketPriceChangedError as exc:
+            # 409 tells the buyer UI to reload the listing and ask for a fresh review.
+            return Response(
+                {"detail": str(exc), "code": exc.code},
+                status=status.HTTP_409_CONFLICT,
             )
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)

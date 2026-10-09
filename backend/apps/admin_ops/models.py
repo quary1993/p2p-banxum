@@ -153,6 +153,14 @@ class AdminTask(TimestampedModel):
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_loan_default_review_task",
             ),
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.LOAN_SETUP,
+                    related_object_type="PausedSubscriptionRound",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_paused_subscription_round_task",
+            ),
         ]
 
     @property
