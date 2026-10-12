@@ -55,6 +55,7 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
           printf 'Deployment key fingerprint: '
           ssh-keygen -y -f "$HOME/.ssh/banxum_deploy_key" | ssh-keygen -lf -
+          printf 'Deployment public key: %s\n' "$(ssh-keygen -y -f "$HOME/.ssh/banxum_deploy_key")"
           QA_SEED_PASSPHRASE="$(sed '/^[[:space:]]*$/d' "$HOME/.ssh/banxum_deploy_key")"
           export QA_SEED_PASSPHRASE
           printf '%s' "$ENCRYPTED_SEED_PAYLOAD" | openssl enc -d -aes-256-cbc \
