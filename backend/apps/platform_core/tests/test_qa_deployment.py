@@ -28,11 +28,13 @@ def test_compose_shares_durable_qa_snapshot_storage() -> None:
 
 def test_reset_wrapper_verifies_the_shared_seed_before_restart() -> None:
     wrapper = (REPO_ROOT / "infra/deploy/reset_qa_environment.py").read_text()
-    reset = wrapper.index('"backend/manage.py", "reset_qa_dataset"')
+    reset = wrapper.index('"--maintenance-confirmed"')
     verify = wrapper.index('"check_qa_restore_points"')
     restart = wrapper.index('run(["docker", "start", backend, frontend])')
 
     assert reset < verify < restart
+    assert "cat > /tmp/qa-regression-accounts.json" in wrapper
+    assert "/qa-regression-accounts.json:ro" not in wrapper
 
 
 def test_staging_seed_workflow_uses_private_inputs_and_guard_phrase() -> None:

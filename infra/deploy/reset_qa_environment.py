@@ -39,6 +39,40 @@ def health(port: int, environment: str) -> None:
     raise RuntimeError(f"{environment} did not return a healthy backend response.")
 
 
+def reset_container_command(
+    compose: list[str],
+    *,
+    run_options: list[str],
+    command_options: list[str],
+    regression_input: bytes | None,
+) -> list[str]:
+    base = compose + ["run", "--rm", "--no-deps", "-T", *run_options]
+    if regression_input is None:
+        return base + [
+            "--entrypoint",
+            ".venv/bin/python",
+            "backend",
+            "backend/manage.py",
+            "reset_qa_dataset",
+            *command_options,
+        ]
+    script = (
+        "set -eu; umask 077; "
+        "cat > /tmp/qa-regression-accounts.json; "
+        "exec .venv/bin/python backend/manage.py reset_qa_dataset "
+        '--regression-accounts /tmp/qa-regression-accounts.json "$@"'
+    )
+    return base + [
+        "--entrypoint",
+        "/bin/sh",
+        "backend",
+        "-c",
+        script,
+        "qa-reset",
+        *command_options,
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", required=True, choices=("staging", "production"))
@@ -56,15 +90,14 @@ def main() -> None:
     args = parser.parse_args()
     environment = args.environment
     regression_flags = []
-    regression_mount = []
+    regression_input = None
     if args.regression_accounts:
         if environment != "staging":
             raise RuntimeError("The regression profile is staging-only on deployed environments.")
         path = args.regression_accounts.resolve(strict=True)
         if path.stat().st_mode & 0o077:
             raise RuntimeError("The account mapping must have private 0600 permissions.")
-        regression_flags = ["--regression-accounts", "/qa-regression-accounts.json"]
-        regression_mount = ["-v", f"{path}:/qa-regression-accounts.json:ro"]
+        regression_input = path.read_bytes()
     if args.create_missing_investors:
         if not args.regression_accounts:
             raise RuntimeError("Missing investors require the regression account mapping.")
@@ -90,15 +123,14 @@ def main() -> None:
         "-f",
         "infra/deploy/docker-compose.yml",
     ]
-    preview_command = (
-        compose
-        + ["run", "--rm", "--no-deps", "-T"]
-        + regression_mount
-        + ["--entrypoint", ".venv/bin/python", "backend", "backend/manage.py", "reset_qa_dataset"]
-        + regression_flags
+    preview_command = reset_container_command(
+        compose,
+        run_options=[],
+        command_options=regression_flags,
+        regression_input=regression_input,
     )
     if not args.execute:
-        run(preview_command, cwd=app_dir)
+        run(preview_command, cwd=app_dir, input=regression_input)
         return
     run_id = UUID(args.run_id)
     required = f"RESET QA DATA {environment} {env.get('PUBLIC_APP_BASE_URL', '').rstrip('/')}"
@@ -111,7 +143,11 @@ def main() -> None:
             raise RuntimeError(f"{name} must be running before starting the maintenance wrapper.")
     health(port, environment)
     prior = json.loads(
-        subprocess.check_output(preview_command + ["--run-id", str(run_id)], cwd=app_dir)
+        subprocess.check_output(
+            preview_command + ["--run-id", str(run_id)],
+            cwd=app_dir,
+            input=regression_input,
+        )
     )
     if prior["already_completed"]:
         print(json.dumps({"already_completed": True, "result": prior["completed_reset"]}))
@@ -224,38 +260,34 @@ def main() -> None:
             run(["docker", "exec", postgres, "dropdb", "-U", db_user, verification_db])
         digest = hashlib.sha256(dump_path.read_bytes()).hexdigest()
         print(json.dumps({"backup": str(dump_path), "sha256": digest}), flush=True)
-        command = compose + [
-            "run",
-            "--rm",
-            "--no-deps",
-            "-T",
-            *regression_mount,
-            "-e",
-            "QA_DATA_RESET_ALLOWED=true",
-            "-v",
-            f"{backup_dir}:/qa-reset-backups",
-            "--entrypoint",
-            ".venv/bin/python",
-            "backend",
-            "backend/manage.py",
-            "reset_qa_dataset",
-            "--execute",
-            "--actor-email",
-            args.actor_email,
-            "--run-id",
-            str(run_id),
-            "--expected-environment",
-            environment,
-            "--confirm",
-            args.confirm,
-            "--backup-directory",
-            "/qa-reset-backups",
-            "--maintenance-confirmed",
-            *regression_flags,
-        ]
+        command = reset_container_command(
+            compose,
+            run_options=[
+                "-e",
+                "QA_DATA_RESET_ALLOWED=true",
+                "-v",
+                f"{backup_dir}:/qa-reset-backups",
+            ],
+            command_options=[
+                "--execute",
+                "--actor-email",
+                args.actor_email,
+                "--run-id",
+                str(run_id),
+                "--expected-environment",
+                environment,
+                "--confirm",
+                args.confirm,
+                "--backup-directory",
+                "/qa-reset-backups",
+                "--maintenance-confirmed",
+                *regression_flags,
+            ],
+            regression_input=regression_input,
+        )
         if environment == "production":
             command.append("--allow-production")
-        run(command, cwd=app_dir)
+        run(command, cwd=app_dir, input=regression_input)
         run(
             compose
             + [
