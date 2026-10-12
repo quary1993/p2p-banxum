@@ -195,22 +195,24 @@ def test_deploy_check_requires_the_proxy_count_behind_a_proxy(settings: Any) -> 
 PROVIDER_CHECK_IDS = {
     "accounts_auth.E001",
     "communications.E001",
-    "fx.E001",
     "kyc_compliance.E003",
 }
 
 
 def test_staging_may_run_mock_providers_but_production_may_not(settings: Any) -> None:
-    # Staging sends no real email or SMS and makes no real provider calls (plan 19), and
-    # QA mode needs the mock email provider; the deploy check at container start must
-    # not stop such a staging process. Production still needs the real providers.
+    # Staging sends no real email or SMS (plan 19), and QA mode needs the mock email
+    # provider; the deploy check at container start must not stop such a staging
+    # process. Production still needs the real providers. FX has no mock exception: the
+    # FX service refuses the mock rate outside local, and staging uses the live rate.
     settings.PHONE_VERIFICATION_PROVIDER = "mock"
     settings.COMMUNICATIONS_EMAIL_PROVIDER = "mock"
     settings.FX_RATE_PROVIDER = "mock"
     settings.DIDIT_SESSION_PROVIDER = "mock"
     settings.ENVIRONMENT = "staging"
     settings.IS_PRODUCTION = False
-    assert not PROVIDER_CHECK_IDS & _check_ids()
+    ids = _check_ids()
+    assert not PROVIDER_CHECK_IDS & ids
+    assert "fx.E001" in ids
 
     settings.ENVIRONMENT = "production"
     settings.IS_PRODUCTION = True

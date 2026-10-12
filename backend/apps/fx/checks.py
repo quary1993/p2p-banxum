@@ -16,10 +16,8 @@ def check_fx_provider_config(
 
     errors: list[Error] = []
     provider = str(settings.FX_RATE_PROVIDER).strip().lower()
-    # Staging may run the mock provider: it must not send real messages or make real
-    # provider calls (plan 19), and QA mode needs it. Production needs the real one.
-    if provider == "mock" and str(settings.ENVIRONMENT).lower() != "production":
-        return []
+    # No mock exception here: the FX service refuses the mock rate outside local/test, and
+    # staging uses the live rate (QA row 14), so a mock FX provider would only fail later.
     if provider != "yahoo_finance":
         errors.append(
             Error(
