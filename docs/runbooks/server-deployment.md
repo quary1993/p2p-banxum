@@ -488,6 +488,9 @@ The maintenance wrapper verifies the seed fixture, manifest, checksum and migrat
 signature through a second container before it restarts the application. A failed
 verification fails the maintenance run, while the wrapper still restarts the application
 to avoid an extended outage. Do not start regression testing until verification succeeds.
+The wrapper also creates and restore-tests a private PostgreSQL dump before the reset.
+The offline reset records that host backup path and SHA-256 digest directly; it does not
+write a duplicate database export through the non-root application container.
 The `Rebuild staging QA seed` workflow runs this wrapper after an approved schema
 change. It is staging-only and requires the exact dispatch phrase
 `REBUILD STAGING QA SEED`. Create its encrypted one-time input locally. Use the

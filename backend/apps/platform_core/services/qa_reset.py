@@ -75,6 +75,8 @@ class ResetQaDatasetCommand:
     allow_production: bool = False
     regression_accounts: RegressionAccounts | None = None
     create_missing_investors: bool = False
+    verified_backup_path: Path | None = None
+    verified_backup_sha256: str = ""
 
 
 def reset_confirmation() -> str:
@@ -149,7 +151,17 @@ def _validate(command: ResetQaDatasetCommand) -> None:
         raise ValueError(
             "Stop the serving backend and all workers before acknowledging maintenance."
         )
-    if not command.backup_directory.is_absolute():
+    if bool(command.verified_backup_path) != bool(command.verified_backup_sha256):
+        raise ValueError("Provide both the verified backup path and checksum, or neither.")
+    if command.verified_backup_path:
+        if not command.verified_backup_path.is_absolute():
+            raise ValueError("The verified backup path must be absolute.")
+        checksum = command.verified_backup_sha256
+        if len(checksum) != 64 or any(
+            character not in "0123456789abcdef" for character in checksum
+        ):
+            raise ValueError("The verified backup checksum must be a lowercase SHA-256 digest.")
+    elif not command.backup_directory.is_absolute():
         raise ValueError("An absolute private, durable backup directory is required.")
     if connection.vendor not in {"postgresql", "sqlite"}:
         raise ValueError("This database engine is not supported by the QA reset.")
@@ -328,7 +340,11 @@ def reset_qa_dataset(command: ResetQaDatasetCommand) -> dict[str, Any]:
                 regression_accounts=command.regression_accounts,
                 create_missing_investors=command.create_missing_investors,
             )
-            backup, checksum = _backup(command)
+            if command.verified_backup_path:
+                backup = command.verified_backup_path
+                checksum = command.verified_backup_sha256
+            else:
+                backup, checksum = _backup(command)
             if command.regression_accounts and command.create_missing_investors:
                 create_missing_regression_investors(
                     actor=command.actor, accounts=command.regression_accounts

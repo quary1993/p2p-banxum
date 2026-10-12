@@ -186,6 +186,26 @@ def test_same_run_is_idempotent_and_next_reset_keeps_prior_archive(
     assert apps.get_model("ledger", "InvestorBalanceLot").objects.count() == 2
 
 
+def test_reset_records_host_verified_postgres_backup(
+    setup_reset: ResetQaDatasetCommand, tmp_path: Path
+) -> None:
+    verified_backup = tmp_path / "pre-reset.dump"
+    checksum = "a" * 64
+    command = replace(
+        setup_reset,
+        backup_directory=Path("relative-unused"),
+        verified_backup_path=verified_backup,
+        verified_backup_sha256=checksum,
+    )
+
+    reset_qa_dataset(command)
+
+    record = QaDatasetReset.objects.get(pk=command.reset_id)
+    assert record.backup_path == str(verified_backup)
+    assert record.backup_sha256 == checksum
+    assert not setup_reset.backup_directory.exists()
+
+
 def test_failure_rolls_back_deletion_and_archive(
     setup_reset: ResetQaDatasetCommand,
     monkeypatch: Any,
@@ -218,6 +238,15 @@ def test_failure_rolls_back_deletion_and_archive(
         ({"maintenance_confirmed": False}, "Stop the serving backend"),
         ({"actor": None}, "active superadmin"),
         ({"backup_directory": Path("relative")}, "absolute private"),
+        (
+            {"verified_backup_path": Path("relative"), "verified_backup_sha256": "a" * 64},
+            "must be absolute",
+        ),
+        ({"verified_backup_path": Path("/backup.dump")}, "both the verified backup"),
+        (
+            {"verified_backup_path": Path("/backup.dump"), "verified_backup_sha256": "bad"},
+            "lowercase SHA-256",
+        ),
     ],
 )
 def test_reset_guardrails(

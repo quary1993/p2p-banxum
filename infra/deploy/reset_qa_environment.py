@@ -265,8 +265,6 @@ def main() -> None:
             run_options=[
                 "-e",
                 "QA_DATA_RESET_ALLOWED=true",
-                "-v",
-                f"{backup_dir}:/qa-reset-backups",
             ],
             command_options=[
                 "--execute",
@@ -278,8 +276,10 @@ def main() -> None:
                 environment,
                 "--confirm",
                 args.confirm,
-                "--backup-directory",
-                "/qa-reset-backups",
+                "--verified-backup-path",
+                str(dump_path),
+                "--verified-backup-sha256",
+                digest,
                 "--maintenance-confirmed",
                 *regression_flags,
             ],

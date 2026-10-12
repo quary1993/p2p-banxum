@@ -35,6 +35,9 @@ def test_reset_wrapper_verifies_the_shared_seed_before_restart() -> None:
     assert reset < verify < restart
     assert "cat > /tmp/qa-regression-accounts.json" in wrapper
     assert "/qa-regression-accounts.json:ro" not in wrapper
+    assert '"--verified-backup-path"' in wrapper
+    assert '"--verified-backup-sha256"' in wrapper
+    assert "/qa-reset-backups" not in wrapper
 
 
 def test_staging_seed_workflow_uses_private_inputs_and_guard_phrase() -> None:

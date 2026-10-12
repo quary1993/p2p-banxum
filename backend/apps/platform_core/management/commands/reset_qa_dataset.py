@@ -32,6 +32,8 @@ class Command(BaseCommand):
         parser.add_argument("--expected-environment", default="")
         parser.add_argument("--confirm", default="")
         parser.add_argument("--backup-directory", default="")
+        parser.add_argument("--verified-backup-path", default="")
+        parser.add_argument("--verified-backup-sha256", default="")
         parser.add_argument("--maintenance-confirmed", action="store_true")
         parser.add_argument("--allow-production", action="store_true")
         parser.add_argument(
@@ -99,6 +101,12 @@ class Command(BaseCommand):
                     allow_production=options["allow_production"],
                     regression_accounts=accounts,
                     create_missing_investors=options["create_missing_investors"],
+                    verified_backup_path=(
+                        Path(options["verified_backup_path"])
+                        if options["verified_backup_path"]
+                        else None
+                    ),
+                    verified_backup_sha256=options["verified_backup_sha256"],
                 )
             )
         except (ValueError, OSError) as exc:
