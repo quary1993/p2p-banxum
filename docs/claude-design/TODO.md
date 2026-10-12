@@ -606,3 +606,10 @@ Before launch, Claude Design should produce or implement:
 - Current behavior: the frozen state comes from the balances API; one red banner on every page says what is frozen, the daily penalty, and to add a payout IBAN (button opens the IBAN dialog); Invest, FX, secondary trades and Add Funds are blocked with the reason. IBANs show Verified / Pending verification; pending withdrawals list forced returns with a "Forced return" chip. Below 640 px tables become stacked label/value rows. Dialogs take focus, keep Tab inside, give focus back, and ignore Escape while a money action runs. The FX confirmation counts the quote down and offers "Refresh quote". Unknown addresses show a "Page not found" page.
 - Suggested improvement: design the stacked phone rows (spacing, which fields lead), a compact variant of the frozen banner after the first visit, the empty-IBAN state of the Withdraw dialog, and the 404 page artwork. Portfolio widget cards are still whole-card buttons (long accessible names) and some pages jump heading levels (Banner titles are h4).
 - Priority: important.
+
+## 2026-10-12: Transactional Email Layout (Re-skin)
+
+- Screen or component: every transactional email (login link, confirmation code, investor notices, Smart Invest matches, document emails), shared layout in `communications/services.py`.
+- Current behavior: the layout follows the site: white card with hairlines on a light grey page, the black Banxum wordmark (hosted PNG, `/brand/banxum-email-logo.png`) in the header, a square status tag (green confirmation, red important, black action needed, grey information), Archivo with Helvetica/Arial fallback, pill buttons, key/value rows and a black footer with the white wordmark. Confirmation codes show large in their own box; expiry times read as Zurich wall time.
+- Suggested improvement: test in Outlook desktop, Gmail (web and app, dark mode) and Apple Mail; decide whether to embed the logo as an inline image instead of loading it from the app domain; consider a dark-mode logo variant and per-topic illustrations for key events (deposit credited, loan defaulted).
+- Priority: important.

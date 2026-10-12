@@ -38,6 +38,9 @@ PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
+# Where emails load their public images (the logo). Blank uses PUBLIC_APP_BASE_URL, whose
+# web server serves frontend/public (for example /brand/banxum-email-logo.png).
+EMAIL_ASSET_BASE_URL = env("EMAIL_ASSET_BASE_URL", default="")
 # The Django admin has a password-only login (no admin email code, no throttle), so it
 # is never mounted outside local development, whatever the variable says (audit A-52).
 DJANGO_ADMIN_ENABLED = IS_LOCAL and env.bool("DJANGO_ADMIN_ENABLED", default=True)

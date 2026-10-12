@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol, cast
 
 from django.apps import apps
@@ -26,7 +27,7 @@ from backend.apps.communications.models import (
     NotificationReadReceipt,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
-from backend.apps.platform_core.domain.time import now_utc
+from backend.apps.platform_core.domain.time import now_utc, to_business_time
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -92,6 +93,8 @@ class EmailTemplateContent:
     data_rows: tuple[tuple[str, str], ...] = ()
     buttons: tuple[EmailButton, ...] = ()
     fine_print: str = ""
+    # One value shown large above the details, for example a confirmation code.
+    highlight: tuple[str, str] | None = None
 
 
 class EmailProvider(Protocol):
@@ -295,19 +298,73 @@ def _base_url() -> str:
 
 
 URL_RE = re.compile(r"https?://[^\s<>\"]+")
+
+# Email design (October 2026 re-skin): the site's black-and-white system. Ink #0a0a0a on
+# white, hairlines #e6e6e6, paper #f5f5f5, Archivo with Helvetica/Arial fallbacks, square
+# cards, pill buttons and small tracked uppercase labels. Status tags follow the site's
+# tags: green for confirmations, red for important notices, black for actions.
+EMAIL_FONT_STACK = "'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+EMAIL_INK = "#0a0a0a"
+EMAIL_GRAPHITE = "#2a2a2a"
+EMAIL_STEEL = "#6e6e6e"
+EMAIL_STEEL_ON_INK = "#8a8a8a"
+EMAIL_LINE = "#e6e6e6"
+EMAIL_PAPER = "#f5f5f5"
+# (background, border, text) per status tone.
 STATUS_STYLES = {
-    "confirmation": ("#e7efe8", "#b8cdbd", "#2f6b4f"),
-    "warning": ("#f6ecd2", "#e3cf9c", "#6f4a0d"),
-    "danger": ("#f6e2dd", "#e4b8ad", "#9c3127"),
-    "info": ("#e3edf4", "#bdd0dc", "#244e72"),
+    "confirmation": ("#1e7a46", "#1e7a46", "#ffffff"),
+    "warning": (EMAIL_INK, EMAIL_INK, "#ffffff"),
+    "danger": ("#b3261e", "#b3261e", "#ffffff"),
+    "info": (EMAIL_PAPER, EMAIL_LINE, EMAIL_GRAPHITE),
 }
+# Hosted PNG copies of the brand wordmark (frontend/public/brand): email clients do not
+# show SVG. Display sizes keep the SVG's aspect ratio; the files are 3x for sharp screens.
+EMAIL_LOGO_PATH = "brand/banxum-email-logo.png"
+EMAIL_LOGO_SIZE = (112, 20)
+EMAIL_LOGO_INVERSE_PATH = "brand/banxum-email-logo-inverse.png"
+EMAIL_LOGO_INVERSE_SIZE = (140, 25)
 
 
 def _escape_attr(value: str) -> str:
     return html.escape(value, quote=True)
 
 
-def _linkified_text(value: str) -> str:
+def _email_asset_url(path: str) -> str:
+    """Absolute URL of a public email asset (logo), on the app domain by default."""
+
+    base = str(getattr(settings, "EMAIL_ASSET_BASE_URL", "") or "").rstrip("/") or _base_url()
+    return f"{base}/{path.lstrip('/')}"
+
+
+def _wordmark_html(*, inverse: bool) -> str:
+    """The brand logo for the email header (dark on white) or footer (white on black).
+
+    The image's alt text is styled like the wordmark, so clients that block images
+    still show the name. Another platform name gets a text wordmark, as in the portal.
+    """
+
+    platform = str(settings.PLATFORM_BRAND_NAME)
+    color = "#ffffff" if inverse else EMAIL_INK
+    if platform.strip().upper() != "BANXUM":
+        return (
+            f'<span class="font-sans" style="color:{color}; font-size:20px; font-weight:700; '
+            f'letter-spacing:-0.3px; line-height:24px;">{html.escape(platform)}</span>'
+        )
+    path, (width, height) = (
+        (EMAIL_LOGO_INVERSE_PATH, EMAIL_LOGO_INVERSE_SIZE)
+        if inverse
+        else (EMAIL_LOGO_PATH, EMAIL_LOGO_SIZE)
+    )
+    return (
+        f'<img src="{_escape_attr(_email_asset_url(path))}" width="{width}" height="{height}" '
+        f'alt="{html.escape(platform, quote=True)}" '
+        f'style="display:block; width:{width}px; height:{height}px; border:0; outline:none; '
+        f"text-decoration:none; color:{color}; font-family:{EMAIL_FONT_STACK}; font-size:18px; "
+        f'font-weight:700; line-height:{height}px;" />'
+    )
+
+
+def _linkified_text(value: str, *, link_color: str = EMAIL_INK) -> str:
     result: list[str] = []
     position = 0
     for match in URL_RE.finditer(value):
@@ -320,7 +377,7 @@ def _linkified_text(value: str) -> str:
         safe_url = _escape_attr(url)
         result.append(
             f'<a href="{safe_url}" target="_blank" '
-            'style="color:#2f6b4f; text-decoration:underline; word-break:break-all;">'
+            f'style="color:{link_color}; text-decoration:underline; word-break:break-all;">'
             f"{html.escape(url)}</a>{html.escape(trailing)}"
         )
         position = match.end()
@@ -332,7 +389,7 @@ def _paragraph_html(paragraphs: tuple[str, ...]) -> str:
     return "".join(
         (
             '<p class="font-sans" '
-            'style="margin:0 0 14px 0; color:#4b544d; font-size:15px; line-height:24px;">'
+            f'style="margin:0 0 16px 0; color:{EMAIL_GRAPHITE}; font-size:15px; line-height:24px;">'
             f"{_linkified_text(paragraph)}</p>"
         )
         for paragraph in paragraphs
@@ -344,26 +401,24 @@ def _button_html(button: EmailButton, *, first: bool) -> str:
     safe_url = _escape_attr(button.url)
     safe_label = html.escape(button.label)
     if button.variant == "secondary":
-        background = "#fffefb"
-        color = "#1b211d"
-        border = "#d2cdbd"
-        vml_border = "#d2cdbd"
+        background = "#ffffff"
+        color = EMAIL_INK
+        border = "#c8c8c8"
     else:
-        background = "#2f6b4f"
+        background = EMAIL_INK
         color = "#ffffff"
-        border = "#2f6b4f"
-        vml_border = "#2f6b4f"
-    width = max(150, min(260, 28 + len(button.label) * 9))
+        border = EMAIL_INK
+    width = max(160, min(280, 48 + len(button.label) * 9))
     padding = "0 10px 0 0" if first else "0"
     return f"""
                         <td class="btn-td" style="padding:{padding};">
                           <!--[if mso]>
-                          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{safe_url}" style="height:46px;v-text-anchor:middle;width:{width}px;" arcsize="11%" strokecolor="{vml_border}" fillcolor="{background}">
+                          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{safe_url}" style="height:48px;v-text-anchor:middle;width:{width}px;" arcsize="50%" strokecolor="{border}" fillcolor="{background}">
                           <w:anchorlock/><center style="color:{color};font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{safe_label}</center>
                           </v:roundrect>
                           <![endif]-->
                           <!--[if !mso]><!-- -->
-                          <a class="btn-a font-sans" href="{safe_url}" target="_blank" style="display:inline-block; white-space:nowrap; background-color:{background}; color:{color}; font-size:15px; font-weight:600; line-height:44px; padding:0 24px; border:1px solid {border}; border-radius:6px; text-align:center;">{safe_label}</a>
+                          <a class="btn-a font-sans" href="{safe_url}" target="_blank" style="display:inline-block; white-space:nowrap; background-color:{background}; color:{color}; font-size:15px; font-weight:600; line-height:46px; padding:0 28px; border:1px solid {border}; border-radius:999px; text-align:center;">{safe_label}</a>
                           <!--<![endif]-->
                         </td>"""
 
@@ -377,8 +432,8 @@ def _buttons_html(buttons: tuple[EmailButton, ...]) -> str:
     return f"""
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td class="px" style="padding:10px 36px 8px 36px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <td class="px" style="padding:8px 40px 8px 40px;">
+                    <table role="presentation" class="btn-table" cellpadding="0" cellspacing="0" border="0">
                       <tr>{button_cells}
                       </tr>
                     </table>
@@ -391,13 +446,13 @@ def _data_rows_html(rows: tuple[tuple[str, str], ...]) -> str:
     if not rows:
         return ""
     row_html: list[str] = []
-    for index, (key, value) in enumerate(rows):
-        border = "" if index == len(rows) - 1 else " border-bottom:1px solid #ece8dc;"
+    for key, value in rows:
+        border = f" border-top:1px solid {EMAIL_LINE};"
         row_html.append(
             "<tr>"
-            f'<td class="font-sans data-k" style="padding:11px 0; color:#717a72; font-size:13px;{border}">'
+            f'<td class="font-sans data-k" style="padding:12px 16px 12px 0; color:{EMAIL_STEEL}; font-size:13px; line-height:19px;{border}">'
             f"{html.escape(key)}</td>"
-            f'<td class="font-mono data-v" align="right" style="padding:11px 0; color:#1b211d; font-size:14px; font-weight:500;{border}">'
+            f'<td class="font-mono data-v" align="right" style="padding:12px 0; color:{EMAIL_INK}; font-size:14px; line-height:20px; font-weight:600; word-break:break-word; overflow-wrap:anywhere;{border}">'
             f"{_linkified_text(value)}</td>"
             "</tr>"
         )
@@ -405,13 +460,42 @@ def _data_rows_html(rows: tuple[tuple[str, str], ...]) -> str:
     return f"""
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td class="px" style="padding:8px 36px 20px 36px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#faf8f1; border:1px solid #e0dccf; border-radius:8px;">
+                  <td class="px" style="padding:8px 40px 24px 40px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid {EMAIL_LINE};">
+                      {rows_combined}
+                    </table>
+                  </td>
+                </tr>
+              </table>"""
+
+
+def _email_time(value: datetime) -> str:
+    """A link or code expiry for people: "12 Oct 2026, 14:39 (Zurich time)"."""
+
+    local = to_business_time(value)
+    return f"{local.day:02d} {local.strftime('%b %Y, %H:%M')} (Zurich time)"
+
+
+def _action_label(action: str) -> str:
+    """Readable action name: bank_account_change -> Bank account change."""
+
+    words = action.replace("_", " ").replace("-", " ").strip()
+    return words[:1].upper() + words[1:] if words else "Account action"
+
+
+def _highlight_html(highlight: tuple[str, str] | None) -> str:
+    if not highlight:
+        return ""
+    label, value = highlight
+    return f"""
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:8px 40px 24px 40px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:{EMAIL_PAPER}; border:1px solid {EMAIL_LINE};">
                       <tr>
-                        <td style="padding:6px 18px;">
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                            {rows_combined}
-                          </table>
+                        <td align="center" style="padding:22px 16px 24px 16px;">
+                          <div class="font-sans" style="color:{EMAIL_STEEL}; font-size:11px; font-weight:600; letter-spacing:2px; text-transform:uppercase; line-height:14px; margin:0 0 10px 0;">{html.escape(label)}</div>
+                          <div class="font-mono code" style="color:{EMAIL_INK}; font-size:36px; font-weight:700; letter-spacing:8px; line-height:42px; padding-left:8px;">{html.escape(value)}</div>
                         </td>
                       </tr>
                     </table>
@@ -434,20 +518,28 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
         content.status_tone, STATUS_STYLES["info"]
     )
     preheader = html.escape(content.preheader[:180])
-    notice_label = html.escape(content.notice_label.upper())
+    notice_label = html.escape(content.notice_label)
     status_label = html.escape(content.status_label)
     headline = html.escape(content.headline)
     paragraphs = _paragraph_html(content.paragraphs)
+    highlight = _highlight_html(content.highlight)
     data_panel = _data_rows_html(content.data_rows)
     buttons = _buttons_html(content.buttons)
+    header_logo = _wordmark_html(inverse=False)
+    footer_logo = _wordmark_html(inverse=True)
+    label_style = (
+        "font-size:11px; font-weight:600; letter-spacing:2px; text-transform:uppercase; "
+        "line-height:14px;"
+    )
     fine_print = (
         f"""
-                    <p class="font-sans" style="margin:18px 0 0 0; color:#717a72; font-size:12px; line-height:19px;">
+                    <p class="font-sans" style="margin:20px 0 0 0; color:{EMAIL_STEEL}; font-size:12px; line-height:19px;">
                       {_linkified_text(content.fine_print)}
                     </p>"""
         if content.fine_print
         else ""
     )
+    footer_link = "color:#ffffff; text-decoration:underline; font-size:12px; line-height:18px;"
     return f"""<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -461,7 +553,7 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
   <!--[if mso]>
   <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
   <![endif]-->
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     html, body {{ margin:0 !important; padding:0 !important; height:100% !important; width:100% !important; }}
     * {{ -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }}
@@ -470,77 +562,67 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
     a {{ text-decoration:none; }}
     a[x-apple-data-detectors] {{ color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }}
     u + #body a {{ color:inherit; text-decoration:none; }}
-    .font-sans {{ font-family:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }}
-    .font-mono {{ font-family:'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }}
+    .font-sans {{ font-family:{EMAIL_FONT_STACK}; }}
+    .font-mono {{ font-family:{EMAIL_FONT_STACK}; font-variant-numeric:tabular-nums; }}
     @media screen and (max-width:600px) {{
       .container {{ width:100% !important; max-width:100% !important; }}
-      .px {{ padding-left:22px !important; padding-right:22px !important; }}
+      .px {{ padding-left:24px !important; padding-right:24px !important; }}
+      .btn-table {{ width:100% !important; }}
       .btn-td {{ display:block !important; padding:0 0 12px 0 !important; }}
       .btn-a {{ display:block !important; text-align:center !important; }}
-      .h1 {{ font-size:22px !important; line-height:28px !important; }}
+      .h1 {{ font-size:26px !important; line-height:31px !important; }}
+      .code {{ font-size:30px !important; letter-spacing:6px !important; padding-left:6px !important; }}
       .data-k {{ display:block !important; width:100% !important; padding:12px 0 2px 0 !important; }}
-      .data-v {{ display:block !important; width:100% !important; padding:0 0 12px 0 !important; text-align:left !important; }}
+      .data-v {{ display:block !important; width:100% !important; padding:0 0 12px 0 !important; text-align:left !important; border-top:0 !important; }}
     }}
   </style>
 </head>
-<body id="body" style="margin:0; padding:0; width:100%; background-color:#e9e5d9;">
-  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#e9e5d9; opacity:0;">
+<body id="body" style="margin:0; padding:0; width:100%; background-color:{EMAIL_PAPER};">
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:{EMAIL_PAPER}; opacity:0;">
     {preheader}
     &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
   </div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e9e5d9;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:{EMAIL_PAPER};">
     <tr>
-      <td align="center" style="padding:28px 12px 40px 12px;">
+      <td align="center" style="padding:32px 12px 40px 12px;">
         <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px;">
           <tr>
-            <td class="px" style="padding:4px 8px 16px 8px;">
+            <td style="background-color:#ffffff; border:1px solid {EMAIL_LINE};">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td align="left" style="vertical-align:middle;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <td class="px" style="padding:26px 40px 24px 40px; border-bottom:1px solid {EMAIL_LINE};">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td style="vertical-align:middle; padding-right:9px;">
-                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="30" height="30" style="width:30px; height:30px; background-color:#2f6b4f; border-radius:7px;">
-                            <tr><td align="center" valign="middle" class="font-sans" style="color:#ffffff; font-size:17px; font-weight:700; line-height:30px;">B</td></tr>
-                          </table>
+                        <td align="left" style="vertical-align:middle;">
+                          <a href="{portal_url}" target="_blank" style="text-decoration:none;">{header_logo}</a>
                         </td>
-                        <td style="vertical-align:middle;" class="font-sans">
-                          <div style="color:#1b211d; font-size:17px; font-weight:700; letter-spacing:2px; line-height:18px;">{platform}</div>
-                          <div style="color:#717a72; font-size:10px; letter-spacing:0.3px; line-height:13px;">{operator}</div>
-                        </td>
+                        <td align="right" class="font-sans" style="vertical-align:middle; color:{EMAIL_STEEL}; {label_style}">{notice_label}</td>
                       </tr>
                     </table>
                   </td>
-                  <td align="right" class="font-sans" style="vertical-align:middle; color:#98a09a; font-size:11px; letter-spacing:0.4px;">{notice_label}</td>
                 </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color:#fffefb; border:1px solid #e0dccf; border-radius:12px; overflow:hidden;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr><td style="height:3px; background-color:#2f6b4f; font-size:0; line-height:0;">&nbsp;</td></tr>
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td class="px" style="padding:30px 36px 0 36px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18px;">
+                  <td class="px" style="padding:36px 40px 4px 40px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
                       <tr>
-                        <td class="font-sans" style="background-color:{status_background}; border:1px solid {status_border}; border-radius:999px; padding:5px 12px; color:{status_color}; font-size:12px; font-weight:600; letter-spacing:0.2px;">&#9679;&nbsp; {status_label}</td>
+                        <td class="font-sans" style="background-color:{status_background}; border:1px solid {status_border}; padding:5px 9px; color:{status_color}; font-size:11px; font-weight:700; letter-spacing:1.3px; text-transform:uppercase; line-height:13px;">{status_label}</td>
                       </tr>
                     </table>
-                    <h1 class="font-sans h1" style="margin:0 0 12px 0; color:#1b211d; font-size:25px; line-height:31px; font-weight:600; letter-spacing:-0.3px;">{headline}</h1>
+                    <h1 class="font-sans h1" style="margin:0 0 16px 0; color:{EMAIL_INK}; font-size:30px; line-height:35px; font-weight:600; letter-spacing:-0.6px;">{headline}</h1>
                     {paragraphs}
                   </td>
                 </tr>
               </table>
+              {highlight}
               {data_panel}
               {buttons}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td class="px" style="padding:18px 36px 32px 36px;">
+                  <td class="px" style="padding:20px 40px 36px 40px;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                      <tr><td style="height:1px; background-color:#e0dccf; font-size:0; line-height:0;">&nbsp;</td></tr>
+                      <tr><td style="height:1px; background-color:{EMAIL_LINE}; font-size:0; line-height:0;">&nbsp;</td></tr>
                     </table>
                     {fine_print}
                   </td>
@@ -549,22 +631,25 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
             </td>
           </tr>
           <tr>
-            <td class="px" style="padding:24px 24px 8px 24px;">
-              <p class="font-sans" style="margin:0 0 8px 0; color:#4b544d; font-size:12px; line-height:18px;">
-                <strong style="color:#1b211d;">{platform}</strong> is a peer-to-peer lending platform operated by {operator}.
+            <td class="px" style="background-color:{EMAIL_INK}; padding:32px 40px 30px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td style="padding:0 0 18px 0;">{footer_logo}</td></tr>
+              </table>
+              <p class="font-sans" style="margin:0 0 10px 0; color:{EMAIL_STEEL_ON_INK}; font-size:12px; line-height:19px;">
+                <strong style="color:#ffffff; font-weight:600;">{platform}</strong> is a peer-to-peer lending platform operated by {operator}.
               </p>
-              <p class="font-sans" style="margin:0 0 14px 0; color:#717a72; font-size:12px; line-height:18px;">
+              <p class="font-sans" style="margin:0 0 18px 0; color:{EMAIL_STEEL_ON_INK}; font-size:12px; line-height:19px;">
                 You receive transactional emails because you hold an active account or requested secure access. These cannot be unsubscribed while your account is open.
-                Manage marketing preferences in <a href="{settings_url}" style="color:#2f6b4f; text-decoration:underline;">Settings</a>.
+                Manage marketing preferences in <a href="{settings_url}" style="{footer_link}">Settings</a>.
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{portal_url}" style="color:#717a72; text-decoration:underline;">Portal</a></td>
-                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{documents_url}" style="color:#717a72; text-decoration:underline;">Documents</a></td>
-                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{support_mailto}" style="color:#717a72; text-decoration:underline;">{support_email}</a></td>
+                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{portal_url}" style="{footer_link}">Portal</a></td>
+                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{documents_url}" style="{footer_link}">Documents</a></td>
+                  <td class="font-sans" style="padding:0;"><a href="{support_mailto}" style="{footer_link}">{support_email}</a></td>
                 </tr>
               </table>
-              <p class="font-sans" style="margin:16px 0 0 0; color:#b3ab98; font-size:11px; line-height:16px;">&copy; 2026 {operator}. All rights reserved.</p>
+              <p class="font-sans" style="margin:20px 0 0 0; color:{EMAIL_STEEL}; font-size:11px; line-height:16px;">&copy; 2026 {operator}. All rights reserved.</p>
             </td>
           </tr>
         </table>
@@ -645,7 +730,7 @@ def _render_magic_link_email(message: OutboxMessage, *, redact_secrets: bool) ->
         (f"{intro}\n\n" if intro else "")
         + f"Use this secure link to sign in to {platform}:\n\n"
         f"{login_url}\n\n"
-        f"The link expires at {token.expires_at.isoformat()} and can be used only once.\n"
+        f"The link expires at {_email_time(token.expires_at)} and can be used only once.\n"
         f"{ignore_line}\n\n"
         f"{platform} is operated by {operator}."
     )
@@ -662,12 +747,12 @@ def _render_magic_link_email(message: OutboxMessage, *, redact_secrets: bool) ->
             EmailTemplateContent(
                 notice_label="Secure login",
                 preheader=f"Use your secure one-time {platform} login link.",
-                status_label="Secure login",
+                status_label="One-time link",
                 status_tone="info",
                 headline=headline,
                 paragraphs=paragraphs,
                 data_rows=(
-                    ("Expires at", token.expires_at.isoformat()),
+                    ("Expires", _email_time(token.expires_at)),
                     ("Recipient", recipient),
                 ),
                 buttons=(EmailButton("Open secure login link", login_url),),
@@ -714,7 +799,8 @@ def _render_sensitive_action_code_email(
     body_text = (
         f"Your {platform} confirmation code is:\n\n"
         f"{raw_code}\n\n"
-        f"It expires at {code_record.expires_at.isoformat()} and is valid for {action}.\n"
+        f"It expires at {_email_time(code_record.expires_at)} and is valid for: "
+        f"{_action_label(action)}.\n"
         "If you did not request this code, contact support and do not share it.\n\n"
         f"{platform} is operated by {operator}."
     )
@@ -725,7 +811,7 @@ def _render_sensitive_action_code_email(
         body_html=_render_banxum_email_html(
             EmailTemplateContent(
                 notice_label="Confirmation code",
-                preheader=f"Your {platform} confirmation code for {action}.",
+                preheader=f"Your {platform} confirmation code for: {_action_label(action)}.",
                 status_label="Action needed",
                 status_tone="warning",
                 headline="Confirm this account action",
@@ -733,10 +819,10 @@ def _render_sensitive_action_code_email(
                     f"Use this code to confirm your {platform} action.",
                     "Never share this code. If you did not request it, contact support and do not continue.",
                 ),
+                highlight=("Your confirmation code", raw_code),
                 data_rows=(
-                    ("Confirmation code", raw_code),
-                    ("Action", action),
-                    ("Expires at", code_record.expires_at.isoformat()),
+                    ("Action", _action_label(action)),
+                    ("Expires", _email_time(code_record.expires_at)),
                 ),
                 buttons=(EmailButton("Open BANXUM", _base_url()),),
                 fine_print=f"{platform} is operated by {operator}.",
