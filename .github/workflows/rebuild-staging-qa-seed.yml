@@ -7,6 +7,10 @@ on:
         description: Type REBUILD STAGING QA SEED.
         required: true
         type: string
+      encrypted_seed_payload:
+        description: Encrypted actor and regression-account payload from the deployment helper.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,40 +35,54 @@ jobs:
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
-          RESET_ACTOR_EMAIL: ${{ secrets.BANXUM_QA_RESET_ACTOR_EMAIL }}
-          REGRESSION_ACCOUNTS: ${{ secrets.BANXUM_QA_REGRESSION_ACCOUNTS_JSON }}
+          ENCRYPTED_SEED_PAYLOAD: ${{ inputs.encrypted_seed_payload }}
         run: |
           set -euo pipefail
           test "$CONFIRMATION" = "REBUILD STAGING QA SEED"
           test -n "$SSH_HOST"
           test -n "$SSH_USER"
           test -n "$SSH_PRIVATE_KEY"
-          test -n "$RESET_ACTOR_EMAIL"
-          test -n "$REGRESSION_ACCOUNTS"
+          test -n "$ENCRYPTED_SEED_PAYLOAD"
 
       - name: Prepare private maintenance inputs
         env:
           SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
-          RESET_ACTOR_EMAIL: ${{ secrets.BANXUM_QA_RESET_ACTOR_EMAIL }}
-          REGRESSION_ACCOUNTS: ${{ secrets.BANXUM_QA_REGRESSION_ACCOUNTS_JSON }}
+          ENCRYPTED_SEED_PAYLOAD: ${{ inputs.encrypted_seed_payload }}
         run: |
           set -euo pipefail
           umask 077
           mkdir -p "$HOME/.ssh"
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
-          printf '%s\n' "$RESET_ACTOR_EMAIL" > "$RUNNER_TEMP/qa-reset-actor"
-          printf '%s\n' "$REGRESSION_ACCOUNTS" > "$RUNNER_TEMP/qa-regression-accounts.json"
-          python3 - "$RUNNER_TEMP/qa-regression-accounts.json" <<'PY'
+          QA_SEED_PASSPHRASE="$(sed '/^[[:space:]]*$/d' "$HOME/.ssh/banxum_deploy_key")"
+          export QA_SEED_PASSPHRASE
+          printf '%s' "$ENCRYPTED_SEED_PAYLOAD" | openssl enc -d -aes-256-cbc \
+            -a -A -pbkdf2 -iter 200000 -pass env:QA_SEED_PASSPHRASE \
+            > "$RUNNER_TEMP/qa-seed-payload.json"
+          python3 - \
+            "$RUNNER_TEMP/qa-seed-payload.json" \
+            "$RUNNER_TEMP/qa-reset-actor" \
+            "$RUNNER_TEMP/qa-regression-accounts.json" <<'PY'
           import json
           import sys
+          from pathlib import Path
 
           with open(sys.argv[1], encoding="utf-8") as stream:
-              values = json.load(stream)
+              payload = json.load(stream)
+          if set(payload) != {"actor_email", "accounts"}:
+              raise SystemExit("Invalid QA seed payload.")
+          actor_email = payload["actor_email"]
+          values = payload["accounts"]
           required = {"admin", "user1", "user2", "user3"}
-          if set(values) != required or not all(
+          if not isinstance(actor_email, str) or "@" not in actor_email:
+              raise SystemExit("Invalid QA reset actor.")
+          if not isinstance(values, dict) or set(values) != required or not all(
               isinstance(value, str) and "@" in value for value in values.values()
           ):
               raise SystemExit("Invalid QA regression account mapping.")
+          Path(sys.argv[2]).write_text(f"{actor_email}\n", encoding="utf-8")
+          Path(sys.argv[3]).write_text(
+              json.dumps(values, separators=(",", ":")), encoding="utf-8"
+          )
           PY
 
       - name: Trust deployment host

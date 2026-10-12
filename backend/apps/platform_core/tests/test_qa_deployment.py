@@ -35,8 +35,10 @@ def test_reset_wrapper_verifies_the_shared_seed_before_restart() -> None:
 def test_staging_seed_workflow_uses_private_inputs_and_guard_phrase() -> None:
     workflow = (REPO_ROOT / ".github/workflows/rebuild-staging-qa-seed.yml").read_text()
 
-    assert "BANXUM_QA_RESET_ACTOR_EMAIL" in workflow
-    assert "BANXUM_QA_REGRESSION_ACCOUNTS_JSON" in workflow
+    assert "encrypted_seed_payload" in workflow
+    assert "openssl enc -d -aes-256-cbc" in workflow
+    assert "actor_email" in workflow
+    assert "accounts" in workflow
     assert 'test "$CONFIRMATION" = "REBUILD STAGING QA SEED"' in workflow
     assert "--environment staging" in workflow
     assert "--allow-production" not in workflow

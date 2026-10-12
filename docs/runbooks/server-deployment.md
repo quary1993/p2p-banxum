@@ -488,12 +488,23 @@ The maintenance wrapper verifies the seed fixture, manifest, checksum and migrat
 signature through a second container before it restarts the application. A failed
 verification fails the maintenance run, while the wrapper still restarts the application
 to avoid an extended outage. Do not start regression testing until verification succeeds.
-The `Rebuild staging QA seed` workflow runs this wrapper with private repository
-secrets after an approved schema change. It is staging-only and requires the exact
-dispatch phrase `REBUILD STAGING QA SEED`. Configure
-`BANXUM_QA_RESET_ACTOR_EMAIL` and `BANXUM_QA_REGRESSION_ACCOUNTS_JSON` as repository
-secrets. The first value is an active superadmin email. The second value is the
-private four-account JSON mapping described above.
+The `Rebuild staging QA seed` workflow runs this wrapper after an approved schema
+change. It is staging-only and requires the exact dispatch phrase
+`REBUILD STAGING QA SEED`. Create its encrypted one-time input locally. Use the
+existing deployment key, the active superadmin email and the private four-account
+JSON mapping described above:
+
+```bash
+python3 infra/deploy/encrypt_qa_seed_workflow_payload.py \
+  --actor-email "$SUPERADMIN_EMAIL" \
+  --regression-accounts /PRIVATE/PATH/regression-accounts.json \
+  --deployment-key "$HOME/.ssh/banxum-deploy"
+```
+
+Pass the command output as `encrypted_seed_payload` when you dispatch the workflow.
+The payload uses the existing deployment key as its encryption secret. GitHub receives
+only ciphertext. Do not put the account mapping or actor email in workflow inputs,
+logs, tracked files or command history.
 
 Regular admins receive QA controls only in the enabled staging/local environment and
 can perform clock advances and seed/snapshot restores; registration and superadmin-only tests are
