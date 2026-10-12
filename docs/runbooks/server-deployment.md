@@ -495,16 +495,16 @@ existing deployment key, the active superadmin email and the private four-accoun
 JSON mapping described above:
 
 ```bash
-python3 infra/deploy/encrypt_qa_seed_workflow_payload.py \
+python3 infra/deploy/encrypt_qa_seed_workflow_payload.py encrypt \
   --actor-email "$SUPERADMIN_EMAIL" \
   --regression-accounts /PRIVATE/PATH/regression-accounts.json \
-  --deployment-key "$HOME/.ssh/banxum-deploy"
+  --deployment-public-key infra/deploy/banxum-actions-deploy.pub
 ```
 
 Pass the command output as `encrypted_seed_payload` when you dispatch the workflow.
-The payload uses the existing deployment key as its encryption secret. GitHub receives
-only ciphertext. Do not put the account mapping or actor email in workflow inputs,
-logs, tracked files or command history.
+The tracked deployment public key encrypts the payload. Only the private key in GitHub
+Actions can decrypt it. GitHub receives only ciphertext. Do not put the account mapping
+or actor email in workflow inputs, logs, tracked files or command history.
 
 Regular admins receive QA controls only in the enabled staging/local environment and
 can perform clock advances and seed/snapshot restores; registration and superadmin-only tests are
