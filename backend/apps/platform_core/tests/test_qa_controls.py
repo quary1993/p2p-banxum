@@ -1,9 +1,12 @@
 """IP of Webby-Soft SRL. QA-only permissions, independent restore points and sessions."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import Client
 
 from backend.apps.platform_core.services.qa_dev_mode import (
@@ -79,6 +82,19 @@ def test_seed_and_manual_snapshot_remain_independently_repeatable(
         assert actor.full_name == expected
         assert get_qa_dev_mode_state().current_time == seed_time
         assert read_restore_points() == points
+
+
+@pytest.mark.django_db
+def test_restore_point_check_detects_missing_seed_file(
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    actor = admin()
+    with django_capture_on_commit_callbacks(execute=True):
+        enable_qa_dev_mode(EnableQaDevModeCommand(actor=actor, repeatable_seed_snapshot=True))
+    call_command("check_qa_restore_points", require_seed=True)
+    Path(read_restore_points()["seed"]["path"]).unlink()
+    with pytest.raises(CommandError, match="snapshot file is missing"):
+        call_command("check_qa_restore_points", require_seed=True)
 
 
 @pytest.mark.django_db

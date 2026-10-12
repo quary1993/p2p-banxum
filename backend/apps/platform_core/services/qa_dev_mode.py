@@ -33,6 +33,7 @@ from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_e
 from backend.apps.platform_core.services.qa_restore_points import (
     read_restore_points,
     register_restore_point,
+    validate_snapshot_file,
 )
 from backend.apps.platform_core.services.qa_snapshot import (
     partition_validated_snapshot,
@@ -132,7 +133,8 @@ def _require_qa_admin_actor(actor: models.Model) -> None:
 
 def _snapshot_dir() -> Path:
     path = Path(str(getattr(settings, "QA_DEV_MODE_SNAPSHOT_DIR", ""))).expanduser()
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
     return path
 
 
@@ -211,16 +213,8 @@ def _create_database_snapshot(*, created_at: datetime) -> str:
 
 def _restore_database_snapshot(snapshot_path: str) -> None:
     _assert_qa_allowed()
-    path = Path(snapshot_path)
-    if not path.exists():
-        raise QaDevModeValidationError("QA snapshot file is missing; database was not changed.")
     try:
-        content = path.read_bytes()
-        manifest = json.loads(path.with_suffix(".manifest.json").read_text(encoding="utf-8"))
-        if manifest.get("sha256") != hashlib.sha256(content).hexdigest():
-            raise ValueError("Snapshot checksum mismatch.")
-        if manifest.get("migrations") != _schema_signature():
-            raise ValueError("Database schema changed since the snapshot was created.")
+        content = validate_snapshot_file(snapshot_path, migrations=_schema_signature())
         # Check model/field names and fixture structure before touching live rows.
         objects = list(serializers.deserialize("json", content.decode("utf-8")))
         fixture_content, history = partition_validated_snapshot(content, objects)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from datetime import datetime
@@ -59,3 +60,22 @@ def register_restore_point(
             temporary.replace(registry)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def validate_snapshot_file(path: str | Path, *, migrations: list[str]) -> bytes:
+    """Validate one private snapshot without changing database state."""
+    snapshot = Path(path).resolve()
+    if snapshot.parent != _registry_path().parent.resolve():
+        raise ValueError("The QA snapshot is outside the private snapshot directory.")
+    if not snapshot.is_file():
+        raise ValueError("QA snapshot file is missing.")
+    manifest_path = snapshot.with_suffix(".manifest.json")
+    if not manifest_path.is_file():
+        raise ValueError("QA snapshot manifest is missing.")
+    content = snapshot.read_bytes()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("sha256") != hashlib.sha256(content).hexdigest():
+        raise ValueError("Snapshot checksum mismatch.")
+    if manifest.get("migrations") != migrations:
+        raise ValueError("Database schema changed since the snapshot was created.")
+    return content

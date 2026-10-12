@@ -1,0 +1,112 @@
+name: Rebuild staging QA seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type REBUILD STAGING QA SEED.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: banxum-deployment
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    name: Rebuild current-schema staging seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate request and configuration
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+          RESET_ACTOR_EMAIL: ${{ secrets.BANXUM_QA_RESET_ACTOR_EMAIL }}
+          REGRESSION_ACCOUNTS: ${{ secrets.BANXUM_QA_REGRESSION_ACCOUNTS_JSON }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "REBUILD STAGING QA SEED"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$RESET_ACTOR_EMAIL"
+          test -n "$REGRESSION_ACCOUNTS"
+
+      - name: Prepare private maintenance inputs
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+          RESET_ACTOR_EMAIL: ${{ secrets.BANXUM_QA_RESET_ACTOR_EMAIL }}
+          REGRESSION_ACCOUNTS: ${{ secrets.BANXUM_QA_REGRESSION_ACCOUNTS_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
+          printf '%s\n' "$RESET_ACTOR_EMAIL" > "$RUNNER_TEMP/qa-reset-actor"
+          printf '%s\n' "$REGRESSION_ACCOUNTS" > "$RUNNER_TEMP/qa-regression-accounts.json"
+          python3 - "$RUNNER_TEMP/qa-regression-accounts.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              values = json.load(stream)
+          required = {"admin", "user1", "user2", "user3"}
+          if set(values) != required or not all(
+              isinstance(value, str) and "@" in value for value in values.values()
+          ):
+              raise SystemExit("Invalid QA regression account mapping.")
+          PY
+
+      - name: Trust deployment host
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Rebuild and verify staging seed
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          remote_accounts="/tmp/banxum-qa-accounts-${GITHUB_RUN_ID}.json"
+          remote_actor="/tmp/banxum-qa-actor-${GITHUB_RUN_ID}"
+          scp -i "$HOME/.ssh/banxum_deploy_key" -P "$SSH_PORT" -o BatchMode=yes \
+            "$RUNNER_TEMP/qa-regression-accounts.json" \
+            "$SSH_USER@$SSH_HOST:$remote_accounts"
+          scp -i "$HOME/.ssh/banxum_deploy_key" -P "$SSH_PORT" -o BatchMode=yes \
+            "$RUNNER_TEMP/qa-reset-actor" \
+            "$SSH_USER@$SSH_HOST:$remote_actor"
+          ssh -i "$HOME/.ssh/banxum_deploy_key" -p "$SSH_PORT" -o BatchMode=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            REMOTE_ACCOUNTS="$remote_accounts" REMOTE_ACTOR="$remote_actor" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          trap 'rm -f "$REMOTE_ACCOUNTS" "$REMOTE_ACTOR"' EXIT
+          chmod 600 "$REMOTE_ACCOUNTS" "$REMOTE_ACTOR"
+          actor_email="$(cat "$REMOTE_ACTOR")"
+          cd /opt/banxum/staging/app
+          python3 infra/deploy/reset_qa_environment.py \
+            --environment staging \
+            --regression-accounts "$REMOTE_ACCOUNTS" \
+            --create-missing-investors
+          run_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          python3 infra/deploy/reset_qa_environment.py \
+            --environment staging \
+            --execute \
+            --regression-accounts "$REMOTE_ACCOUNTS" \
+            --create-missing-investors \
+            --actor-email "$actor_email" \
+            --run-id "$run_id" \
+            --confirm "RESET QA DATA staging https://staging.nxnarena.com"
+          REMOTE

@@ -385,7 +385,8 @@ Behavior:
   restores the original disabled state.
 - The private `restore-points.json` registry keeps seed and manual bookmarks outside the database,
   so either remains available after restoring the other. Creating a NEW regression seed deliberately
-  clears the previous manual bookmark. Retain the fixture, manifest and registry together.
+  clears the previous manual bookmark. Compose bind-mounts `QA_DEV_MODE_SNAPSHOT_DIR` into both the
+  serving backend and maintenance containers. Retain the fixture, manifest and registry together.
 - Restore invalidates all old sessions. The calling admin receives a fresh session only if that
   same account remains an active admin with unchanged credentials in the restored data; otherwise
   the UI requests login. It clears cached data and shows a restore confirmation, not a stale-session
@@ -483,6 +484,16 @@ duration against the deployed request timeout when a baseline becomes substantia
 Normal email-dispatch cron runs and job
 runtime monitoring use real time, so frozen QA financial dates do not stop email retries.
 Explicit `--as-of` job runs still honor their supplied business date.
+The maintenance wrapper verifies the seed fixture, manifest, checksum and migration
+signature through a second container before it restarts the application. A failed
+verification fails the maintenance run, while the wrapper still restarts the application
+to avoid an extended outage. Do not start regression testing until verification succeeds.
+The `Rebuild staging QA seed` workflow runs this wrapper with private repository
+secrets after an approved schema change. It is staging-only and requires the exact
+dispatch phrase `REBUILD STAGING QA SEED`. Configure
+`BANXUM_QA_RESET_ACTOR_EMAIL` and `BANXUM_QA_REGRESSION_ACCOUNTS_JSON` as repository
+secrets. The first value is an active superadmin email. The second value is the
+private four-account JSON mapping described above.
 
 Regular admins receive QA controls only in the enabled staging/local environment and
 can perform clock advances and seed/snapshot restores; registration and superadmin-only tests are
