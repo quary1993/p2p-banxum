@@ -1,14 +1,27 @@
 import type { InvestorNotification, InvestorNotifications } from "../api/generated/banxumApi";
 import type { AppRoute } from "./types";
 
+type NotificationNavigation = Pick<InvestorNotification, "navigation_target" | "navigation_target_id"> &
+  Partial<Pick<InvestorNotification, "topic">>;
+
 /** Portal page a notification opens; without a usable target it opens the Notifications page. */
-export function notificationRoute(notification: Pick<InvestorNotification, "navigation_target" | "navigation_target_id">): AppRoute {
+export function notificationRoute(notification: NotificationNavigation): AppRoute {
   const targetId = notification.navigation_target_id;
   switch (notification.navigation_target) {
     case "loan":
       return targetId ? { name: "loan", params: { loanId: targetId } } : { name: "notifications" };
     case "holding":
-      return targetId ? { name: "investment", params: { holdingId: targetId } } : { name: "portfolio" };
+      return targetId
+        ? {
+            name: "investment",
+            params: {
+              holdingId: targetId,
+              ...(notification.topic === "email.loan_risk_note_published"
+                ? { section: "loan-notes" }
+                : {})
+            }
+          }
+        : { name: "portfolio" };
     case "portfolio":
       return { name: "portfolio" };
     case "balances":

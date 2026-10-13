@@ -1533,6 +1533,64 @@ table.tbl tbody tr.clickable:hover {
   color: var(--ink-3);
 }
 
+.inv-loan-notes {
+  scroll-margin-top: 88px;
+}
+
+.loan-note-list {
+  display: grid;
+}
+
+.loan-note-state {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.loan-note-item {
+  scroll-margin-top: 88px;
+  padding: 22px 0;
+}
+
+.loan-note-item + .loan-note-item {
+  border-top: 1px solid var(--hair);
+}
+
+.loan-note-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.loan-note-heading h4 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.loan-note-heading time {
+  color: var(--ink-3);
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.loan-note-item p {
+  color: var(--ink-2);
+  line-height: 1.65;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .loan-note-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+}
+
 .holding-v9-schedule-table {
   min-width: 760px;
 }

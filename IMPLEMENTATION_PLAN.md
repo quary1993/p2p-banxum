@@ -1731,7 +1731,7 @@ Tasks:
 - Implemented: round lender recovery distribution lines half-up/largest-remainder to the currency minor unit. Rounding differences are stored and currently expected to be zero because the allocation primitive conserves each category exactly.
 - Generate default/recovery report and affected-lender notification for each recovery payment.
 - Implemented as an explicit admin-only final-resolution primitive: loss recognition requires a defaulted loan, written-off principal equal to remaining active holding principal, immutable per-investor loss lines, and holding closure. Garanta/legal/accounting still own the operational policy for when this endpoint may be used.
-- Partially implemented: investor visibility for public risk notes on loans where the investor has a holding. Full investor portfolio UI remains deferred.
+- Implemented: investors with current or historical holding access see all public loan notes on the investment page. The page shows the full title, message, and publish date in newest-first order. Email-only notes remain private to the email and notification record. A public note that is also emailed links from the notification bell to the holding's Loan notes section.
 - Allow secondary-market listing requests for defaulted/non-standard loans only through the admin-approved listing workflow with disclosure and additional buyer acknowledgement.
 
 Acceptance criteria:

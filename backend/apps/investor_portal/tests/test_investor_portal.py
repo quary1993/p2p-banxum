@@ -1413,6 +1413,16 @@ def test_notifications_expose_a_typed_navigation_target(investor: Model) -> None
     )
     _delivered_notice(
         investor,
+        key="public-note",
+        topic="email.loan_risk_note_published",
+        payload_metadata={
+            "loan_id": loan_id,
+            "holding_id": holding_id,
+            "visibility": "public",
+        },
+    )
+    _delivered_notice(
+        investor,
         key="unsafe",
         topic="email.loan_risk_note_published",
         payload_metadata={"loan_id": "../../admin"},
@@ -1422,12 +1432,47 @@ def test_notifications_expose_a_typed_navigation_target(investor: Model) -> None
     targets = {
         item["topic"]: (item["navigation_target"], item["navigation_target_id"])
         for item in payload["notifications"]
+        if item["topic"] != "email.loan_risk_note_published"
+    }
+    risk_note_targets = {
+        item["title"]: (item["navigation_target"], item["navigation_target_id"])
+        for item in payload["notifications"]
+        if item["topic"] == "email.loan_risk_note_published"
     }
 
     assert targets["email.repayment_distribution_credited"] == ("holding", holding_id)
     assert targets["email.balance_ageing_reminder"] == ("balances", "")
     assert targets["email.loan_status_changed"] == ("loan", loan_id)
-    assert targets["email.loan_risk_note_published"] == ("none", "")
+    assert risk_note_targets["Notice public-note"] == ("holding", holding_id)
+    assert risk_note_targets["Notice unsafe"] == ("none", "")
+
+
+@pytest.mark.django_db
+def test_legacy_public_note_notification_resolves_the_investor_holding(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    borrower = _create_borrower(admin_user, name="Legacy Note Borrower AG")
+    loan = _create_loan(admin_user, borrower, title="Legacy note loan", status="funded")
+    holding = _create_holding(
+        admin_user=admin_user,
+        investor=investor,
+        loan=loan,
+        amount_minor=1_000_00,
+        idempotency_key="legacy-note-holding",
+    )
+    _delivered_notice(
+        investor,
+        key="legacy-public-note",
+        topic="email.loan_risk_note_published",
+        payload_metadata={"loan_id": str(loan.pk), "visibility": "public"},
+    )
+
+    notification = get_investor_notifications(actor=investor)["notifications"][0]
+
+    assert notification["navigation_target"] == "holding"
+    assert notification["navigation_target_id"] == str(holding.pk)
 
 
 @pytest.mark.django_db

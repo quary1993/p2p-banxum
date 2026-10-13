@@ -22,6 +22,11 @@ describe("notification helpers", () => {
   test("each target opens its portal page and falls back to the Notifications page", () => {
     expect(notificationRoute({ navigation_target: "loan", navigation_target_id: "L1" })).toEqual({ name: "loan", params: { loanId: "L1" } });
     expect(notificationRoute({ navigation_target: "holding", navigation_target_id: "H1" })).toEqual({ name: "investment", params: { holdingId: "H1" } });
+    expect(notificationRoute({
+      navigation_target: "holding",
+      navigation_target_id: "H1",
+      topic: "email.loan_risk_note_published"
+    })).toEqual({ name: "investment", params: { holdingId: "H1", section: "loan-notes" } });
     expect(notificationRoute({ navigation_target: "holding", navigation_target_id: "" })).toEqual({ name: "portfolio" });
     expect(notificationRoute({ navigation_target: "balances", navigation_target_id: "" })).toEqual({ name: "balances" });
     expect(notificationRoute({ navigation_target: "secondary_market", navigation_target_id: "" })).toEqual({ name: "secondary" });

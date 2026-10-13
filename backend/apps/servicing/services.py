@@ -1609,20 +1609,22 @@ def _loss_recognition_plan(
     return plan
 
 
-def _current_lender_ids_for_loan(loan_id: str) -> list[str]:
-    """Investors who hold the loan now: the recipients of investor update emails."""
+def _current_lender_holding_ids_for_loan(loan_id: str) -> dict[str, str]:
+    """One current holding per lender, used for authorized investor deep links."""
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
-    investor_ids = (
+    rows = (
         holding_model.objects.filter(
             loan_id=loan_id,
             status="active",
             current_principal_minor__gt=0,
         )
-        .order_by("investor_user_id")
-        .values_list("investor_user_id", flat=True)
-        .distinct()
+        .order_by("investor_user_id", "assignment_effective_at", "id")
+        .values_list("investor_user_id", "id")
     )
-    return [str(investor_id) for investor_id in investor_ids]
+    holdings_by_investor: dict[str, str] = {}
+    for investor_user_id, holding_id in rows:
+        holdings_by_investor.setdefault(str(investor_user_id), str(holding_id))
+    return holdings_by_investor
 
 
 def _actor_has_loan_holding_history(actor: Model, loan_id: str) -> bool:
@@ -3342,8 +3344,10 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
             "Investor update emails can only be sent for active portfolio loans."
         )
     email_recipient_ids: list[str] = []
+    email_recipient_holding_ids: dict[str, str] = {}
     if command.email_affected_investors:
-        email_recipient_ids = _current_lender_ids_for_loan(str(loan_ref.id))
+        email_recipient_holding_ids = _current_lender_holding_ids_for_loan(str(loan_ref.id))
+        email_recipient_ids = list(email_recipient_holding_ids)
         if not email_recipient_ids:
             raise ServicingValidationError("This loan has no current lenders to email.")
     request_fingerprint = _risk_note_fingerprint(
@@ -3427,6 +3431,7 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
             metadata={
                 "risk_note_id": str(note.id),
                 "loan_id": str(loan_ref.id),
+                "holding_id": email_recipient_holding_ids[investor_user_id],
                 "note_type": note_type,
                 "visibility": visibility,
             },

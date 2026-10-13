@@ -94,6 +94,7 @@ import {
   useDocumentsData,
   useFxData,
   useLoanDetailData,
+  useLoanRiskNotesData,
   useMarketplaceLoansData,
   useNotificationReadActions,
   useNotificationsData,
@@ -456,6 +457,10 @@ function routePath(route: AppRoute) {
     return route.params?.loanId
       ? `/projects/${encodeURIComponent(route.params.loanId)}`
       : "/projects";
+  }
+  if (route.name === "investment") {
+    const path = `/portfolio/${encodeURIComponent(route.params?.holdingId ?? "")}`;
+    return route.params?.section === "loan-notes" ? `${path}#loan-notes` : path;
   }
   const paths: Record<RouteName, string> = {
     public: "/",
@@ -1109,7 +1114,7 @@ function goTo(setRoute: (route: AppRoute) => void, name: RouteName, params?: Rec
   const nextRoute = { name, params };
   writeStoredObject(appRouteStorageKey, nextRoute);
   const nextPath = routePath(nextRoute);
-  if (window.location.pathname !== nextPath) {
+  if (`${window.location.pathname}${window.location.hash}` !== nextPath) {
     window.history.pushState({}, "", nextPath);
   }
   setRoute(nextRoute);
@@ -3638,7 +3643,13 @@ function InvestorShell({
       case "portfolio":
         return <PortfolioScreen setRoute={setRoute} />;
       case "investment":
-        return <InvestmentScreen holdingId={route.params?.holdingId ?? ""} setRoute={setRoute} />;
+        return (
+          <InvestmentScreen
+            focusSection={route.params?.section}
+            holdingId={route.params?.holdingId ?? ""}
+            setRoute={setRoute}
+          />
+        );
       case "secondary":
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
@@ -10815,7 +10826,73 @@ function LoanSchedulePanels({
   );
 }
 
-function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (route: AppRoute) => void }) {
+function LoanNotesSection({ focus, loanId }: { focus: boolean; loanId: string }) {
+  const notesQuery = useLoanRiskNotesData(loanId);
+  const notes = [...(notesQuery.data ?? [])]
+    .filter((note) => note.visibility === "public")
+    .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at) || right.id.localeCompare(left.id));
+
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!focus && hash !== "loan-notes" && !hash.startsWith("loan-note-")) return;
+    if (notesQuery.isLoading) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(hash.startsWith("loan-note-") ? hash : "loan-notes");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [focus, loanId, notes.length, notesQuery.isLoading]);
+
+  return (
+    <section aria-labelledby="loan-notes-title" className="card inv-card inv-loan-notes" id="loan-notes">
+      <div className="card-head">
+        <div>
+          <h3 className="card-title" id="loan-notes-title">Loan notes</h3>
+          <div className="inv-card-sub">Public updates published by Garanta for this loan.</div>
+        </div>
+        {notes.length > 0 ? <Chip tone="neutral">{notes.length}</Chip> : null}
+      </div>
+      <div className="inv-card-body">
+        {notesQuery.isError ? (
+          <div className="loan-note-state">
+            <Banner tone="bad" title="Could not load loan notes">
+              Retry to load the public updates for this loan.
+            </Banner>
+            <Button onClick={() => void notesQuery.refetch()} size="sm">Retry</Button>
+          </div>
+        ) : notesQuery.isLoading ? (
+          <div aria-live="polite" className="loan-note-state muted">Loading loan notes...</div>
+        ) : notes.length === 0 ? (
+          <Empty icon="docs" title="No public loan notes">
+            Garanta has not published a public update for this loan.
+          </Empty>
+        ) : (
+          <div className="loan-note-list">
+            {notes.map((note) => (
+              <article className="loan-note-item" id={`loan-note-${note.id}`} key={note.id}>
+                <div className="loan-note-heading">
+                  <h4>{note.title || "Loan update"}</h4>
+                  <time dateTime={note.occurred_at}>Published {formatDate(note.occurred_at)}</time>
+                </div>
+                <p>{note.body}</p>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function HoldingDetail({
+  focusSection,
+  holding,
+  setRoute
+}: {
+  focusSection?: string;
+  holding: Holding;
+  setRoute: (route: AppRoute) => void;
+}) {
   const loan = holding.loan;
   const currency = holding.currency;
   const listingAction = secondaryListingAction(loan.loan_status);
@@ -11127,18 +11204,21 @@ function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (rou
           </div>
         </section>
       ) : null}
-      {holding.latest_public_note ? (
-        <section className="card inv-card inv-note">
-          <div className="card-head"><h3 className="card-title">Latest public note from Garanta</h3></div>
-          <div className="inv-card-body"><p>{holding.latest_public_note.title}</p><small>{formatDate(holding.latest_public_note.occurred_at)}</small></div>
-        </section>
-      ) : null}
+      <LoanNotesSection focus={focusSection === "loan-notes"} loanId={loan.loan_id} />
     </main>
   );
 }
 
 // Holding detail as a page (design: "My investments" > investment). Route: /portfolio/:holdingId.
-function InvestmentScreen({ holdingId, setRoute }: { holdingId: string; setRoute: (route: AppRoute) => void }) {
+function InvestmentScreen({
+  focusSection,
+  holdingId,
+  setRoute
+}: {
+  focusSection?: string;
+  holdingId: string;
+  setRoute: (route: AppRoute) => void;
+}) {
   const portfolioQuery = usePortfolioData(true);
   const portfolio = portfolioQuery.data;
   if (portfolioQuery.isError && !portfolio) {
@@ -11163,7 +11243,7 @@ function InvestmentScreen({ holdingId, setRoute }: { holdingId: string; setRoute
       </main>
     );
   }
-  return <HoldingDetail holding={holding} key={holding.id} setRoute={setRoute} />;
+  return <HoldingDetail focusSection={focusSection} holding={holding} key={holding.id} setRoute={setRoute} />;
 }
 
 function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccountState; initialTab?: string }) {

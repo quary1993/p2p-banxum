@@ -14,6 +14,7 @@ import {
   useV1InvestorPortalPortfolioRetrieve,
   useV1InvestorPortalPrimaryOrdersRetrieve,
   useV1InvestorPortalSecondaryMarketRetrieve,
+  useV1ServicingLoanRiskNotesList,
   useV1MarketplacePrimaryLoansList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
@@ -34,6 +35,7 @@ import {
   loanDetailsFixture,
   marketplaceLoansFixture,
   portfolioFixture,
+  publicLoanNotesFixture,
   publicMarketplaceLoansFixture,
   primaryOrdersFixture,
   secondaryActivityFixture,
@@ -221,6 +223,18 @@ export function usePortfolioData(includeInactive = true, enabled = true) {
   return useV1InvestorPortalPortfolioRetrieve(
     { include_inactive: includeInactive },
     { query: previewQuery(portfolioFixture, enabled) }
+  );
+}
+
+export function useLoanRiskNotesData(loanId: string, enabled = true) {
+  return useV1ServicingLoanRiskNotesList(
+    { loan_id: loanId, limit: 100 },
+    {
+      query: previewQuery(
+        publicLoanNotesFixture.filter((note) => note.loan_id === loanId),
+        enabled && Boolean(loanId)
+      )
+    }
   );
 }
 

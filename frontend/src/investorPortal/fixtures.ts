@@ -12,6 +12,7 @@ import type {
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
+  PublicLoanRiskNote,
   PublicMarketplaceLoan,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
@@ -162,6 +163,27 @@ export const portalFixture: InvestorPortalFixture = {
     ]
   }
 };
+
+export const publicLoanNotesFixture: PublicLoanRiskNote[] = [
+  {
+    id: "note-default-follow-up",
+    loan_id: "GA-2201",
+    visibility: "public",
+    note_type: "default_update",
+    title: "Recovery process update",
+    body: "Garanta has instructed external recovery counsel. We will publish another note when there is a material update.",
+    occurred_at: "2026-05-22T09:00:00+02:00"
+  },
+  {
+    id: "note-default",
+    loan_id: "GA-2201",
+    visibility: "public",
+    note_type: "default_update",
+    title: "Formal demand issued",
+    body: "Garanta has issued a formal payment demand to the borrower. No recovery amount is confirmed at this time.",
+    occurred_at: "2026-05-18T09:00:00+02:00"
+  }
+];
 
 const sourceBalanceLotsFixture: BalanceLot[] = [
   {

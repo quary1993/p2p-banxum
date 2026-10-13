@@ -1788,6 +1788,18 @@ test("an unknown holding link shows a not-found investment page", () => {
   expect(window.location.pathname).toBe("/portfolio");
 });
 
+test("the investment page shows every public loan note with its full message, newest first", async () => {
+  renderApp("/portfolio/H-2201#loan-notes");
+
+  const notes = await screen.findByRole("region", { name: "Loan notes" });
+  const titles = within(notes).getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent);
+  expect(titles).toEqual(["Recovery process update", "Formal demand issued"]);
+  expect(within(notes).getByText(/Garanta has instructed external recovery counsel/)).toBeInTheDocument();
+  expect(within(notes).getByText(/Garanta has issued a formal payment demand/)).toBeInTheDocument();
+  expect(within(notes).getAllByText(/^Published /)).toHaveLength(2);
+  expect(window.location.hash).toBe("#loan-notes");
+});
+
 test("originator claim holdings disclose the retained claim without implying protection", () => {
   renderApp();
 

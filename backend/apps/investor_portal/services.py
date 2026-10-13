@@ -708,7 +708,7 @@ def _uuid_text(value: Any) -> str:
         return ""
 
 
-def _notification_target(*, topic: str, payload: Any) -> dict[str, str]:
+def _notification_target(*, actor: Model, topic: str, payload: Any) -> dict[str, str]:
     payload_dict = payload if isinstance(payload, dict) else {}
     metadata = payload_dict.get("metadata")
     metadata_dict = metadata if isinstance(metadata, dict) else {}
@@ -738,6 +738,25 @@ def _notification_target(*, topic: str, payload: Any) -> dict[str, str]:
         if first_holding:
             return target(NOTIFICATION_TARGET_HOLDING, first_holding)
         return target(NOTIFICATION_TARGET_PORTFOLIO)
+    if topic == "email.loan_risk_note_published" and str(
+        metadata_dict.get("visibility") or ""
+    ) == "public":
+        holding_id = field("holding_id")
+        loan_id = field("loan_id")
+        if not holding_id and loan_id:
+            holding_model = _model("holdings", "InvestorLoanHolding")
+            holding_id = str(
+                holding_model.objects.filter(
+                    investor_user_id=actor.pk,
+                    loan_id=loan_id,
+                )
+                .order_by("-assignment_effective_at", "-id")
+                .values_list("id", flat=True)
+                .first()
+                or ""
+            )
+        if holding_id:
+            return target(NOTIFICATION_TARGET_HOLDING, holding_id)
     if topic in _BALANCE_NOTIFICATION_TOPICS:
         return target(NOTIFICATION_TARGET_BALANCES)
     if topic == "email.fx_exchange_confirmation":
@@ -789,7 +808,11 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 # When the event happened (platform clock), not when the email went out.
                 "created_at": record.outbox_message.created_at,
                 "sent_at": record.sent_at,
-                **_notification_target(topic=topic, payload=record.outbox_message.payload),
+                **_notification_target(
+                    actor=actor,
+                    topic=topic,
+                    payload=record.outbox_message.payload,
+                ),
             }
         )
 
@@ -814,7 +837,7 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 "body": _notification_body(topic=topic, outbox=outbox),
                 "created_at": outbox.created_at,
                 "sent_at": outbox.processed_at,
-                **_notification_target(topic=topic, payload=outbox.payload),
+                **_notification_target(actor=actor, topic=topic, payload=outbox.payload),
             }
         )
 

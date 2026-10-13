@@ -1851,6 +1851,8 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
     }
     assert "Email-only update for current lenders." in emails[0].payload["body_text"]
     assert emails[0].payload["subject"].endswith(": Default update")
+    assert all(email.payload["metadata"]["holding_id"] for email in emails)
+    assert all(email.payload["metadata"]["visibility"] == "internal" for email in emails)
 
     both = post_note(email_affected_investors=True, idempotency_key="default-note-both")
     assert both.status_code == 201
@@ -1860,6 +1862,9 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
         email_affected_investors=True, idempotency_key="default-note-both"
     ).json()["id"] == both.json()["id"]
     assert note_emails().count() == 4
+    public_emails = list(note_emails().filter(payload__metadata__visibility="public"))
+    assert len(public_emails) == 2
+    assert all(email.payload["metadata"]["holding_id"] for email in public_emails)
 
     public_ids = {
         str(note.id)

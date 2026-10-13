@@ -613,3 +613,10 @@ Before launch, Claude Design should produce or implement:
 - Current behavior: the layout follows the site: white card with hairlines on a light grey page, the black Banxum wordmark (hosted PNG, `/brand/banxum-email-logo.png`) in the header, a square status tag (green confirmation, red important, black action needed, grey information), Archivo with Helvetica/Arial fallback, pill buttons, key/value rows and a black footer with the white wordmark. Confirmation codes show large in their own box; expiry times read as Zurich wall time.
 - Suggested improvement: test in Outlook desktop, Gmail (web and app, dark mode) and Apple Mail; decide whether to embed the logo as an inline image instead of loading it from the app domain; consider a dark-mode logo variant and per-topic illustrations for key events (deposit credited, loan defaulted).
 - Priority: important.
+
+## 2026-10-13: Investor Loan Notes
+
+- Screen or component: My investments > investment page, "Loan notes" section.
+- Current behavior: the section lists all public notes in newest-first order. Each item shows the full title, full message, and publish date. A public-and-email note opens this section from the notification bell. Email-only notes do not appear.
+- Suggested improvement: review the typography for very long messages and decide whether note types need visible labels when more note categories are in regular use.
+- Priority: nice-to-have.

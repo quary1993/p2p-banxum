@@ -11,6 +11,7 @@ import type {
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
+  PublicLoanRiskNote,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
@@ -89,6 +90,8 @@ export const portfolioFixture: InvestorPortfolio = {
   exposure: emptyExposure,
   holdings: []
 };
+
+export const publicLoanNotesFixture: PublicLoanRiskNote[] = [];
 
 export const activityFixture: InvestorActivity = {
   entries: []
