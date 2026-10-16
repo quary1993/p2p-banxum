@@ -194,10 +194,17 @@ jobs:
 
           mkdir -p "$app_root"
           if [ -f "$app_dir/infra/deploy/.env" ]; then
-            cp "$app_dir/infra/deploy/.env" "$preserved_env"
+            mv "$app_dir/infra/deploy/.env" "$preserved_env"
           fi
 
           rm -rf "$app_dir"
+
+          # Keep the currently running images, containers, and volumes. Remove only
+          # unused build data before the next image build so repeated releases do not
+          # exhaust the deployment host.
+          docker builder prune -af
+          docker image prune -af
+
           mkdir -p "$app_dir"
           tar -xzf "$REMOTE_ARCHIVE" -C "$app_dir"
           rm -f "$REMOTE_ARCHIVE"
