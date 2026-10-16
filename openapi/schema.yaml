@@ -960,6 +960,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReadOnlyImpersonationStartResponse'
           description: ''
+  /api/v1/admin/platform-features/:
+    get:
+      operationId: v1_admin_platform_features_retrieve
+      description: Superadmin platform switches (for example currency exchange), with
+        the last change.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformFeatures'
+          description: ''
+    post:
+      operationId: v1_admin_platform_features_create
+      description: Superadmin platform switches (for example currency exchange), with
+        the last change.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformFeatureUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PlatformFeatureUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlatformFeatureUpdateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformFeatures'
+          description: ''
   /api/v1/admin/story-images/:
     post:
       operationId: v1_admin_story_images_create
@@ -1210,6 +1253,215 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhoneVerificationRequestResponse'
+          description: ''
+  /api/v1/auth/pin/change/:
+    post:
+      operationId: v1_auth_pin_change_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PinChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PinChangeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinStatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_invalid, pin_weak, ...
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_not_available
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_required, ...
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_locked
+  /api/v1/auth/pin/reset/confirm/:
+    post:
+      operationId: v1_auth_pin_reset_confirm_create
+      description: 'Forgot PIN, step 2: email code, SMS code and the new PIN twice;
+        clears the lock.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinResetConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PinResetConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PinResetConfirmRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinStatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_invalid, pin_weak, ...
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_not_available
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_required, ...
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_locked
+  /api/v1/auth/pin/reset/start/:
+    post:
+      operationId: v1_auth_pin_reset_start_create
+      description: |-
+        Forgot PIN, step 1: an SMS code to the verified phone (the email code is requested
+        through /auth/sensitive-action-code/request/ with ``pin_reset``).
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinResetStartResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_invalid, pin_weak, ...
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_not_available
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_required, ...
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_locked
+  /api/v1/auth/pin/set/:
+    post:
+      operationId: v1_auth_pin_set_create
+      description: 'First PIN: at registration without an email code, otherwise with
+        ``pin_setup``.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinSetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PinSetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PinSetRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinStatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_invalid, pin_weak, ...
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_not_available
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_required, ...
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinErrorResponse'
+          description: pin_locked
+  /api/v1/auth/pin/status/:
+    get:
+      operationId: v1_auth_pin_status_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinStatusResponse'
           description: ''
   /api/v1/auth/preferences/marketing/:
     patch:
@@ -2093,6 +2345,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvestorDocumentDownloadResponse'
+          description: ''
+  /api/v1/investor/portal/features/:
+    get:
+      operationId: v1_investor_portal_features_retrieve
+      description: |-
+        Which optional features the investor app shows (for example currency exchange).
+
+        Anonymous-safe: it returns only platform switches, never account data.
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPortalFeatures'
           description: ''
   /api/v1/investor/portal/fx/:
     get:
@@ -3345,32 +3615,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/PrimaryInvestmentOrder'
           description: ''
-  /api/v1/marketplace/primary/loans/:
-    get:
-      operationId: v1_marketplace_primary_loans_list
-      description: 'Anonymous preview: only the MKT-DEC-002 public fields, for everyone.'
-      parameters:
-      - in: query
-        name: limit
-        schema:
-          type: integer
-          maximum: 250
-          minimum: 1
-          default: 100
-      tags:
-      - v1
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PublicMarketplaceLoan'
-          description: ''
   /api/v1/marketplace/primary/loans/{loan_id}/:
     get:
       operationId: v1_marketplace_primary_loans_retrieve
@@ -3529,6 +3773,96 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PrimaryOrderBatchResponse'
+          description: ''
+  /api/v1/marketplace/primary/public/originators/:
+    get:
+      operationId: v1_marketplace_primary_public_originators_list
+      description: 'Public site: active Loan Originators with at least one public
+        claim.'
+      summary: Public Loan Originators
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicOriginator'
+          description: ''
+  /api/v1/marketplace/primary/public/projects/:
+    get:
+      operationId: v1_marketplace_primary_public_projects_list
+      description: 'Anonymous. Open loans, fully subscribed loans still in their round
+        and every funded loan (Direct and Loan Originator claims): open first (newest
+        published first), then the rest (newest funding close first). Never the borrower''s
+        name.'
+      summary: Public projects
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 250
+        description: Maximum number of projects to return (1 to 500).
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicProject'
+          description: ''
+  /api/v1/marketplace/primary/public/projects/{loan_id}/:
+    get:
+      operationId: v1_marketplace_primary_public_projects_retrieve
+      description: 'Public site: one project page (404 unless the loan is public).'
+      summary: Public project
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProject'
+          description: ''
+        '404':
+          description: The loan does not exist or is not public.
+  /api/v1/marketplace/primary/public/statistics/:
+    get:
+      operationId: v1_marketplace_primary_public_statistics_retrieve
+      description: 'Public site: track record computed from the public projects.'
+      summary: Public statistics
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatistics'
           description: ''
   /api/v1/marketplace/secondary/admin/listings/:
     get:
@@ -4373,6 +4707,149 @@ paths:
               schema:
                 $ref: '#/components/schemas/OriginatorClaimPurchaseResponse'
           description: ''
+  /api/v1/public/enquiries/:
+    post:
+      operationId: v1_public_enquiries_create
+      description: 'The For companies, For loan originators and Contact forms: one
+        email to BANXUM.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicEnquiryRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicEnquiryCreated'
+          description: ''
+        '400':
+          description: 'Field errors under `fields` (by field name); `kind`, `consent`
+            and `elapsed_ms` errors at the top level; `{detail, code: "too_large"}`
+            for a body over 32 KB.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+  /api/v1/public/newsletter/confirm/:
+    post:
+      operationId: v1_public_newsletter_confirm_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsletterTokenRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterStatus'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+  /api/v1/public/newsletter/subscribe/:
+    post:
+      operationId: v1_public_newsletter_subscribe_create
+      description: Start the double opt-in. Always the same answer for a well-formed
+        address.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsletterSubscribeRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterAccepted'
+          description: ''
+        '400':
+          description: '`{email: [...]}` or `{source: [...]}`.'
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+  /api/v1/public/newsletter/unsubscribe/:
+    post:
+      operationId: v1_public_newsletter_unsubscribe_create
+      description: |-
+        Unsubscribe; repeating it is fine.
+
+        Also the RFC 8058 one-click target of the ``List-Unsubscribe`` header: mail providers
+        POST ``List-Unsubscribe=One-Click`` as a form body with the token in the query string.
+      parameters:
+      - in: query
+        name: token
+        schema:
+          type: string
+        description: Token for one-click unsubscribe (RFC 8058) instead of the body.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsletterTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NewsletterTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NewsletterTokenRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterStatus'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
   /api/v1/qa/dev-mode/:
     get:
       operationId: v1_qa_dev_mode_retrieve
@@ -4850,6 +5327,9 @@ components:
       - primary_investment
       - secondary_market_listing
       - secondary_market_purchase
+      - pin_setup
+      - pin_change
+      - pin_reset
       type: string
       description: |-
         * `withdrawal` - withdrawal
@@ -4858,6 +5338,9 @@ components:
         * `primary_investment` - primary_investment
         * `secondary_market_listing` - secondary_market_listing
         * `secondary_market_purchase` - secondary_market_purchase
+        * `pin_setup` - pin_setup
+        * `pin_change` - pin_change
+        * `pin_reset` - pin_reset
     ActivityEntry:
       type: object
       properties:
@@ -6046,10 +6529,26 @@ components:
         withdrawal_deadline_at:
           type: string
           format: date-time
+          description: 60-day legal holding limit; penalty mode can start only after
+            this day.
         days_until_investment_deadline:
           type: integer
         days_until_withdrawal_deadline:
           type: integer
+        last_day:
+          type: string
+          format: date
+          description: Last Europe/Zurich day the money may stay (holding day auto_return_after_days,
+            58 by default). On that day it can only be withdrawn.
+        return_date:
+          type: string
+          format: date
+          description: Day the platform returns money still not invested to the investor's
+            verified bank account (the day after last_day).
+        days_until_last_day:
+          type: integer
+          description: 'Days until last_day: 0 on the last day, negative once the
+            money is due back.'
         original_amount_minor:
           type: integer
         available_amount_minor:
@@ -6074,14 +6573,17 @@ components:
       - converted_amount_minor
       - currency
       - days_until_investment_deadline
+      - days_until_last_day
       - days_until_withdrawal_deadline
       - id
       - invested_amount_minor
       - investment_deadline_at
+      - last_day
       - original_amount_minor
       - penalized_amount_minor
       - received_at
       - requires_withdrawal
+      - return_date
       - source_type
       - status
       - withdrawal_deadline_at
@@ -6143,8 +6645,13 @@ components:
             window is checked separately.
         withdraw_only_minor:
           type: integer
+          description: 'Balance on its last day (day 58 by default): it can only be
+            withdrawn.'
         overdue_minor:
           type: integer
+          description: Balance due back to the investor's bank (from the day after
+            the last day) that is not returned yet, usually because no verified payout
+            IBAN is known.
         frozen_minor:
           type: integer
         penalty_mode_minor:
@@ -6167,6 +6674,13 @@ components:
           type: string
           format: date-time
           nullable: true
+        next_return_date:
+          type: string
+          format: date
+          nullable: true
+          description: Next Europe/Zurich date on which money of this currency that
+            is still not invested goes back to the investor's bank (money already
+            due back is in overdue_minor).
       required:
       - active_lot_count
       - currency
@@ -6175,6 +6689,7 @@ components:
       - investor_user_id
       - lot_count
       - next_investment_deadline_at
+      - next_return_date
       - next_withdrawal_deadline_at
       - overdue_minor
       - penalty_charged_minor
@@ -7059,6 +7574,123 @@ components:
       - currency
       - iban
       - qr_iban
+    CompanyEnquiryFields:
+      type: object
+      properties:
+        company_name:
+          type: string
+          maxLength: 200
+        country:
+          $ref: '#/components/schemas/PublicEnquiryCountryEnum'
+        company_number:
+          type: string
+          maxLength: 200
+        amount:
+          type: string
+          maxLength: 200
+        term:
+          $ref: '#/components/schemas/PublicEnquiryTermEnum'
+        purpose:
+          $ref: '#/components/schemas/PublicEnquiryPurposeEnum'
+        security:
+          $ref: '#/components/schemas/PublicEnquirySecurityEnum'
+        revenue:
+          type: string
+          maxLength: 200
+        founded:
+          type: string
+          maxLength: 4
+        about:
+          type: string
+          maxLength: 4000
+        contact_name:
+          type: string
+          maxLength: 200
+        role:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          maxLength: 40
+      required:
+      - amount
+      - company_name
+      - company_number
+      - contact_name
+      - country
+      - email
+      - founded
+      - phone
+      - purpose
+      - role
+      - security
+      - term
+    CompanyEnquiryRequest:
+      type: object
+      properties:
+        consent:
+          type: boolean
+          description: Must be true.
+        website:
+          type: string
+          description: 'Honeypot: leave empty.'
+        elapsed_ms:
+          type: integer
+          minimum: 0
+          description: Milliseconds from showing the form to sending it.
+        kind:
+          $ref: '#/components/schemas/PublicEnquiryCompanyKindEnum'
+        fields:
+          $ref: '#/components/schemas/CompanyEnquiryFields'
+      required:
+      - consent
+      - fields
+      - kind
+    ContactEnquiryFields:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        topic:
+          $ref: '#/components/schemas/PublicEnquiryTopicEnum'
+        message:
+          type: string
+          maxLength: 4000
+      required:
+      - email
+      - message
+      - name
+      - topic
+    ContactEnquiryRequest:
+      type: object
+      properties:
+        consent:
+          type: boolean
+          description: Must be true.
+        website:
+          type: string
+          description: 'Honeypot: leave empty.'
+        elapsed_ms:
+          type: integer
+          minimum: 0
+          description: Milliseconds from showing the form to sending it.
+        kind:
+          $ref: '#/components/schemas/PublicEnquiryContactKindEnum'
+        fields:
+          $ref: '#/components/schemas/ContactEnquiryFields'
+      required:
+      - consent
+      - fields
+      - kind
     CurrentUserResponse:
       type: object
       properties:
@@ -7935,8 +8567,13 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - idempotency_key
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     FxQuoteIssueRequest:
@@ -8352,8 +8989,13 @@ components:
           type: integer
           description: Daily balance-ageing penalty on a balance in penalty mode,
             in basis points.
+        auto_return_after_days:
+          type: integer
+          description: Money still not invested goes back to the investor's bank the
+            day after this holding day (58 by default; the legal limit is 60).
       required:
       - as_of
+      - auto_return_after_days
       - has_penalty_mode_balance
       - lots
       - payout_instructions
@@ -8831,6 +9473,14 @@ components:
           maxLength: 255
       required:
       - evidence_reference
+    InvestorPortalFeatures:
+      type: object
+      description: Platform switches the investor app reads before it shows a feature.
+      properties:
+        fx_enabled:
+          type: boolean
+      required:
+      - fx_enabled
     InvestorPortfolio:
       type: object
       properties:
@@ -8978,10 +9628,15 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - currency
       - destination_account_name
       - destination_iban
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     InvestorWithdrawalCancelRequest:
@@ -9271,11 +9926,16 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - amount_minor
       - currency
       - destination_iban
       - idempotency_key
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     InvestorWithdrawalRequestCreateResponse:
@@ -10860,6 +11520,24 @@ components:
           type: integer
         minimum_investment_minor:
           type: integer
+          description: What the viewing investor must invest now, in minor units.
+            On a Swiss-borrower loan a new investor's minimum is raised so the places
+            left can fill the loan; an investor who already invests keeps the loan
+            minimum, capped by the remaining capacity.
+        max_investors:
+          type: integer
+          nullable: true
+          description: Most investors this loan may have (Swiss borrower, platform
+            setting, default 20); null when no limit applies.
+        places_left:
+          type: integer
+          nullable: true
+          description: Places left for new investors; null when no limit applies.
+        is_existing_investor:
+          type: boolean
+          nullable: true
+          description: The viewing investor already invests in this loan, so needs
+            no new place; null when no limit applies.
         ltv_bps:
           type: integer
           nullable: true
@@ -11071,6 +11749,24 @@ components:
           type: integer
         minimum_investment_minor:
           type: integer
+          description: What the viewing investor must invest now, in minor units.
+            On a Swiss-borrower loan a new investor's minimum is raised so the places
+            left can fill the loan; an investor who already invests keeps the loan
+            minimum, capped by the remaining capacity.
+        max_investors:
+          type: integer
+          nullable: true
+          description: Most investors this loan may have (Swiss borrower, platform
+            setting, default 20); null when no limit applies.
+        places_left:
+          type: integer
+          nullable: true
+          description: Places left for new investors; null when no limit applies.
+        is_existing_investor:
+          type: boolean
+          nullable: true
+          description: The viewing investor already invests in this loan, so needs
+            no new place; null when no limit applies.
         ltv_bps:
           type: integer
           nullable: true
@@ -11361,6 +12057,55 @@ components:
         * `restricted` - restricted
         * `locked` - locked
         * `closed` - closed
+    NewsletterAccepted:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    NewsletterSourceEnum:
+      enum:
+      - home
+      - projects
+      - guides
+      - other
+      type: string
+      description: |-
+        * `home` - Home
+        * `projects` - Projects
+        * `guides` - Guides
+        * `other` - Other
+    NewsletterStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    NewsletterSubscribeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        website:
+          type: string
+          description: 'Honeypot: leave empty.'
+        source:
+          $ref: '#/components/schemas/NewsletterSourceEnum'
+      required:
+      - email
+      - source
+    NewsletterTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 256
+      required:
+      - token
     NoteTypeEnum:
       enum:
       - internal_note
@@ -11706,12 +12451,17 @@ components:
         sensitive_action_code:
           type: string
           pattern: ^\d{6}$
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
         idempotency_key:
           type: string
           maxLength: 160
       required:
       - document_acceptance_id
       - idempotency_key
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     OriginatorClaimPurchaseResponse:
@@ -11816,6 +12566,61 @@ components:
       - rounding_remainder_minor
       - share_ppm
       - target_yield_bps
+    OriginatorEnquiryFields:
+      type: object
+      properties:
+        company_name:
+          type: string
+          maxLength: 200
+        country:
+          $ref: '#/components/schemas/PublicEnquiryCountryEnum'
+        licence:
+          type: string
+          maxLength: 200
+        product:
+          $ref: '#/components/schemas/PublicEnquiryProductEnum'
+        loan_book:
+          type: string
+          maxLength: 200
+        about:
+          type: string
+          maxLength: 4000
+        contact_name:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 254
+      required:
+      - company_name
+      - contact_name
+      - country
+      - email
+      - licence
+      - loan_book
+      - product
+    OriginatorEnquiryRequest:
+      type: object
+      properties:
+        consent:
+          type: boolean
+          description: Must be true.
+        website:
+          type: string
+          description: 'Honeypot: leave empty.'
+        elapsed_ms:
+          type: integer
+          minimum: 0
+          description: Milliseconds from showing the form to sending it.
+        kind:
+          $ref: '#/components/schemas/PublicEnquiryOriginatorKindEnum'
+        fields:
+          $ref: '#/components/schemas/OriginatorEnquiryFields'
+      required:
+      - consent
+      - fields
+      - kind
     OriginatorFundingRoundCloseRequest:
       type: object
       properties:
@@ -12717,8 +13522,8 @@ components:
           format: date-time
         is_forced:
           type: boolean
-          description: Forced return of an overdue balance (day-60 rule), not asked
-            by the investor.
+          description: Automatic return of money not invested within auto_return_after_days
+            days, not asked by the investor.
       required:
       - amount_minor
       - currency
@@ -12790,6 +13595,220 @@ components:
       - expires_at
       - phone_verified
       - status
+    PinChangeRequest:
+      type: object
+      properties:
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        new_pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        new_pin_confirmation:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+      required:
+      - new_pin
+      - new_pin_confirmation
+      - pin
+      - sensitive_action_code
+      - sensitive_action_code_id
+    PinErrorResponse:
+      type: object
+      description: Error body of the PIN checks; ``code`` names the case (ACC-DEC-009).
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        attempts_left:
+          type: integer
+        locked_until:
+          type: string
+          format: date-time
+      required:
+      - code
+      - detail
+    PinResetConfirmRequest:
+      type: object
+      properties:
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+        phone_challenge_id:
+          type: string
+          format: uuid
+        phone_code:
+          type: string
+          pattern: ^\d{6}$
+        new_pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        new_pin_confirmation:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+      required:
+      - new_pin
+      - new_pin_confirmation
+      - phone_challenge_id
+      - phone_code
+      - sensitive_action_code
+      - sensitive_action_code_id
+    PinResetStartResponse:
+      type: object
+      properties:
+        phone_challenge_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        phone_last_digits:
+          type: string
+      required:
+      - expires_at
+      - phone_challenge_id
+      - phone_last_digits
+    PinSetRequest:
+      type: object
+      properties:
+        new_pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        new_pin_confirmation:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+          nullable: true
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+      required:
+      - new_pin
+      - new_pin_confirmation
+    PinStatus:
+      type: object
+      properties:
+        pin_set:
+          type: boolean
+        locked_until:
+          type: string
+          format: date-time
+          nullable: true
+        attempts_left:
+          type: integer
+        max_attempts:
+          type: integer
+        setup_requires_email_code:
+          type: boolean
+        reset_available:
+          type: boolean
+        phone_last_digits:
+          type: string
+      required:
+      - attempts_left
+      - locked_until
+      - max_attempts
+      - phone_last_digits
+      - pin_set
+      - reset_available
+      - setup_requires_email_code
+    PinStatusResponse:
+      type: object
+      properties:
+        pin:
+          $ref: '#/components/schemas/PinStatus'
+      required:
+      - pin
+    PlatformFeature:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        last_change:
+          allOf:
+          - $ref: '#/components/schemas/PlatformFeatureLastChange'
+          nullable: true
+      required:
+      - description
+      - enabled
+      - key
+      - last_change
+      - title
+    PlatformFeatureLastChange:
+      type: object
+      properties:
+        version:
+          type: integer
+        enabled:
+          type: boolean
+        changed_at:
+          type: string
+          format: date-time
+        changed_by_type:
+          type: string
+        changed_by_id:
+          type: string
+        changed_by_email:
+          type: string
+        reason:
+          type: string
+      required:
+      - changed_at
+      - changed_by_email
+      - changed_by_id
+      - changed_by_type
+      - enabled
+      - reason
+      - version
+    PlatformFeatureUpdateRequest:
+      type: object
+      properties:
+        key:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          maxLength: 1000
+      required:
+      - enabled
+      - key
+      - reason
+    PlatformFeatures:
+      type: object
+      properties:
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformFeature'
+      required:
+      - features
     PortfolioExposure:
       type: object
       properties:
@@ -13206,9 +14225,14 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - document_acceptance_id
       - idempotency_key
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     PrimaryInvestmentOrderCreateRequest:
@@ -13509,10 +14533,15 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - document_acceptance_id
       - idempotency_key
       - items
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     PrimaryOrderBatchResponse:
@@ -13655,6 +14684,149 @@ components:
       - template_key
       - title
       - version_number
+    PublicEnquiryCompanyKindEnum:
+      enum:
+      - company
+      type: string
+      description: '* `company` - company'
+    PublicEnquiryContactKindEnum:
+      enum:
+      - contact
+      type: string
+      description: '* `contact` - contact'
+    PublicEnquiryCountryEnum:
+      enum:
+      - Switzerland
+      - Germany
+      - Austria
+      - Italy
+      - Romania
+      - France
+      - Other EU country
+      type: string
+      description: |-
+        * `Switzerland` - Switzerland
+        * `Germany` - Germany
+        * `Austria` - Austria
+        * `Italy` - Italy
+        * `Romania` - Romania
+        * `France` - France
+        * `Other EU country` - Other EU country
+    PublicEnquiryCreated:
+      type: object
+      properties:
+        reference:
+          type: string
+      required:
+      - reference
+    PublicEnquiryOriginatorKindEnum:
+      enum:
+      - originator
+      type: string
+      description: '* `originator` - originator'
+    PublicEnquiryProductEnum:
+      enum:
+      - Leasing
+      - Invoices (factoring)
+      - Business loans
+      - Real estate loans
+      - Other
+      type: string
+      description: |-
+        * `Leasing` - Leasing
+        * `Invoices (factoring)` - Invoices (factoring)
+        * `Business loans` - Business loans
+        * `Real estate loans` - Real estate loans
+        * `Other` - Other
+    PublicEnquiryPurposeEnum:
+      enum:
+      - Extension or construction
+      - Machines and equipment
+      - Real estate
+      - Stock and working capital
+      - Refinancing
+      - Other
+      type: string
+      description: |-
+        * `Extension or construction` - Extension or construction
+        * `Machines and equipment` - Machines and equipment
+        * `Real estate` - Real estate
+        * `Stock and working capital` - Stock and working capital
+        * `Refinancing` - Refinancing
+        * `Other` - Other
+    PublicEnquiryRequest:
+      oneOf:
+      - $ref: '#/components/schemas/CompanyEnquiryRequest'
+      - $ref: '#/components/schemas/OriginatorEnquiryRequest'
+      - $ref: '#/components/schemas/ContactEnquiryRequest'
+      discriminator:
+        propertyName: kind
+        mapping:
+          company: '#/components/schemas/CompanyEnquiryRequest'
+          originator: '#/components/schemas/OriginatorEnquiryRequest'
+          contact: '#/components/schemas/ContactEnquiryRequest'
+    PublicEnquirySecurityEnum:
+      enum:
+      - Mortgage note
+      - Pledge on equipment
+      - Receivables
+      - Guarantee of the owners
+      - Not sure yet
+      type: string
+      description: |-
+        * `Mortgage note` - Mortgage note
+        * `Pledge on equipment` - Pledge on equipment
+        * `Receivables` - Receivables
+        * `Guarantee of the owners` - Guarantee of the owners
+        * `Not sure yet` - Not sure yet
+    PublicEnquiryTermEnum:
+      enum:
+      - 1 month
+      - 3 months
+      - 6 months
+      - 12 months
+      - 18 months
+      - 24 months
+      - 36 months
+      - 48 months
+      - 60 months
+      type: string
+      description: |-
+        * `1 month` - 1 month
+        * `3 months` - 3 months
+        * `6 months` - 6 months
+        * `12 months` - 12 months
+        * `18 months` - 18 months
+        * `24 months` - 24 months
+        * `36 months` - 36 months
+        * `48 months` - 48 months
+        * `60 months` - 60 months
+    PublicEnquiryTopicEnum:
+      enum:
+      - Investing
+      - My account
+      - A loan for my company
+      - Loan originators
+      - Press
+      - Other
+      type: string
+      description: |-
+        * `Investing` - Investing
+        * `My account` - My account
+        * `A loan for my company` - A loan for my company
+        * `Loan originators` - Loan originators
+        * `Press` - Press
+        * `Other` - Other
+    PublicError:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+      required:
+      - code
+      - detail
     PublicLoanRiskNote:
       type: object
       properties:
@@ -13683,67 +14855,348 @@ components:
       - occurred_at
       - title
       - visibility
-    PublicMarketplaceLoan:
+    PublicOriginator:
       type: object
-      description: 'Anonymous loan preview: only the MKT-DEC-002 fields (plus the
-        loan id).'
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Loan Originator id.
+        name:
+          type: string
+          description: The Loan Originator's public name.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country when known, else empty.
+        partner_since:
+          type: string
+          format: date
+          description: Date the partner was added.
+        claims_funded:
+          type: integer
+          description: Public claims of this originator that were funded.
+      required:
+      - claims_funded
+      - country
+      - id
+      - name
+      - partner_since
+    PublicProject:
+      type: object
+      description: A loan on the public site. Never carries the borrower's name or
+        identifiers.
       properties:
         loan_id:
           type: string
           format: uuid
           description: Public id for the project page link.
-        borrower_name:
+        title:
           type: string
-          description: 'Direct loans: the borrower''s legal name. Loan Originator
-            claims: the anonymized borrower name unless the originator published the
-            legal name.'
-        borrower_country:
-          type: string
+          description: Loan title (never the borrower's name).
         product_type:
           allOf:
           - $ref: '#/components/schemas/ProductTypeEnum'
           description: |-
-            Loan type: a BANXUM Direct loan or a Loan Originator claim.
+            A BANXUM Direct loan or a Loan Originator claim.
 
             * `direct` - direct
             * `originator_claim` - originator_claim
         is_refinancing:
           type: boolean
           description: 'Loan type: new or refinancing.'
+        public_status:
+          allOf:
+          - $ref: '#/components/schemas/PublicStatusEnum'
+          description: |-
+            open: published, capacity left, round still taking orders; fully_funded: nothing left to invest, round not closed yet; repaying: funded or active; late; repaid; default: defaulted or written off.
+
+            * `open` - open
+            * `fully_funded` - fully_funded
+            * `repaying` - repaying
+            * `late` - late
+            * `repaid` - repaid
+            * `default` - default
         currency:
           type: string
+          description: ISO currency code (CHF or EUR).
         principal_minor:
           type: integer
-          description: Loan amount in minor units.
+          description: 'Loan amount offered to investors, in minor units: the final
+            principal after a partial close; for a Loan Originator claim the principal
+            offered in (or subscribed at the close of) its round.'
+        committed_principal_minor:
+          type: integer
+          description: Funded so far, in minor units (equal to the principal once
+            funded).
+        remaining_capacity_minor:
+          type: integer
+          description: Amount still open for investment, in minor units; 0 unless
+            open.
+        minimum_investment_minor:
+          type: integer
+          nullable: true
+          description: What a new investor must invest now (the loan minimum, capped
+            by the remaining capacity; for a Swiss-borrower loan raised so the places
+            left can fill the loan), in minor units; null unless open, and null when
+            a Swiss-borrower loan has no place left.
+        investors_count:
+          type: integer
+          description: 'Distinct investors: current (not transferred) holders and
+            investors with money allocated to the funding round.'
+        max_investors:
+          type: integer
+          nullable: true
+          description: Most investors this loan may have (Swiss borrower, platform
+            setting, default 20); null when no limit applies.
+        places_left:
+          type: integer
+          nullable: true
+          description: Places left for new investors (max_investors - investors_count,
+            never below 0); null when no limit applies.
         interest_rate_bps:
           type: integer
-          description: Investor interest per year in basis points.
+          description: Investor interest per year in basis points (the investor marketplace
+            yield).
         term_months:
           type: integer
           description: Loan period in months.
-        status:
+        repayment_type:
+          type: string
+          description: RepaymentType value.
+        risk_rating:
+          type: string
+          description: RiskRating value.
+        collateral_type:
+          type: string
+          description: CollateralType value.
+        collateral_description:
+          type: string
+        ltv_bps:
+          type: integer
+          nullable: true
+          description: Loan-to-value in basis points; null without a collateral value.
+        purpose:
+          type: string
+          description: LoanPurpose value.
+        purpose_description:
+          type: string
+        investor_summary:
+          type: string
+        borrower_country:
+          type: string
+          description: Borrower country as ISO 3166-1 alpha-2 when known, else empty.
+        borrower_sector:
+          type: string
+          description: Borrower business classification when it is marked public,
+            else empty.
+        borrower_year_founded:
+          type: integer
+          nullable: true
+        originator:
           allOf:
-          - $ref: '#/components/schemas/PublicMarketplaceLoanStatusEnum'
-          description: |-
-            Every public preview is open for investment.
-
-            * `open` - open
+          - $ref: '#/components/schemas/PublicProjectOriginator'
+          nullable: true
+          description: The Loan Originator of a claim; null for a Direct loan.
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        funding_deadline:
+          type: string
+          format: date
+          nullable: true
+        funded_at:
+          type: string
+          format: date
+          nullable: true
+          description: Funding close date; null while the round is running.
+        record:
+          allOf:
+          - $ref: '#/components/schemas/PublicProjectRecord'
+          nullable: true
+          description: Repayment record; only for repaying, late, repaid and default
+            loans.
       required:
       - borrower_country
-      - borrower_name
+      - borrower_sector
+      - borrower_year_founded
+      - collateral_description
+      - collateral_type
+      - committed_principal_minor
       - currency
+      - funded_at
+      - funding_deadline
       - interest_rate_bps
+      - investor_summary
+      - investors_count
       - is_refinancing
       - loan_id
+      - ltv_bps
+      - max_investors
+      - minimum_investment_minor
+      - originator
+      - places_left
       - principal_minor
       - product_type
-      - status
+      - public_status
+      - published_at
+      - purpose
+      - purpose_description
+      - record
+      - remaining_capacity_minor
+      - repayment_type
+      - risk_rating
       - term_months
-    PublicMarketplaceLoanStatusEnum:
+      - title
+    PublicProjectOriginator:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Loan Originator id.
+        name:
+          type: string
+          description: The Loan Originator's public name.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country of the Loan Originator when known,
+            else empty.
+      required:
+      - country
+      - id
+      - name
+    PublicProjectRecord:
+      type: object
+      properties:
+        installments_total:
+          type: integer
+          description: 'Installments of the repayment schedule (for a Loan Originator
+            claim: the installments after the investors'' entitlement start).'
+        installments_paid:
+          type: integer
+          description: Installments paid in full.
+        principal_repaid_minor:
+          type: integer
+          description: Principal repaid to investors so far, in minor units.
+        interest_paid_minor:
+          type: integer
+          description: Interest paid to investors so far, in minor units.
+        outstanding_principal_minor:
+          type: integer
+          description: 'Principal not repaid yet (loan amount minus principal repaid),
+            in minor units. For a loan in default: outstanding at default, before
+            recovery.'
+        days_past_due:
+          type: integer
+          description: Days past the due date of the oldest unpaid installment; 0
+            unless late or in default.
+        defaulted_on:
+          type: string
+          format: date
+          nullable: true
+          description: Date the loan went into default; null unless in default.
+        public_note:
+          type: string
+          description: Text of the latest public loan note by Garanta, or empty.
+      required:
+      - days_past_due
+      - defaulted_on
+      - installments_paid
+      - installments_total
+      - interest_paid_minor
+      - outstanding_principal_minor
+      - principal_repaid_minor
+      - public_note
+    PublicStatistics:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: When the figures were computed.
+        loans_funded:
+          type: integer
+          description: Funded public loans (repaying, late, repaid or in default).
+        loans_repaid:
+          type: integer
+        loans_late:
+          type: integer
+        loans_defaulted:
+          type: integer
+        average_interest_rate_bps:
+          type: integer
+          nullable: true
+          description: Investor interest weighted by principal over funded loans,
+            rounded half up; null without funded loans.
+        originators_count:
+          type: integer
+          description: Active Loan Originators with at least one public claim.
+        countries_count:
+          type: integer
+          description: Distinct borrower countries over all public projects.
+        by_currency:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicStatisticsCurrency'
+          description: One row per currency; CHF and EUR are always present.
+      required:
+      - as_of
+      - average_interest_rate_bps
+      - by_currency
+      - countries_count
+      - loans_defaulted
+      - loans_funded
+      - loans_late
+      - loans_repaid
+      - originators_count
+    PublicStatisticsCurrency:
+      type: object
+      properties:
+        currency:
+          type: string
+          description: ISO currency code (CHF or EUR).
+        loans:
+          type: integer
+          description: Funded loans in this currency.
+        lent_minor:
+          type: integer
+          description: Principal lent, in minor units.
+        principal_repaid_minor:
+          type: integer
+        interest_paid_minor:
+          type: integer
+        outstanding_minor:
+          type: integer
+          description: Outstanding principal of loans not in default, in minor units.
+        defaulted_minor:
+          type: integer
+          description: Outstanding principal of loans in default (before recovery),
+            in minor units.
+      required:
+      - currency
+      - defaulted_minor
+      - interest_paid_minor
+      - lent_minor
+      - loans
+      - outstanding_minor
+      - principal_repaid_minor
+    PublicStatusEnum:
       enum:
       - open
+      - fully_funded
+      - repaying
+      - late
+      - repaid
+      - default
       type: string
-      description: '* `open` - open'
+      description: |-
+        * `open` - open
+        * `fully_funded` - fully_funded
+        * `repaying` - repaying
+        * `late` - late
+        * `repaid` - repaid
+        * `default` - default
     PublishLoanRequest:
       type: object
       properties:
@@ -14987,12 +16440,17 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
         notes:
           type: string
       required:
       - document_acceptance_id
       - holding_id
       - idempotency_key
+      - pin
       - price_bps
       - sensitive_action_code
       - sensitive_action_code_id
@@ -15015,11 +16473,16 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
         notes:
           type: string
       required:
       - document_acceptance_id
       - idempotency_key
+      - pin
       - price_bps
       - sensitive_action_code
       - sensitive_action_code_id
@@ -15284,12 +16747,17 @@ components:
         sensitive_action_code:
           type: string
           maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
       required:
       - document_acceptance_id
       - expected_buyer_total_cost_minor
       - expected_current_principal_minor
       - expected_price_bps
       - idempotency_key
+      - pin
       - sensitive_action_code
       - sensitive_action_code_id
     SecondaryPurchaseAsBuyerPortal:
@@ -15823,6 +17291,14 @@ components:
           type: boolean
         marketing_consent:
           type: boolean
+        pin_set:
+          type: boolean
+          readOnly: true
+        pin_locked_until:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
       required:
       - account_type
       - email
@@ -15831,6 +17307,8 @@ components:
       - investor_reference
       - marketing_consent
       - phone_verified
+      - pin_locked_until
+      - pin_set
       - status
     VisibilityEnum:
       enum:

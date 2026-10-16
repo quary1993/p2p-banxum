@@ -1,0 +1,56 @@
+/* IP of Webby-Soft SRL. */
+/* Hand-made fixes for the public site, all under html.bxs. site.css is generated from the design
+ * (do not edit it); put every fix here, with the reason.
+ *
+ * 1. The app's global styles.css has unscoped element rules (:root, html, body, *, button, a,
+ *    :focus-visible, ::selection, .row...) written for the investor area. The design has no such
+ *    rules, so where the design CSS sets nothing these values reach the site. The rules below
+ *    give those properties back their browser defaults (revert = the user-agent value), with
+ *    :where() so their specificity (0,1,1) beats the app rules but never a design rule
+ *    (every design rule is html.bxs + its own selector). Found with the harness: compare.py --leaks.
+ */
+
+/* :root / html / body of styles.css: paper background, ink colour, Instrument Sans, 14px,
+   font-synthesis none, optimizeLegibility, antialiased smoothing, min-height 100vh. */
+html.bxs {
+  background: none;
+  color: revert;
+  font-family: revert;
+  line-height: revert;
+  box-sizing: revert;
+  min-height: revert;
+  font-synthesis: initial;
+  text-rendering: auto;
+  -webkit-font-smoothing: auto;
+}
+
+html.bxs :where(body) {
+  min-height: revert;
+  -webkit-font-smoothing: auto;
+}
+
+/* button { color: inherit }, a { cursor: pointer } */
+html.bxs :where(button) {
+  color: revert;
+}
+
+html.bxs :where(a) {
+  cursor: revert;
+}
+
+/* :focus-visible { outline: 2px solid green; outline-offset: 2px; border-radius: 3px } */
+html.bxs :where(:focus-visible) {
+  outline: revert;
+  outline-offset: revert;
+  border-radius: revert;
+}
+
+/* ::selection { background: green tint } */
+html.bxs ::selection {
+  background: revert;
+}
+
+/* .row { align-items: center } (Bootstrap rows in the design's forms stretch their columns). */
+html.bxs :where(.row) {
+  align-items: revert;
+}

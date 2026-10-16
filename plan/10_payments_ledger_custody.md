@@ -394,16 +394,20 @@ Launch interpretation:
 - Penalty policy is configured through environment/deployment settings at launch. Reminder schedule and reminder templates remain superadmin-configurable.
 - Currency exchange does not reset the 60-day holding clock. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
 - If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
-- Deadline rule (2026-10-09): the withdrawal deadline date (received date + 60 Europe/Zurich days, day 60) is the last day the money may stay; the investor can withdraw it until the end of that day, but can no longer invest or exchange it. Forced return, penalty mode and the first daily penalty start the next day (day 61). Reminder day numbers count back from the deadline date, so FX proceeds keep their source's age and get the remaining reminders.
+- Deadline rule (2026-10-09): the withdrawal deadline date (received date + 60 Europe/Zurich days, day 60) is the last day the money may stay; the investor can withdraw it until the end of that day, but can no longer invest or exchange it. Forced return, penalty mode and the first daily penalty start the next day (day 61). Reminder day numbers count back from the deadline date, so FX proceeds keep their source's age and get the remaining reminders. Superseded for the return by the 58-day rule below; penalty mode and penalties keep this rule.
+- Automatic return after 58 days (owner decision 2026-10-16, "Goes back to your bank automatically after 58 days."): the 60-day legal limit is unchanged, but the platform returns money that is still not invested earlier. Day 58 (received date + 58 Europe/Zurich days) is the last day the money may stay: the investor can withdraw it until the end of that day, but can no longer invest or exchange it (withdraw-only, as day 60 was before). On day 59 the balance-ageing scan creates the forced return of exactly those lots to the investor's usable verified IBAN in that currency (PAY-DEC-022 destination rule). Without a usable IBAN the lots stay withdraw-only on days 59 and 60, without penalty, and the investor gets an urgent notice ("Add a verified bank account so we can return your money") on the first day the money is due back and a day-60 notice that penalty mode starts the next day; a missed scan sends only the latest of the two. Penalty mode and the first daily penalty start only after the legal limit (day 61), exactly as before, and a return is still created on any later scan once a usable IBAN exists. FX proceeds inherit the source dates and go back on the same day. The return day is the platform setting `balance.auto_return_after_days` (default 58, 1 to 60; an invalid value falls back to 58; 60 restores the 2026-10-09 rule). Investor portal lots expose `last_day`, `return_date` and `days_until_last_day`; summaries expose `next_return_date`, and the balances payload exposes `auto_return_after_days`.
 
-Reminder schedule:
+Reminder schedule (updated 2026-10-16; setting `balance.reminder_days`, superadmin-configurable; days after the last day are not sent as reminders):
 
 - Day 25.
 - Day 46.
 - Day 53.
-- Day 58.
-- Day 59.
-- Day 60, announcing that the balance is subject to penalties.
+- Day 56.
+- Day 57.
+- Day 58, the last day: "Last day: tomorrow we return the money to your bank", or without a usable IBAN "Last day: add a bank account today".
+- Without a usable IBAN only: day 59, urgent "Add a verified bank account so we can return your money"; day 60, "Penalty mode starts tomorrow: add a bank account today".
+
+The 2026-05-20 schedule was days 25, 46, 53, 58, 59 and 60. Migration `platform_core.0008` changes a stored `balance.reminder_days` row from that old default to the new one (new setting version and audit event), and leaves a schedule a superadmin set unchanged.
 
 Rationale:
 The platform must prevent long-term deposit-taking behavior and keep investors informed before regulatory/compliance deadlines are reached.
@@ -413,9 +417,11 @@ Confirm forced-withdrawal authority and exact penalty legal wording/tax treatmen
 
 ### PAY-DEC-018: Currency Exchange Service
 
-Status: Accepted.
-Date: 2026-05-22. Updated 2026-06-01.
+Status: Accepted. Switched off for now by setting (2026-10-16).
+Date: 2026-05-22. Updated 2026-06-01, 2026-10-16.
 Owner: Garanta product / finance / superadmin.
+
+Update 2026-10-16 (owner decision, row 6: "No conversion on Banxum (for now!)"): currency exchange is switched off but kept, so it can be switched on again. The boolean platform setting `fx.enabled` (default `false`; a missing row or any value other than `true` is off) controls it. While it is off, every FX quote preview, quote and exchange endpoint (`/api/v1/fx/quote-preview/`, `/api/v1/fx/quotes/`, `/api/v1/fx/quotes/{id}/execute/`) refuses with HTTP 409 `{"code": "fx_disabled", "detail": "Currency exchange is not available at the moment."}` before any provider rate is fetched or email code is used; the services refuse too, and a retry of an exchange that already completed still answers with it. History and operations keep working: the investor FX history (`/api/v1/investor/portal/fx/`), activity and statements show past exchanges, and the admin FX delta report, external settlement and realized report stay available for past exchanges. Nothing else in the ledger changes (FX lots keep the source deadline inheritance). The investor app reads `GET /api/v1/investor/portal/features/` (`{ "fx_enabled": boolean }`, anonymous-safe): when off it hides the FX menu item and `/fx` shows the dashboard (the address changes to `/dashboard`). A superadmin switches FX on or off in the admin console (Superadmin settings, "Platform features") through `GET`/`POST /api/v1/admin/platform-features/`, which writes through the audited settings service with a required reason and shows the last change. Migration `fx.0007_record_fx_switched_off` records the decision as an explicit setting row on seeded deployments.
 
 Decision:
 The investor portal has a separate currency-exchange menu section. Investors can exchange between enabled balance currencies.
@@ -514,7 +520,7 @@ Owner: Garanta compliance / finance / product.
 Decision:
 Balance source entries are consumed FIFO within each currency, using the oldest eligible source entries first for investments, withdrawals, FX, fees, and penalties. "Oldest" means the earliest withdrawal deadline (FX proceeds inherit their source's deadline), with the received timestamp as tie-break. A forced return consumes exactly the overdue source entries and never other, non-overdue money.
 
-Funds may be newly invested before their 60-day holding deadline only if the remaining funding window fits within that deadline. Instant secondary-market and legacy claim purchases have no additional campaign wait. Frozen, penalty-mode and overdue sources remain ineligible.
+Funds may be newly invested before their 60-day holding deadline only if the remaining funding window fits within that deadline (since 2026-10-16: within the 58-day automatic return, so before the source's day-58 last day). Instant secondary-market and legacy claim purchases have no additional campaign wait. Frozen, penalty-mode and overdue sources remain ineligible.
 
 Primary-market investment requires every consumed source to cover the remaining funding window. The last inclusive subscription date must precede the source's withdrawal-deadline date. A source with 10 holding days left can fund a 10-day remaining window, but not a 30-day one. The same eligibility rule applies to direct and LO v2 subscriptions.
 
@@ -540,13 +546,13 @@ Date: 2026-05-20.
 Owner: Garanta compliance / finance / operations.
 
 Decision:
-When a balance source reaches the 60-day holding limit, admin attempts a forced withdrawal if Garanta has a usable verified IBAN for the investor and the balance can be returned.
+When a balance source reaches the 60-day holding limit, admin attempts a forced withdrawal if Garanta has a usable verified IBAN for the investor and the balance can be returned. Updated 2026-10-16 (PAY-DEC-017): the forced return is created automatically by the balance-ageing scan on day 59, after the 58-day last day; penalty mode still starts only after day 60.
 
 At launch, an admin declaration of an incoming lender deposit must include the checksum-valid source IBAN observed on the bank statement. That exact investor/currency/IBAN is automatically recorded as a verified payout instruction because ownership/control evidence came from the received bank transfer. Verified source IBANs remain available and are not superseded merely because the investor later requests another payout account.
 
 An investor may request an additional payout IBAN using the `bank_account_change` sensitive-action email code. The additional IBAN is checksum-validated but remains unusable for normal or forced withdrawals until an admin verifies it. Each such request automatically creates or reopens a finance operations task linked to the exact payout instruction; admin verification resolves that task. If an admin cancels that task without verifying the IBAN, the investor gets a "Payout IBAN not verified" notice (audit 2026-10). Multiple verified payout IBANs may coexist for the same investor and currency. Normal withdrawals must use the exact verified destination requested by the investor; forced withdrawals use a usable verified instruction selected by the platform's documented ordering rule.
 
-Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw them before the 60-day deadline.
+Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw them before the deadline (since 2026-10-16: before the end of day 58; the reminders name the IBAN the money goes to, or ask the investor to add one).
 
 If no usable IBAN is available, penalty mode is enabled after day 60. Further investor financial actions are frozen, except the action needed to declare or update a usable IBAN. Read-only access remains available for portfolio, documents, tax information statements, notices, and messages. The investor portal must show a blocking banner stating that to unlock financial actions, the user must first declare a usable IBAN account where Garanta can send the due funds.
 
@@ -832,6 +838,8 @@ Examples:
 
 ### Currency Exchange
 
+Only while the `fx.enabled` platform setting is on (off since 2026-10-16, PAY-DEC-018).
+
 1. Investor opens the currency-exchange section.
 2. Investor selects source currency, target currency, and amount for an enabled pair. Launch enabled pairs are CHF/EUR and EUR/CHF.
 3. Platform validates that there is no minimum exchange amount and that the requested amount does not exceed the configured per-investor daily maximum conversion limit, initially CHF 100,000 per investor per day or equivalent.
@@ -877,11 +885,12 @@ Examples:
 - Primary-market reservations are blocked when any consumed source cannot cover the loan's final inclusive funding date within its holding limit.
 - The investor portal must show explicit errors and a per-currency breakdown of investable balance, withdraw-required balance, FX-eligible balance, and penalty/frozen balance.
 - Deposits, repayment/installment credits, secondary-market seller proceeds, refunds credited to balance, and FX proceeds are subject to balance ageing rules.
-- Balance reminders are sent at day 25, 46, 53, 58, 59, and 60 based on received timestamp and remaining unconsumed balance source amount.
+- Balance reminders are sent at day 25, 46, 53, 56, 57, and 58 (updated 2026-10-16; superadmin setting `balance.reminder_days`) based on received timestamp and remaining unconsumed balance source amount. Without a usable IBAN, notices follow on day 59 (add a verified bank account) and day 60 (penalty mode starts tomorrow).
+- Money still not invested goes back to the investor's verified IBAN automatically on day 59, after the day-58 last day (setting `balance.auto_return_after_days`, default 58; owner decision 2026-10-16).
 - Reminder email templates are configurable by superadmin and must state that the regulatory/compliance requirement to avoid holding user funds beyond 60 days cannot be extended.
 - Balances remaining after day 60 are subject to the env/deployment-configurable penalty policy. Launch default is 1% simple daily penalty on the overdue source balance, capped at that source's remaining amount, with terminal `penalty_exhausted` status if fully consumed.
-- If a usable verified IBAN is known at day 60, admin attempts forced withdrawal.
-- If no usable IBAN is known at day 60, penalty mode is enabled and investor financial actions are frozen except declaring/updating a usable IBAN; read-only access remains available.
+- If a usable verified IBAN is known from day 59, the scan creates the forced withdrawal (updated 2026-10-16; before: after day 60).
+- If no usable IBAN is known, the money stays withdraw-only on days 59 and 60 without penalty; after day 60 penalty mode is enabled and investor financial actions are frozen except declaring/updating a usable IBAN; read-only access remains available.
 - Withdrawals and forced withdrawals are final in-platform once admin records them as executed; later bank failures or returns are handled offline.
 - Penalties, if applied, must be ledgered explicitly and auditable.
 - Recovery payments must separately ledger/report gross recovered amount, externally deducted legal/recovery costs, third-party costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, waterfall allocation, lender distributions, and recovery rounding differences.
@@ -952,12 +961,12 @@ Examples:
 14. Answered by PAY-DEC-012: cross-currency transfers are not advised but not blocked if correct amount/reference arrives.
 15. Answered by PAY-DEC-013 and PAY-DEC-014: partial close requires notification only and occurs automatically when the disclosed per-loan minimum subscription is met.
 16. Answered by PAY-DEC-016: when lender funds exceed remaining loan capacity, accepted amount is allocated and excess is refund due or balance-creditable according to policy; if no capacity remains, no investor exposure is created.
-17. Answered by PAY-DEC-017: balance reminders occur on days 25, 46, 53, 58, 59, and 60; day-60 reminder announces penalties.
+17. Answered by PAY-DEC-017: balance reminders occur on days 25, 46, 53, 58, 59, and 60; day-60 reminder announces penalties. Updated 2026-10-16: days 25, 46, 53, 56, 57 and 58 before the automatic return on day 59; day-59 and day-60 notices only without a usable IBAN.
 18. Answered by PAY-DEC-018: currency exchange is an auxiliary settlement function, not trading/speculation; launch pairs are CHF/EUR and EUR/CHF, with no minimum amount, CHF 100,000 per-investor daily maximum or equivalent configurable by admin, Yahoo Finance source rates, configurable 1.5% launch platform fee, live executable quotes fixed for 1 minute, background display polling, same-provider sanity checks, at-least-6-decimal stored precision, 2-decimal normal display, 4-decimal FX confirmation display, and half-up rounding.
 19. Answered by PAY-DEC-019: all money movements are ledgered with `in`/`out` direction and source-level received timestamps.
 20. Answered by PAY-DEC-020: admin can query FX deltas by day/period and record external FX execution.
 21. Updated by PAY-DEC-031: eligible balance sources are consumed FIFO. Each source must cover the loan's full remaining funding window within its original 60-day holding limit. FX preserves the earliest consumed holding deadline and source lineage; it never grants fresh holding time.
-22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known. If forced withdrawal cannot succeed because no usable payout path exists or bank-side return cannot be executed after operational review, penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
+22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known (since 2026-10-16: from day 59, after the 58-day last day). If forced withdrawal cannot succeed because no usable payout path exists or bank-side return cannot be executed after operational review, penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
 23. Answered by PAY-DEC-023: deposits and installment payments use bank value date; secondary-market and FX events use internal transaction timestamp.
 24. Answered by PAY-DEC-024/PAY-DEC-027: investor FX settles instantly in platform balances; admin settles external FX at end of day or next morning using delta reports and records final realized sold/bought amounts from which the platform infers actual execution rate including fees/costs.
 25. Answered by PAY-DEC-026: all launch external bank movements are admin-declared bank operations using lender deposit, lender withdrawal, borrower loan disbursement, borrower repayment, Garanta out, Garanta in, and currency-exchange external settlement types.
@@ -986,7 +995,7 @@ Borrower repayments after activation split into investor liabilities and origina
 
 This decision supersedes the fixed day-30 investment cutoff and the earlier 29-day publication cap. Admins define at most 50 inclusive Europe/Zurich subscription dates; the direct-loan default remains 30 dates. The last subscription date is inclusive and the scheduled resolver runs on the following business date, before available-balance ageing. Publication freezes the deadline: extending an open round is prohibited.
 
-Every reserved source must cover the entire remaining window within its original holding limit. Its withdrawal-deadline date must be strictly later than the last subscription date. A 30-day remaining window requires 30 holding days remaining; a 10-day window requires 10. An investor joining later covers only the remaining window. Sources at day 60, frozen or in penalty mode are excluded. This applies to direct and LO v2 orders, including batches. Instant purchases have no extra campaign wait. Generic balances are potentially investable, not a guarantee of eligibility for every campaign.
+Every reserved source must cover the entire remaining window within its original holding limit. Its withdrawal-deadline date must be strictly later than the last subscription date. Updated 2026-10-16 (PAY-DEC-017): the window must fit within the 58-day return instead, so the source's last day (day 58) must be strictly later than the last subscription date and the funding close happens at the latest on day 58; sources on their last day or due back are excluded. A 30-day remaining window requires 30 holding days remaining; a 10-day window requires 10. An investor joining later covers only the remaining window. Sources at day 60, frozen or in penalty mode are excluded. This applies to direct and LO v2 orders, including batches. Instant purchases have no extra campaign wait. Generic balances are potentially investable, not a guarantee of eligibility for every campaign.
 
 Funding outcome is deterministic under terms frozen at publication. At deadline, qualified direct loans close at subscribed principal; below-minimum loans cancel and restore exact source lots without resetting age. Failed execution hides the opportunity, preserves reservations, raises an urgent task/email, and retries automatically. Runtime/database failure cannot be assumed impossible: persistent failure is an operational incident requiring repair, not a discretionary funding decision or permission to extend holding time. There is no age-triggered cancellation overriding the minimum result. Available-balance ageing is not claimed to sweep reserved escrow.
 

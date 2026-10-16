@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -20,8 +20,15 @@ from backend.apps.ledger.models import (
     InvestorPayoutInstructionStatus,
     InvestorWithdrawalRequest,
 )
-from backend.apps.platform_core.domain.funding import balance_deadline_date
+from backend.apps.platform_core.domain.funding import (
+    balance_last_day,
+    normalized_auto_return_after_days,
+)
 from backend.apps.platform_core.models import OutboxMessage
+from backend.apps.platform_core.selectors.settings import (
+    balance_auto_return_after_days,
+    platform_switch_enabled,
+)
 from backend.apps.platform_core.services.investor_notices import (
     InvestorNotice,
     brand,
@@ -32,6 +39,11 @@ from backend.apps.platform_core.services.investor_notices import (
 )
 
 BALANCE_TARGET = "balances"
+
+
+def _invest_or_exchange() -> str:
+    """Texts offer currency exchange only while it is switched on (fx.enabled, 2026-10-16)."""
+    return "invest or exchange" if platform_switch_enabled("fx.enabled") else "invest"
 
 
 def _penalty_text() -> str:
@@ -46,7 +58,12 @@ def notify_deposit_credited(
 ) -> None:
     currency = bank_operation.currency
     amount = notice_amount(bank_operation.amount_minor, currency)
-    deadline = notice_date(balance_deadline_date(balance_lot.withdrawal_deadline_at))
+    return_after_days = balance_auto_return_after_days()
+    last_day = balance_last_day(
+        withdrawal_deadline_at=balance_lot.withdrawal_deadline_at,
+        return_after_days=return_after_days,
+    )
+    return_date = notice_date(last_day + timedelta(days=1))
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(bank_operation.linked_object_id),
@@ -57,8 +74,9 @@ def notify_deposit_credited(
             body_text=(
                 f"We credited {amount} to your {brand()} balance. "
                 f"Value date: {notice_date(bank_operation.value_date)}.\n\n"
-                "You can invest this money or withdraw it. It can stay on your balance for "
-                f"60 days, until {deadline}."
+                "You can invest this money or withdraw it. Money that is not invested goes "
+                f"back to your bank automatically after {return_after_days} days: it can stay "
+                f"until {notice_date(last_day)}, and we return what is left on {return_date}."
             ),
             template_key="ledger.deposit_credited.v1",
             notice_label="Balance notice",
@@ -68,7 +86,7 @@ def notify_deposit_credited(
                 ("Amount", amount),
                 ("Value date", notice_date(bank_operation.value_date)),
                 ("Payment reference", bank_operation.payment_reference.strip()),
-                ("Hold limit (60 days)", deadline),
+                ("Goes back to your bank on", return_date),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",
@@ -127,19 +145,23 @@ def notify_withdrawal_requested(request: InvestorWithdrawalRequest) -> None:
 def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
     amount = notice_amount(request.amount_minor, request.currency)
     destination = masked_iban(request.destination_iban)
+    return_after_days = normalized_auto_return_after_days(
+        dict(request.metadata or {}).get("auto_return_after_days")
+    )
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(request.investor_user_id),
             topic="email.balance_forced_return",
             idempotency_key=f"withdrawal:{request.id}:forced-return",
             subject=f"We are returning {amount} to your bank account",
-            headline="Your balance passed the 60-day limit",
+            headline="Your money goes back to your bank",
             body_text=(
-                f"{amount} of your {brand()} balance passed the 60-day holding limit. "
-                f"{settings.LEGAL_OPERATOR_NAME} must return it, so we started a return to "
-                f"your verified bank account ({destination}).\n\n"
-                "You cannot invest or exchange this amount now. We tell you when the money is "
-                "sent."
+                f"{amount} of your {brand()} balance was not invested within "
+                f"{return_after_days} days. Money that is not invested goes back to your bank "
+                "automatically, so we started a return to your verified bank account "
+                f"({destination}).\n\n"
+                f"You cannot {_invest_or_exchange()} this amount now. We tell you when the money "
+                "is sent."
             ),
             template_key="ledger.forced_return_created.v1",
             notice_label="Balance notice",

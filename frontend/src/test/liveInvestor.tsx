@@ -36,7 +36,8 @@ export function balancesPayload(summaries: BalanceSummary[], payoutInstructions:
       lot_count: 1,
       active_lot_count: 1,
       next_investment_deadline_at: "2026-12-01T00:00:00Z",
-      next_withdrawal_deadline_at: "2026-12-01T00:00:00Z"
+      next_withdrawal_deadline_at: "2026-12-01T00:00:00Z",
+      next_return_date: "2026-11-30"
     })),
     lots: summaries.map(({ currency, investableMinor }) => ({
       id: `lot-${currency}`,
@@ -49,6 +50,9 @@ export function balancesPayload(summaries: BalanceSummary[], payoutInstructions:
       withdrawal_deadline_at: "2026-12-01T00:00:00Z",
       days_until_investment_deadline: 53,
       days_until_withdrawal_deadline: 53,
+      last_day: "2026-11-29",
+      return_date: "2026-11-30",
+      days_until_last_day: 51,
       original_amount_minor: investableMinor,
       available_amount_minor: investableMinor,
       invested_amount_minor: 0,

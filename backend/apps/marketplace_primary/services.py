@@ -9,6 +9,7 @@ import logging
 import re
 import uuid
 from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from datetime import date, timedelta
 from importlib import import_module
 from typing import Any, NoReturn, cast
@@ -18,6 +19,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Q, Sum
 
+from backend.apps.marketplace_primary import investor_limit as investor_limits
 from backend.apps.marketplace_primary import notices as investor_notices
 from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
@@ -34,7 +36,17 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
-from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
+from backend.apps.platform_core.domain.investor_limit import (
+    SWISS_INVESTOR_LIMIT_CODE,
+    InvestorLimit,
+    swiss_investor_limit_message,
+)
+from backend.apps.platform_core.domain.money import (
+    Money,
+    MoneyError,
+    format_amount_minor,
+    normalize_currency,
+)
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
@@ -47,6 +59,7 @@ from backend.apps.platform_core.services.events import (
 )
 from backend.apps.platform_core.services.sensitive_actions import (
     PRIMARY_INVESTMENT_ACTION,
+    SensitiveActionPinError,
     SensitiveActionVerificationCommand,
     SensitiveActionVerificationError,
     verify_sensitive_action_code,
@@ -69,6 +82,12 @@ class MarketplacePrimaryOrderNotPendingError(MarketplacePrimaryValidationError):
     """The order was closed (for example replaced or expired) before allocation."""
 
     code = "order_not_pending"
+
+
+class MarketplacePrimarySwissInvestorLimitError(MarketplacePrimaryValidationError):
+    """A new investor needs a place on a Swiss-borrower loan that has none left (409)."""
+
+    code = SWISS_INVESTOR_LIMIT_CODE
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -109,6 +128,7 @@ class AllocatePrimaryInvestmentOrderCommand:
     idempotency_key: str
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -128,6 +148,7 @@ class PlacePrimaryOrderBatchCommand:
     sensitive_action_code_id: str
     sensitive_action_code: str
     idempotency_key: str
+    pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -406,6 +427,78 @@ def _minimum_investment_minor(currency_code: str) -> int:
         if type(value) is int:
             return value
     return 100000
+
+
+def _loan_investor_limit(loan: Model) -> InvestorLimit:
+    """The Swiss-borrower investor limit of a loan (MKT-DEC-028); count under the loan lock."""
+    return investor_limits.loan_investor_limit(loan)
+
+
+def _raise_swiss_investor_limit(limit: InvestorLimit, *, prefix: str = "") -> NoReturn:
+    message = swiss_investor_limit_message(int(limit.max_investors or 0))
+    raise MarketplacePrimarySwissInvestorLimitError(f"{prefix}{message}")
+
+
+def _swiss_new_investor_minimum_message(loan: Model, limit: InvestorLimit, minimum: int) -> str:
+    amount = format_amount_minor(minimum, str(cast(Any, loan).currency_id))
+    return (
+        f"This loan to a Swiss company can have at most {limit.max_investors} investors, "
+        f"so the minimum for a new investor is now {amount}. Invest at least {amount}."
+    )
+
+
+def _order_minimum_minor(
+    *,
+    loan: Model,
+    limit: InvestorLimit,
+    investor_user_id: str,
+    remaining_capacity_minor: int,
+) -> int:
+    """The minimum this investor must invest in the loan now.
+
+    Without a Swiss-borrower limit this is the loan minimum. With it, a new investor
+    must invest the minimum that lets the places left fill the loan, and is refused
+    (409 ``swiss_investor_limit``) when no place is left; an investor who already
+    invests keeps the loan minimum, capped by the remaining capacity.
+    """
+    minimum = _loan_minimum_investment_minor(loan)
+    if not limit.applies or remaining_capacity_minor <= 0:
+        return minimum
+    if limit.refuses_new_investor(investor_user_id):
+        _raise_swiss_investor_limit(limit)
+    return limit.investor_minimum_minor(
+        investor_user_id=investor_user_id,
+        minimum_minor=minimum,
+        remaining_minor=remaining_capacity_minor,
+    )
+
+
+def _assert_order_within_investor_limit(
+    *,
+    loan: Model,
+    limit: InvestorLimit,
+    order: PrimaryInvestmentOrder,
+    remaining_capacity_minor: int,
+) -> None:
+    """At allocation, a new investor still needs a free place and the minimum of now.
+
+    Other investors may have joined since the order was created: the order is refused
+    (it stays pending, nothing moves) and the investor places a new one.
+    """
+    investor_user_id = str(order.investor_user_id)
+    if not limit.applies or remaining_capacity_minor <= 0 or limit.is_investor(investor_user_id):
+        return
+    minimum = _order_minimum_minor(
+        loan=loan,
+        limit=limit,
+        investor_user_id=investor_user_id,
+        remaining_capacity_minor=remaining_capacity_minor,
+    )
+    if int(order.requested_amount_minor) < minimum:
+        raise MarketplacePrimaryValidationError(
+            f"{_swiss_new_investor_minimum_message(loan, limit, minimum)} "
+            "Nothing was invested. Place the order again."
+        )
 
 
 def _pending_order_cap() -> int:
@@ -951,15 +1044,23 @@ def create_primary_investment_order(
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
-    minimum = _loan_minimum_investment_minor(loan)
-    if amount_minor < minimum:
-        message = (
-            "Investment amount is below this loan's minimum."
-            if _originator_subscription_profile(loan) is not None
-            else "Investment amount is below the launch minimum."
-        )
-        raise MarketplacePrimaryValidationError(message)
     remaining_capacity = _loan_remaining_capacity_minor(loan)
+    investor_limit = _loan_investor_limit(loan)
+    minimum = _order_minimum_minor(
+        loan=loan,
+        limit=investor_limit,
+        investor_user_id=investor_id,
+        remaining_capacity_minor=remaining_capacity,
+    )
+    if amount_minor < minimum:
+        loan_minimum = _loan_minimum_investment_minor(loan)
+        if minimum > loan_minimum:
+            message = _swiss_new_investor_minimum_message(loan, investor_limit, minimum)
+        elif _originator_subscription_profile(loan) is not None or minimum < loan_minimum:
+            message = "Investment amount is below this loan's minimum."
+        else:
+            message = "Investment amount is below the launch minimum."
+        raise MarketplacePrimaryValidationError(message)
     if remaining_capacity <= 0:
         raise MarketplacePrimaryValidationError("Loan has no remaining investment capacity.")
     if amount_minor > remaining_capacity:
@@ -1075,6 +1176,17 @@ def allocate_primary_order_from_balance(
             # Replay of an allocation that closed the order as not invested.
             return order
         _raise_order_not_pending(order)
+    # Early Swiss-borrower limit check, before the email code is used. The
+    # authoritative check repeats under the loan lock.
+    order_loan = _loan_for_read(str(order.loan_id))
+    order_limit = _loan_investor_limit(order_loan)
+    if order_limit.applies and str(cast(Any, order_loan).status) == "published":
+        _assert_order_within_investor_limit(
+            loan=order_loan,
+            limit=order_limit,
+            order=order,
+            remaining_capacity_minor=_loan_remaining_capacity_minor(order_loan),
+        )
     _validate_primary_document_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -1088,10 +1200,13 @@ def allocate_primary_order_from_balance(
                 action=PRIMARY_INVESTMENT_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
@@ -1380,10 +1495,13 @@ def place_primary_order_batch(
                 action=PRIMARY_INVESTMENT_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
@@ -1438,12 +1556,30 @@ def place_primary_order_batch(
                 currency_code,
                 "Investment amount",
             )
-            minimum = _loan_minimum_investment_minor(loan)
+            remaining_capacity = _loan_remaining_capacity_minor(loan)
+            investor_limit = _loan_investor_limit(loan)
+            loan_label = f"{loan_ref.title}: "
+            try:
+                minimum = _order_minimum_minor(
+                    loan=loan,
+                    limit=investor_limit,
+                    investor_user_id=str(command.actor.pk),
+                    remaining_capacity_minor=remaining_capacity,
+                )
+            except MarketplacePrimarySwissInvestorLimitError:
+                # Name the loan: the batch holds several. Nothing was committed.
+                _raise_swiss_investor_limit(investor_limit, prefix=loan_label)
             if amount_minor < minimum:
+                if minimum > _loan_minimum_investment_minor(loan):
+                    raise MarketplacePrimaryValidationError(
+                        f"{loan_label}"
+                        f"{_swiss_new_investor_minimum_message(loan, investor_limit, minimum)} "
+                        "Nothing was committed."
+                    )
                 raise MarketplacePrimaryValidationError(
                     "A batch investment amount is below the selected loan's minimum."
                 )
-            if amount_minor > _loan_remaining_capacity_minor(loan):
+            if amount_minor > remaining_capacity:
                 raise MarketplacePrimaryValidationError(
                     "A batch investment amount exceeds remaining loan capacity; "
                     "nothing was committed."
@@ -1541,6 +1677,8 @@ def place_primary_order_batch(
                 originator_services.OriginatorClaimsAuthorizationError,
                 originator_services.OriginatorClaimsValidationError,
             ) as exc:
+                if getattr(exc, "code", "") == SWISS_INVESTOR_LIMIT_CODE:
+                    raise MarketplacePrimarySwissInvestorLimitError(str(exc)) from exc
                 raise MarketplacePrimaryValidationError(str(exc)) from exc
             if int(purchase.cash_consideration_minor) != int(item["amount_minor"]):
                 raise MarketplacePrimaryValidationError(
@@ -1706,14 +1844,26 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             metadata={"reason": "no_capacity_at_allocation"},
         )
         return order
+    # Swiss-borrower limit (MKT-DEC-028): counted under the loan lock taken above, so
+    # two new investors cannot both take the last place.
+    investor_limit = _loan_investor_limit(loan)
+    _assert_order_within_investor_limit(
+        loan=loan,
+        limit=investor_limit,
+        order=order,
+        remaining_capacity_minor=remaining_capacity,
+    )
     subscription_profile = _originator_subscription_profile(loan)
     minimum_order_minor = _loan_minimum_investment_minor(loan)
     # A partial allocation must still reach the loan's minimum order. Direct loans
     # follow the Loan Originator rule: when another investor took the capacity and
     # less than the minimum is left, the order closes as not invested and no money
-    # moves (no allocation below the minimum).
+    # moves (no allocation below the minimum). On a Swiss-borrower loan an order may
+    # ask for exactly the remaining capacity below the minimum; only a partial fill
+    # below the minimum closes.
+    partial_fill = remaining_capacity < order.requested_amount_minor
     below_minimum = remaining_capacity < minimum_order_minor and (
-        subscription_profile is not None or remaining_capacity < order.requested_amount_minor
+        partial_fill or (subscription_profile is not None and not investor_limit.applies)
     )
     if below_minimum:
         previous_status = str(order.status)
@@ -2968,9 +3118,24 @@ def loan_funding_progress(loan_id: str) -> dict[str, Any]:
     }
 
 
-def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
+def public_marketplace_listing_payload(
+    loan: Model,
+    *,
+    viewer_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Investor marketplace data of a Direct loan (behind KYC, MKT-DEC-002).
+
+    With a viewer, ``minimum_investment_minor`` is what that investor must invest now;
+    without one, what a new investor must invest (Swiss-borrower limit, MKT-DEC-028).
+    """
     loan_ref = cast(Any, loan)
     progress = loan_funding_progress(str(loan_ref.id))
+    limit_fields = investor_limits.investor_limit_payload(
+        _loan_investor_limit(loan),
+        minimum_minor=_minimum_investment_minor(str(loan_ref.currency_id)),
+        remaining_minor=int(progress["remaining_capacity_minor"]),
+        viewer_user_id=viewer_user_id,
+    )
     return {
         **progress,
         "product_type": str(loan_ref.product_type),
@@ -2990,7 +3155,7 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         "loan_status": str(loan_ref.status),
         "opportunity_status": "open",
         "fillable_amount_minor": progress["remaining_capacity_minor"],
-        "minimum_investment_minor": _minimum_investment_minor(str(loan_ref.currency_id)),
+        **limit_fields,
         "ltv_bps": loan_ref.ltv_bps,
         "is_refinancing": bool(loan_ref.is_refinancing),
         "originator_id": None,
@@ -3027,7 +3192,11 @@ def _story_payload(value: Any) -> dict[str, Any]:
     return {"version": 1, "blocks": []}
 
 
-def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
+def full_marketplace_listing_payload(
+    loan: Model,
+    *,
+    viewer_user_id: str | None = None,
+) -> dict[str, Any]:
     loan_ref = cast(Any, loan)
     if str(loan_ref.product_type) == "originator_claim":
         raise MarketplacePrimaryValidationError(
@@ -3035,7 +3204,7 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         )
     borrower = cast(Model, loan_ref.borrower)
     entities_services = _entities_services()
-    payload = public_marketplace_listing_payload(loan)
+    payload = public_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
     payload.update(
         {
             "borrower_id": str(loan_ref.borrower_id),
@@ -3085,19 +3254,34 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     return payload
 
 
-def list_open_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
+def list_open_marketplace_loans(
+    *,
+    limit: int = 100,
+    viewer_user_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Every open opportunity with its full investor-facing preview data.
 
     Not for anonymous visitors: risk, collateral, funding progress, deadlines and
     participation terms are shown only after registration and KYC (MKT-DEC-002).
-    Anonymous callers use :func:`list_public_marketplace_loans`.
+    Anonymous visitors use the public site projects (``public_site.list_public_projects``).
+    With a viewer, the minimum is the viewer's own (Swiss-borrower limit, MKT-DEC-028).
     """
     loan_model = _model("loans", "Loan")
-    loans = loan_model.objects.filter(status="published", product_type="direct").order_by(
-        "funding_deadline", "id"
-    )[:limit]
-    payloads = [public_marketplace_listing_payload(cast(Model, loan)) for loan in loans]
-    payloads.extend(_originator_services().list_open_originator_marketplace_payloads(limit=limit))
+    loans = (
+        loan_model.objects.filter(status="published", product_type="direct")
+        .select_related("borrower")
+        .order_by("funding_deadline", "id")[:limit]
+    )
+    payloads = [
+        public_marketplace_listing_payload(cast(Model, loan), viewer_user_id=viewer_user_id)
+        for loan in loans
+    ]
+    payloads.extend(
+        _originator_services().list_open_originator_marketplace_payloads(
+            limit=limit,
+            viewer_user_id=viewer_user_id,
+        )
+    )
     # Fetch each product independently before applying the shared response limit so
     # a full direct-loan page cannot make open originator claims disappear.
     return sorted(
@@ -3113,10 +3297,7 @@ def list_open_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
 def list_investor_marketplace_loans(*, actor: Model, limit: int = 100) -> list[dict[str, Any]]:
     """The investor marketplace list: full preview data, behind KYC (MKT-DEC-002)."""
     _require_investor_financial_access(actor)
-    return list_open_marketplace_loans(limit=limit)
-
-
-PUBLIC_MARKETPLACE_STATUS_OPEN = "open"
+    return list_open_marketplace_loans(limit=limit, viewer_user_id=str(actor.pk))
 
 
 def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
@@ -3125,73 +3306,6 @@ def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
     if available is None:
         available = payload.get("remaining_capacity_minor", 0)
     return int(available or 0) > 0
-
-
-def _public_borrower_identity(payloads: list[dict[str, Any]]) -> dict[str, tuple[str, str]]:
-    """Borrower name and country per loan id, as the public preview may show them.
-
-    Direct loans show the borrower's legal name. Loan Originator claims show the
-    anonymized borrower name unless the originator published the legal name.
-    """
-    direct_ids = [row["loan_id"] for row in payloads if row.get("product_type") == "direct"]
-    originator_ids = [
-        row["loan_id"] for row in payloads if row.get("product_type") == "originator_claim"
-    ]
-    identity: dict[str, tuple[str, str]] = {}
-    loan_model = _model("loans", "Loan")
-    for loan in loan_model.objects.select_related("borrower").filter(id__in=direct_ids):
-        borrower = cast(Any, loan).borrower
-        identity[str(cast(Any, loan).id)] = (
-            str(getattr(borrower, "legal_name", "") or ""),
-            str(getattr(borrower, "country", "") or ""),
-        )
-    profile_model = _model("originator_claims", "OriginatorLoanProfile")
-    for row in profile_model.objects.filter(loan_id__in=originator_ids).values(
-        "loan_id",
-        "borrower_display_name",
-        "borrower_legal_name",
-        "borrower_legal_name_public",
-        "borrower_country",
-    ):
-        name = (
-            row["borrower_legal_name"]
-            if row["borrower_legal_name_public"]
-            else row["borrower_display_name"]
-        )
-        identity[str(row["loan_id"])] = (str(name or ""), str(row["borrower_country"] or ""))
-    return identity
-
-
-def list_public_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
-    """Anonymous preview of open loans with only the MKT-DEC-002 fields.
-
-    Borrower, amount, interest, period, loan type (Direct or Loan Originator claim, new
-    or refinancing), status, borrower country and currency, plus the loan id for the
-    public detail link. Nothing else leaves the server before login.
-    """
-    # A loan with nothing left to invest is not "open" for a visitor (the status below
-    # promises it); it closes after the funding round ends.
-    payloads = [
-        row
-        for row in list_open_marketplace_loans(limit=limit)
-        if marketplace_payload_has_capacity(row)
-    ]
-    identity = _public_borrower_identity(payloads)
-    return [
-        {
-            "loan_id": str(row["loan_id"]),
-            "borrower_name": identity.get(str(row["loan_id"]), ("", ""))[0],
-            "borrower_country": identity.get(str(row["loan_id"]), ("", ""))[1],
-            "product_type": str(row["product_type"]),
-            "is_refinancing": bool(row.get("is_refinancing", False)),
-            "currency": str(row["currency"]),
-            "principal_minor": int(row["principal_minor"]),
-            "interest_rate_bps": int(row.get("yield_bps") or row["interest_rate_bps"]),
-            "term_months": int(row["term_months"]),
-            "status": PUBLIC_MARKETPLACE_STATUS_OPEN,
-        }
-        for row in payloads
-    ]
 
 
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
@@ -3210,7 +3324,7 @@ def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
         except originator_services.OriginatorClaimsError as exc:
             raise MarketplacePrimaryValidationError(str(exc)) from exc
     _assert_direct_loan_readable(loan)
-    return full_marketplace_listing_payload(loan)
+    return full_marketplace_listing_payload(loan, viewer_user_id=str(actor.pk))
 
 
 def _assert_direct_loan_readable(loan: Model) -> None:

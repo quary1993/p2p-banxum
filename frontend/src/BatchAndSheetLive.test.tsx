@@ -1,4 +1,4 @@
-// Real-API checks for the Smart Invest batch and the loan quick-view sheet (QA audit
+// Real-API checks for the Smart-Invest batch and the loan quick-view sheet (QA audit
 // 2026-10-09): A-31 (a batch needs the same risk acknowledgement as one investment),
 // A-42 (balances refresh after a batch), A-39 (the sheet projects what can really be
 // lent, names the borrower, and pre-fills an amount that parses).
@@ -16,6 +16,7 @@ import {
   getV1MarketplacePrimaryOrdersCreateResponseMock
 } from "./api/generated/banxumApi";
 import { balancesPayload, emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
+import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -81,7 +82,7 @@ function loanDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("A-31 / A-42: a Smart Invest batch needs the risk acknowledgement and refreshes balances", async () => {
+test("A-31 / A-42: a Smart-Invest batch needs the risk acknowledgement and refreshes balances", async () => {
   server.use(
     ...investorShellHandlers(calls, {
       balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
@@ -145,6 +146,7 @@ test("A-31 / A-42: a Smart Invest batch needs the risk acknowledgement and refre
   await within(dialog).findByText(/one terms acceptance and one email code cover every investment/, {}, { timeout: 5000 });
   fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(calls.codes).toHaveLength(1));
   // Without the risk acknowledgement nothing can be placed.
   expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeDisabled();

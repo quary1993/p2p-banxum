@@ -1,9 +1,11 @@
-export type DemoAccountState = "active" | "kyc_pending" | "frozen" | "restricted";
+// "no_pin": the post-login "Create your PIN" screen (ACC-DEC-009).
+export type DemoAccountState = "active" | "kyc_pending" | "frozen" | "restricted" | "no_pin";
 
 export type RouteName =
+  // The public site: "/" (home) and "site" (every other site path, in params.path and
+  // params.search; see site/SitePages.tsx).
   | "public"
-  | "publicProjects"
-  | "publicFaq"
+  | "site"
   | "login"
   | "register"
   | "kyc"

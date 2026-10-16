@@ -6,6 +6,7 @@ from django.apps import apps
 from rest_framework import serializers
 
 from backend.apps.originator_claims.models import LoanOriginator, LoanOriginatorStatus
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 
 
 def _loan_field_choices(field_name: str) -> list[tuple[str, str]]:
@@ -269,6 +270,7 @@ class OriginatorClaimPurchaseRequestSerializer(serializers.Serializer[dict[str, 
     document_acceptance_id = serializers.UUIDField()
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.RegexField(r"^\d{6}$")
+    pin = sensitive_action_pin_field()
     idempotency_key = serializers.CharField(max_length=160)
 
 

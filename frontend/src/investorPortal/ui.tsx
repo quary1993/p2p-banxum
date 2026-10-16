@@ -733,10 +733,11 @@ export function Progress({ percent, tone }: { percent: number; tone?: "warn" | "
   );
 }
 
-export function DeadlineMeter({ daysUntilWithdrawal }: { daysUntilWithdrawal: number }) {
-  const daysHeld = Math.max(0, 60 - daysUntilWithdrawal);
-  const percent = Math.min(100, (daysHeld / 60) * 100);
-  const color = daysUntilWithdrawal <= 7 ? "var(--bad)" : daysUntilWithdrawal <= 30 ? "var(--warn)" : "var(--ok)";
+/** How much of a lot's time on the balance is used: `daysLeft` until its last day of `totalDays`. */
+export function DeadlineMeter({ daysLeft, totalDays }: { daysLeft: number; totalDays: number }) {
+  const daysHeld = Math.max(0, totalDays - daysLeft);
+  const percent = Math.min(100, (daysHeld / Math.max(1, totalDays)) * 100);
+  const color = daysLeft <= 7 ? "var(--bad)" : daysLeft <= 30 ? "var(--warn)" : "var(--ok)";
   return (
     <div className="dmeter">
       <span style={{ background: color, width: `${percent}%` }} />

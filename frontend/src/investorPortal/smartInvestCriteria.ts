@@ -7,7 +7,7 @@ import {
 } from "../api/generated/banxumApi";
 import type { SmartInvestRule, SmartInvestRuleSaveRequest } from "../api/generated/banxumApi";
 
-// Structured primary-market filters, also used as the Smart Invest rule editor
+// Structured primary-market filters, also used as the Smart-Invest rule editor
 // state. Every list is a multi-select: nothing ticked means no restriction, and
 // the values ticked inside one list combine with OR (rating A or A-).
 export type MkFilters = {

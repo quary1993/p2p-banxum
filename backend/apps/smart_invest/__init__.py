@@ -1,1 +1,1 @@
-"""Smart Invest discovery rules and matching notifications."""
+"""Smart-Invest discovery rules and matching notifications."""

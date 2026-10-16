@@ -84,7 +84,11 @@ from backend.apps.ledger.services import (
     verify_investor_payout_instruction,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
+from backend.apps.platform_core.api.sensitive_actions import (
+    sensitive_action_pin_error_response,
+)
 from backend.apps.platform_core.domain.access import is_admin_actor
+from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 
 
 def _admin_forbidden_response() -> Response:
@@ -362,10 +366,13 @@ class InvestorSelfServicePayoutInstructionRegisterView(APIView):
                     notes=data.get("notes", ""),
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except LedgerAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except LedgerValidationError as exc:
@@ -451,6 +458,7 @@ class InvestorWithdrawalRequestCreateView(APIView):
                     idempotency_key=data["idempotency_key"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
@@ -459,6 +467,8 @@ class InvestorWithdrawalRequestCreateView(APIView):
                 investor_user_id=str(request.user.pk),
                 currency=data["currency"],
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except LedgerAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except LedgerValidationError as exc:

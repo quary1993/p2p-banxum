@@ -1,6 +1,7 @@
 // Account status pieces shared by the investor shell and the Account page (audit A-20/A-21).
 import type { PendingWithdrawal } from "../api/generated/banxumApi";
 import { joinWithAnd, type FrozenAccount } from "./accountState";
+import { AUTO_RETURN_AFTER_DAYS } from "./balanceAgeing";
 import { formatDate, formatMoneyLabel, formatRateBps } from "./format";
 import { Banner, Button, Chip, Empty } from "./ui";
 
@@ -62,7 +63,7 @@ export function PendingWithdrawalsList({ withdrawals }: { withdrawals: PendingWi
             <div className="acct-iban num">To {withdrawal.destination_iban}</div>
             <div className="acct-row-sub">
               {withdrawal.is_forced
-                ? `Forced return of money past the 60-day limit, ${formatDate(withdrawal.requested_at)}`
+                ? `Forced return of money not invested within ${AUTO_RETURN_AFTER_DAYS} days, ${formatDate(withdrawal.requested_at)}`
                 : `Requested ${formatDate(withdrawal.requested_at)}`}
             </div>
           </div>

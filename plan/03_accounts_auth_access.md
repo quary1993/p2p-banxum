@@ -39,6 +39,7 @@ Define how users, internal staff, service accounts, and future external auditor/
 - Verify email and mandatory natural-person investor phone.
 - Send magic-link login emails for investor accounts.
 - Send email-code confirmations for investor sensitive/financial actions.
+- Require the investor's 6-digit PIN with the email code for every sensitive action (ACC-DEC-009).
 - Enforce email/password plus email-code verification for admin accounts.
 - Support one representative/login per legal-entity lender account at launch.
 - Manage trusted devices and active sessions.
@@ -258,6 +259,42 @@ Define exact resend cooldown/window, global rate limits, session revocation beha
 
 Updated 2026-10-09 (QA regression decision): investor and admin sessions now end a fixed time after login, default 2 hours (`AUTH_SESSION_MAX_AGE_SECONDS`), absolute rather than idle-based. The login time is kept in the server-side session and enforced by `accounts_auth.middleware.SessionLifetimeMiddleware`; after expiry every authenticated API call from that browser answers 401 `{"code": "session_expired"}` until the next login or sign-out, and the investor portal and admin console return to their login screen with a "session expired" notice. Read-only superadmin impersonation ends with the superadmin's session. The real clock is used, so the QA simulated clock never ends or extends sessions. The per-code attempt limit is configurable through `AUTH_SENSITIVE_CODE_MAX_ATTEMPTS` (default 3).
 
+### ACC-DEC-009: Investor PIN for Every Sensitive Action
+
+Status: Accepted.
+Date: 2026-10-16 (owner decision of 2026-10-15, row 12).
+Owner: Garanta product / technology / security.
+
+Decision:
+Every investor has a 6-digit PIN. Every sensitive action needs the fresh email code (ACC-DEC-008) and the PIN. Public wording: "Access your account with a magic link sent to your email; an extra code and a PIN code for every sensitive operation".
+
+- Storage: only a Django password hash (`accounts_auth.SensitiveActionPin`), with set/changed times, the wrong-attempt count and the lock time. The PIN never appears in responses, logs, audit metadata or the outbox.
+- Rules: exactly 6 digits; not one digit repeated (111111) and not a straight run up or down (123456, 654321, 012345). The registration screen shows the rules as a checklist.
+- Check order, in the shared `platform_core.services.sensitive_actions.verify_sensitive_action_code`, so every module gets it: PIN lock, then PIN, then email code. A wrong PIN never uses up the email code, and counts toward the lock even when the email code is right. A correct PIN resets the count. Like the email-code attempts, the check commits on its own before any rollbackable financial transaction.
+- Lock: 5 wrong PINs in a row lock the PIN for 30 minutes (`AUTH_PIN_MAX_ATTEMPTS`, `AUTH_PIN_LOCK_SECONDS`, real clock), with the audit event `auth.pin_locked` and the email `email.pin_locked` ("Your PIN was locked after 5 wrong attempts").
+- Actions: withdrawal, bank account change, FX, primary investment (single order, Smart-Invest batch, Loan Originator claim purchase), secondary-market listing (create and edit) and purchase. Each request carries `pin` next to `sensitive_action_code_id`/`sensitive_action_code`. Admin login (admin email code) has no PIN.
+- Registration: a PIN step after terms and phone verification and before the KYC hand-off (steps Account, Email and phone, PIN, KYC). The PIN is entered twice and needs no email code (pending-KYC account, phone just verified). The KYC session cannot start for a natural person without a PIN (409 `pin_required`).
+- Existing accounts: after login, an account without a PIN sees "Create your PIN" before anything else; outside registration the first PIN needs a fresh email code for `pin_setup`. Until then every sensitive action answers 409 `pin_required`.
+- Change PIN (Settings): current PIN, an email code for `pin_change` and the new PIN twice.
+- Forgot PIN (Settings and the PIN prompt): an email code for `pin_reset`, an SMS code to the verified phone (the phone-verification provider, Twilio Verify in staging/production) and the new PIN twice; it clears the lock. The email code is checked first without being used, so a wrong SMS code does not cost it. A PIN-reset SMS code never verifies a phone number.
+- After any change or reset the investor gets the email `email.pin_changed` ("Your PIN was changed. If this was not you, contact support"). Audit events: `auth.pin_set`, `auth.pin_verified`, `auth.pin_check_failed`, `auth.pin_locked`, `auth.pin_changed`, `auth.pin_reset`, `auth.pin_reset_sms_requested`, `auth.pin_reset_sms_failed`.
+
+API (`/api/v1/auth/pin/`, session auth, throttled per IP and account: `AUTH_PIN_HOURLY_LIMIT`/`AUTH_PIN_DAILY_LIMIT`; the reset SMS follows the registration SMS limits):
+- `GET status/`: `pin_set`, `locked_until`, `attempts_left`, `max_attempts`, `setup_requires_email_code`, `reset_available`, `phone_last_digits`. The `/auth/me/` user also carries `pin_set` and `pin_locked_until`.
+- `POST set/`: `new_pin`, `new_pin_confirmation`, and outside registration `sensitive_action_code_id`/`sensitive_action_code` (`pin_setup`).
+- `POST change/`: `pin`, `new_pin`, `new_pin_confirmation`, email code (`pin_change`).
+- `POST reset/start/`: sends the SMS code; answers `phone_challenge_id`. `POST reset/confirm/`: email code (`pin_reset`), `phone_challenge_id`, `phone_code`, `new_pin`, `new_pin_confirmation`.
+
+Error codes (body `{"detail", "code", ...}`): 400 `pin_invalid` (`attempts_left`), 423 `pin_locked` (`locked_until`), 409 `pin_required` (no PIN yet), 400 `pin_weak`, 400 `pin_mismatch`, 400 `pin_unchanged`, 409 `pin_already_set`, 403 `pin_not_available` (admin or blocked account), 409 `phone_verification_required`, 409 `pin_reset_unavailable` (no verified phone), 400 `email_code_invalid`, 429 `email_code_attempts_exceeded`, 400 `phone_code_invalid`, 429 `phone_code_attempts_exceeded`, 429 `phone_code_throttled`. A sensitive-action request without a valid `pin` field answers 400 with a `pin` field error. Wrong or expired email codes keep their existing answers.
+
+QA: the QA seed (`seed_qa_starting_point`) gives the synthetic QA investor the known PIN shown in its output (`investor_pin`) and resets it on every run; synthetic regression investors created by the QA reset get the same known PIN. Known PINs are refused in production.
+
+Rationale:
+The PIN adds a knowledge factor to the email-code step-up, so a compromised mailbox alone cannot move money or change the payout account.
+
+Follow-ups:
+Claude Design polish of the PIN screens (docs/claude-design/TODO.md); decide whether repeated locks should escalate (longer locks or a support review).
+
 ## Permission Model
 
 Permissions should be based on roles plus scoped resources.
@@ -280,7 +317,7 @@ Launch lender portal accounts use a single permission set. More granular investo
 - Investor accounts use magic-link login and mandatory phone verification.
 - Admin accounts use email, password, and email code.
 - Admin sensitive actions do not require step-up authentication at launch.
-- Investor sensitive/financial actions require fresh email-code confirmation.
+- Investor sensitive/financial actions require fresh email-code confirmation and the investor PIN (ACC-DEC-009).
 - Sensitive actions require detailed audit logs.
 - Admin sessions expire based on risk and role. Investor sessions are long-lived but revocable.
 - Access tokens are short-lived.

@@ -13,12 +13,12 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   PublicLoanRiskNote,
-  PublicMarketplaceLoan,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
   SmartInvestResponse
 } from "../api/generated/banxumApi";
+import { AUTO_RETURN_AFTER_DAYS } from "./balanceAgeing";
 import type { InvestorPortalFixture } from "./types";
 
 const investorId = "demo-investor-1";
@@ -185,7 +185,8 @@ export const publicLoanNotesFixture: PublicLoanRiskNote[] = [
   }
 ];
 
-const sourceBalanceLotsFixture: BalanceLot[] = [
+// The return dates are derived below from the holding deadline (day 60), like the API does.
+const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "days_until_last_day">[] = [
   {
     id: "L-2041",
     currency: "CHF",
@@ -348,9 +349,13 @@ const sourceBalanceLotsFixture: BalanceLot[] = [
   }
 ];
 
+// Money not invested goes back to the bank after day 58, two days before the 60-day limit.
+const FIXTURE_DAYS_BEFORE_LIMIT = 60 - AUTO_RETURN_AFTER_DAYS;
+
 export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lot) => {
   const daysLeft = lot.bucket === "overdue" ? -1 : lot.days_until_withdrawal_deadline;
   const deadline = `${fixtureIsoDateFromToday(daysLeft)}T00:00:00Z`;
+  const daysToLastDay = daysLeft - FIXTURE_DAYS_BEFORE_LIMIT;
   return {
     ...lot,
     received_at: `${fixtureIsoDateFromToday(daysLeft - 60)}T00:00:00Z`,
@@ -358,8 +363,11 @@ export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lo
     withdrawal_deadline_at: deadline,
     days_until_investment_deadline: daysLeft,
     days_until_withdrawal_deadline: daysLeft,
-    bucket: daysLeft > 0 ? "investable" : "overdue",
-    requires_withdrawal: daysLeft <= 0
+    last_day: fixtureIsoDateFromToday(daysToLastDay),
+    return_date: fixtureIsoDateFromToday(daysToLastDay + 1),
+    days_until_last_day: daysToLastDay,
+    bucket: daysToLastDay > 0 ? "investable" : daysToLastDay === 0 ? "withdraw_only" : "overdue",
+    requires_withdrawal: daysToLastDay <= 0
   };
 });
 
@@ -369,14 +377,15 @@ function fixtureBalanceSummary(currency: string): BalanceSummary {
     total + (!bucket || lot.bucket === bucket ? lot.available_amount_minor : 0), 0
   );
   const next = lots.map((lot) => lot.withdrawal_deadline_at).sort()[0] ?? null;
+  const nextReturn = lots.filter((lot) => lot.bucket !== "overdue").map((lot) => lot.return_date).sort()[0] ?? null;
   return {
     investor_user_id: investorId, currency,
     total_available_minor: sum(), investable_minor: sum("investable"),
-    withdraw_only_minor: 0, overdue_minor: sum("overdue"), frozen_minor: 0,
+    withdraw_only_minor: sum("withdraw_only"), overdue_minor: sum("overdue"), frozen_minor: 0,
     penalty_mode_minor: 0,
     penalty_charged_minor: lots.reduce((total, lot) => total + lot.penalized_amount_minor, 0),
     lot_count: lots.length, active_lot_count: lots.length,
-    next_investment_deadline_at: next, next_withdrawal_deadline_at: next
+    next_investment_deadline_at: next, next_withdrawal_deadline_at: next, next_return_date: nextReturn
   };
 }
 
@@ -401,7 +410,8 @@ export const balancesFixture: InvestorBalancePortal = {
   ],
   pending_withdrawals: [],
   has_penalty_mode_balance: false,
-  penalty_bps_per_day: 100
+  penalty_bps_per_day: 100,
+  auto_return_after_days: AUTO_RETURN_AFTER_DAYS
 };
 
 type DirectMarketplaceFixtureInput = Omit<
@@ -579,22 +589,6 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
   ...directMarketplaceLoanPreviews,
   originatorMarketplaceLoanFixture
 ];
-
-// The public site sees only the MKT-DEC-002 fields of the open loans.
-export const publicMarketplaceLoansFixture: PublicMarketplaceLoan[] = marketplaceLoansFixture
-  .filter((loan) => loan.status === "published" && loan.remaining_capacity_minor > 0)
-  .map((loan) => ({
-    loan_id: loan.loan_id,
-    borrower_name: loan.borrower_display_name ?? loan.title,
-    borrower_country: loan.currency === "EUR" ? "DE" : "CH",
-    product_type: loan.product_type === "originator_claim" ? "originator_claim" : "direct",
-    is_refinancing: loan.is_refinancing,
-    currency: loan.currency,
-    principal_minor: loan.principal_minor,
-    interest_rate_bps: loan.yield_bps,
-    term_months: loan.term_months,
-    status: "open"
-  }));
 
 export const smartInvestFixture: SmartInvestResponse = {
   rule: {
@@ -1156,7 +1150,8 @@ export const portfolioFixture: InvestorPortfolio = {
         publication_type: "automatic",
         price_bps: 10000,
         transfer_price_minor: amount(8420.5),
-        seller_net_proceeds_minor: amount(8399.45),
+        // 2% seller fee (owner decision 2026-10-16).
+        seller_net_proceeds_minor: amount(8252.09),
         listed_at: "2026-06-04T11:30:00+02:00",
         updated_at: "2026-06-04T11:30:00+02:00"
       }
@@ -1941,7 +1936,7 @@ export const dashboardFixture: InvestorDashboard = {
       currency: "CHF",
       amount_minor: amount(980),
       count: 1,
-      message: "CHF 980.00 reaches the 60-day deadline in 3 days."
+      message: "CHF 980.00 was not invested within 58 days and goes back to your bank."
     },
     {
       type: "loan_default",
@@ -2004,10 +1999,11 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     accrued_interest_minor: amount(41.2),
     accrued_interest_from_date: "2026-05-20",
     accrued_interest_to_date: "2026-06-05",
-    taker_fee_bps: 75,
+    // No buyer fee since 2026-10-16.
+    taker_fee_bps: 0,
     minimum_taker_fee_minor: 0,
-    taker_fee_minor: amount(38.3),
-    buyer_total_cost_minor: amount(5185.3),
+    taker_fee_minor: 0,
+    buyer_total_cost_minor: amount(5147),
     loan_status_at_listing: "performing",
     days_past_due: 0,
     last_payment_date: "2026-05-20",
@@ -2037,10 +2033,10 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     accrued_interest_minor: 0,
     accrued_interest_from_date: null,
     accrued_interest_to_date: "2026-06-05",
-    taker_fee_bps: 75,
+    taker_fee_bps: 0,
     minimum_taker_fee_minor: 0,
-    taker_fee_minor: amount(82.35),
-    buyer_total_cost_minor: amount(11062.35),
+    taker_fee_minor: 0,
+    buyer_total_cost_minor: amount(10980),
     loan_status_at_listing: "late",
     days_past_due: 21,
     last_payment_date: "2026-04-15",
@@ -2101,8 +2097,8 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       transfer_price_minor: amount(3603.6),
       discount_premium_bps: -100,
       accrued_interest_minor: 0,
-      maker_fee_minor: amount(9.01),
-      seller_net_proceeds_minor: amount(3594.59),
+      maker_fee_minor: amount(72.07),
+      seller_net_proceeds_minor: amount(3531.53),
       currency: "CHF",
       loan_status_at_listing: "performing",
       risk_acknowledgement_required: false,

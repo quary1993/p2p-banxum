@@ -15,6 +15,10 @@ from backend.apps.platform_core.api.impersonation import (
     readonly_read_actor_from_request,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
+from backend.apps.platform_core.api.sensitive_actions import (
+    sensitive_action_pin_error_response,
+)
+from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 from backend.apps.secondary_market.api.serializers import (
     AdminSecondaryMarketListingListQuerySerializer,
     AdminSecondaryMarketListingRowSerializer,
@@ -46,6 +50,7 @@ from backend.apps.secondary_market.services import (
     RemoveSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
     SecondaryMarketPriceChangedError,
+    SecondaryMarketSwissInvestorLimitError,
     SecondaryMarketValidationError,
     approve_secondary_market_listing,
     cancel_secondary_market_listing,
@@ -114,11 +119,14 @@ class SecondaryMarketListingListCreateView(APIView):
                     idempotency_key=data["idempotency_key"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     notes=data.get("notes", ""),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_201_CREATED)
@@ -193,11 +201,14 @@ class SecondaryMarketListingEditView(APIView):
                     idempotency_key=data["idempotency_key"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     notes=data.get("notes", ""),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_200_OK)
@@ -353,12 +364,21 @@ class SecondaryMarketListingPurchaseView(APIView):
                     expected_current_principal_minor=data["expected_current_principal_minor"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except SecondaryMarketPriceChangedError as exc:
             # 409 tells the buyer UI to reload the listing and ask for a fresh review.
+            return Response(
+                {"detail": str(exc), "code": exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except SecondaryMarketSwissInvestorLimitError as exc:
+            # A Swiss-borrower loan has no place left for a new investor (MKT-DEC-028).
             return Response(
                 {"detail": str(exc), "code": exc.code},
                 status=status.HTTP_409_CONFLICT,

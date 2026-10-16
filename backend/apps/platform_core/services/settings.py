@@ -6,6 +6,10 @@ from typing import Any
 from django.db import transaction
 
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.funding import (
+    BALANCE_AUTO_RETURN_AFTER_DAYS,
+    DEFAULT_BALANCE_REMINDER_DAYS,
+)
 from backend.apps.platform_core.models import PlatformSetting, PlatformSettingVersion
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
@@ -102,6 +106,20 @@ DEFAULT_PLATFORM_SETTINGS = (
         "json",
         "Minimum investment amounts in minor units.",
     ),
+    SettingDefinition(
+        "investment.swiss_borrower_max_investors",
+        20,
+        "integer",
+        "Most investors per loan to a Swiss borrower; 0 switches the limit off.",
+    ),
+    SettingDefinition(
+        "fx.enabled",
+        False,
+        "boolean",
+        "Currency exchange (FX) for investors. Off: FX quotes and exchanges are refused "
+        "and the investor app hides FX; past exchanges stay visible. Owner decision "
+        "2026-10-16: off for now.",
+    ),
     SettingDefinition("fx.platform_fee_bps", 150, "integer", "FX platform fee in basis points."),
     SettingDefinition(
         "fx.enabled_pairs",
@@ -151,9 +169,17 @@ DEFAULT_PLATFORM_SETTINGS = (
     ),
     SettingDefinition(
         "balance.reminder_days",
-        [25, 46, 53, 58, 59, 60],
+        list(DEFAULT_BALANCE_REMINDER_DAYS),
         "json",
-        "Balance ageing reminder schedule.",
+        "Balance ageing reminder schedule (holding days). Days after "
+        "balance.auto_return_after_days are not sent: the money is returned then.",
+    ),
+    SettingDefinition(
+        "balance.auto_return_after_days",
+        BALANCE_AUTO_RETURN_AFTER_DAYS,
+        "integer",
+        "Money still not invested goes back to the investor's verified bank account the "
+        "day after this holding day (1 to 60; the legal limit is 60 days).",
     ),
     SettingDefinition(
         "balance.penalty_policy_display",
@@ -161,8 +187,18 @@ DEFAULT_PLATFORM_SETTINGS = (
         "string",
         "Display-only penalty policy text.",
     ),
-    SettingDefinition("secondary_market.maker_fee_bps", 25, "integer", "Seller/maker fee."),
-    SettingDefinition("secondary_market.taker_fee_bps", 75, "integer", "Buyer/taker fee."),
+    SettingDefinition(
+        "secondary_market.maker_fee_bps",
+        200,
+        "integer",
+        "Seller/maker fee in basis points of the sale price (2%, owner decision 2026-10-16).",
+    ),
+    SettingDefinition(
+        "secondary_market.taker_fee_bps",
+        0,
+        "integer",
+        "Buyer/taker fee in basis points of the sale price (none, owner decision 2026-10-16).",
+    ),
     SettingDefinition(
         "secondary_market.minimum_maker_fee_minor_by_currency",
         {},

@@ -2758,7 +2758,7 @@
   }
 }
 
-/* Smart Invest rule actions at 320 px: long labels wrap inside the button. */
+/* Smart-Invest rule actions at 320 px: long labels wrap inside the button. */
 @media (max-width: 420px) {
   .bxm .si-active-actions {
     min-width: 0;
@@ -2794,7 +2794,7 @@
   }
 }
 
-/* Smart Invest matches on phones (audit A-60): each match becomes two short lines, so the
+/* Smart-Invest matches on phones (audit A-60): each match becomes two short lines, so the
    available amount is visible without sideways scrolling. */
 @media (max-width: 640px) {
   .bxm .smart-invest-match-table {

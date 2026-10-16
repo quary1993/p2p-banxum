@@ -7,7 +7,6 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
-  PublicMarketplaceLoan,
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
@@ -69,11 +68,11 @@ export const balancesFixture: InvestorBalancePortal = {
   payout_instructions: [],
   pending_withdrawals: [],
   has_penalty_mode_balance: false,
-  penalty_bps_per_day: 0
+  penalty_bps_per_day: 0,
+  auto_return_after_days: 58
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];
-export const publicMarketplaceLoansFixture: PublicMarketplaceLoan[] = [];
 
 export const smartInvestFixture: SmartInvestResponse = {
   rule: null,

@@ -257,7 +257,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 
 - Total investor balances by currency.
 - Balance source entries by age bucket.
-- Entries approaching day 25, 46, 53, 58, 59, and 60 reminders.
+- Entries approaching day 25, 46, 53, 56, 57, and 58 reminders, on their last day (day 58), and due back to the bank (day 59 on; 2026-10-16).
 - Balance split by investable, withdraw-required, FX-eligible, and penalty/frozen amounts.
 - Entries past day 60 and penalties applied.
 - Forced withdrawals finalized by admin, with optional offline return/failure notes or documents.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -27,6 +27,7 @@ from backend.apps.admin_ops.services import (
     sync_reconciliation_break_tasks,
 )
 from backend.apps.admin_ops.tests.factories import create_user
+from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import (
     AuditEvent,
     Currency,
@@ -351,6 +352,58 @@ def test_admin_dashboard_aggregates_daily_operations(
         item["metadata"]["break_signals"] for item in dashboard["queues"]["reconciliation_breaks"]
     ]
     assert ["account_sign_anomalies", "investor_balance_integrity_breaks"] in reconciliation_signals
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_balance_buckets_follow_the_58_day_return(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    ledger_services = import_module("backend.apps.ledger.services")
+    # 2026-03-01: the 01-01 lot is on day 59 (due back), the 01-02 lot on day 58 (last day),
+    # the 01-03 lot on day 57 (still investable).
+    for value_date, amount_minor in (
+        (date(2026, 1, 1), 100_00),
+        (date(2026, 1, 2), 200_00),
+        (date(2026, 1, 3), 300_00),
+    ):
+        ledger_services.declare_lender_deposit(
+            ledger_services.DeclareLenderDepositCommand(
+                actor=admin_user,
+                investor_user_id=str(investor.pk),
+                amount_minor=amount_minor,
+                currency="CHF",
+                booking_date=value_date,
+                value_date=value_date,
+                collection_account_identifier="CHF-COLLECTION",
+                payer_name=str(cast(Any, investor).full_name),
+                payer_account_identifier="CH9300762011623852957",
+                bank_reference=f"BUCKET-{value_date}",
+                payment_reference=f"INV-{investor.pk}",
+                evidence_reference=f"statement:{value_date}",
+                idempotency_key=f"admin-dashboard-bucket-{value_date}",
+            )
+        )
+    as_of = datetime(2026, 3, 1, 12, tzinfo=business_timezone())
+
+    dashboard = get_admin_operations_dashboard(
+        GetAdminDashboardCommand(actor=admin_user, as_of=as_of, due_window_days=7, queue_limit=5)
+    )
+
+    chf_summary = dashboard["currency_summaries"][0]
+    assert (
+        chf_summary["investable_available_minor"],
+        chf_summary["withdraw_only_available_minor"],
+        chf_summary["overdue_available_minor"],
+    ) == (300_00, 200_00, 100_00)
+    assert dashboard["summary"]["balance_lots_overdue"] == 1
+    item = dashboard["queues"]["balance_ageing_actions"][0]
+    assert item["kind"] == "balance_lot_overdue"
+    assert item["amount_minor"] == 100_00
+    assert item["title"] == (
+        "Balance lot not invested after 58 days: due back to the investor's bank"
+    )
+    assert item["metadata"]["return_date"] == "2026-03-01"
 
 
 @pytest.mark.django_db

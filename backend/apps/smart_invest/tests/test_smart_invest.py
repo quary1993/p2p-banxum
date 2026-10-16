@@ -58,7 +58,7 @@ def _make_investor(email: str) -> Model:
         Model,
         user_model.objects.create_user(
             email=email,
-            full_name="Smart Investor",
+            full_name="Smart-Investor",
             account_type="natural_person_lender",
             status="active",
         ),
@@ -107,7 +107,7 @@ def _loan_command(admin_user: Model, borrower: Model, *, title: str) -> Any:
         actor=admin_user,
         borrower_id=str(borrower.pk),
         title=title,
-        investor_summary="A secured Smart Invest test opportunity.",
+        investor_summary="A secured Smart-Invest test opportunity.",
         purpose="bridge_financing",
         principal_minor=100_000_00,
         currency="CHF",
@@ -402,7 +402,7 @@ def test_publishing_matching_loan_enqueues_one_alert_without_backfill(
     communications = import_module("backend.apps.communications.services")
     rendered = communications.render_email_for_outbox_message(message)
     assert rendered.recipient_email == cast(Any, investor).email
-    assert "matches the Smart Invest criteria you selected" in rendered.body_text
+    assert "matches the Smart-Invest criteria you selected" in rendered.body_text
     assert "Review opportunity" in rendered.body_html
 
     # A repeated publication hook cannot send the same opportunity twice.
@@ -653,7 +653,7 @@ def test_migration_converts_single_value_rules_exactly() -> None:
 
 @pytest.mark.django_db
 def test_a_fully_funded_loan_is_not_a_match(admin_user: Model, investor: Model) -> None:
-    # Verify 2026-10-09: Smart Invest listed a fully committed loan as a match.
+    # Verify 2026-10-09: Smart-Invest listed a fully committed loan as a match.
     loan_services = _loan_services()
     loans = []
     for title in ("Open", "Full"):

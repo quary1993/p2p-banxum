@@ -196,12 +196,24 @@ class PhoneVerificationStatus(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class PhoneVerificationPurpose(models.TextChoices):
+    # Proves a new number during registration.
+    PHONE_VERIFICATION = "phone_verification", "Phone verification"
+    # Second factor of a forgotten-PIN reset, sent to the already verified number.
+    PIN_RESET = "pin_reset", "PIN reset"
+
+
 class PhoneVerificationChallenge(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         related_name="phone_verification_challenges",
+    )
+    purpose = models.CharField(
+        max_length=32,
+        choices=PhoneVerificationPurpose.choices,
+        default=PhoneVerificationPurpose.PHONE_VERIFICATION,
     )
     phone_number = models.CharField(max_length=32)
     provider = models.CharField(max_length=32)
@@ -243,6 +255,10 @@ class SensitiveAction(models.TextChoices):
     PRIMARY_INVESTMENT = "primary_investment", "Primary investment"
     SECONDARY_MARKET_LISTING = "secondary_market_listing", "Secondary-market listing"
     SECONDARY_MARKET_PURCHASE = "secondary_market_purchase", "Secondary-market purchase"
+    # PIN management (ACC-DEC-009). The registration PIN needs no email code.
+    PIN_SETUP = "pin_setup", "PIN setup"
+    PIN_CHANGE = "pin_change", "PIN change"
+    PIN_RESET = "pin_reset", "PIN reset"
 
 
 class SensitiveActionCode(TimestampedModel):
@@ -271,6 +287,33 @@ class SensitiveActionCode(TimestampedModel):
     @property
     def is_consumed(self) -> bool:
         return self.consumed_at is not None
+
+
+class SensitiveActionPin(TimestampedModel):
+    """The investor's 6-digit PIN for sensitive actions (ACC-DEC-009).
+
+    Only a Django password hash is stored. Timestamps use the real clock, like code
+    expiry, so the QA clock never shortens or extends a PIN lock.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="sensitive_action_pin",
+    )
+    pin_hash = models.CharField(max_length=256)
+    set_at = models.DateTimeField()
+    changed_at = models.DateTimeField()
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    last_failed_at = models.DateTimeField(null=True, blank=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["locked_until"])]
+
+    def __str__(self) -> str:
+        return f"PIN of {self.user_id}"
 
 
 class AccountAccessEvent(AppendOnlyModel, TimestampedModel):

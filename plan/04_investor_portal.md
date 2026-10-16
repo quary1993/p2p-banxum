@@ -13,7 +13,7 @@ Define the user-facing portal where investors onboard, assess loans, invest, mon
 - KYC/AML status visibility for natural-person lenders. Legal-entity lender KYC/AML status is admin-recorded/offline.
 - Generic P2P lending risk acknowledgements and disclosures.
 - Marketplace browsing.
-- Smart Invest saved-filter matching and newly published opportunity alerts.
+- Smart-Invest saved-filter matching and newly published opportunity alerts.
 - Multi-currency investor balances.
 - Deposits, withdrawals, and balance ageing reminders.
 - Currency exchange.
@@ -53,17 +53,17 @@ Legal-entity lenders do not self-register. Their registration and KYC/KYB/AML ar
 6. For refinancing loans, the loan detail page shows a "Refinanced loan" badge plus the informational original loan data (original contractual principal, original interest rate, original term, original loan start date) and the computed original schedule, including which original installments were paid before publication. This original schedule is informational only and is never serviced.
 7. Mark interest or create investment order.
 
-### Use Smart Invest
+### Use Smart-Invest
 
-1. Open the standalone Smart Invest navigation item immediately after Investment Opportunities, or save the current structured Marketplace filters as the rule.
+1. Open the standalone Smart-Invest navigation item immediately after Investment Opportunities, or save the current structured Marketplace filters as the rule.
 2. Configure at least one criterion: minimum yield, maximum remaining term, source (BANXUM/direct or a Loan Originator), collateral requirement/type, currency, risk rating, purpose, or new/refinancing loan type. Source, collateral, currency, risk rating, purpose and loan type are multi-select checkboxes (for example rating A and A-); nothing ticked means no restriction.
 3. Optionally use the five-question setup wizard covering collateral, CHF/EUR scope, minimum yield, maximum term, and review. The wizard has no repayment/reinvestment question and no originator-concentration limit.
 4. Activate one current rule. Saving replaces the prior current criteria; deactivation clears them rather than retaining inactive presets.
-5. Review currently open matching opportunities on the Smart Invest page and redesigned dashboard; selecting a match opens the ordinary opportunity sheet without leaving the current route.
+5. Review currently open matching opportunities on the Smart-Invest page and redesigned dashboard; selecting a match opens the ordinary opportunity sheet without leaving the current route.
 6. Receive one mandatory transactional email/in-app notification when a newly published opportunity first matches the active rule.
 7. Open the ordinary loan detail and complete the normal investment flow manually if interested.
 
-Smart Invest is discovery and alerting only. It never scores suitability, ranks credit quality, reserves balance, creates an order, buys a claim, or invests automatically. Search text, Marketplace sort order, and focused/detailed view choice are not rule criteria. Rule changes do not backfill alerts for already-open opportunities, and ordinary opportunity updates do not resend the initial match alert.
+Smart-Invest is discovery and alerting only. It never scores suitability, ranks credit quality, reserves balance, creates an order, buys a claim, or invests automatically. Search text, Marketplace sort order, and focused/detailed view choice are not rule criteria. Rule changes do not backfill alerts for already-open opportunities, and ordinary opportunity updates do not resend the initial match alert.
 
 ### Invest
 
@@ -90,8 +90,8 @@ Investors cannot cancel orders. Pending orders remain open until the loan fundin
 5. Withdraw available balances to verified bank account.
 6. Use eligible balances for primary-market investments, secondary-market purchases, or currency exchange.
 7. Receive explicit errors when the available source balance cannot cover the selected loan's remaining funding window.
-8. Receive ageing reminders on days 25, 46, 53, 58, 59, and 60 for unconsumed balance source entries.
-9. See day-60 notice that balance is subject to penalties if not withdrawn.
+8. Receive ageing reminders on days 25, 46, 53, 56, 57, and 58 for unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days, on day 59).
+9. Without a usable IBAN, see a day-59 notice to add a verified bank account and a day-60 notice that the balance enters penalty mode the next day.
 10. If no usable IBAN is available after day 60, see a blocking banner requiring an IBAN before further financial actions are unlocked, while keeping read-only access to portfolio, documents, tax information statements, notices, and messages.
 
 Balance funds are non-interest-bearing. Registration-time terms must explain that Garanta Finanzgruppe AG cannot extend the 60-day regulatory/compliance holding limit.
@@ -169,7 +169,7 @@ Holdings in non-performing or otherwise non-standard loans/projects may be sold 
 - Pending withdrawals.
 - Pending currency exchanges.
 - Required actions.
-- Active Smart Invest rule status and current matching-opportunity count, or a setup call to action when no rule is active.
+- Active Smart-Invest rule status and current matching-opportunity count, or a setup call to action when no rule is active.
 
 ## Investor Documents and Tax Outputs
 
@@ -198,7 +198,7 @@ Investor documents are English-only at launch. Accepted/generated transaction do
 - Loan purpose.
 - Collateral/backing type.
 - Collateral value, if investor-facing disclosure policy permits.
-- Calculated LTV when collateral value is non-zero and LTV is displayable. The investor portal shows one LTV everywhere (marketplace, Smart Invest, loan sheet, portfolio, holding page): principal still owed on the whole loan divided by the collateral valuation (for an open loan, the loan amount). The label is "LTV"; there is no separate "collateral margin" figure (decision 2026-10-09, audit A-65).
+- Calculated LTV when collateral value is non-zero and LTV is displayable. The investor portal shows one LTV everywhere (marketplace, Smart-Invest, loan sheet, portfolio, holding page): principal still owed on the whole loan divided by the collateral valuation (for an open loan, the loan amount). The label is "LTV"; there is no separate "collateral margin" figure (decision 2026-10-09, audit A-65).
 - Collateral description, if investor-facing disclosure policy permits.
 - Requested amount and funded amount.
 - Interest rate or expected return.
@@ -259,15 +259,16 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Provide support-facing offline account-access recovery for lost or bouncing email access, using identity re-verification and verified phone/account evidence before admin updates email/login access.
 - Keep investor sessions long-lived unless the investor logs out, admin restricts access, the session is revoked, or a security event requires re-authentication.
 - Require fresh email-code confirmation before sensitive/financial actions, including withdrawals, withdrawal bank-account changes, currency exchange, primary-market investments, secondary-market listings, and secondary-market purchases.
+- Updated 2026-10-16 (ACC-DEC-009): the same confirmation also asks for the investor's 6-digit PIN (six boxes next to the email code, with Forgot PIN). Registration has a PIN step before KYC; an account without a PIN creates it after login before anything else; Settings has a PIN section with Change PIN and Forgot PIN.
 - Show investor balances by enabled currency.
 - Track balance source entries with received timestamp, source type, remaining amount, reinvestment deadline, withdrawal deadline, and penalty status.
 - Consume balances FIFO within each currency.
 - Block investment when the selected sources cannot cover the loan's remaining funding window.
 - Allow older sources into shorter funding windows when their holding deadlines cover the last inclusive funding date.
 - Show explicit errors and per-currency balance breakdowns for investable, withdraw-required, FX-eligible, and penalty/frozen balances.
-- Send balance ageing reminders on days 25, 46, 53, 58, 59, and 60.
+- Send balance ageing reminders on days 25, 46, 53, 56, 57, and 58 (2026-10-16).
 - Apply day-60 penalty treatment according to env/deployment configuration and legal/compliance policy.
-- If a usable IBAN exists at day 60, support admin forced withdrawal.
+- If a usable IBAN exists, return money not invested automatically on day 59 (2026-10-16; before: day 61).
 - If no usable IBAN exists after day 60, freeze financial actions except declaring/updating a usable IBAN and show a blocking banner; keep read-only access to portfolio, documents, tax information statements, notices, and messages.
 - Provide a separate currency-exchange menu section.
 - Credit target-currency balance instantly after an accepted non-expired FX quote and inherit the target-currency source ageing deadlines from the consumed source balance entries.
@@ -279,8 +280,8 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Do not show pending orders as reserved capacity or funded progress until balance/funds are allocated.
 - Enforce the launch pending order limit, assumed to be 50 per investor.
 - Do not provide investor cancellation for orders.
-- Require at least one effective structured criterion before activating Smart Invest; treat a 0% yield floor as no criterion.
-- Keep one self-scoped current Smart Invest rule per investor. Deactivation clears the criteria and admins cannot edit investor rules.
+- Require at least one effective structured criterion before activating Smart-Invest; treat a 0% yield floor as no criterion.
+- Keep one self-scoped current Smart-Invest rule per investor. Deactivation clears the criteria and admins cannot edit investor rules.
 - Alert eligible active investors once per newly published matching loan, independently of marketing consent. Do not backfill, reserve funds, create orders, or auto-invest.
 - Show exposure metrics and concentration warnings, but do not enforce hard concentration limits in v1.
 - Enforce product eligibility restrictions.
@@ -321,7 +322,7 @@ This text is not final legal wording. It is a generic placeholder for product de
 4. Updated by MKT-DEC-001: primary-market orders are first-come-first-served based on balance reservation/allocation timestamp or bank value date of validated external funds.
 5. Answered by MKT-DEC-004: investors cannot cancel orders.
 6. Superseded by PAY-DEC-003/PAY-DEC-017/PAY-DEC-018: investors have multi-currency website balances, can deposit/withdraw/exchange, and receive repayment/SM proceeds as balance credits subject to ageing deadlines.
-7. Updated by MKT-DEC-026: Smart Invest is implemented as a saved-filter discovery and first-publication alert tool only. Auto-invest, automated reinvestment, balance reservation, and automatic order creation remain out of scope.
+7. Updated by MKT-DEC-026: Smart-Invest is implemented as a saved-filter discovery and first-publication alert tool only. Auto-invest, automated reinvestment, balance reservation, and automatic order creation remain out of scope.
 8. Updated by KYC-DEC-003 and ORIG-DEC-003: full loan data requires registration-time KYC approval; optional borrower financial fields are hidden when not declared.
 9. Answered by DOC-DEC-001 and FIN-DEC-001: investor statements, repayment statements, and annual lender tax information statement for all investors are required; generated/accepted transaction documents are downloadable from portal document history and are not emailed as legal-document attachments by default.
 10. Answered by MKT-DEC-006/MKT-DEC-007/MKT-DEC-009/MKT-DEC-020: secondary-market selling and buying are available at launch as full-holding bulletin-board transfers; sellers set discount/premium price as a percentage of current principal balance; accrued interest to settlement belongs to seller and future interest belongs to buyer; non-performing/non-standard listings require admin approval and additional buyer acknowledgement.

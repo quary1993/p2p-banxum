@@ -31,6 +31,7 @@ from backend.apps.kyc_compliance.models import (
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
+    user_has_sensitive_action_pin,
 )
 from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features as platform_user_can_access_financial_features,
@@ -123,6 +124,15 @@ class KycSessionStartBlockedError(KycComplianceError):
         super().__init__(KYC_REVIEW_IN_PROGRESS_MESSAGE)
         self.case_id = case_id
         self.reason = reason
+
+
+class KycPinRequiredError(KycComplianceError):
+    """Registration order (ACC-DEC-009): a natural person creates the PIN before KYC."""
+
+    code = "pin_required"
+
+    def __init__(self) -> None:
+        super().__init__("Create your PIN before you start identity verification.")
 
 
 class KycWebhookSignatureError(KycComplianceError):
@@ -804,6 +814,10 @@ def _create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
     case = KycVerificationCase.objects.select_for_update().get(pk=case.pk)
     if case.status == KycStatus.APPROVED:
         return KycSessionResult(case=case, already_approved=True)
+    if str(getattr(command.user, "account_type", "")) == "natural_person_lender" and (
+        not user_has_sensitive_action_pin(command.user)
+    ):
+        raise KycPinRequiredError()
     block_reason = investor_session_start_block_reason(case)
     if block_reason:
         raise KycSessionStartBlockedError(case_id=str(case.id), reason=block_reason)

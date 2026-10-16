@@ -18,6 +18,7 @@ import {
 } from "./api/generated/banxumApi";
 import { writeReadonlyImpersonation } from "./api/client/impersonation";
 import { emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
+import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -139,6 +140,7 @@ async function reviewAndConfirm(amount: string, code: string) {
   for (const box of await screen.findAllByRole("checkbox")) fireEvent.click(box);
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: code } });
+  enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Confirm order" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
 }
@@ -192,6 +194,7 @@ test("A-15: a retry of the same amount reuses the same order, acceptance and key
   await reviewAndConfirm("1000", "111111");
   await screen.findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
   fireEvent.change(screen.getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
+  enterPin();
   fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
   await screen.findByText("Order placed", {}, { timeout: 5000 });
 
@@ -355,6 +358,7 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
   for (const box of await screen.findAllByRole("checkbox")) fireEvent.click(box);
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "111111" } });
+  enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Purchase claim" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Purchase claim" }));
   await screen.findByText("Originator claim quote has expired.", {}, { timeout: 5000 });
@@ -369,6 +373,7 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
   boxes.forEach((box) => fireEvent.click(box));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
+  enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Purchase claim" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Purchase claim" }));
   await screen.findAllByText("Claim purchased", {}, { timeout: 5000 });

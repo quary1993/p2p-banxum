@@ -216,7 +216,7 @@ Amended 2026-09-07: Garanta completes and retains legal-entity lender KYB/AML of
 - Configure enabled currencies.
 - Configure FX platform fee, enabled FX pairs, per-investor daily conversion limit, FX quote settings, and FX sanity-check thresholds.
 - Configure balance deadline reminders and reminder email templates. Balance penalty mechanics are deployment/env-configurable at launch.
-- Attempt or record forced withdrawal for balances at the 60-day limit when a usable IBAN is known.
+- Attempt or record forced withdrawal for balances at the 60-day limit when a usable IBAN is known (since 2026-10-16 created automatically on day 59, after the 58-day last day).
 - Review penalty-mode accounts missing usable IBAN and frozen financial actions.
 - Query net FX deltas and record external FX execution evidence.
 - Generate operational subledger and configurable monthly Bexio debit/credit accounting exports.

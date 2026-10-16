@@ -1,1 +1,1 @@
-"""Smart Invest tests."""
+"""Smart-Invest tests."""

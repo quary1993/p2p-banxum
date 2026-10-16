@@ -78,12 +78,12 @@ def _originator_services() -> Any:
 def _require_financial_access(actor: Model) -> str:
     if not user_can_access_financial_features(actor):
         raise SmartInvestAuthorizationError(
-            "Smart Invest requires active lender access, phone verification, and approved KYC."
+            "Smart-Invest requires active lender access, phone verification, and approved KYC."
         )
     return str(actor.pk)
 
 
-# The loan catalog's own collateral type for unsecured lending; Smart Invest
+# The loan catalog's own collateral type for unsecured lending; Smart-Invest
 # offers it as the "unsecured" choice instead of a separate collateral type.
 _UNSECURED_COLLATERAL_TYPE = "unsecured_exception"
 _LIST_CRITERIA = (
@@ -205,7 +205,7 @@ def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
     }
     if not _has_effective_criterion(criteria):
         raise SmartInvestValidationError(
-            "Choose at least one Smart Invest criterion before activating the rule."
+            "Choose at least one Smart-Invest criterion before activating the rule."
         )
     return criteria
 
@@ -319,7 +319,11 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
 
 def _matching_opportunities(rule: SmartInvestRule) -> tuple[list[dict[str, Any]], int]:
     marketplace = _marketplace_services()
-    opportunities = marketplace.list_open_marketplace_loans(limit=10_000)
+    # The investor's own minimum (Swiss-borrower investor limit, plan/09 MKT-DEC-028).
+    opportunities = marketplace.list_open_marketplace_loans(
+        limit=10_000,
+        viewer_user_id=str(rule.user_id),
+    )
     criteria = _criteria_snapshot(rule)
     # A fully funded loan is no match: no order can go into it.
     return (
@@ -480,7 +484,7 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
     return {
         "user_id": str(user.pk),
         "recipient_email": str(getattr(user, "email", "")),
-        "subject": f"A new BANXUM opportunity matches your Smart Invest rule: {title}",
+        "subject": f"A new BANXUM opportunity matches your Smart-Invest rule: {title}",
         "notice_label": "SMART INVEST MATCH",
         "preheader": f"{title} matches the criteria you selected.",
         "status_label": "New match",
@@ -488,8 +492,8 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
         "headline": "A new opportunity matches your rule",
         # The email renderer and the notification centre read `body_text`.
         "body_text": (
-            f"{title} matches the Smart Invest criteria you selected. "
-            "Smart Invest does not reserve or invest funds; review the opportunity before deciding."
+            f"{title} matches the Smart-Invest criteria you selected. "
+            "Smart-Invest does not reserve or invest funds; review the opportunity before deciding."
         ),
         "data_rows": [
             ["Currency", currency],
@@ -499,7 +503,7 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
         ],
         "buttons": [{"label": "Review opportunity", "url": action_url}],
         "fine_print": (
-            "Capital is at risk. Smart Invest is an alerting tool and never places an order "
+            "Capital is at risk. Smart-Invest is an alerting tool and never places an order "
             "or reserves money on your behalf."
         ),
         "loan_id": str(opportunity["loan_id"]),

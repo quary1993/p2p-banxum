@@ -244,6 +244,8 @@ def _build_investor_history(admin_user: Model, investor: Model) -> Any:
                 idempotency_key="statement-repayment",
             )
         )
+    # Currency exchange is off by default since 2026-10-16; this history predates that.
+    import_module("backend.apps.fx.tests.factories").set_fx_enabled(True)
     fx_at = _at(date(2026, 3, 2))
     with freeze_time("2026-03-02T09:00:00Z"):
         quote = fx.issue_fx_quote(
@@ -260,6 +262,7 @@ def _build_investor_history(admin_user: Model, investor: Model) -> Any:
                 as_of=fx_at,
                 sensitive_action_code_id=code.code_id,
                 sensitive_action_code=code.raw_code,
+                pin=code.pin,
             )
         )
     with freeze_time("2026-03-05T09:00:00Z"):
@@ -274,6 +277,7 @@ def _build_investor_history(admin_user: Model, investor: Model) -> Any:
                 idempotency_key="statement-withdrawal",
                 sensitive_action_code_id=code.code_id,
                 sensitive_action_code=code.raw_code,
+                pin=code.pin,
             )
         )
     return loan

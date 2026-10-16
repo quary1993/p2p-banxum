@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 
 from backend.apps.platform_core.api.serializers import (
     HealthResponseSerializer,
+    PlatformFeaturesSerializer,
+    PlatformFeatureUpdateRequestSerializer,
     QaDevModeAdvanceRequestSerializer,
     QaDevModeEnableRequestSerializer,
     QaDevModeRestoreResponseSerializer,
@@ -23,6 +25,13 @@ from backend.apps.platform_core.api.serializers import (
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.platform_core.models.story_images import StoryImage
+from backend.apps.platform_core.services.platform_features import (
+    PlatformFeatureAuthorizationError,
+    PlatformFeatureValidationError,
+    SetPlatformFeatureCommand,
+    list_platform_features,
+    set_platform_feature,
+)
 from backend.apps.platform_core.services.qa_dev_mode import (
     AdvanceQaDevModeTimeCommand,
     CreateQaSnapshotCommand,
@@ -247,3 +256,41 @@ class StoryImageContentView(APIView):
         response["X-Content-Type-Options"] = "nosniff"
         response["Content-Security-Policy"] = "default-src 'none'; sandbox"
         return response
+
+
+class AdminPlatformFeaturesView(APIView):
+    """Superadmin platform switches (for example currency exchange), with the last change."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: PlatformFeaturesSerializer})
+    def get(self, request):  # type: ignore[no-untyped-def]
+        try:
+            features = list_platform_features(actor=request.user)
+        except PlatformFeatureAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(PlatformFeaturesSerializer({"features": features}).data)
+
+    @extend_schema(
+        request=PlatformFeatureUpdateRequestSerializer,
+        responses={200: PlatformFeaturesSerializer},
+    )
+    def post(self, request):  # type: ignore[no-untyped-def]
+        serializer = PlatformFeatureUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            set_platform_feature(
+                SetPlatformFeatureCommand(
+                    actor=request.user,
+                    key=data["key"],
+                    enabled=data["enabled"],
+                    reason=data["reason"],
+                )
+            )
+            features = list_platform_features(actor=request.user)
+        except PlatformFeatureAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except PlatformFeatureValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(PlatformFeaturesSerializer({"features": features}).data)

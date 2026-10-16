@@ -1,4 +1,5 @@
-"""Day-60 deadline, forced-return lot choice and future-date guards for balance ageing."""
+"""Balance ageing: the 58-day automatic return, the 60-day legal limit and penalty mode,
+forced-return lot choice and future-date guards (owner decision 2026-10-16)."""
 
 from __future__ import annotations
 
@@ -34,8 +35,13 @@ from backend.apps.ledger.services import (
     summarize_investor_balance,
 )
 from backend.apps.ledger.tests.test_ledger_foundation import _closed_primary_loan_funding
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import Currency, DomainEvent, OutboxMessage
+from backend.apps.platform_core.services.settings import (
+    SetPlatformSettingCommand,
+    set_platform_setting,
+)
 
 
 @pytest.fixture
@@ -174,13 +180,14 @@ def test_forced_return_takes_only_the_overdue_fx_lot_and_never_fresh_money(
     investor: Model,
 ) -> None:
     fx_lot, fresh_lot = _fx_all_chf_on_day_50(admin_user, investor)
+    # The FX lot keeps the CHF source's dates: last day 02-28 (day 58), legal limit 03-02.
     assert fx_lot.withdrawal_deadline_at == _at(date(2026, 3, 2), 0)
 
     day = date(2026, 2, 20)
-    while day <= date(2026, 3, 2):
+    while day <= date(2026, 2, 28):
         _scan(admin_user, _at(day, 0, 30))
         day += timedelta(days=1)
-    # Deadline day: still the investor's last day, nothing is taken yet.
+    # Day 58: still the investor's last day, nothing is taken yet.
     assert InvestorWithdrawalRequest.objects.filter(is_forced=True).count() == 0
 
     for _ in range(4):
@@ -192,7 +199,10 @@ def test_forced_return_takes_only_the_overdue_fx_lot_and_never_fresh_money(
     fresh_lot.refresh_from_db()
     assert len(forced) == 1
     assert forced[0].amount_minor == 1034_25
-    assert forced[0].requested_at == _at(date(2026, 3, 3), 0, 30)
+    # Day 59: the money goes back to the bank automatically.
+    assert forced[0].requested_at == _at(date(2026, 3, 1), 0, 30)
+    assert forced[0].metadata["auto_return_after_days"] == 58
+    assert "not invested within 58 days" in forced[0].notes
     assert [item["lot_id"] for item in forced[0].lot_allocations] == [str(fx_lot.id)]
     assert fx_lot.status == BalanceLotStatus.CONSUMED
     assert fx_lot.withdrawn_amount_minor == 1034_25
@@ -213,13 +223,23 @@ def test_fx_lot_reminders_count_back_from_the_inherited_deadline(
         _scan(admin_user, _at(day, 0, 30))
         day += timedelta(days=1)
 
-    # Day 25 and 46 were before the FX lot existed (they belong to the CHF source lot).
-    assert _reminder_days(fx_lot.id) == [53, 58, 59, 60]
+    # Day 25 and 46 were before the FX lot existed (they belong to the CHF source lot). The
+    # EUR IBAN is verified, so the FX lot went back on day 59: no day-59/60 notices.
+    assert _reminder_days(fx_lot.id) == [53, 56, 57, 58]
     assert _reminder_days(fresh_lot.id) == [25]
-    day_60 = DomainEvent.objects.get(
-        idempotency_key=f"balance-lot:{fx_lot.id}:ageing-reminder-day:60"
+    day_58 = DomainEvent.objects.get(
+        idempotency_key=f"balance-lot:{fx_lot.id}:ageing-reminder-day:58"
     )
-    assert day_60.payload["as_of"] == _at(date(2026, 3, 2), 0, 30).isoformat()
+    assert day_58.payload["as_of"] == _at(date(2026, 2, 28), 0, 30).isoformat()
+    assert day_58.payload["kind"] == "last_day"
+    assert day_58.payload["return_date"] == "2026-03-01"
+    last_day_email = OutboxMessage.objects.get(
+        idempotency_key=f"email:balance-lot:{fx_lot.id}:ageing-reminder-day:58"
+    )
+    assert last_day_email.payload["subject"] == (
+        "Last day: tomorrow we return the money to your bank"
+    )
+    assert "IBAN ending 3000" in last_day_email.payload["body_text"]
 
 
 @pytest.mark.django_db
@@ -243,8 +263,92 @@ def test_investor_consumption_uses_the_lot_closest_to_its_deadline_first(
     ]
 
 
+def _email(lot_id: Any, day: int) -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        OutboxMessage.objects.get(
+            idempotency_key=f"email:balance-lot:{lot_id}:ageing-reminder-day:{day}"
+        ).payload,
+    )
+
+
+def _buckets(investor: Model, as_of: datetime) -> tuple[int, int, int]:
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk), currency="CHF", as_of=as_of
+    )
+    return summary.investable_minor, summary.withdraw_only_minor, summary.overdue_minor
+
+
 @pytest.mark.django_db
-def test_deadline_date_is_the_last_day_and_penalty_mode_starts_the_next_day(
+def test_with_iban_the_money_goes_back_on_day_59_without_penalty(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # Received 2026-01-01: day 57 = 02-27, day 58 (last day) = 02-28, day 59 = 03-01.
+    deposit = _deposit(
+        admin_user, investor, amount_minor=1000_00, value_date=date(2026, 1, 1), key="iban"
+    )
+    lot_id = deposit.balance_lot.id
+
+    day_57 = _scan(admin_user, _at(date(2026, 2, 27), 0, 30))
+    assert [reminder.day for reminder in day_57.reminders_due] == [25, 46, 53, 56, 57]
+    assert _buckets(investor, _at(date(2026, 2, 27))) == (1000_00, 0, 0)
+    reminder = _email(lot_id, 57)
+    assert reminder["subject"] == (
+        "Reminder: money not invested goes back to your bank on 2026-03-01"
+    )
+    assert reminder["template_key"] == "balance.ageing_reminder.v2"
+    assert "Today is day 57 of 58." in reminder["body_text"]
+    assert "goes back to your bank automatically after 58 days" in reminder["body_text"]
+    assert "On 2026-02-28 you can only withdraw it" in reminder["body_text"]
+    assert (
+        "On 2026-03-01 we return what is left to your verified bank account (IBAN ending 2957)."
+        in reminder["body_text"]
+    )
+
+    for as_of in (_at(date(2026, 2, 28), 0, 30), _at(date(2026, 2, 28), 12)):
+        last_day = _scan(admin_user, as_of)
+        assert last_day.forced_withdrawal_candidates == []
+        assert last_day.penalty_mode_transitions == []
+    assert _reminder_days(lot_id) == [25, 46, 53, 56, 57, 58]
+    assert _buckets(investor, _at(date(2026, 2, 28), 23)) == (0, 1000_00, 0)
+    last_day_email = _email(lot_id, 58)
+    assert last_day_email["subject"] == "Last day: tomorrow we return the money to your bank"
+    assert last_day_email["template_key"] == "balance.ageing_last_day.v1"
+    assert "Today, 2026-02-28, is the last day CHF 1'000.00" in last_day_email["body_text"]
+    assert (
+        "Tomorrow, 2026-03-01, we return it automatically to your verified bank account "
+        "(IBAN ending 2957)." in last_day_email["body_text"]
+    )
+    assert "penalty" not in last_day_email["body_text"]
+
+    day_59 = _scan(admin_user, _at(date(2026, 3, 1), 0, 30))
+    assert day_59.reminders_due == []
+    assert day_59.penalty_mode_transitions == []
+    assert [request.amount_minor for request in day_59.forced_withdrawal_requests] == [1000_00]
+    forced = day_59.forced_withdrawal_requests[0]
+    assert forced.requested_at == _at(date(2026, 3, 1), 0, 30)
+    assert forced.destination_iban == "CH9300762011623852957"
+    notice = OutboxMessage.objects.get(topic="email.balance_forced_return").payload
+    assert notice["subject"] == "We are returning CHF 1'000.00 to your bank account"
+    assert "was not invested within 58 days" in notice["body_text"]
+
+    for value in (date(2026, 3, 2), date(2026, 3, 3), date(2026, 3, 4)):
+        later = _scan(admin_user, _at(value, 0, 30))
+        assert later.penalty_charges == []
+        assert later.forced_withdrawal_requests == []
+    lot = InvestorBalanceLot.objects.get(id=lot_id)
+    assert (lot.status, lot.available_amount_minor, lot.withdrawn_amount_minor) == (
+        BalanceLotStatus.CONSUMED,
+        0,
+        1000_00,
+    )
+    assert not LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").exists()
+    assert _reminder_days(lot_id) == [25, 46, 53, 56, 57, 58]
+
+
+@pytest.mark.django_db
+def test_without_iban_the_money_waits_withdraw_only_and_penalty_starts_on_day_61(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -255,45 +359,65 @@ def test_deadline_date_is_the_last_day_and_penalty_mode_starts_the_next_day(
     deposit.payout_instruction.save(update_fields=["status", "updated_at"])
     lot_id = deposit.balance_lot.id
 
-    day_59 = _scan(admin_user, _at(date(2026, 3, 1), 0, 30))
-    assert [reminder.day for reminder in day_59.reminders_due] == [25, 46, 53, 58, 59]
-    final = OutboxMessage.objects.get(
-        idempotency_key=f"email:balance-lot:{lot_id}:ageing-reminder-day:59"
-    ).payload["body_text"]
-    assert "Withdrawal deadline: 2026-03-02 (end of day, Europe/Zurich)." in final
-    assert "needs a usable IBAN" in final
+    _scan(admin_user, _at(date(2026, 2, 27), 0, 30))
+    reminder = _email(lot_id, 57)["body_text"]
+    assert "Garanta Finanzgruppe AG has no verified bank account in your name for CHF." in reminder
+    assert "add a bank account in your name" in reminder
 
-    # Day 60 (deadline date, both the 00:30 job and the QA-advance 12:00 run): last day.
-    for as_of in (_at(date(2026, 3, 2), 0, 30), _at(date(2026, 3, 2), 12)):
-        deadline_day = _scan(admin_user, as_of)
-        assert deadline_day.penalty_mode_transitions == []
-        assert deadline_day.penalty_charges == []
-        assert deadline_day.forced_withdrawal_candidates == []
+    # Day 58 (the 00:30 job and a QA-advance 12:00 run): last day, nothing taken.
+    for as_of in (_at(date(2026, 2, 28), 0, 30), _at(date(2026, 2, 28), 12)):
+        last_day = _scan(admin_user, as_of)
+        assert last_day.forced_withdrawal_candidates == []
+        assert last_day.penalty_mode_transitions == []
+    last_day_email = _email(lot_id, 58)
+    assert last_day_email["subject"] == "Last day: add a bank account today"
+    body = last_day_email["body_text"]
+    assert "Tomorrow, 2026-03-01, we must return it to your bank" in body
+    assert "Add a bank account in your name today so we can return your money." in body
+    assert "after 2026-03-02 (the 60-day legal limit)" in body
+    assert "a penalty of 1% per day is charged on it" in body
+    assert "You can still withdraw" not in body
+
+    # Day 59: due back, but no IBAN. It stays withdraw-only, without penalty; urgent notice.
+    for as_of in (_at(date(2026, 3, 1), 0, 30), _at(date(2026, 3, 1), 12)):
+        day_59 = _scan(admin_user, as_of)
+        assert day_59.forced_withdrawal_candidates == []
+        assert day_59.penalty_mode_transitions == []
+        assert day_59.penalty_charges == []
+    assert _reminder_days(lot_id) == [25, 46, 53, 56, 57, 58, 59]
+    assert _buckets(investor, _at(date(2026, 3, 1))) == (0, 0, 1000_00)
+    urgent = _email(lot_id, 59)
+    assert urgent["subject"] == "Urgent: add a verified bank account so we can return your money"
+    assert urgent["template_key"] == "balance.return_blocked.v1"
+    assert urgent["metadata"]["kind"] == "return_blocked"
+    assert urgent["metadata"]["has_usable_iban"] is False
+    assert "was not invested within 58 days" in urgent["body_text"]
+    assert "Add a verified bank account so we can return your money." in urgent["body_text"]
+    with pytest.raises(LedgerValidationError, match="58-day limit"):
+        plan_investment_balance_consumption(
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            amount_minor=100_00,
+            loan_funding_deadline=date(2026, 3, 1),
+            as_of=_at(date(2026, 3, 1)),
+        )
+
+    # Day 60 (legal limit): still no penalty; the notice says penalty mode starts tomorrow.
+    day_60 = _scan(admin_user, _at(date(2026, 3, 2), 0, 30))
+    assert [reminder.day for reminder in day_60.reminders_due] == [60]
+    assert day_60.penalty_mode_transitions == []
+    warning = _email(lot_id, 60)
+    assert warning["subject"] == "Penalty mode starts tomorrow: add a bank account today"
+    assert warning["template_key"] == "balance.penalty_warning.v1"
+    assert "reaches the 60-day legal limit today, 2026-03-02" in warning["body_text"]
+    assert (
+        "If the money is still on your balance tomorrow, it enters penalty mode, a penalty "
+        "of 1% per day is charged on it" in warning["body_text"]
+    )
     lot = InvestorBalanceLot.objects.get(id=lot_id)
-    assert lot.status == BalanceLotStatus.AVAILABLE
-    assert lot.available_amount_minor == 1000_00
-    assert _reminder_days(lot_id) == [25, 46, 53, 58, 59, 60]
-    summary = summarize_investor_balance(
-        investor_user_id=str(investor.pk), currency="CHF", as_of=_at(date(2026, 3, 2))
-    )
-    assert (summary.investable_minor, summary.withdraw_only_minor, summary.overdue_minor) == (
-        0,
-        1000_00,
-        0,
-    )
-    day_60_email = OutboxMessage.objects.get(
-        idempotency_key=f"email:balance-lot:{lot_id}:ageing-reminder-day:60"
-    )
-    assert day_60_email.payload["subject"] == (
-        "Last day: your BANXUM balance reaches the 60-day limit today"
-    )
-    body = day_60_email.payload["body_text"]
-    assert "reaches the 60-day holding limit today, 2026-03-02" in body
-    assert "by the end of today" in body
-    assert "penalty mode and is charged a penalty of 1% per day" in body
-    assert "frozen until you add a usable IBAN" in body
-    assert "You can invest" not in body
+    assert (lot.status, lot.available_amount_minor) == (BalanceLotStatus.AVAILABLE, 1000_00)
 
+    # Day 61: penalty mode and the first daily penalty, exactly as before the 58-day rule.
     day_61 = _scan(admin_user, _at(date(2026, 3, 3), 0, 30))
     lot.refresh_from_db()
     assert day_61.reminders_due == []
@@ -306,6 +430,129 @@ def test_deadline_date_is_the_last_day_and_penalty_mode_starts_the_next_day(
     assert (
         LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").count() == 1
     )
+    assert _reminder_days(lot_id) == [25, 46, 53, 56, 57, 58, 59, 60]
+
+
+@pytest.mark.django_db
+def test_an_iban_verified_on_day_60_gets_the_money_back_without_penalty(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = _deposit(
+        admin_user, investor, amount_minor=1000_00, value_date=date(2026, 1, 1), key="late"
+    )
+    deposit.payout_instruction.status = "disabled"
+    deposit.payout_instruction.save(update_fields=["status", "updated_at"])
+    _scan(admin_user, _at(date(2026, 3, 1), 0, 30))
+    assert InvestorWithdrawalRequest.objects.count() == 0
+
+    deposit.payout_instruction.status = "active"
+    deposit.payout_instruction.save(update_fields=["status", "updated_at"])
+    day_60 = _scan(admin_user, _at(date(2026, 3, 2), 0, 30))
+
+    assert [request.amount_minor for request in day_60.forced_withdrawal_requests] == [1000_00]
+    assert day_60.reminders_due == []
+    assert day_60.penalty_mode_transitions == []
+    assert not OutboxMessage.objects.filter(
+        idempotency_key=f"email:balance-lot:{deposit.balance_lot.id}:ageing-reminder-day:60"
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_a_missed_day_59_scan_sends_only_the_day_60_notice(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = _deposit(
+        admin_user, investor, amount_minor=500_00, value_date=date(2026, 1, 1), key="miss"
+    )
+    deposit.payout_instruction.status = "disabled"
+    deposit.payout_instruction.save(update_fields=["status", "updated_at"])
+
+    result = _scan(admin_user, _at(date(2026, 3, 2), 0, 30))
+
+    assert [reminder.day for reminder in result.reminders_due] == [60]
+    assert _reminder_days(deposit.balance_lot.id) == [60]
+
+
+@pytest.mark.django_db
+def test_return_day_and_reminders_follow_the_platform_settings(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    actor = ActorRef("superadmin", "sa-1")
+    # Back to the old rule (return after day 60), with a custom reminder schedule.
+    settings_values: tuple[tuple[str, Any], ...] = (
+        ("balance.auto_return_after_days", 60),
+        ("balance.reminder_days", [30, 59]),
+    )
+    for key, setting_value in settings_values:
+        set_platform_setting(SetPlatformSettingCommand(actor=actor, key=key, value=setting_value))
+    deposit = _deposit(
+        admin_user, investor, amount_minor=1000_00, value_date=date(2026, 1, 1), key="cfg"
+    )
+
+    for value in (date(2026, 3, 1), date(2026, 3, 2)):
+        result = _scan(admin_user, _at(value, 0, 30))
+        assert result.forced_withdrawal_requests == []
+    assert _reminder_days(deposit.balance_lot.id) == [30, 59]
+    assert _email(deposit.balance_lot.id, 59)["body_text"].count("day 59 of 60") == 1
+    assert _buckets(investor, _at(date(2026, 3, 2))) == (0, 1000_00, 0)
+
+    day_61 = _scan(admin_user, _at(date(2026, 3, 3), 0, 30))
+    assert [request.amount_minor for request in day_61.forced_withdrawal_requests] == [1000_00]
+
+
+@pytest.mark.django_db
+def test_on_its_last_day_money_cannot_be_invested_or_exchanged(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # Received 2026-01-01: last day 02-28. A loan must close by then (last subscription 02-27).
+    _deposit(admin_user, investor, amount_minor=1000_00, value_date=date(2026, 1, 1), key="win")
+
+    def plan(funding_deadline: date, as_of: datetime) -> list[Any]:
+        return plan_investment_balance_consumption(
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            amount_minor=500_00,
+            loan_funding_deadline=funding_deadline,
+            as_of=as_of,
+        )
+
+    assert [line.amount_minor for line in plan(date(2026, 2, 27), _at(date(2026, 2, 1)))] == [
+        500_00
+    ]
+    with pytest.raises(LedgerValidationError, match=r"before it goes back to your bank \(after 58"):
+        plan(date(2026, 2, 28), _at(date(2026, 2, 1)))
+    with pytest.raises(LedgerValidationError, match="58-day limit"):
+        plan(date(2026, 2, 28), _at(date(2026, 2, 28)))
+
+    def exchange(as_of: datetime, key: str) -> Any:
+        return execute_investor_fx_exchange_ledger(
+            ExecuteInvestorFxExchangeLedgerCommand(
+                actor=admin_user,
+                investor_user_id=str(investor.pk),
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=100_00,
+                gross_target_amount_minor=105_00,
+                target_amount_minor=103_43,
+                fee_minor=1_57,
+                source_type="test",
+                source_id=key,
+                idempotency_key=key,
+                as_of=as_of,
+            )
+        )
+
+    Currency.objects.filter(code="EUR").update(is_enabled=True)
+    with pytest.raises(LedgerValidationError, match="Insufficient eligible balance"):
+        exchange(_at(date(2026, 2, 28)), "fx-last-day")
+    # Day 57 still works; the EUR money keeps the CHF dates and goes back on day 59 too.
+    target = exchange(_at(date(2026, 2, 27)), "fx-day-57").target_balance_lot
+    assert target.withdrawal_deadline_at == _at(date(2026, 3, 2), 0)
+    assert _buckets(investor, _at(date(2026, 2, 28))) == (0, 900_00, 0)
 
 
 @pytest.mark.django_db
@@ -467,7 +714,7 @@ def test_short_balance_messages_name_the_real_reason(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    """SECONDARY-08: only money too old for the window gets the 60-day message."""
+    """SECONDARY-08: only money too old for the window gets the holding-time message."""
     today = date(2026, 1, 20)
     as_of = _at(today)
 
@@ -484,7 +731,7 @@ def test_short_balance_messages_name_the_real_reason(
 
     # No CHF money at all (an immediate purchase has no funding window).
     assert plan(100_00, today) == (
-        "You have no available CHF balance. Add funds or exchange currency first."
+        "You have no available CHF balance. Add funds first."
     )
 
     _deposit(admin_user, investor, amount_minor=100_00, value_date=date(2026, 1, 10), key="new")
@@ -492,13 +739,13 @@ def test_short_balance_messages_name_the_real_reason(
         "Your available CHF balance is CHF 100.00. This needs CHF 4'050.00."
     )
 
-    # 2025-11-21 + 60 days: today is this lot's last day; it can only be withdrawn.
-    _deposit(admin_user, investor, amount_minor=5000_00, value_date=date(2025, 11, 21), key="old")
+    # 2025-11-23 + 58 days: today is this lot's last day; it can only be withdrawn.
+    _deposit(admin_user, investor, amount_minor=5000_00, value_date=date(2025, 11, 23), key="old")
     assert plan(1000_00, today) == (
         "Only CHF 100.00 of your CHF balance can be used today. The rest has reached its "
-        "60-day holding deadline and can only be withdrawn."
+        "58-day limit and goes back to your bank: it can only be withdrawn."
     )
     assert plan(1000_00, date(2026, 2, 15)).startswith(
         "Insufficient eligible balance for this funding window. Only CHF 100.00 of your CHF "
-        "balance has enough time left before its 60-day holding deadline"
+        "balance has enough time left before it goes back to your bank (after 58 days)"
     )

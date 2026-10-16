@@ -37,6 +37,9 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
+# The public site forms (For companies, For loan originators, Contact) send one email to
+# this address. Nothing is sent to the person who filled the form (COMMS-DEC-009).
+PUBLIC_ENQUIRY_EMAIL = env("PUBLIC_ENQUIRY_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
 # Where emails load their public images (the logo). Blank uses PUBLIC_APP_BASE_URL, whose
 # web server serves frontend/public (for example /brand/banxum-email-logo.png).
@@ -225,6 +228,13 @@ AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
     default=60,
 )
 AUTH_SENSITIVE_CODE_MAX_ATTEMPTS = env.int("AUTH_SENSITIVE_CODE_MAX_ATTEMPTS", default=3)
+# Investor PIN for sensitive actions (ACC-DEC-009): this many wrong PINs in a row lock
+# the PIN for AUTH_PIN_LOCK_SECONDS (real clock). A correct PIN resets the count.
+AUTH_PIN_MAX_ATTEMPTS = env.int("AUTH_PIN_MAX_ATTEMPTS", default=5)
+AUTH_PIN_LOCK_SECONDS = env.int("AUTH_PIN_LOCK_SECONDS", default=30 * 60)
+# Request limits of the PIN endpoints (set, change, reset), per IP and per account.
+AUTH_PIN_HOURLY_LIMIT = env.int("AUTH_PIN_HOURLY_LIMIT", default=20)
+AUTH_PIN_DAILY_LIMIT = env.int("AUTH_PIN_DAILY_LIMIT", default=100)
 PHONE_VERIFICATION_PROVIDER = env("PHONE_VERIFICATION_PROVIDER", default="mock")
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
@@ -299,6 +309,20 @@ COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS = env.bool(
     "COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS",
     default=True,
 )
+# Anonymous public-site writes (COMMS-DEC-009): fixed cache windows, as the auth limits.
+# Form limits count accepted submissions; newsletter limits count every request, except
+# the global confirmation-email cap, which counts confirmation emails queued.
+PUBLIC_ENQUIRY_IP_10_MINUTE_LIMIT = env.int("PUBLIC_ENQUIRY_IP_10_MINUTE_LIMIT", default=3)
+PUBLIC_ENQUIRY_IP_DAILY_LIMIT = env.int("PUBLIC_ENQUIRY_IP_DAILY_LIMIT", default=10)
+PUBLIC_ENQUIRY_EMAIL_DAILY_LIMIT = env.int("PUBLIC_ENQUIRY_EMAIL_DAILY_LIMIT", default=3)
+PUBLIC_ENQUIRY_GLOBAL_DAILY_LIMIT = env.int("PUBLIC_ENQUIRY_GLOBAL_DAILY_LIMIT", default=200)
+NEWSLETTER_SUBSCRIBE_IP_HOURLY_LIMIT = env.int("NEWSLETTER_SUBSCRIBE_IP_HOURLY_LIMIT", default=5)
+NEWSLETTER_SUBSCRIBE_IP_DAILY_LIMIT = env.int("NEWSLETTER_SUBSCRIBE_IP_DAILY_LIMIT", default=20)
+NEWSLETTER_CONFIRMATION_GLOBAL_DAILY_LIMIT = env.int(
+    "NEWSLETTER_CONFIRMATION_GLOBAL_DAILY_LIMIT",
+    default=500,
+)
+NEWSLETTER_TOKEN_IP_HOURLY_LIMIT = env.int("NEWSLETTER_TOKEN_IP_HOURLY_LIMIT", default=30)
 SCHEDULED_JOBS_ACTOR_EMAIL = env("SCHEDULED_JOBS_ACTOR_EMAIL", default="")
 SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", default=5)
 SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", default=1800)
@@ -391,6 +415,18 @@ SPECTACULAR_SETTINGS = {
         "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
         "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
         "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
+        "PublicEnquiryCountryEnum": "backend.apps.communications.api.serializers.COUNTRY_CHOICES",
+        "PublicEnquiryTermEnum": "backend.apps.communications.api.serializers.TERM_CHOICES",
+        "PublicEnquiryPurposeEnum": "backend.apps.communications.api.serializers.PURPOSE_CHOICES",
+        "PublicEnquirySecurityEnum": (
+            "backend.apps.communications.api.serializers.SECURITY_CHOICES"
+        ),
+        "PublicEnquiryProductEnum": "backend.apps.communications.api.serializers.PRODUCT_CHOICES",
+        "PublicEnquiryTopicEnum": "backend.apps.communications.api.serializers.TOPIC_CHOICES",
+        "PublicEnquiryCompanyKindEnum": ["company"],
+        "PublicEnquiryOriginatorKindEnum": ["originator"],
+        "PublicEnquiryContactKindEnum": ["contact"],
+        "NewsletterSourceEnum": "backend.apps.communications.models.NewsletterSource.choices",
     },
 }
 

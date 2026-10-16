@@ -5,8 +5,13 @@ from typing import Any
 import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password
 
-from backend.apps.platform_core.services.qa_seed import INVESTOR_EMAIL, seed_qa_starting_point
+from backend.apps.platform_core.services.qa_seed import (
+    INVESTOR_EMAIL,
+    QA_INVESTOR_PIN,
+    seed_qa_starting_point,
+)
 
 
 @pytest.mark.django_db
@@ -33,6 +38,10 @@ def test_qa_starting_point_is_repeatable_and_uses_real_financial_services(settin
     investor = get_user_model().objects.get(email=INVESTOR_EMAIL)
     assert not investor.has_usable_password()
     assert not investor.is_staff
+    # QA confirms sensitive actions with the email code and this known PIN (ACC-DEC-009).
+    assert first["investor_pin"] == QA_INVESTOR_PIN
+    pin = apps.get_model("accounts_auth", "SensitiveActionPin").objects.get(user=investor)
+    assert check_password(QA_INVESTOR_PIN, pin.pin_hash)
     assert first == seed_qa_starting_point(actor=actor)
     assert counts == {model: apps.get_model(app, model).objects.count() for app, model in tracked}
 

@@ -17,6 +17,7 @@ import {
   getV1MarketplaceSecondaryListingsRetrieveResponseMock
 } from "./api/generated/banxumApi";
 import { emptyCalls, emptyPortfolio, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
+import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -68,12 +69,12 @@ function holdingFixture(openListingId: string | null = null) {
   };
 }
 
-// The server's seller pricing: 0.25 % maker fee (minimum CHF 20.00) and accrued
-// interest of CHF 7.89 to today, as in the audit's S28 example.
+// The server's seller pricing: 2 % maker fee (minimum CHF 20.00, owner decision
+// 2026-10-16), no buyer fee, and accrued interest of CHF 7.89 to today.
 function serverPricing(priceBps: number) {
   const transfer = Math.round((600_000 * priceBps) / 10_000);
   const accrued = 789;
-  const makerFee = Math.max(2_000, Math.round(transfer * 0.0025));
+  const makerFee = Math.max(2_000, Math.round(transfer * 0.02));
   return {
     holding_id: "h1",
     currency: "CHF",
@@ -85,12 +86,12 @@ function serverPricing(priceBps: number) {
     accrued_interest_minor: accrued,
     accrued_interest_from_date: "2026-10-10",
     accrued_interest_to_date: "2026-10-14",
-    maker_fee_bps: 25,
+    maker_fee_bps: 200,
     minimum_maker_fee_minor: 2_000,
     maker_fee_minor: makerFee,
     seller_net_proceeds_minor: transfer + accrued - makerFee,
-    taker_fee_minor: Math.round(transfer * 0.0075),
-    buyer_total_cost_minor: transfer + accrued + Math.round(transfer * 0.0075)
+    taker_fee_minor: 0,
+    buyer_total_cost_minor: transfer + accrued
   };
 }
 
@@ -127,14 +128,41 @@ test("A-34: the listing form shows the server's seller net, with accrued interes
   fireEvent.click(await screen.findByRole("tab", { name: "Sell a holding" }, { timeout: 5000 }));
   fireEvent.click(await screen.findByRole("button", { name: "List" }, { timeout: 5000 }));
   await screen.findByRole("dialog");
-  fireEvent.change(screen.getByDisplayValue("10000"), { target: { value: "10100" } });
+  fireEvent.change(screen.getByDisplayValue("10000"), { target: { value: "9900" } });
 
-  // 6,060.00 transfer + 7.89 accrued - 20.00 minimum maker fee (not 0.25 % = 15.15).
-  await waitFor(() => expect(reviewValue("Seller net proceeds")).toMatch(/CHF 6.047\.89/));
-  expect(reviewValue("Transfer price")).toMatch(/CHF 6.060\.00/);
+  // 5,940.00 transfer + 7.89 accrued - 118.80 maker fee (2 %).
+  await waitFor(() => expect(reviewValue("Seller net proceeds")).toMatch(/CHF 5.829\.09/));
+  expect(reviewValue("Transfer price")).toMatch(/CHF 5.940\.00/);
   expect(reviewValue("Accrued interest to you")).toMatch(/CHF 7\.89/);
-  expect(reviewValue("Maker fee")).toMatch(/CHF 20\.00/);
-  expect(calls.previews.at(-1)).toEqual({ priceBps: 10_100 });
+  expect(reviewValue("Maker fee")).toMatch(/CHF 118\.80/);
+  expect(calls.previews.at(-1)).toEqual({ priceBps: 9_900 });
+}, 30_000);
+
+test("the sale price is par or a discount: above 10000 bps shows an error and cannot continue", async () => {
+  server.use(...sellerHandlers(holdingFixture(), () => HttpResponse.json(getV1MarketplaceSecondaryListingsCreateResponseMock(), { status: 201 })));
+  renderLiveApp(App, "/secondary-market");
+  fireEvent.click(await screen.findByRole("tab", { name: "Sell a holding" }, { timeout: 5000 }));
+  fireEvent.click(await screen.findByRole("button", { name: "List" }, { timeout: 5000 }));
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/Par or a discount, in basis points/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/premium/i)).not.toBeInTheDocument();
+  const input = within(dialog).getByRole("textbox", { name: "Sale price bps" });
+  expect(input).toHaveAttribute("maxLength", "5");
+  await waitFor(() => expect(calls.previews).toHaveLength(1));
+
+  fireEvent.change(input, { target: { value: "10100" } });
+  expect(await within(dialog).findByText("The sale price can be at most 100% (par).")).toBeInTheDocument();
+  expect(input).toHaveAttribute("aria-invalid", "true");
+  fireEvent.click(within(dialog).getByRole("checkbox"));
+  expect(screen.getByRole("button", { name: "Confirm listing data" })).toBeDisabled();
+  // No server pricing is asked for a price the server refuses.
+  expect(calls.previews.some((preview) => Number(preview.priceBps) > 10_000)).toBe(false);
+
+  // Exactly par is fine again.
+  fireEvent.change(input, { target: { value: "10000" } });
+  expect(within(dialog).queryByText("The sale price can be at most 100% (par).")).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("checkbox"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm listing data" })).toBeEnabled());
 }, 30_000);
 
 test("A-36: a new price after a failed confirm gets a new acceptance for that price and new keys", async () => {
@@ -154,6 +182,7 @@ test("A-36: a new price after a failed confirm gets a new acceptance for that pr
   fireEvent.click(screen.getByRole("button", { name: "Confirm listing data" }));
   await waitFor(() => expect(calls.codes).toHaveLength(1));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "111111" } });
+  enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Verify and publish" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Verify and publish" }));
   await screen.findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
@@ -167,6 +196,7 @@ test("A-36: a new price after a failed confirm gets a new acceptance for that pr
   await waitFor(() => expect(screen.getByRole("button", { name: "Confirm listing data" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Confirm listing data" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
+  enterPin();
   fireEvent.click(screen.getByRole("button", { name: "Verify and publish" }));
   await screen.findAllByText("Listing published", {}, { timeout: 5000 });
 

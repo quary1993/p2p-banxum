@@ -27,6 +27,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/reporting/", include("backend.apps.reporting.api.urls")),
     path("api/v1/investor/portal/", include("backend.apps.investor_portal.api.urls")),
     path("api/v1/investor/smart-invest/", include("backend.apps.smart_invest.api.urls")),
+    # Anonymous public-site forms and newsletter (communications, COMMS-DEC-009).
+    path("api/v1/public/", include("backend.apps.communications.api.urls")),
 ]
 
 

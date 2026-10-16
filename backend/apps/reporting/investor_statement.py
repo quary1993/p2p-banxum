@@ -290,7 +290,9 @@ def _describe(
             getattr(withdrawal, "is_forced", False)
         )
         movement.description = (
-            "Return of funds held over 60 days" if forced else "Withdrawal to your bank account"
+            "Automatic return of money not invested"
+            if forced
+            else "Withdrawal to your bank account"
         )
         if withdrawal is not None and show_references:
             movement.reference = f"IBAN {_masked_iban(str(withdrawal.destination_iban))}"

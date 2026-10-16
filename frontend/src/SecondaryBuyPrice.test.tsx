@@ -17,6 +17,7 @@ import {
   getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock,
   getV1MarketplaceSecondaryListingsRetrieveResponseMock
 } from "./api/generated/banxumApi";
+import { enterPin } from "./test/pin";
 
 // Leave fixture preview mode so the modal talks to the (mocked) API.
 vi.stubEnv("MODE", "development");
@@ -50,15 +51,16 @@ const listRow = {
   is_own_listing: false
 };
 
-function detailAt(priceBps: number) {
+function detailAt(priceBps: number, takerFeeBps = 75) {
   const transfer = (1_000_000 * priceBps) / 10_000;
-  const takerFee = Math.round(transfer * 0.0075);
+  const takerFee = Math.round((transfer * takerFeeBps) / 10_000);
   return {
     ...getV1MarketplaceSecondaryListingsRetrieveResponseMock(),
     ...listRow,
     price_bps: priceBps,
     discount_premium_bps: priceBps - 10_000,
     transfer_price_minor: transfer,
+    taker_fee_bps: takerFeeBps,
     taker_fee_minor: takerFee,
     buyer_total_cost_minor: transfer + takerFee,
     investment_schedule: [],
@@ -78,6 +80,7 @@ function detailAt(priceBps: number) {
 
 function useInvestorApi(state: {
   detailPriceBps: number;
+  takerFeeBps?: number;
   purchaseResponses: Array<() => Response>;
   acceptanceResponses?: Array<() => Response>;
 }) {
@@ -133,7 +136,7 @@ function useInvestorApi(state: {
     ),
     http.get("*/api/v1/investor/portal/secondary-market/", () => HttpResponse.json({ entries: [] })),
     http.get("*/api/v1/marketplace/secondary/listings/", () => HttpResponse.json([listRow])),
-    http.get("*/api/v1/marketplace/secondary/listings/:listingId/", () => HttpResponse.json(detailAt(state.detailPriceBps))),
+    http.get("*/api/v1/marketplace/secondary/listings/:listingId/", () => HttpResponse.json(detailAt(state.detailPriceBps, state.takerFeeBps))),
     http.get("*/api/v1/documents/templates/current/", () =>
       HttpResponse.json({
         ...getV1DocumentsTemplatesCurrentRetrieveResponseMock(),
@@ -184,16 +187,37 @@ function reviewValue(dialog: HTMLElement, label: string) {
   return within(dialog).getByText(label).nextElementSibling?.textContent ?? "";
 }
 
+test("no buyer fee (owner decision 2026-10-16): the review has no taker fee line", async () => {
+  const api = useInvestorApi({ detailPriceBps: 9_800, takerFeeBps: 0, purchaseResponses: [] });
+  const dialog = await openBuyDialog();
+
+  expect(reviewValue(dialog, "Sale price")).toBe("2.0% discount");
+  expect(within(dialog).queryByText("Taker fee")).not.toBeInTheDocument();
+  expect(reviewValue(dialog, "Total cost")).toMatch(/9.800\.00/);
+
+  fireEvent.click(within(dialog).getByRole("checkbox"));
+  fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
+  await screen.findAllByText("Purchase confirmed", {}, { timeout: 5000 });
+  expect(api.acceptances[0]?.data_snapshot).toMatchObject({ taker_fee_minor: 0, buyer_total_cost_minor: 980_000 });
+}, 30_000);
+
 test("buy modal shows, accepts and sends the fresh listing price, not the stale list row", async () => {
   const api = useInvestorApi({ detailPriceBps: 12_000, purchaseResponses: [] });
   const dialog = await openBuyDialog();
 
   expect(reviewValue(dialog, "Sale price")).toBe("20.0% premium");
   expect(reviewValue(dialog, "Total cost")).toMatch(/12.090\.00/);
+  // A configured buyer fee is still shown.
+  expect(reviewValue(dialog, "Taker fee")).toMatch(/CHF 90\.00/);
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
 
@@ -237,6 +261,7 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
   fireEvent.click(ack);
   fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
 
@@ -293,6 +318,7 @@ test("a price change found when the terms are accepted reloads the price before 
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
 

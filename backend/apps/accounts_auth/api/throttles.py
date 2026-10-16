@@ -175,6 +175,28 @@ class PhoneVerificationConfirmThrottle(AuthThrottle):
         return tuple(identifiers)
 
 
+class PinThrottle(AuthThrottle):
+    """Set, change and reset-confirm of the PIN, per IP and per account."""
+
+    scope = "pin"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_PIN_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_PIN_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if isinstance(request.user, User):
+            identifiers.append(f"user:{request.user.id}")
+        return tuple(identifiers)
+
+
+class PinResetStartThrottle(PhoneVerificationRequestThrottle):
+    """The forgotten-PIN SMS follows the limits of the registration SMS."""
+
+    scope = "pin_reset_start"
+
+
 class FailureBackoff:
     """Exponential backoff after repeated failures for one identifier.
 

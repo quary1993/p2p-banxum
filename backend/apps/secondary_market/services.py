@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from importlib import import_module
@@ -19,6 +20,11 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
     user_can_access_financial_features,
+)
+from backend.apps.platform_core.domain.investor_limit import (
+    SWISS_INVESTOR_LIMIT_CODE,
+    InvestorLimit,
+    swiss_investor_limit_message,
 )
 from backend.apps.platform_core.domain.money import (
     Money,
@@ -39,6 +45,7 @@ from backend.apps.platform_core.services.events import (
 from backend.apps.platform_core.services.sensitive_actions import (
     SECONDARY_MARKET_LISTING_ACTION,
     SECONDARY_MARKET_PURCHASE_ACTION,
+    SensitiveActionPinError,
     SensitiveActionVerificationCommand,
     SensitiveActionVerificationError,
     verify_sensitive_action_code,
@@ -80,8 +87,20 @@ class SecondaryMarketPriceChangedError(SecondaryMarketValidationError):
         super().__init__(message)
 
 
+class SecondaryMarketSwissInvestorLimitError(SecondaryMarketValidationError):
+    """The buyer would be one investor too many on a Swiss-borrower loan (409)."""
+
+    code = SWISS_INVESTOR_LIMIT_CODE
+
+
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
-PRICE_BPS_MAX = 1_000_000
+# Owner decision 2026-10-16 (row 4): a sale price is par or a discount, never a premium.
+PAR_PRICE_BPS = 10_000
+SALE_PRICE_ABOVE_PAR_MESSAGE = "The sale price can be at most 100% (par)."
+# Owner decision 2026-10-16 (rows 2 and 3): seller fee 2% of the price, no buyer fee.
+# The platform settings hold the live values; these are the code defaults.
+DEFAULT_MAKER_FEE_BPS = 200
+DEFAULT_TAKER_FEE_BPS = 0
 LISTING_CONTEXT_TYPE = "secondary_market_listing"
 PURCHASE_CONTEXT_TYPE = "secondary_market_purchase"
 LISTING_FINGERPRINT_METADATA_KEY = "listing_request_fingerprint"
@@ -188,6 +207,7 @@ class CreateSecondaryMarketListingCommand:
     idempotency_key: str
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     notes: str = ""
     ip_address: str | None = None
     user_agent: str = ""
@@ -202,6 +222,7 @@ class EditSecondaryMarketListingCommand:
     idempotency_key: str
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     notes: str = ""
     ip_address: str | None = None
     user_agent: str = ""
@@ -253,6 +274,7 @@ class PurchaseSecondaryMarketListingCommand:
     expected_current_principal_minor: int
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     risk_acknowledgement_accepted: bool = False
     ip_address: str | None = None
     user_agent: str = ""
@@ -278,27 +300,54 @@ def _originator_services() -> Any:
     return import_module("backend.apps.originator_claims.services")
 
 
+def _assert_transfer_within_investor_limit(
+    *,
+    loan: Model,
+    buyer_user_id: str,
+    seller_user_id: str,
+    holding_id: str,
+) -> None:
+    """A whole-holding purchase by a new investor must not raise a Swiss-borrower loan's
+    investor count above its limit (plan/09 MKT-DEC-028).
+
+    The buyer takes the seller's place when this is the seller's last holding of the
+    loan; otherwise the buyer needs a free place. The authoritative check runs under the
+    loan lock.
+    """
+    limit = cast(
+        InvestorLimit,
+        import_module("backend.apps.marketplace_primary.investor_limit").loan_investor_limit(loan),
+    )
+    if not limit.applies or limit.is_investor(buyer_user_id):
+        return
+    seller_stays_investor = (
+        _model("holdings", "InvestorLoanHolding")
+        .objects.filter(loan_id=cast(Any, loan).pk, investor_user_id=seller_user_id)
+        .exclude(status="transferred")
+        .exclude(id=holding_id)
+        .exists()
+    )
+    if limit.transfer_refused(
+        buyer_user_id=buyer_user_id,
+        seller_stays_investor=seller_stays_investor,
+    ):
+        raise SecondaryMarketSwissInvestorLimitError(
+            swiss_investor_limit_message(int(limit.max_investors or 0))
+        )
+
+
 def _is_originator_claim_loan(loan: Model) -> bool:
     return str(getattr(cast(Any, loan), "product_type", "direct")) == "originator_claim"
 
 
-def _is_par_component_originator_loan(loan: Model) -> bool:
-    if not _is_originator_claim_loan(loan):
-        return False
-    profile_model = _model("originator_claims", "OriginatorLoanProfile")
-    distribution_model = (
-        profile_model.objects.filter(loan_id=cast(Any, loan).pk)
-        .values_list("distribution_model", flat=True)
-        .first()
-    )
-    return str(distribution_model) == "par_component_v2"
-
-
 def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
-    if _is_par_component_originator_loan(loan) and price_bps > 10_000:
-        raise SecondaryMarketValidationError(
-            "Loan Originator positions can be listed at par or at a discount, not at a premium."
-        )
+    """Every listing sells at par or a discount, Direct and Loan Originator alike.
+
+    Repeated at purchase, so a listing priced above par before the rule (migration 0011
+    cancelled those) can never settle.
+    """
+    if price_bps > PAR_PRICE_BPS:
+        raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
 
 
 def _require_listable_loan_status(loan: Model) -> str:
@@ -680,7 +729,13 @@ def _pricing_snapshot(
     last_payment_date_override: Any = _USE_DATABASE_PRICING_VALUE,
     interest_covered_until_override: Any = _USE_DATABASE_PRICING_VALUE,
     days_past_due_override: Any = _USE_DATABASE_PRICING_VALUE,
+    listing_maker_fee: tuple[int, int] | None = None,
 ) -> SecondaryMarketListingPricing:
+    """Listing economics on ``as_of_date``.
+
+    Fees come from the current platform settings, except that ``listing_maker_fee``
+    (rate bps, minimum minor) fixes the seller fee to the one stored on the listing.
+    """
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
     currency_code = str(holding_ref.currency_id)
@@ -691,12 +746,18 @@ def _pricing_snapshot(
     )
     transfer_price_minor = _transfer_price_minor(current_principal_minor, price_bps)
     _validate_money(transfer_price_minor, currency_code, "Transfer price")
-    maker_fee_bps = _platform_int_setting("secondary_market.maker_fee_bps", 25)
-    taker_fee_bps = _platform_int_setting("secondary_market.taker_fee_bps", 75)
-    minimum_maker_fee_minor = _minimum_fee_minor(
-        "secondary_market.minimum_maker_fee_minor_by_currency",
-        currency_code,
-    )
+    if listing_maker_fee is None:
+        maker_fee_bps = _platform_int_setting(
+            "secondary_market.maker_fee_bps", DEFAULT_MAKER_FEE_BPS
+        )
+        minimum_maker_fee_minor = _minimum_fee_minor(
+            "secondary_market.minimum_maker_fee_minor_by_currency",
+            currency_code,
+        )
+    else:
+        # A sale charges the seller fee the seller accepted for the listing (MKT-DEC-017).
+        maker_fee_bps, minimum_maker_fee_minor = listing_maker_fee
+    taker_fee_bps = _platform_int_setting("secondary_market.taker_fee_bps", DEFAULT_TAKER_FEE_BPS)
     minimum_taker_fee_minor = _minimum_fee_minor(
         "secondary_market.minimum_taker_fee_minor_by_currency",
         currency_code,
@@ -759,6 +820,11 @@ def _pricing_snapshot(
     )
 
 
+def _listing_maker_fee(listing: SecondaryMarketListing) -> tuple[int, int]:
+    """The seller fee rate and minimum stored on the listing (set at listing, edit or refresh)."""
+    return int(listing.maker_fee_bps), int(listing.minimum_maker_fee_minor)
+
+
 def _pricing_context_from_schedule(
     *,
     loan: Model,
@@ -810,12 +876,13 @@ def _apply_current_buyer_pricing(
 
 
 def _validate_listing_price_bps(price_bps: int) -> int:
+    """More than 0% and at most 100% (par) of the current principal."""
     if type(price_bps) is not int:
         raise SecondaryMarketValidationError("Sale price percentage must be an integer bps value.")
     if price_bps <= 0:
         raise SecondaryMarketValidationError("Sale price percentage must be positive.")
-    if price_bps > PRICE_BPS_MAX:
-        raise SecondaryMarketValidationError("Sale price percentage is outside the launch limit.")
+    if price_bps > PAR_PRICE_BPS:
+        raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
     return price_bps
 
 
@@ -1720,10 +1787,13 @@ def create_secondary_market_listing(
                 action=SECONDARY_MARKET_LISTING_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise SecondaryMarketValidationError(str(exc)) from exc
 
@@ -1958,10 +2028,13 @@ def edit_secondary_market_listing(
                 action=SECONDARY_MARKET_LISTING_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise SecondaryMarketValidationError(str(exc)) from exc
     return _edit_secondary_market_listing_after_sensitive_code(command)
@@ -2708,6 +2781,13 @@ def purchase_secondary_market_listing(
         raise SecondaryMarketValidationError(
             "Buyer must acknowledge the non-standard listing risk disclosure."
         )
+    # Early check before the email code is used; it repeats under the loan lock.
+    _assert_transfer_within_investor_limit(
+        loan=loan,
+        buyer_user_id=buyer_user_id,
+        seller_user_id=seller_user_id,
+        holding_id=str(holding_ref.id),
+    )
 
     acceptance = _validate_purchase_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -2720,6 +2800,7 @@ def purchase_secondary_market_listing(
         loan=loan,
         price_bps=int(listing.price_bps),
         as_of_date=settlement_date,
+        listing_maker_fee=_listing_maker_fee(listing),
     )
     if pricing.loan_status_at_listing != str(listing.loan_status_at_listing):
         raise SecondaryMarketValidationError(
@@ -2761,10 +2842,13 @@ def purchase_secondary_market_listing(
                 action=SECONDARY_MARKET_PURCHASE_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise SecondaryMarketValidationError(str(exc)) from exc
 
@@ -2861,6 +2945,13 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError(
             "Buyer must acknowledge the non-standard listing risk disclosure."
         )
+    # The loan row is locked: two new investors cannot both take the last place.
+    _assert_transfer_within_investor_limit(
+        loan=loan,
+        buyer_user_id=buyer_user_id,
+        seller_user_id=seller_user_id,
+        holding_id=str(holding_ref.id),
+    )
 
     acceptance = _validate_purchase_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -2874,6 +2965,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         loan=loan,
         price_bps=int(listing.price_bps),
         as_of_date=settlement_date,
+        listing_maker_fee=_listing_maker_fee(listing),
     )
     if pricing.loan_status_at_listing != str(listing.loan_status_at_listing):
         raise SecondaryMarketValidationError(

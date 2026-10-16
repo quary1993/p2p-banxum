@@ -61,3 +61,31 @@ class StoryImageSerializer(serializers.Serializer[Any]):
     byte_size = serializers.IntegerField()
     content_type = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+class PlatformFeatureLastChangeSerializer(serializers.Serializer[Any]):
+    version = serializers.IntegerField()
+    enabled = serializers.BooleanField()
+    changed_at = serializers.DateTimeField()
+    changed_by_type = serializers.CharField()
+    changed_by_id = serializers.CharField()
+    changed_by_email = serializers.CharField(allow_blank=True)
+    reason = serializers.CharField(allow_blank=True)
+
+
+class PlatformFeatureSerializer(serializers.Serializer[Any]):
+    key = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+    enabled = serializers.BooleanField()
+    last_change = PlatformFeatureLastChangeSerializer(allow_null=True)
+
+
+class PlatformFeaturesSerializer(serializers.Serializer[Any]):
+    features = PlatformFeatureSerializer(many=True)
+
+
+class PlatformFeatureUpdateRequestSerializer(serializers.Serializer[Any]):
+    key = serializers.CharField(max_length=128)
+    enabled = serializers.BooleanField()
+    reason = serializers.CharField(max_length=1000, allow_blank=True)

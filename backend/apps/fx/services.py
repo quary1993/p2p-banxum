@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from importlib import import_module
@@ -44,11 +45,13 @@ from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import (
     get_collection_account_identifier,
     get_platform_setting_value,
+    platform_switch_enabled,
 )
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.platform_core.services.sensitive_actions import (
     FX_ACTION,
+    SensitiveActionPinError,
     SensitiveActionVerificationCommand,
     SensitiveActionVerificationError,
     verify_sensitive_action_code,
@@ -73,6 +76,34 @@ class FxProviderRateUnavailableError(FxValidationError):
     def __init__(self, message: str, *, detail: str) -> None:
         super().__init__(message)
         self.detail = detail
+
+
+FX_ENABLED_SETTING_KEY = "fx.enabled"
+FX_DISABLED_CODE = "fx_disabled"
+FX_DISABLED_MESSAGE = "Currency exchange is not available at the moment."
+
+
+class FxDisabledError(FxValidationError):
+    """Currency exchange is switched off by the ``fx.enabled`` platform setting."""
+
+    code = FX_DISABLED_CODE
+
+    def __init__(self, message: str = FX_DISABLED_MESSAGE) -> None:
+        super().__init__(message)
+
+
+def fx_enabled() -> bool:
+    """Whether investors can quote and exchange currencies (owner decision 2026-10-16).
+
+    Off by default and when the setting is missing. History, admin delta reports and
+    external settlement of past exchanges work either way.
+    """
+    return platform_switch_enabled(FX_ENABLED_SETTING_KEY)
+
+
+def require_fx_enabled() -> None:
+    if not fx_enabled():
+        raise FxDisabledError()
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -164,6 +195,7 @@ class ExecuteFxQuoteCommand:
     idempotency_key: str
     sensitive_action_code_id: str = ""
     sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     as_of: datetime | None = None
     ip_address: str | None = None
     user_agent: str = ""
@@ -886,6 +918,7 @@ def _prepare_fx_quote(
 
 
 def preview_fx_quote(command: PreviewFxQuoteCommand) -> FxQuotePreview:
+    require_fx_enabled()
     prepared = _prepare_fx_quote(
         actor=command.actor,
         source_currency_code=command.source_currency,
@@ -920,6 +953,7 @@ def preview_fx_quote(command: PreviewFxQuoteCommand) -> FxQuotePreview:
 
 @transaction.atomic
 def issue_fx_quote(command: IssueFxQuoteCommand) -> FxQuote:
+    require_fx_enabled()
     as_of = command.as_of or now_utc()
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     prepared = _prepare_fx_quote(
@@ -1063,6 +1097,8 @@ def execute_fx_quote(command: ExecuteFxQuoteCommand) -> FxExchange:
     )
     if existing is not None:
         return existing
+    # A replay of a completed exchange still answers; anything new needs FX on.
+    require_fx_enabled()
     if quote.exchanges.exists():
         raise FxValidationError("FX quote has already been executed.")
     as_of = command.as_of or now_utc()
@@ -1081,10 +1117,13 @@ def execute_fx_quote(command: ExecuteFxQuoteCommand) -> FxExchange:
                 action=FX_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise FxValidationError(str(exc)) from exc
 
@@ -1119,6 +1158,8 @@ def _execute_fx_quote_after_sensitive_code(command: ExecuteFxQuoteCommand) -> Fx
     )
     if existing is not None:
         return existing
+    # A replay of a completed exchange still answers; anything new needs FX on.
+    require_fx_enabled()
     if quote.exchanges.exists():
         raise FxValidationError("FX quote has already been executed.")
     as_of = command.as_of or now_utc()

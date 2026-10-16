@@ -20,6 +20,7 @@ from backend.apps.ledger.services import (
     BalanceAgeingScanResult,
     BalanceSummary,
 )
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 
 
 def _dataclass_payload(value: Any) -> dict[str, Any]:
@@ -326,6 +327,7 @@ class InvestorSelfServicePayoutInstructionRegisterRequestSerializer(
     notes = serializers.CharField(required=False, allow_blank=True)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class InvestorBalanceSummaryQuerySerializer(serializers.Serializer[Any]):
@@ -357,6 +359,7 @@ class InvestorWithdrawalRequestCreateRequestSerializer(serializers.Serializer[An
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class InvestorWithdrawalRequestCreateResponseSerializer(serializers.Serializer[Any]):

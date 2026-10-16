@@ -4,10 +4,11 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from importlib import import_module
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from django.apps import apps
 from django.conf import settings
@@ -55,6 +56,11 @@ from backend.apps.platform_core.domain.access import (
 )
 from backend.apps.platform_core.domain.funding import latest_funding_deadline
 from backend.apps.platform_core.domain.iban import IbanValidationError, normalize_and_validate_iban
+from backend.apps.platform_core.domain.investor_limit import (
+    SWISS_INVESTOR_LIMIT_CODE,
+    InvestorLimit,
+    swiss_investor_limit_message,
+)
 from backend.apps.platform_core.domain.money import (
     Money,
     allocate_by_weights,
@@ -82,6 +88,7 @@ from backend.apps.platform_core.services.investor_notices import (
 )
 from backend.apps.platform_core.services.sensitive_actions import (
     PRIMARY_INVESTMENT_ACTION,
+    SensitiveActionPinError,
     SensitiveActionVerificationCommand,
     SensitiveActionVerificationError,
     verify_sensitive_action_code,
@@ -99,6 +106,12 @@ class OriginatorClaimsAuthorizationError(OriginatorClaimsError):
 
 class OriginatorClaimsValidationError(OriginatorClaimsError):
     pass
+
+
+class OriginatorClaimsSwissInvestorLimitError(OriginatorClaimsValidationError):
+    """A new investor needs a place on a Swiss-borrower claim that has none left (409)."""
+
+    code = SWISS_INVESTOR_LIMIT_CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +245,7 @@ class PurchaseOriginatorClaimCommand:
     sensitive_action_code_id: str
     sensitive_action_code: str
     idempotency_key: str
+    pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -472,6 +486,96 @@ def _locked_profile_for_loan(
     if profile is None:
         raise OriginatorClaimsValidationError("Originator claim loan does not exist.")
     return profile
+
+
+def _investor_limit_selectors() -> Any:
+    return import_module("backend.apps.marketplace_primary.investor_limit")
+
+
+def _profile_investor_limit(profile: OriginatorLoanProfile) -> InvestorLimit:
+    """Swiss-borrower investor limit of the claim (plan/09 MKT-DEC-028)."""
+    return cast(
+        InvestorLimit,
+        _investor_limit_selectors().investor_limit(
+            loan_id=str(profile.loan_id),
+            borrower_country=profile.borrower_country,
+        ),
+    )
+
+
+def _raise_swiss_investor_limit(limit: InvestorLimit) -> NoReturn:
+    raise OriginatorClaimsSwissInvestorLimitError(
+        swiss_investor_limit_message(int(limit.max_investors or 0))
+    )
+
+
+def _swiss_new_investor_minimum_message(
+    limit: InvestorLimit,
+    *,
+    minimum_minor: int,
+    currency: str,
+) -> str:
+    amount = format_amount_minor(minimum_minor, currency)
+    return (
+        f"This loan to a Swiss company can have at most {limit.max_investors} investors, "
+        f"so the minimum for a new investor is now {amount}. Invest at least {amount}."
+    )
+
+
+def _legacy_claim_cash_capacity_minor(
+    profile: OriginatorLoanProfile,
+    *,
+    schedule_rows: list[OriginatorLoanScheduleRow],
+    pricing_date: date,
+) -> int:
+    """Cash that buys every sellable principal of a quoted (legacy) claim today."""
+    sellable = originator_sellable_principal_minor(profile)
+    if sellable <= 0:
+        return 0
+    try:
+        price_minor, _flows = price_assigned_principal(
+            schedule_rows=schedule_rows,
+            current_outstanding_principal_minor=profile.current_outstanding_principal_minor,
+            assigned_principal_minor=sellable,
+            target_yield_bps=profile.target_yield_bps,
+            pricing_date=pricing_date,
+            currency=profile.loan.currency_id,
+        )
+    except PricingValidationError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+    return int(price_minor)
+
+
+def _quoted_claim_minimum_minor(
+    profile: OriginatorLoanProfile,
+    *,
+    investor_user_id: str,
+    schedule_rows: list[OriginatorLoanScheduleRow],
+    pricing_date: date,
+) -> int:
+    """Cash minimum of a quoted (legacy) claim for this investor now.
+
+    On a Swiss-borrower claim a new investor is refused when no place is left, and must
+    invest the minimum that lets the places left fill the claim (MKT-DEC-028).
+    """
+    minimum = int(profile.minimum_investment_minor)
+    limit = _profile_investor_limit(profile)
+    if not limit.applies:
+        return minimum
+    cash_capacity = _legacy_claim_cash_capacity_minor(
+        profile,
+        schedule_rows=schedule_rows,
+        pricing_date=pricing_date,
+    )
+    if cash_capacity <= 0:
+        return minimum
+    if limit.refuses_new_investor(investor_user_id):
+        _raise_swiss_investor_limit(limit)
+    return limit.investor_minimum_minor(
+        investor_user_id=investor_user_id,
+        minimum_minor=minimum,
+        remaining_minor=cash_capacity,
+    )
 
 
 def _operation_uuid(scope: str, idempotency_key: str) -> uuid.UUID:
@@ -3724,13 +3828,16 @@ def originator_marketplace_payload(
     include_detail: bool,
     pricing_date: date | None = None,
     allow_closed: bool = False,
+    viewer_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Marketplace projection of an originator opportunity.
 
-    By default only an open opportunity is returned (the list, Smart Invest). With
+    By default only an open opportunity is returned (the list, Smart-Invest). With
     ``allow_closed`` a published opportunity whose round has closed is returned
     read-only: no capacity is offered, and investing is still refused by the quote and
-    order services.
+    order services. With a viewer, ``minimum_investment_minor`` is what that investor
+    must invest now; without one, what a new investor must invest (Swiss-borrower
+    limit, MKT-DEC-028).
     """
     profile = OriginatorLoanProfile.objects.select_related(
         "loan__currency", "originator", "current_import"
@@ -3784,6 +3891,14 @@ def originator_marketplace_payload(
             )
         except PricingValidationError as exc:
             raise OriginatorClaimsValidationError(str(exc)) from exc
+    # The minimum is in cash: for a quoted claim the cash that buys every sellable
+    # principal is the remaining capacity a new investor's minimum is capped by.
+    limit_fields = _investor_limit_selectors().investor_limit_payload(
+        _profile_investor_limit(profile),
+        minimum_minor=int(profile.minimum_investment_minor),
+        remaining_minor=int(fillable_amount_minor),
+        viewer_user_id=viewer_user_id,
+    )
     remaining_term_days = max(0, (profile.maturity_date - as_of_date).days)
     collateral_value = int(profile.loan.collateral_value_minor)
     ltv_bps = (
@@ -3821,7 +3936,7 @@ def originator_marketplace_payload(
         "remaining_capacity_minor": remaining_capacity_minor,
         "fillable_amount_minor": fillable_amount_minor,
         "skin_in_the_game_bps": int(cast(Any, profile.loan).skin_in_the_game_bps),
-        "minimum_investment_minor": int(profile.minimum_investment_minor),
+        **limit_fields,
         "ltv_bps": ltv_bps,
         "is_refinancing": False,
         "originator_id": str(profile.originator_id),
@@ -3866,7 +3981,11 @@ def originator_marketplace_payload(
     return payload
 
 
-def list_open_originator_marketplace_payloads(*, limit: int = 100) -> list[dict[str, Any]]:
+def list_open_originator_marketplace_payloads(
+    *,
+    limit: int = 100,
+    viewer_user_id: str | None = None,
+) -> list[dict[str, Any]]:
     profiles = (
         OriginatorLoanProfile.objects.filter(
             opportunity_status=OriginatorOpportunityStatus.OPEN,
@@ -3890,7 +4009,13 @@ def list_open_originator_marketplace_payloads(*, limit: int = 100) -> list[dict[
     payloads: list[dict[str, Any]] = []
     for profile in profiles:
         try:
-            payloads.append(originator_marketplace_payload(profile, include_detail=False))
+            payloads.append(
+                originator_marketplace_payload(
+                    profile,
+                    include_detail=False,
+                    viewer_user_id=viewer_user_id,
+                )
+            )
         except OriginatorClaimsValidationError:
             continue
     return payloads
@@ -3904,7 +4029,12 @@ def get_originator_marketplace_payload(*, actor: Model, loan_id: str) -> dict[st
     profile = OriginatorLoanProfile.objects.filter(loan_id=loan_id).first()
     if profile is None:
         raise OriginatorClaimsValidationError("Originator claim opportunity does not exist.")
-    return originator_marketplace_payload(profile, include_detail=True, allow_closed=True)
+    return originator_marketplace_payload(
+        profile,
+        include_detail=True,
+        allow_closed=True,
+        viewer_user_id=str(actor.pk),
+    )
 
 
 def _quote_fingerprint(payload: dict[str, Any]) -> str:
@@ -4004,13 +4134,30 @@ def _create_originator_claim_quote_locked(
     if loan_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
     schedule_rows = list(loan_import.schedule_rows.order_by("installment_number"))
+    minimum_investment_minor = _quoted_claim_minimum_minor(
+        profile,
+        investor_user_id=str(command.actor.pk),
+        schedule_rows=schedule_rows,
+        pricing_date=today,
+    )
+    if type(command.requested_cash_minor) is int and (
+        command.requested_cash_minor < minimum_investment_minor
+        and minimum_investment_minor > int(profile.minimum_investment_minor)
+    ):
+        raise OriginatorClaimsValidationError(
+            _swiss_new_investor_minimum_message(
+                _profile_investor_limit(profile),
+                minimum_minor=minimum_investment_minor,
+                currency=profile.loan.currency_id,
+            )
+        )
     try:
         priced = quote_cash_consideration(
             schedule_rows=schedule_rows,
             current_outstanding_principal_minor=profile.current_outstanding_principal_minor,
             unsold_principal_minor=originator_sellable_principal_minor(profile),
             requested_cash_minor=command.requested_cash_minor,
-            minimum_investment_minor=profile.minimum_investment_minor,
+            minimum_investment_minor=minimum_investment_minor,
             target_yield_bps=profile.target_yield_bps,
             premium_fee_bps=profile.premium_fee_bps,
             pricing_date=today,
@@ -4145,10 +4292,13 @@ def purchase_originator_claim(
                 action=PRIMARY_INVESTMENT_ACTION,
                 code_id=command.sensitive_action_code_id,
                 raw_code=command.sensitive_action_code,
+                pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
             )
         )
+    except SensitiveActionPinError:
+        raise
     except SensitiveActionVerificationError as exc:
         raise OriginatorClaimsValidationError(str(exc)) from exc
     return _purchase_originator_claim_after_sensitive_code(
@@ -4218,6 +4368,18 @@ def _purchase_originator_claim_after_sensitive_code(
     )
     if quote is None:
         raise OriginatorClaimsValidationError("Originator claim quote does not exist.")
+    swiss_limit_applies = (
+        _investor_limit_selectors().max_investors_for_borrower_country(
+            quote.loan_profile.borrower_country
+        )
+        is not None
+    )
+    if swiss_limit_applies:
+        # Count the claim's investors under the loan lock, like every other investment
+        # path, so two new investors cannot both take the last place (MKT-DEC-028).
+        apps.get_model("loans", "Loan").objects.select_for_update().filter(
+            id=quote.loan_profile.loan_id
+        ).first()
     profile = (
         OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import", "loan__currency")
@@ -4257,6 +4419,27 @@ def _purchase_originator_claim_after_sensitive_code(
         raise OriginatorClaimsValidationError(
             "The remaining originator claim is smaller than this quote. Request a new quote."
         )
+    if swiss_limit_applies:
+        # Other investors may have joined since the quote: the place and the minimum of
+        # now apply. Buying every sellable principal is never below the minimum.
+        swiss_minimum = _quoted_claim_minimum_minor(
+            profile,
+            investor_user_id=str(command.actor.pk),
+            schedule_rows=list(loan_import.schedule_rows.order_by("installment_number")),
+            pricing_date=today,
+        )
+        if (
+            quote.executable_cash_minor < swiss_minimum
+            and quote.assigned_principal_minor < originator_sellable_principal_minor(profile)
+        ):
+            raise OriginatorClaimsValidationError(
+                _swiss_new_investor_minimum_message(
+                    _profile_investor_limit(profile),
+                    minimum_minor=swiss_minimum,
+                    currency=profile.loan.currency_id,
+                )
+                + " Request a new quote."
+            )
     acceptance = _validate_purchase_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,

@@ -1,4 +1,9 @@
-"""Opt-in synthetic QA setup, never part of application startup."""
+"""Opt-in synthetic QA setup, never part of application startup.
+
+The seeded investor (INVESTOR_EMAIL) signs in by magic link (mock email) and confirms
+sensitive actions with the email code and the known PIN QA_INVESTOR_PIN (ACC-DEC-009).
+The seed resets that PIN on every run. The command output repeats both.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +24,8 @@ from backend.apps.platform_core.services.qa_guard import qa_environment_guard
 
 SEED_KEY = "banxum-qa-start-v1"
 INVESTOR_EMAIL = "qa.investor@banxum.example.test"
+# Known PIN of the synthetic QA investor (not weak: no repeated digit, no straight run).
+QA_INVESTOR_PIN = "246810"
 
 
 def seed_qa_starting_point(*, actor: Any) -> dict[str, Any]:
@@ -68,6 +75,8 @@ def _seed(*, actor: Any) -> dict[str, Any]:
             )
     elif investor.full_name != "QA Synthetic Investor" or investor.is_staff:
         raise ValueError("QA investor identifier is occupied by a non-seed account.")
+    pins = import_module("backend.apps.accounts_auth.pin_services")
+    pins.assign_known_qa_pin(investor, pin=QA_INVESTOR_PIN, source=SEED_KEY, replace=True)
     for currency in ("CHF", "EUR"):
         key = f"{SEED_KEY}:deposit:{currency}"
         if (
@@ -222,18 +231,32 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 idempotency_key=f"{key}:allocate",
                 sensitive_action_code_id=str(code.code_record.pk),
                 sensitive_action_code=code.raw_code,
+                pin=QA_INVESTOR_PIN,
             )
         )
 
+    def minimum_for(loan: Any) -> int:
+        # The QA borrowers are Swiss: a new investor's minimum rises so the 20 places can
+        # fill the loan (plan/09 MKT-DEC-028).
+        payload = primary.public_marketplace_listing_payload(
+            loan,
+            viewer_user_id=str(investor.pk),
+        )
+        return max(100_000, int(payload["minimum_investment_minor"]))
+
     order(direct_loans[0], direct_loans[0].principal_minor, allocate=True)
-    order(direct_loans[1], 100_000, allocate=True)
-    order(direct_loans[2], 100_000, allocate=False)
+    order(direct_loans[1], minimum_for(direct_loans[1]), allocate=True)
+    order(direct_loans[2], minimum_for(direct_loans[2]), allocate=False)
     if profile.opportunity_status == "open":
         order(profile.loan, originators.originator_sellable_principal_minor(profile), allocate=True)
     return {
         "investor_email": INVESTOR_EMAIL,
+        "investor_pin": QA_INVESTOR_PIN,
         "direct_loans": len(direct_loans),
         "originator_loans": 10,
         "seed_key": SEED_KEY,
-        "note": "Synthetic data only. No usable password was created; email delivery is mocked.",
+        "note": (
+            "Synthetic data only. No usable password was created; email delivery is mocked. "
+            "Sensitive actions need the email code and the investor PIN above."
+        ),
     }

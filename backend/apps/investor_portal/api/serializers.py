@@ -25,8 +25,15 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
             "is checked separately."
         )
     )
-    withdraw_only_minor = serializers.IntegerField()
-    overdue_minor = serializers.IntegerField()
+    withdraw_only_minor = serializers.IntegerField(
+        help_text="Balance on its last day (day 58 by default): it can only be withdrawn."
+    )
+    overdue_minor = serializers.IntegerField(
+        help_text=(
+            "Balance due back to the investor's bank (from the day after the last day) that "
+            "is not returned yet, usually because no verified payout IBAN is known."
+        )
+    )
     frozen_minor = serializers.IntegerField()
     penalty_mode_minor = serializers.IntegerField(
         help_text="Remaining balance of lots in penalty mode: blocked until withdrawn."
@@ -43,6 +50,14 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
         allow_null=True, help_text="Compatibility alias of the next source holding deadline."
     )
     next_withdrawal_deadline_at = serializers.DateTimeField(allow_null=True)
+    next_return_date = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "Next Europe/Zurich date on which money of this currency that is still not "
+            "invested goes back to the investor's bank (money already due back is in "
+            "overdue_minor)."
+        ),
+    )
 
 
 class BalanceLotSerializer(serializers.Serializer[Any]):
@@ -55,9 +70,26 @@ class BalanceLotSerializer(serializers.Serializer[Any]):
     investment_deadline_at = serializers.DateTimeField(
         help_text="Compatibility alias of withdrawal_deadline_at, not a fixed source-age cutoff."
     )
-    withdrawal_deadline_at = serializers.DateTimeField()
+    withdrawal_deadline_at = serializers.DateTimeField(
+        help_text="60-day legal holding limit; penalty mode can start only after this day."
+    )
     days_until_investment_deadline = serializers.IntegerField()
     days_until_withdrawal_deadline = serializers.IntegerField()
+    last_day = serializers.DateField(
+        help_text=(
+            "Last Europe/Zurich day the money may stay (holding day auto_return_after_days, "
+            "58 by default). On that day it can only be withdrawn."
+        )
+    )
+    return_date = serializers.DateField(
+        help_text=(
+            "Day the platform returns money still not invested to the investor's verified "
+            "bank account (the day after last_day)."
+        )
+    )
+    days_until_last_day = serializers.IntegerField(
+        help_text="Days until last_day: 0 on the last day, negative once the money is due back."
+    )
     original_amount_minor = serializers.IntegerField()
     available_amount_minor = serializers.IntegerField()
     invested_amount_minor = serializers.IntegerField()
@@ -89,7 +121,10 @@ class PendingWithdrawalSerializer(serializers.Serializer[Any]):
     destination_account_name = serializers.CharField(allow_blank=True)
     requested_at = serializers.DateTimeField()
     is_forced = serializers.BooleanField(
-        help_text="Forced return of an overdue balance (day-60 rule), not asked by the investor."
+        help_text=(
+            "Automatic return of money not invested within auto_return_after_days days, not "
+            "asked by the investor."
+        )
     )
 
 
@@ -104,6 +139,12 @@ class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     has_penalty_mode_balance = serializers.BooleanField()
     penalty_bps_per_day = serializers.IntegerField(
         help_text="Daily balance-ageing penalty on a balance in penalty mode, in basis points."
+    )
+    auto_return_after_days = serializers.IntegerField(
+        help_text=(
+            "Money still not invested goes back to the investor's bank the day after this "
+            "holding day (58 by default; the legal limit is 60)."
+        )
     )
 
 
@@ -564,3 +605,9 @@ class FxHistoryPortalSerializer(serializers.Serializer[Any]):
     quotes = FxQuotePortalSerializer(many=True)
     exchanges = FxExchangePortalSerializer(many=True)
     terms = FxTermsPortalSerializer()
+
+
+class InvestorPortalFeaturesSerializer(serializers.Serializer[Any]):
+    """Platform switches the investor app reads before it shows a feature."""
+
+    fx_enabled = serializers.BooleanField()

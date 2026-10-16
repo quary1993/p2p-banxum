@@ -29,7 +29,7 @@ const activeRule: SmartInvestRule = {
   updated_at: "2026-10-01T10:00:00Z"
 };
 
-describe("Smart Invest multi-select criteria", () => {
+describe("Smart-Invest multi-select criteria", () => {
   test("a saved rule round-trips through the filters into the same request", () => {
     const filters = smartInvestFiltersFromRule(activeRule);
     expect(filters.rating).toEqual(["A", "A-"]);

@@ -3,7 +3,7 @@
 The test finds each producer call (``topic="email.…"``) in the source, rebuilds the payload
 shape that producer writes (dict literal, local payload builder, local enqueue helper or the
 shared investor-notice builder), fills it with sample values and renders it. A producer whose
-payload keys the renderer cannot read (round 1: Smart Invest wrote ``body`` instead of
+payload keys the renderer cannot read (round 1: Smart-Invest wrote ``body`` instead of
 ``body_text``) fails here instead of ending as a dead letter in production.
 """
 
@@ -211,7 +211,7 @@ def test_every_email_topic_in_the_codebase_renders() -> None:
 
 
 def test_a_payload_with_the_wrong_body_key_is_reported() -> None:
-    # The round-1 Smart Invest defect: `body` instead of `body_text`.
+    # The round-1 Smart-Invest defect: `body` instead of `body_text`.
     message = OutboxMessage(
         topic="email.example_notice",
         payload={"email": RECIPIENT, "subject": "Example", "body": "Text"},

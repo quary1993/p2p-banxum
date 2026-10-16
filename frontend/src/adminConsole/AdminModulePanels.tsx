@@ -19,6 +19,9 @@ import {
   RiskRatingEnum,
   VisibilityEnum,
   AdminUserDocumentArtifactRequestOutputFormatEnum,
+  getV1AdminPlatformFeaturesRetrieveQueryKey,
+  useV1AdminPlatformFeaturesCreate,
+  useV1AdminPlatformFeaturesRetrieve,
   useV1AuthAdminUsersAccessCreate,
   useV1AuthAdminUsersCreate,
   useV1AdminOpsUsersDocumentsArtifactCreate,
@@ -110,6 +113,8 @@ import {
   type LoanRiskNoteCreateRequest,
   type LoanServicingStatusScanRequest,
   type NewStatusEnum as AccountNewStatus,
+  type PlatformFeature,
+  type PlatformFeatures,
   type OriginalLoanScheduleRow,
   type OriginatorBorrowerRepaymentRequest,
   type OriginatorAdminLoanDetailResponse,
@@ -1737,7 +1742,7 @@ function FinancePendingTasksTable({
                     <strong>{item.title}</strong>
                     <span className="mono muted">{labelize(item.kind)}</span>
                     {(item.metadata as { is_forced?: unknown } | null)?.is_forced === true ? (
-                      <Chip dot={false} tone="warn">Forced return (day-60 rule)</Chip>
+                      <Chip dot={false} tone="warn">Forced return (58-day rule)</Chip>
                     ) : null}
                   </td>
                   <td><Chip status={item.status}>{labelize(item.status)}</Chip></td>
@@ -2148,7 +2153,7 @@ function BalanceAgeingScanForm() {
   return (
     <Card padded>
       <h2>Balance ageing scan</h2>
-      <p>Find reminders, forced-withdrawal and penalty-mode actions for the 60-day balance holding limit.</p>
+      <p>Find reminders, automatic returns after 58 days and penalty-mode actions after the 60-day holding limit.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <TextInput label="As of timestamp" onChange={setAsOf} type="datetime-local" value={asOf} />
@@ -6872,6 +6877,160 @@ export function ReportsPanel() {
   );
 }
 
+// Superadmin platform switches (owner decision 2026-10-16, row 6: FX off for now). Every
+// change goes through the audited settings service with a reason.
+const platformFeaturesPreviewState: PlatformFeatures = {
+  features: [
+    {
+      key: "fx.enabled",
+      title: "Currency exchange (FX)",
+      description:
+        "Investors can get FX quotes and exchange CHF and EUR. When off, the FX page is hidden and every quote and exchange is refused. Past exchanges stay visible.",
+      enabled: false,
+      last_change: {
+        version: 1,
+        enabled: false,
+        changed_at: "2026-10-16T15:00:00Z",
+        changed_by_type: "system",
+        changed_by_id: "system",
+        changed_by_email: "",
+        reason: "Owner decision 2026-10-16: no currency exchange on BANXUM for now. FX is hidden and can be switched on again later."
+      }
+    }
+  ]
+};
+
+function platformFeatureChangedBy(feature: PlatformFeature) {
+  const change = feature.last_change;
+  if (!change) return "";
+  if (change.changed_by_email) return change.changed_by_email;
+  if (change.changed_by_type === "system") return "System";
+  return `${labelize(change.changed_by_type)} ${change.changed_by_id}`;
+}
+
+function PlatformFeatureRow({ feature }: { feature: PlatformFeature }) {
+  const queryClient = useQueryClient();
+  const [wanted, setWanted] = useState(feature.enabled);
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1AdminPlatformFeaturesCreate({
+    mutation: {
+      onSuccess: (result) => {
+        queryClient.setQueryData(getV1AdminPlatformFeaturesRetrieveQueryKey(), result);
+        const saved = result.features.find((item) => item.key === feature.key);
+        setSuccess(`${feature.title} is now ${saved?.enabled ? "on" : "off"}. The change was audit-logged.`);
+        setReason("");
+      }
+    }
+  });
+  useEffect(() => {
+    setWanted(feature.enabled);
+  }, [feature.enabled]);
+  const changed = wanted !== feature.enabled;
+  const switchId = useId();
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setSuccess(undefined);
+    setPreview(null);
+    if (isFixturePreview) {
+      setPreview(`${feature.title} would be switched ${wanted ? "on" : "off"}. Reason: ${reason.trim()}`);
+      return;
+    }
+    mutation.mutate({ data: { key: feature.key, enabled: wanted, reason: reason.trim() } });
+  }
+
+  return (
+    <form className="admin-action-form admin-feature-row" onSubmit={submit}>
+      <div className="admin-feature-head">
+        <label className="admin-switch" htmlFor={switchId}>
+          <input
+            aria-describedby={`${switchId}-description`}
+            checked={wanted}
+            id={switchId}
+            onChange={(event) => {
+              setWanted(event.target.checked);
+              setSuccess(undefined);
+              setPreview(null);
+              mutation.reset();
+            }}
+            role="switch"
+            type="checkbox"
+          />
+          <span aria-hidden="true" className="admin-switch-track" />
+          <span className="admin-switch-label">{feature.title}</span>
+        </label>
+        <Chip tone={feature.enabled ? "ok" : "neutral"}>{feature.enabled ? "On" : "Off"}</Chip>
+      </div>
+      <p className="muted admin-feature-description" id={`${switchId}-description`}>{feature.description}</p>
+      <div className="admin-detail-grid">
+        <div className="admin-review-row">
+          <span>Last change</span>
+          <strong>
+            {feature.last_change
+              ? `${feature.last_change.enabled ? "On" : "Off"} · ${formatDateTime(feature.last_change.changed_at)} · ${platformFeatureChangedBy(feature)}`
+              : "Never changed (default: off)"}
+          </strong>
+        </div>
+        {feature.last_change?.reason ? (
+          <div className="admin-review-row">
+            <span>Reason</span>
+            <strong>{feature.last_change.reason}</strong>
+          </div>
+        ) : null}
+      </div>
+      {changed ? (
+        <>
+          <TextAreaInput
+            hint="Required. Saved with the change in the settings history and the audit log."
+            label="Reason for this change"
+            onChange={setReason}
+            required
+            rows={2}
+            value={reason}
+          />
+          <ActionFooter
+            disabled={reason.trim().length === 0}
+            mutation={mutation}
+            previewMessage={preview}
+            submitLabel={`Switch ${wanted ? "on" : "off"}`}
+          />
+        </>
+      ) : success ? (
+        <Banner tone="ok" title="Change saved">{success}</Banner>
+      ) : null}
+    </form>
+  );
+}
+
+function PlatformFeaturesCard() {
+  const featuresQuery = useV1AdminPlatformFeaturesRetrieve({
+    query: {
+      enabled: !isFixturePreview,
+      placeholderData: isFixturePreview ? platformFeaturesPreviewState : undefined,
+      retry: false,
+      staleTime: 0
+    }
+  });
+  const features = featuresQuery.data?.features ?? [];
+  return (
+    <Card padded>
+      <SectionHeader
+        action={<Button icon="refresh" onClick={() => refetchLive(featuresQuery.refetch)} size="sm">Refresh</Button>}
+        description="Optional investor features. Each change needs a reason and is saved in the settings history and the audit log."
+        title="Platform features"
+      />
+      {featuresQuery.error ? <Banner tone="bad" title="Could not load platform features">{errorMessage(featuresQuery.error)}</Banner> : null}
+      {features.length ? (
+        features.map((feature) => <PlatformFeatureRow feature={feature} key={feature.key} />)
+      ) : featuresQuery.isPending && !isFixturePreview ? (
+        <Empty icon="settings" title="Loading platform features">Reading the current switches.</Empty>
+      ) : null}
+    </Card>
+  );
+}
+
 export function SettingsPanel() {
   const [categoryParam, setCategory] = useAdminParam("category", CategoryEnum.registration);
   const category = ((Object.values(CategoryEnum) as string[]).includes(categoryParam)
@@ -6891,6 +7050,9 @@ export function SettingsPanel() {
   return (
     <div className="admin-content">
       <PreviewNotice>Superadmin settings use dummy templates in preview. Live template changes create immutable document versions.</PreviewNotice>
+      <section className="admin-section">
+        <PlatformFeaturesCard />
+      </section>
       <section className="admin-section">
         <Card padded>
           <EntityTableHeader

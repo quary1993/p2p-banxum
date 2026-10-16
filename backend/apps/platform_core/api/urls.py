@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.platform_core.api.views import (
+    AdminPlatformFeaturesView,
     AdminStoryImageUploadView,
     HealthView,
     QaDevModeAdvanceView,
@@ -20,6 +21,11 @@ urlpatterns = [
     path("qa/dev-mode/advance/", QaDevModeAdvanceView.as_view(), name="qa-dev-mode-advance"),
     path("qa/dev-mode/revert/", QaDevModeRevertView.as_view(), name="qa-dev-mode-revert"),
     path("qa/dev-mode/snapshot/", QaDevModeSnapshotView.as_view(), name="qa-dev-mode-snapshot"),
+    path(
+        "admin/platform-features/",
+        AdminPlatformFeaturesView.as_view(),
+        name="admin-platform-features",
+    ),
     path(
         "admin/story-images/",
         AdminStoryImageUploadView.as_view(),

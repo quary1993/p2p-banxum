@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const emptyFixturesPath = fileURLToPath(new URL("./src/investorPortal/fixtures.empty.ts", import.meta.url));
 const emptyAdminFixturesPath = fileURLToPath(new URL("./src/adminConsole/adminFixtures.empty.ts", import.meta.url));
+const emptySiteFixturesPath = fileURLToPath(new URL("./src/site/siteFixtures.empty.ts", import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
@@ -25,6 +26,11 @@ export default defineConfig(({ mode }) => {
           {
             find: /^\.\/adminFixtures$/,
             replacement: emptyAdminFixturesPath
+          },
+          {
+            // The public site's preview data (design sample projects) stays out of production.
+            find: /^\.\/siteFixtures$/,
+            replacement: emptySiteFixturesPath
           }
         ]
         : []

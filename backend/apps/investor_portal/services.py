@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
@@ -14,9 +14,12 @@ from django.conf import settings
 from django.db.models import Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import user_can_access_financial_features
-from backend.apps.platform_core.domain.funding import balance_deadline_date, balance_is_overdue
+from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.time import business_date, now_utc
-from backend.apps.platform_core.selectors.settings import get_platform_setting_value
+from backend.apps.platform_core.selectors.settings import (
+    balance_auto_return_after_days,
+    get_platform_setting_value,
+)
 from backend.apps.platform_core.services.activity_archive import merge_archived_activity
 
 # Email bodies are private by default in the investor portal. Add a topic here only after
@@ -73,7 +76,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.secondary_market_listing_status": "Secondary market",
     "email.secondary_market_purchase_confirmation": "Secondary market",
     "email.secondary_market_sale_confirmation": "Secondary market",
-    "email.smart_invest_opportunity_match": "Smart Invest",
+    "email.smart_invest_opportunity_match": "Smart-Invest",
     "email.document_acceptance_pdf": "Documents",
     "email.account_login_blocked": "Account",
 }
@@ -167,7 +170,13 @@ def _effective_fx_rate(exchange: Any) -> str:
     return str((target_major / source_major).quantize(Decimal("0.000000000001")))
 
 
-def _balance_bucket(lot: Any, *, as_of: datetime) -> str:
+def _lot_last_day(lot: Any, *, return_after_days: int) -> date:
+    return balance_last_day(
+        withdrawal_deadline_at=lot.withdrawal_deadline_at, return_after_days=return_after_days
+    )
+
+
+def _balance_bucket(lot: Any, *, as_of: datetime, return_after_days: int) -> str:
     status = str(lot.status)
     if status == "frozen":
         return "frozen"
@@ -177,10 +186,12 @@ def _balance_bucket(lot: Any, *, as_of: datetime) -> str:
         return "penalty_exhausted"
     if status != "available":
         return status
-    if balance_is_overdue(withdrawal_deadline_at=lot.withdrawal_deadline_at, as_of=as_of):
+    last_day = _lot_last_day(lot, return_after_days=return_after_days)
+    if business_date(as_of) > last_day:
+        # Due back to the bank (day 59 on); without a usable IBAN it waits here.
         return "overdue"
-    if business_date(as_of) == balance_deadline_date(lot.withdrawal_deadline_at):
-        # Last day (day 60): it can still be withdrawn today, but no longer invested.
+    if business_date(as_of) == last_day:
+        # Last day (day 58): it can still be withdrawn today, but no longer invested.
         return "withdraw_only"
     return "investable"
 
@@ -189,8 +200,9 @@ def _days_until(value: datetime, *, as_of: datetime) -> int:
     return (business_date(value) - business_date(as_of)).days
 
 
-def _lot_payload(lot: Any, *, as_of: datetime) -> dict[str, Any]:
-    bucket = _balance_bucket(lot, as_of=as_of)
+def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[str, Any]:
+    bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
+    last_day = _lot_last_day(lot, return_after_days=return_after_days)
     return {
         "id": str(lot.pk),
         "currency": _currency_code(lot.currency),
@@ -208,6 +220,9 @@ def _lot_payload(lot: Any, *, as_of: datetime) -> dict[str, Any]:
             lot.withdrawal_deadline_at,
             as_of=as_of,
         ),
+        "last_day": last_day,
+        "return_date": last_day + timedelta(days=1),
+        "days_until_last_day": (last_day - business_date(as_of)).days,
         "original_amount_minor": int(lot.original_amount_minor),
         "available_amount_minor": int(lot.available_amount_minor),
         "invested_amount_minor": int(lot.invested_amount_minor),
@@ -234,6 +249,7 @@ def _empty_balance_summary(*, investor_user_id: str, currency: str) -> dict[str,
         "active_lot_count": 0,
         "next_investment_deadline_at": None,
         "next_withdrawal_deadline_at": None,
+        "next_return_date": None,
     }
 
 
@@ -242,6 +258,7 @@ def _balance_summaries(
     investor_user_id: str,
     as_of: datetime,
     lots: Iterable[Any],
+    return_after_days: int,
 ) -> list[dict[str, Any]]:
     summaries = {
         _currency_code(currency): _empty_balance_summary(
@@ -264,7 +281,7 @@ def _balance_summaries(
             continue
         summary["active_lot_count"] += 1
         summary["total_available_minor"] += available
-        bucket = _balance_bucket(lot, as_of=as_of)
+        bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
         if bucket == "investable":
             summary["investable_minor"] += available
         elif bucket == "withdraw_only":
@@ -290,6 +307,13 @@ def _balance_summaries(
                 or withdrawal_deadline < current_withdrawal_deadline
             ):
                 summary["next_withdrawal_deadline_at"] = withdrawal_deadline
+        if bucket in {"investable", "withdraw_only"}:
+            # The next return still ahead; money already due back has its own figure.
+            return_date = _lot_last_day(lot, return_after_days=return_after_days) + timedelta(
+                days=1
+            )
+            if summary["next_return_date"] is None or return_date < summary["next_return_date"]:
+                summary["next_return_date"] = return_date
     return [summaries[key] for key in sorted(summaries)]
 
 
@@ -304,8 +328,11 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         # Consumption order: earliest withdrawal deadline first (FX proceeds keep their source's).
         .order_by("withdrawal_deadline_at", "received_at", "created_at", "id")
     )
+    return_after_days = balance_auto_return_after_days()
     visible_lots = [
-        _lot_payload(lot, as_of=as_of_value) for lot in lots if int(lot.available_amount_minor) > 0
+        _lot_payload(lot, as_of=as_of_value, return_after_days=return_after_days)
+        for lot in lots
+        if int(lot.available_amount_minor) > 0
     ]
     payout_instructions = [
         {
@@ -329,6 +356,7 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         investor_user_id=investor_user_id,
         as_of=as_of_value,
         lots=lots,
+        return_after_days=return_after_days,
     )
     penalty_mode_minor = sum(item["penalty_mode_minor"] for item in summaries)
     # Requested withdrawals (voluntary and forced) wait for the bank transfer; their amount is
@@ -359,6 +387,7 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         "pending_withdrawals": pending_withdrawals,
         "has_penalty_mode_balance": penalty_mode_minor > 0,
         "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
+        "auto_return_after_days": return_after_days,
     }
 
 
@@ -1608,7 +1637,8 @@ def _investor_activity_entries(
                 activity_type="withdrawal_request",
                 occurred_at=withdrawal.requested_at,
                 direction="out",
-                # A forced return is started by Garanta at the 60-day limit, not by the investor.
+                # A forced return is started by Garanta when money was not invested within the
+                # auto-return days (58 by default), not by the investor.
                 title=(
                     "Forced return to your bank account"
                     if withdrawal.is_forced
@@ -2011,6 +2041,14 @@ def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -
     }
 
 
+def get_investor_portal_features() -> dict[str, bool]:
+    """Platform switches for the investor app (anonymous-safe: no account data).
+
+    ``fx_enabled``: currency exchange is offered (owner decision 2026-10-16: off for now).
+    """
+    return {"fx_enabled": bool(_fx_services().fx_enabled())}
+
+
 def get_fx_history(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
@@ -2134,8 +2172,8 @@ def get_investor_dashboard(*, actor: Model, as_of: datetime | None = None) -> di
                     "currency": summary["currency"],
                     "amount_minor": summary["overdue_minor"],
                     "message": (
-                        "This balance is past the 60-day holding limit and must be "
-                        "withdrawn. Garanta cannot extend this regulatory deadline."
+                        "This money was not invested in time and must go back to your bank. "
+                        "Add a verified bank account so we can return your money."
                     ),
                 }
             )
@@ -2147,8 +2185,8 @@ def get_investor_dashboard(*, actor: Model, as_of: datetime | None = None) -> di
                     "currency": summary["currency"],
                     "amount_minor": summary["withdraw_only_minor"],
                     "message": (
-                        "This balance reaches its 60-day holding deadline today. It can only "
-                        "be withdrawn, until the end of today."
+                        "Last day: this money can only be withdrawn today. Tomorrow it goes "
+                        "back to your bank."
                     ),
                 }
             )

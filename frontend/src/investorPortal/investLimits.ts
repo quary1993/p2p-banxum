@@ -1,9 +1,11 @@
 // Why an investment amount cannot be placed, naming the limit that actually binds: the opportunity's
-// remaining capacity, the investor's balance, or the age of that balance (60-day holding limit).
+// remaining capacity, the investor's balance, or the age of that balance (money not invested goes
+// back to the bank after 58 days).
 import type { BalanceLot } from "../api/generated/banxumApi";
+import { autoReturnRuleText } from "./balanceAgeing";
 
 export const sourceAgeRuleText =
-  "Every incoming amount has a 60-day holding limit. To invest, that amount must have enough time left to cover the loan's remaining funding period. Shorter periods can use older funds. Eligible lots are consumed oldest-first. FX conversion does not reset this limit.";
+  `${autoReturnRuleText()} To invest, that amount must have enough time left to cover the loan's remaining funding period. Shorter periods can use older funds. Eligible lots are consumed oldest-first. FX conversion does not restart this count.`;
 
 /** balanceMinor: everything still available in the currency; eligibleMinor: the part old enough rules allow for this loan. */
 export type InvestFunds = { balanceMinor: number; eligibleMinor: number };

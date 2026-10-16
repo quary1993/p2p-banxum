@@ -75,7 +75,6 @@ import type {
   PrimaryOrderBatchResponse,
   PrimaryOrderPortal,
   PublicDocumentTemplateVersion,
-  PublicMarketplaceLoan,
   SecondaryMarketActivityEntryPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketInvestmentInstallment,
@@ -93,6 +92,7 @@ import {
   useDepositInstructionsData,
   useDocumentsData,
   useFxData,
+  useFxFeature,
   useLoanDetailData,
   useLoanRiskNotesData,
   useMarketplaceLoansData,
@@ -100,7 +100,6 @@ import {
   useNotificationsData,
   usePortfolioData,
   usePrimaryOrdersData,
-  usePublicMarketplaceLoansData,
   useSecondaryActivityData,
   useSecondaryListingDetailData,
   useSecondaryListingsData,
@@ -141,6 +140,11 @@ import {
   type MkListKey
 } from "./investorPortal/smartInvestCriteria";
 import { onboardingStepForUser } from "./onboarding";
+import { CreatePinForm, SensitivePinField, SettingsPinPanel } from "./investorPortal/pin";
+import { pinApiError } from "./investorPortal/pinRules";
+import { usePinStatus, useSensitivePin } from "./investorPortal/pinState";
+import { SitePages } from "./site/SitePages";
+import { SiteSkin } from "./site/SiteSkin";
 import { captureMagicLinkTokenFromLocation, takePendingMagicLinkToken } from "./magicLinkToken";
 import {
   formatDate,
@@ -175,6 +179,9 @@ import {
   scheduleRowStatus
 } from "./investorPortal/holdingProgress";
 import { currencyBalanceMinor, investAmountLimitMessage, noEligibleFundsReason } from "./investorPortal/investLimits";
+import { AUTO_RETURN_AFTER_DAYS, autoReturnDays, autoReturnRuleText, lotAgeLines } from "./investorPortal/balanceAgeing";
+import { isSwissInvestorLimitError, swissLoanFullForViewer } from "./investorPortal/investorLimit";
+import { SwissInvestorLimitNote } from "./investorPortal/SwissInvestorLimitNote";
 import {
   collateralBreakdown,
   currentLoanPrincipalMinor,
@@ -362,8 +369,6 @@ function removeStoredObject(key: string) {
 
 const routeNames: RouteName[] = [
   "public",
-  "publicProjects",
-  "publicFaq",
   "login",
   "register",
   "kyc",
@@ -391,22 +396,41 @@ function readStoredRoute(): AppRoute {
     : { name: "public" };
 }
 
-// "/" restores the last in-app screen, but never another public page: the
-// public pages have their own addresses (/projects, /faq), so "/" is the home page.
+// "/" restores the last in-app screen, but never a site page: the public site pages have
+// their own addresses (/projects, /help...), so "/" is the home page.
 function homeOrStoredRoute(): AppRoute {
   const stored = readStoredRoute();
   // Never the login or registration form either: a returning visitor whose session ended
   // sees the home page at "/" (the investor shell also falls back to it, see InvestorShell).
-  return ["publicProjects", "publicFaq", "login", "register"].includes(stored.name) ? { name: "public" } : stored;
+  return isPublicRouteName(stored.name) ? { name: "public" } : stored;
 }
 
-function routeFromPathname(pathname: string): AppRoute | null {
+/** Public routes: the site and the login/registration flows. Never "the last portal page". */
+function isPublicRouteName(name: RouteName) {
+  return name === "public" || name === "site" || name === "login" || name === "register";
+}
+
+// The site's old FAQ address now shows Help: keep the address bar on the new path.
+function canonicalSiteAddress() {
+  const normalized = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (normalized === "/faq") {
+    window.history.replaceState(window.history.state, "", `/help${window.location.search}${window.location.hash}`);
+  }
+}
+
+/**
+ * The route of an address. Portal, login and registration paths have their own route names;
+ * "/" is the site's home ("public") and EVERY other path belongs to the public site ("site",
+ * with the path and query in params), which shows its own 404 page for unknown paths.
+ */
+function routeFromPathname(pathname: string, search = ""): AppRoute {
   const normalized = pathname.replace(/\/+$/, "") || "/";
+  const siteRoute: AppRoute = {
+    name: "site",
+    params: { path: normalized === "/faq" ? "/help" : normalized, search: search === "?" ? "" : search }
+  };
   const directRoutes: Record<string, RouteName> = {
     "/": "public",
-    "/projects": "publicProjects",
-    "/faq": "publicFaq",
-    "/help": "publicFaq",
     "/login": "login",
     "/register": "register",
     "/verification": "kyc",
@@ -423,40 +447,27 @@ function routeFromPathname(pathname: string): AppRoute | null {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
-  const publicProjectMatch = normalized.match(/^\/projects\/([^/]+)$/);
-  if (publicProjectMatch) {
-    try {
-      return {
-        name: "publicProjects",
-        params: { loanId: decodeURIComponent(publicProjectMatch[1]) }
-      };
-    } catch {
-      return null;
-    }
-  }
   const investmentMatch = normalized.match(/^\/portfolio\/([^/]+)$/);
   if (investmentMatch) {
     try {
       return { name: "investment", params: { holdingId: decodeURIComponent(investmentMatch[1]) } };
     } catch {
-      return null;
+      return siteRoute;
     }
   }
   const loanMatch = normalized.match(/^\/marketplace\/([^/]+)(\/schedule|\/invest)?$/);
-  if (!loanMatch) return null;
+  if (!loanMatch) return siteRoute;
   try {
     const name: RouteName = loanMatch[2] === "/schedule" ? "loanSchedule" : loanMatch[2] === "/invest" ? "invest" : "loan";
     return { name, params: { loanId: decodeURIComponent(loanMatch[1]) } };
   } catch {
-    return null;
+    return siteRoute;
   }
 }
 
 function routePath(route: AppRoute) {
-  if (route.name === "publicProjects") {
-    return route.params?.loanId
-      ? `/projects/${encodeURIComponent(route.params.loanId)}`
-      : "/projects";
+  if (route.name === "site") {
+    return `${route.params?.path ?? "/"}${route.params?.search ?? ""}`;
   }
   if (route.name === "investment") {
     const path = `/portfolio/${encodeURIComponent(route.params?.holdingId ?? "")}`;
@@ -464,8 +475,7 @@ function routePath(route: AppRoute) {
   }
   const paths: Record<RouteName, string> = {
     public: "/",
-    publicProjects: "/projects",
-    publicFaq: "/faq",
+    site: "/",
     login: "/login",
     register: "/register",
     kyc: "/verification",
@@ -592,14 +602,14 @@ function useSecondsUntil(untilMs: number) {
 
 const routeTitles: Record<RouteName, string> = {
   public: platformName,
-  publicProjects: "Projects",
-  publicFaq: "Help",
+  // The site sets its own titles (site/SitePages.tsx).
+  site: platformName,
   login: "Log in",
   register: "Register",
   kyc: "Verification",
   dashboard: "Overview",
   market: "Primary market",
-  smartInvest: "Smart Invest",
+  smartInvest: "Smart-Invest",
   loan: "Project",
   loanSchedule: "Project schedule",
   invest: "Invest",
@@ -640,7 +650,7 @@ const navGroups: Array<{ label: string; items: Array<NavLeaf | NavParent> }> = [
         ]
       },
       { route: "portfolio", label: "My investments", icon: "portfolio" },
-      { route: "smartInvest", label: "Smart Invest", icon: "refresh" }
+      { route: "smartInvest", label: "Smart-Invest", icon: "refresh" }
     ]
   },
   {
@@ -669,58 +679,10 @@ const navActiveRoute: Partial<Record<RouteName, RouteName>> = {
   kyc: "settings"
 };
 
-const legalDocumentTitles: Record<string, string> = {
-  registration: "Lender user agreement",
-  primary_market_investment: "Investment terms and loan claim assignment",
-  secondary_market_listing: "Secondary-market seller/listing terms",
-  secondary_market_purchase: "Secondary-market buyer terms",
-  risk_disclosure: "Generic P2P lending risk disclosure"
-};
-
+// The published template of a category, shown by the public site's legal page
+// (site/pages/Legal.tsx: /legal/registration, /legal/risk-disclosure...).
 function legalDocumentPath(category: string) {
   return `/legal/${category.replace(/_/g, "-")}`;
-}
-
-function renderLegalBody(body: string): ReactNode {
-  const resolved = body
-    .replace(/\{\{\s*platform\.name\s*\}\}/g, platformName)
-    .replace(/\{\{\s*operator\.name\s*\}\}/g, operatorName)
-    .replace(/\{\{\s*platform\.support_email\s*\}\}/g, supportEmail)
-    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, "[$1]");
-  return resolved.split(/\n\n+/).map((rawBlock, index) => {
-    const block = rawBlock.trim();
-    if (!block) return null;
-    const heading = block.match(/^(#{1,3})\s+([\s\S]*)$/);
-    if (heading) {
-      const text = heading[2].trim();
-      return heading[1].length === 1 ? <h2 key={index}>{text}</h2> : <h3 key={index}>{text}</h3>;
-    }
-    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
-    if (lines.length > 1 && lines.every((line) => line.startsWith("|"))) {
-      const rows = lines.map((line) => line.replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
-      const [head, ...rest] = rows;
-      return (
-        <table className="legal-doc-table" key={index}>
-          <thead><tr>{head.map((cell, cellIndex) => <th key={cellIndex}>{cell}</th>)}</tr></thead>
-          <tbody>
-            {rest
-              .filter((cells) => !cells.every((cell) => /^[-\s:]*$/.test(cell)))
-              .map((cells, rowIndex) => (
-                <tr key={rowIndex}>{cells.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
-              ))}
-          </tbody>
-        </table>
-      );
-    }
-    if (lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line))) {
-      return (
-        <ul key={index}>
-          {lines.map((line, lineIndex) => <li key={lineIndex}>{line.replace(/^[-*]\s+/, "")}</li>)}
-        </ul>
-      );
-    }
-    return <p key={index}>{block}</p>;
-  });
 }
 
 function LegalDocLink({ category, children }: { category: string; children: ReactNode }) {
@@ -887,8 +849,41 @@ function useSensitiveActionCode(action: ActionEnum) {
       }
     );
   }, [action, requestMutation]);
+  // Every sensitive action needs the PIN with the email code (ACC-DEC-009).
+  const pin = useSensitivePin();
 
-  return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, resendCooldownSeconds, requestCode };
+  return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, resendCooldownSeconds, requestCode, pin };
+}
+
+// The email code and the PIN of a sensitive action, side by side in every flow. After a
+// PIN is created from the "no PIN yet" answer, onContinue runs the action again.
+function SensitiveActionFields({
+  codeRequest,
+  code,
+  onCodeChange,
+  onContinue,
+  requestDisabled = false
+}: {
+  codeRequest: ReturnType<typeof useSensitiveActionCode>;
+  code: string;
+  onCodeChange: (value: string) => void;
+  onContinue?: () => void;
+  requestDisabled?: boolean;
+}) {
+  return (
+    <div className="sensitive-confirm">
+      <CodeRequestField
+        hint={previewHint("Demo: any 6 digits")}
+        label="Email confirmation code"
+        requestDisabled={requestDisabled || emailCodeRequestDisabled(codeRequest)}
+        requestLabel={emailCodeRequestLabel(codeRequest)}
+        value={code}
+        onChange={onCodeChange}
+        onRequest={codeRequest.requestCode}
+      />
+      <SensitivePinField onContinue={onContinue} pin={codeRequest.pin} />
+    </div>
+  );
 }
 
 function useAutoRequestEmailCode(
@@ -1083,7 +1078,8 @@ function currentInvestableLotsForLoanCurrency(
       lot.currency === loan.currency &&
       lot.status === "available" &&
       lot.bucket === "investable" &&
-      (!loan.funding_deadline || loan.funding_deadline < zurichDateKey(new Date(lot.withdrawal_deadline_at))) &&
+      // The whole funding window must end before the lot's last day (day 58), when it can only be withdrawn.
+      (!loan.funding_deadline || loan.funding_deadline < lot.last_day) &&
       lot.available_amount_minor > 0
   );
 }
@@ -1127,24 +1123,52 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
   removeStoredObject(registerFlowStorageKey);
 }
 
+// In-app navigation from the public site (site/SitePages.tsx navigate()): site paths change the
+// address and the route without touching the stored portal route; /login and /register go
+// through goTo like the rest of the app.
+function goToSitePath(setRoute: (route: AppRoute) => void, href: string, options?: { replace?: boolean }) {
+  const url = new URL(href, window.location.origin);
+  const route = routeFromPathname(url.pathname, url.search);
+  if (route.name !== "public" && route.name !== "site") {
+    goTo(setRoute, route.name, route.params);
+    return;
+  }
+  const nextAddress = `${routePath(route)}${url.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextAddress) {
+    if (options?.replace) window.history.replaceState(window.history.state, "", nextAddress);
+    else window.history.pushState({}, "", nextAddress);
+  }
+  setRoute(route);
+}
+
 export function App() {
   // A login-link token leaves the address bar before anything renders or calls the API.
   captureMagicLinkTokenFromLocation();
-  const pathRoute = routeFromPathname(window.location.pathname);
+  const pathRoute = routeFromPathname(window.location.pathname, window.location.search);
   const initialRoute: AppRoute = readReadonlyImpersonationToken()
-    ? pathRoute && !["public", "publicProjects", "publicFaq", "login", "register"].includes(pathRoute.name)
+    ? !isPublicRouteName(pathRoute.name)
       ? pathRoute
       : { name: "dashboard" }
-    : pathRoute?.name === "public"
+    : pathRoute.name === "public"
       ? homeOrStoredRoute()
-      : pathRoute ?? readStoredRoute();
+      : pathRoute;
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [demoState, setDemoState] = useState<DemoAccountState>("active");
   // The path is state too: Back/Forward between the portal and /admin must re-render App.
   const [, setPathname] = useState(() => window.location.pathname);
+  const navigateSite = useCallback(
+    (href: string, options?: { replace?: boolean }) => goToSitePath(setRoute, href, options),
+    []
+  );
+
+  useLayoutEffect(() => {
+    canonicalSiteAddress();
+  }, []);
 
   useEffect(() => {
     if (window.location.pathname.startsWith("/admin")) return;
+    // The public site sets its own titles ("Projects · Banxum").
+    if (route.name === "public" || route.name === "site") return;
     const title = routeTitles[route.name];
     document.title = title && title !== platformName ? `${title} · ${platformName}` : platformName;
   }, [route.name]);
@@ -1154,8 +1178,9 @@ export function App() {
       setPathname(window.location.pathname);
       // The admin console routes itself (adminConsole/adminRoute.ts); App only has to switch to it.
       if (window.location.pathname.startsWith("/admin")) return;
-      const nextRoute = routeFromPathname(window.location.pathname) ?? { name: "public" as const };
-      writeStoredObject(appRouteStorageKey, nextRoute);
+      canonicalSiteAddress();
+      const nextRoute = routeFromPathname(window.location.pathname, window.location.search);
+      if (nextRoute.name !== "site") writeStoredObject(appRouteStorageKey, nextRoute);
       setRoute(nextRoute);
     };
     window.addEventListener("popstate", onPopState);
@@ -1170,24 +1195,17 @@ export function App() {
     return <UserSkin><KycReturnScreen setRoute={setRoute} /></UserSkin>;
   }
 
-  if (window.location.pathname.startsWith("/legal/")) {
-    return <UserSkin><LegalDocumentPage setRoute={setRoute} /></UserSkin>;
-  }
-
-  if (routeFromPathname(window.location.pathname) === null) {
-    return <UserSkin><NotFoundPage setRoute={setRoute} /></UserSkin>;
-  }
-
-  if (route.name === "public") {
-    return <UserSkin><PublicLanding setRoute={setRoute} /></UserSkin>;
-  }
-
-  if (route.name === "publicProjects") {
-    return <UserSkin><PublicProjectsPage route={route} setRoute={setRoute} /></UserSkin>;
-  }
-
-  if (route.name === "publicFaq") {
-    return <UserSkin><PublicFaqPage setRoute={setRoute} /></UserSkin>;
+  // The public site (logged-out pages): its own skin (html.bxs), shell and router.
+  if (route.name === "public" || route.name === "site") {
+    return (
+      <SiteSkin>
+        <SitePages
+          navigate={navigateSite}
+          path={route.name === "public" ? "/" : route.params?.path ?? "/"}
+          search={route.name === "public" ? "" : route.params?.search ?? ""}
+        />
+      </SiteSkin>
+    );
   }
 
   if (route.name === "login") {
@@ -1273,1114 +1291,9 @@ function BrandHomeLink({
   );
 }
 
-/* --------------------------------------------------------------------------
-   Public site (logged-out pages): shell, home, projects, FAQ and legal pages.
-   -------------------------------------------------------------------------- */
-
-type SiteNavKey = "projects" | "how" | "help";
-
-const siteHowItWorksId = "how-it-works";
-function sitePrefersReducedMotion() {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function siteScrollTo(target: Element) {
-  target.scrollIntoView({ behavior: sitePrefersReducedMotion() ? "auto" : "smooth", block: "start" });
-}
-
+// A plain left click (no new tab, no modifier): the only click the app handles itself.
 function isPlainLeftClick(event: React.MouseEvent<HTMLAnchorElement>) {
   return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
-}
-
-// Opens a section of the home page, for example "How it works", from any public page.
-function goToSiteSection(setRoute: (route: AppRoute) => void, id: string) {
-  const target = document.getElementById(id);
-  if (target) {
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}#${id}`);
-    siteScrollTo(target);
-    return;
-  }
-  goTo(setRoute, "public");
-  window.history.replaceState(window.history.state, "", `/#${id}`);
-}
-
-// Public preview loans arrive open and ordered by closing date (MKT-DEC-002 fields only).
-function siteOpenLoans(loans: PublicMarketplaceLoan[]) {
-  return loans.filter((loan) => loan.status === "open");
-}
-
-function publicLoanTypeLabel(loan: Pick<PublicMarketplaceLoan, "product_type">) {
-  return loan.product_type === "originator_claim" ? "Loan Originator claim" : "Direct loan";
-}
-
-function publicLoanStatusLabel(status: string) {
-  return status === "open" ? "Open for investment" : humanizeToken(status);
-}
-
-function publicCountryLabel(country: string) {
-  const value = country.trim();
-  if (!value) return "Not disclosed";
-  if (/^[A-Za-z]{2}$/.test(value) && typeof Intl.DisplayNames === "function") {
-    try {
-      return new Intl.DisplayNames(["en"], { type: "region" }).of(value.toUpperCase()) ?? value;
-    } catch {
-      return value;
-    }
-  }
-  return value;
-}
-
-function siteYieldRange(loans: PublicMarketplaceLoan[]) {
-  if (loans.length === 0) return null;
-  const values = loans.map((loan) => loan.interest_rate_bps);
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  return minimum === maximum ? formatRateBps(minimum) : `${formatRateBps(minimum)} to ${formatRateBps(maximum)}`;
-}
-
-function SiteFlag({ kind, label }: { kind: "CH" | "EU"; label: string }) {
-  return (
-    <span aria-label={label} className="site-flag" role="img">
-      {kind === "CH" ? (
-        <svg height="14" viewBox="0 0 14 14" width="14">
-          <rect fill="#DA291C" height="14" width="14" />
-          <rect fill="#fff" height="8.4" width="2.4" x="5.8" y="2.8" />
-          <rect fill="#fff" height="2.4" width="8.4" x="2.8" y="5.8" />
-        </svg>
-      ) : (
-        <svg height="14" viewBox="0 0 20 14" width="20">
-          <rect fill="#003399" height="14" width="20" />
-          <circle cx="10" cy="7" fill="none" r="3.6" stroke="#ffcc00" strokeDasharray="1.2 1.6" strokeWidth="1.1" />
-        </svg>
-      )}
-    </span>
-  );
-}
-
-const siteLegalLinkLabels: Record<string, string> = {
-  // The platform terms live in the published "registration" template; publishing a new version swaps the text.
-  registration: "Terms and Conditions",
-  primary_market_investment: "Investment terms",
-  secondary_market_listing: "Seller terms",
-  secondary_market_purchase: "Buyer terms",
-  risk_disclosure: "Risk disclosure"
-};
-
-function SiteShell({
-  active,
-  children,
-  setRoute
-}: {
-  active?: SiteNavKey;
-  children: ReactNode;
-  setRoute: (route: AppRoute) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [ctaVisible, setCtaVisible] = useState(false);
-  const burgerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const update = () => setCtaVisible(window.scrollY > 520);
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    return () => window.removeEventListener("scroll", update);
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-        burgerRef.current?.focus();
-      }
-    };
-    const onResize = () => {
-      if (window.innerWidth >= 1100) setMenuOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("resize", onResize);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [menuOpen]);
-
-  const go = (name: RouteName) => {
-    setMenuOpen(false);
-    goTo(setRoute, name);
-  };
-  const navLinks: Array<{ key: SiteNavKey; label: string; href: string; open: () => void }> = [
-    { key: "projects", label: "Projects", href: "/projects", open: () => go("publicProjects") },
-    {
-      key: "how",
-      label: "How it works",
-      href: `/#${siteHowItWorksId}`,
-      open: () => {
-        setMenuOpen(false);
-        goToSiteSection(setRoute, siteHowItWorksId);
-      }
-    },
-    { key: "help", label: "Help", href: "/faq", open: () => go("publicFaq") }
-  ];
-  const linkHandler = (open: () => void) => (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!isPlainLeftClick(event)) return;
-    event.preventDefault();
-    open();
-  };
-  const renderNavLinks = () =>
-    navLinks.map((link) => (
-      <a
-        aria-current={active === link.key ? "page" : undefined}
-        className={active === link.key ? "active" : undefined}
-        href={link.href}
-        key={link.key}
-        onClick={linkHandler(link.open)}
-      >
-        {link.label}
-      </a>
-    ));
-  const ctaShown = ctaVisible && !menuOpen;
-
-  return (
-    <div className={`site ${menuOpen ? "site-menu-open" : ""}`}>
-      <a
-        className="site-skip"
-        href="#site-main"
-        onClick={(event) => {
-          event.preventDefault();
-          document.getElementById("site-main")?.focus();
-        }}
-      >
-        Skip to content
-      </a>
-      <header className="site-header">
-        <div className="site-wrap site-header-inner">
-          <BrandHomeLink className="site-brand" onNavigate={() => setMenuOpen(false)} setRoute={setRoute}>
-            <Wordmark />
-          </BrandHomeLink>
-          <nav aria-label="Main" className="site-nav">
-            {renderNavLinks()}
-          </nav>
-          <div className="site-header-actions">
-            <Button className="site-btn-outline site-hide-menu" onClick={() => go("login")}>
-              Log in
-            </Button>
-            <Button variant="primary" onClick={() => go("register")}>
-              Open account
-            </Button>
-            <button
-              aria-controls="site-menu"
-              aria-expanded={menuOpen}
-              aria-label="Menu"
-              className="site-burger"
-              onClick={() => setMenuOpen((open) => !open)}
-              ref={burgerRef}
-              type="button"
-            >
-              <Icon name={menuOpen ? "x" : "menu"} size={22} />
-            </button>
-          </div>
-        </div>
-      </header>
-      {menuOpen ? (
-        <div className="site-menu" id="site-menu">
-          <div className="site-wrap">
-            <nav aria-label="Menu" className="site-menu-nav">
-              {renderNavLinks()}
-            </nav>
-            <div className="site-actions">
-              <Button className="site-btn-outline" size="lg" onClick={() => go("login")}>
-                Log in
-              </Button>
-              <Button size="lg" variant="primary" onClick={() => go("register")}>
-                Open account
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      <main className="site-main" id="site-main" tabIndex={-1}>
-        {children}
-      </main>
-      <SiteFooter setRoute={setRoute} />
-      <div aria-hidden={!ctaShown} className={`site-mobile-cta ${ctaShown ? "is-visible" : ""}`} inert={!ctaShown}>
-        <Button className="site-btn-outline" size="lg" tabIndex={ctaShown ? undefined : -1} onClick={() => go("publicProjects")}>
-          Projects
-        </Button>
-        <Button size="lg" tabIndex={ctaShown ? undefined : -1} variant="primary" onClick={() => go("register")}>
-          Open account
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SiteFooter({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const routeLink = (name: RouteName) => (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!isPlainLeftClick(event)) return;
-    event.preventDefault();
-    goTo(setRoute, name);
-  };
-  return (
-    <footer className="site-footer">
-      <div className="site-wrap">
-        <div className="site-footer-grid">
-          <div className="site-footer-brand">
-            <BrandHomeLink setRoute={setRoute}>
-              <Wordmark inverse />
-            </BrandHomeLink>
-            <p>
-              Business loans in Switzerland and the EU/EEA, funded by individual lenders through participations in
-              loan claims. {platformName} is owned and operated by {operatorName}.
-            </p>
-          </div>
-          <div className="site-footer-col">
-            <h2>Invest</h2>
-            <ul>
-              <li><a href="/projects" onClick={routeLink("publicProjects")}>Open projects</a></li>
-              <li>
-                <a
-                  href={`/#${siteHowItWorksId}`}
-                  onClick={(event) => {
-                    if (!isPlainLeftClick(event)) return;
-                    event.preventDefault();
-                    goToSiteSection(setRoute, siteHowItWorksId);
-                  }}
-                >
-                  How it works
-                </a>
-              </li>
-              <li><a href={legalDocumentPath("risk_disclosure")}>Risk disclosure</a></li>
-            </ul>
-          </div>
-          <div className="site-footer-col">
-            <h2>Account</h2>
-            <ul>
-              <li><a href="/login" onClick={routeLink("login")}>Log in</a></li>
-              <li><a href="/register" onClick={routeLink("register")}>Open account</a></li>
-            </ul>
-          </div>
-          <div className="site-footer-col">
-            <h2>Help</h2>
-            <ul>
-              <li><a href="/faq" onClick={routeLink("publicFaq")}>Help &amp; FAQ</a></li>
-              <li><a href={`mailto:${supportEmail}`}>{supportEmail}</a></li>
-            </ul>
-          </div>
-        </div>
-        <div className="site-footer-legal">
-          <p>
-            {platformName}® is a registered trademark. The {platformName} platform is owned and operated by{" "}
-            {operatorName}, a Swiss financial company with a share capital of CHF 1'100'000.00, affiliated to VQF, a
-            self-regulatory organisation recognised by FINMA, and to FINOS, the Swiss financial ombudsman.{" "}
-            {operatorName} is not a bank: money in a {platformName} balance is not a bank deposit and is not protected
-            by the Swiss deposit insurance.
-          </p>
-          <p className="site-footer-risk">
-            Lending to companies puts your capital at risk: a borrower can pay late or not at all, and you may not be
-            able to sell your investment before it ends. Past results do not predict future results.
-          </p>
-        </div>
-        <div className="site-footer-bottom">
-          <span>© {new Date().getFullYear()} {operatorName}</span>
-          <nav aria-label="Legal documents">
-            {Object.keys(legalDocumentTitles).map((category) => (
-              <a href={legalDocumentPath(category)} key={category} title={legalDocumentTitles[category]}>
-                {siteLegalLinkLabels[category] ?? legalDocumentTitles[category]}
-              </a>
-            ))}
-          </nav>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-function SitePlayIcon({ playing }: { playing: boolean }) {
-  return playing ? (
-    <svg aria-hidden="true" height="14" viewBox="0 0 14 14" width="14">
-      <rect fill="currentColor" height="10" width="3" x="3" y="2" />
-      <rect fill="currentColor" height="10" width="3" x="8" y="2" />
-    </svg>
-  ) : (
-    <svg aria-hidden="true" height="14" viewBox="0 0 14 14" width="14">
-      <path d="M4 2l8 5-8 5z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SiteProjectCarousel({
-  loans,
-  loading,
-  failed,
-  onOpen,
-  onRetry,
-  onSeeAll
-}: {
-  loans: PublicMarketplaceLoan[];
-  loading: boolean;
-  failed: boolean;
-  onOpen: (loan: PublicMarketplaceLoan) => void;
-  onRetry: () => void;
-  onSeeAll: () => void;
-}) {
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(() => !sitePrefersReducedMotion() && typeof window.matchMedia === "function");
-  const [hovered, setHovered] = useState(false);
-  const count = loans.length;
-  const current = count > 0 ? loans[index % count] : null;
-  const position = count > 0 ? index % count : 0;
-
-  useEffect(() => {
-    if (!playing || hovered || count < 2) return undefined;
-    const timer = window.setInterval(() => setIndex((value) => (value + 1) % count), 6000);
-    return () => window.clearInterval(timer);
-  }, [playing, hovered, count]);
-
-  if (!current) {
-    return (
-      <div className="site-hero-card site-hero-card-empty">
-        <div className="site-hero-card-top"><span>Open loans</span></div>
-        {loading ? (
-          <p>Loading the loans open for investment.</p>
-        ) : failed ? (
-          <>
-            <p>The open loans could not be loaded right now.</p>
-            <Button className="site-btn-white" onClick={onRetry}>Try again</Button>
-          </>
-        ) : (
-          <>
-            <p>No loans are open for investment right now. New loans appear here when they open.</p>
-            <Button className="site-btn-white" onClick={onSeeAll}>See all projects</Button>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // Public preview fields only (plan MKT-DEC-002): borrower, amount, interest, period,
-  // loan type, status, country and currency. No funding progress, deadline or minimum.
-  const step = (delta: number) => {
-    setPlaying(false);
-    setIndex((value) => (value + delta + count) % count);
-  };
-
-  return (
-    <div
-      aria-label="Loans open for investment"
-      aria-roledescription="carousel"
-      className="site-carousel"
-      onBlur={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      role="region"
-    >
-      <div aria-label={`${position + 1} of ${count}`} aria-roledescription="slide" role="group">
-        <a
-          className="site-hero-card"
-          href={`/projects/${encodeURIComponent(current.loan_id)}`}
-          onClick={(event) => {
-            if (!isPlainLeftClick(event)) return;
-            event.preventDefault();
-            onOpen(current);
-          }}
-        >
-          <div className="site-hero-card-top">
-            <span className="site-live"><i aria-hidden="true" />Funding now</span>
-            <span>{publicCountryLabel(current.borrower_country)}</span>
-          </div>
-          <h2 className="site-hero-card-title">{current.borrower_name}</h2>
-          <div className="site-hero-card-place">
-            {publicLoanTypeLabel(current)} · {current.currency}
-            {current.is_refinancing ? " · Refinanced" : ""}
-          </div>
-          <div className="site-hero-rate">
-            <strong>{formatRateBps(current.interest_rate_bps)}</strong>
-            <span>interest a year</span>
-          </div>
-          <dl className="site-hero-card-facts">
-            <div><dt>Term</dt><dd>{pluralize(current.term_months, "month")}</dd></div>
-            <div>
-              <dt>Loan amount</dt>
-              <dd>{current.currency} {formatMoneyMinor(current.principal_minor, current.currency)}</dd>
-            </div>
-            <div><dt>Status</dt><dd>Open</dd></div>
-          </dl>
-        </a>
-      </div>
-      {count > 1 ? (
-        <div className="site-carousel-nav">
-          <div className="site-carousel-dots">
-            {loans.map((loan, loanIndex) => (
-              <button
-                aria-current={loanIndex === position ? "true" : undefined}
-                aria-label={`Loan ${loanIndex + 1}: ${loan.borrower_name}`}
-                className={loanIndex === position ? "active" : undefined}
-                key={loan.loan_id}
-                onClick={() => {
-                  setPlaying(false);
-                  setIndex(loanIndex);
-                }}
-                type="button"
-              />
-            ))}
-          </div>
-          <span aria-live="polite" className="site-carousel-count">{position + 1} / {count}</span>
-          <div className="site-carousel-btns">
-            <button
-              aria-label={playing ? "Pause" : "Play"}
-              className="site-carousel-btn"
-              onClick={() => setPlaying((value) => !value)}
-              type="button"
-            >
-              <SitePlayIcon playing={playing} />
-            </button>
-            <button aria-label="Previous loan" className="site-carousel-btn" onClick={() => step(-1)} type="button">
-              <Icon name="arrowL" size={16} />
-            </button>
-            <button aria-label="Next loan" className="site-carousel-btn" onClick={() => step(1)} type="button">
-              <Icon name="arrowR" size={16} />
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SiteProjectCard({ loan, onOpen }: { loan: PublicMarketplaceLoan; onOpen: (loan: PublicMarketplaceLoan) => void }) {
-  const open = loan.status === "open";
-  return (
-    <article className={`site-project ${open ? "is-open" : ""}`} onClick={() => onOpen(loan)}>
-      <div className="site-project-top">
-        <div className="site-project-tags">
-          <Chip status={loan.status} />
-          {loan.is_refinancing ? <RefinancedTag /> : null}
-        </div>
-        <span className="site-project-country">{publicCountryLabel(loan.borrower_country)}</span>
-      </div>
-      <h3 className="site-project-title">{loan.borrower_name}</h3>
-      <div className="site-project-place">{publicLoanTypeLabel(loan)} · {loan.currency}</div>
-      <div className="site-project-rate">
-        <strong>{formatRateBps(loan.interest_rate_bps)}</strong>
-        <span>interest a year</span>
-      </div>
-      <dl className="site-project-facts">
-        <div><dt>Amount</dt><dd><Money amountMinor={loan.principal_minor} currency={loan.currency} /></dd></div>
-        <div><dt>Term</dt><dd>{pluralize(loan.term_months, "month")}</dd></div>
-      </dl>
-      <div className="site-project-foot">
-        <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />
-        <button
-          aria-label={`View ${loan.borrower_name}`}
-          className="site-project-open"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen(loan);
-          }}
-          type="button"
-        >
-          View <Icon name="chevR" size={15} />
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const loansQuery = usePublicMarketplaceLoansData();
-  const loans = loansQuery.data ?? [];
-  const openLoans = siteOpenLoans(loans);
-  const openPreview = (loan: PublicMarketplaceLoan) => goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
-
-  useEffect(() => {
-    const id = window.location.hash.slice(1);
-    if (!id) return;
-    const target = document.getElementById(id);
-    if (target) target.scrollIntoView({ block: "start" });
-  }, []);
-
-  return (
-    <SiteShell setRoute={setRoute}>
-      <section className="site-hero">
-        <div className="site-wrap site-hero-grid">
-          <div className="site-hero-copy">
-            <span className="site-eyebrow">
-              <SiteFlag kind="CH" label="Switzerland" />
-              Swiss-regulated financial platform · CHF and EUR
-            </span>
-            <h1 className="site-display">
-              <span>Your capital.</span> <span>Your choice.</span>
-            </h1>
-            <p className="site-lead">
-              Lend to companies in Switzerland and the EU/EEA, one project at a time. You choose each loan, see its
-              terms before you invest, and pay no platform fee to invest.
-            </p>
-            <div className="site-actions">
-              <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
-                Open account
-              </Button>
-              <Button className="site-btn-outline" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
-                See open projects
-              </Button>
-            </div>
-            <div className="site-trust">
-              <span><Icon name="shield" size={15} />Regulated in Switzerland · VQF · FINOS</span>
-              <span><Icon name="checkCircle" size={15} />Audited · share capital CHF 1.1 million</span>
-            </div>
-            <p className="site-risk-line">
-              Lending to companies puts your capital at risk. Read the{" "}
-              <a href={legalDocumentPath("risk_disclosure")}>risk disclosure</a>.
-            </p>
-          </div>
-          <SiteProjectCarousel
-            failed={loansQuery.isError && loans.length === 0}
-            loading={loansQuery.isLoading && loans.length === 0}
-            loans={openLoans.slice(0, 7)}
-            onOpen={openPreview}
-            onRetry={() => void loansQuery.refetch()}
-            onSeeAll={() => goTo(setRoute, "publicProjects")}
-          />
-        </div>
-      </section>
-      <LandingMarketing
-        loansFailed={loansQuery.isError && loans.length === 0}
-        loansLoading={loansQuery.isLoading && loans.length === 0}
-        onOpenLoan={openPreview}
-        onRetry={() => void loansQuery.refetch()}
-        openLoans={openLoans}
-        setRoute={setRoute}
-      />
-    </SiteShell>
-  );
-}
-
-function LandingMarketing({
-  loansFailed,
-  loansLoading,
-  onOpenLoan,
-  onRetry,
-  openLoans,
-  setRoute
-}: {
-  loansFailed: boolean;
-  loansLoading: boolean;
-  onOpenLoan: (loan: PublicMarketplaceLoan) => void;
-  onRetry: () => void;
-  openLoans: PublicMarketplaceLoan[];
-  setRoute: (route: AppRoute) => void;
-}) {
-  const openCount = openLoans.length;
-  const byCurrency = (["CHF", "EUR"] as const).map((currency) => {
-    const currencyLoans = openLoans.filter((loan) => loan.currency === currency);
-    return { currency, count: currencyLoans.length, yields: siteYieldRange(currencyLoans) };
-  });
-
-  return (
-    <>
-      <section className="site-section is-tint" id="fees">
-        <div className="site-wrap site-split is-center">
-          <div>
-            <span className="site-eyebrow">Fees</span>
-            <div className="site-zero">
-              <strong className="site-accent">0%</strong>
-              <span>platform fee when you invest</span>
-            </div>
-            <h2 className="site-h2">No fee to invest or to withdraw</h2>
-            <p className="site-lead site-gap-top">
-              Investing in a loan and withdrawing to your bank cost nothing. Fees apply only when you sell or buy on
-              the secondary market or exchange currency, and you see each one before you confirm.
-            </p>
-          </div>
-          <div className="site-box">
-            <table className="site-table site-fee-table">
-              <thead>
-                <tr><th scope="col">For investors</th><th className="is-num" scope="col">Fee</th></tr>
-              </thead>
-              <tbody>
-                <tr><td>Investing in a loan</td><td className="is-num">None</td></tr>
-                <tr><td>Withdrawing to your bank</td><td className="is-num">None</td></tr>
-                <tr>
-                  <td>
-                    Selling early on the secondary market
-                    <span className="site-table-sub">Maker fee, paid by the seller only if the sale happens</span>
-                  </td>
-                  <td className="is-num">0.25% of the price</td>
-                </tr>
-                <tr>
-                  <td>
-                    Buying on the secondary market
-                    <span className="site-table-sub">Taker fee, paid by the buyer</span>
-                  </td>
-                  <td className="is-num">Shown before you buy</td>
-                </tr>
-                <tr>
-                  <td>
-                    Exchanging CHF and EUR
-                    <span className="site-table-sub">Conversion fee, included in the rate</span>
-                  </td>
-                  <td className="is-num">Shown before you confirm</td>
-                </tr>
-              </tbody>
-            </table>
-            <p className="site-small site-gap-top">
-              Every fee that applies to an action is shown in that flow before you confirm, together with the exact
-              amounts.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-section">
-        <div className="site-wrap">
-          <div className="site-section-head">
-            <div>
-              <span className="site-eyebrow">Open now</span>
-              <h2 className="site-h2">Projects looking for investors</h2>
-            </div>
-            <p className="site-text">
-              Every loan shows the same key facts: borrower, country, loan type, amount, interest and term. Full loan
-              data, security and documents unlock after you register and verify your identity.
-            </p>
-          </div>
-          {loansFailed ? (
-            <DataErrorCard title="Could not load loan previews" onRetry={onRetry}>
-              We could not reach the marketplace API. Try again, or register later when live data is available.
-            </DataErrorCard>
-          ) : loansLoading ? (
-            <LoadingCard title="Loading loan previews">Fetching current marketplace opportunities.</LoadingCard>
-          ) : openCount === 0 ? (
-            <div className="site-box site-empty-note">
-              No loans are open for investment right now. New loans appear here when they open.
-            </div>
-          ) : (
-            <div className="site-projects">
-              {openLoans.slice(0, 3).map((loan) => (
-                <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpenLoan} />
-              ))}
-            </div>
-          )}
-          <div className="site-more">
-            <Button className="site-btn-outline" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
-              {openCount > 1 ? `All ${openCount} open projects` : openCount === 1 ? "See the open project" : "See all projects"}
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-cta-band" id={siteHowItWorksId}>
-        <div className="site-wrap">
-          <span className="site-eyebrow">How you start</span>
-          <h2 className="site-display">Choose. Build. Follow.</h2>
-          <ol className="site-cta-steps">
-            <li>
-              <small>01</small>
-              <strong>Choose</strong>
-              <span>
-                Register online as an individual lender in Switzerland or the EU/EEA, confirm your phone and complete
-                an online identity check. Then choose the loans you like: borrower, rate, term and security on one
-                page.
-              </span>
-            </li>
-            <li>
-              <small>02</small>
-              <strong>Build</strong>
-              <span>
-                Add CHF or EUR to your balance by bank transfer with your personal payment reference, then invest in
-                each loan you pick, from that loan's minimum. Spread your money across borrowers, sectors and
-                currencies.
-              </span>
-            </li>
-            <li>
-              <small>03</small>
-              <strong>Follow</strong>
-              <span>
-                See every payment in your account. Principal and interest repayments are credited to your balance and
-                shown in your activity. From there you invest again or withdraw to your bank.
-              </span>
-            </li>
-          </ol>
-          <div className="site-actions">
-            <Button className="site-btn-white" size="lg" onClick={() => goTo(setRoute, "register")}>
-              Open account
-            </Button>
-            <Button className="site-btn-ghost" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
-              See the projects
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-section" id="regulated">
-        <div className="site-wrap">
-          <div className="site-section-head">
-            <div>
-              <span className="site-eyebrow">
-                <SiteFlag kind="CH" label="Switzerland" />
-                Regulated in Switzerland
-              </span>
-              <h2 className="site-h2">Swiss-regulated financial platform</h2>
-            </div>
-            <p className="site-text">
-              {platformName}® is a registered trademark. The platform is owned and operated by {operatorName}, a Swiss
-              financial company: supervised for its financial activities, answerable to an independent ombudsman,
-              audited every year.
-            </p>
-          </div>
-          <div className="site-cells">
-            <div>
-              <span className="site-proof-mark">VQF</span>
-              <h3 className="site-h4">Member of VQF</h3>
-              <p className="site-text">
-                The self-regulatory organisation recognised by FINMA supervises {operatorName}'s financial activities
-                and its anti-money-laundering duties.
-              </p>
-            </div>
-            <div>
-              <span className="site-proof-mark">FINOS</span>
-              <h3 className="site-h4">Affiliated to FINOS</h3>
-              <p className="site-text">The Swiss financial ombudsman. If you disagree with us, it mediates free of charge.</p>
-            </div>
-            <div>
-              <span className="site-proof-mark">Audited</span>
-              <h3 className="site-h4">Audited data</h3>
-              <p className="site-text">
-                {operatorName}'s accounts and the platform's data are audited every year by an independent auditor.
-              </p>
-            </div>
-            <div>
-              <span className="site-proof-mark">CHF 1.1m</span>
-              <h3 className="site-h4">Share capital</h3>
-              <p className="site-text">CHF 1'100'000.00 of share capital behind the company that runs {platformName}.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-section is-paper" id="currencies">
-        <div className="site-wrap site-split is-center">
-          <div className="site-preview" aria-label="Loans open for investment, by currency" role="region">
-            <span className="site-eyebrow">Open loans today</span>
-            <div className="site-wallets">
-              {byCurrency.map((group) => (
-                <div className="site-wallet" key={group.currency}>
-                  <div className="site-wallet-head">
-                    <SiteFlag kind={group.currency === "CHF" ? "CH" : "EU"} label={group.currency === "CHF" ? "Swiss franc" : "Euro"} />
-                    <strong>{group.currency} loans</strong>
-                  </div>
-                  <div className="site-wallet-amount">{group.count} open</div>
-                  <dl>
-                    <div><dt>Yield a year</dt><dd>{group.yields ?? "—"}</dd></div>
-                  </dl>
-                </div>
-              ))}
-            </div>
-            {openCount > 0 ? (
-              <div className="site-table-scroll">
-                <table className="site-table site-gap-top">
-                  <thead>
-                    <tr>
-                      <th scope="col">Open now</th>
-                      <th className="is-num" scope="col">Yield</th>
-                      <th className="is-num" scope="col">Term</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {openLoans.slice(0, 4).map((loan) => (
-                      <tr key={loan.loan_id}>
-                        <td>{loan.borrower_name}</td>
-                        <td className="is-num">{formatRateBps(loan.interest_rate_bps)}</td>
-                        <td className="is-num">{pluralize(loan.term_months, "month")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </div>
-          <div>
-            <span className="site-eyebrow">
-              <SiteFlag kind="CH" label="Swiss franc" />
-              <SiteFlag kind="EU" label="Euro" />
-              Multi-currency
-            </span>
-            <h2 className="site-h2">
-              <span>CHF and EUR.</span> <span>In one place.</span>
-            </h2>
-            <p className="site-lead site-gap-top">
-              One account with a CHF and a EUR balance: Swiss franc loans in francs, euro loans in euros. You invest
-              in the currency of the loan, and you can exchange between the two.
-            </p>
-            <ol className="site-numbered">
-              <li>
-                <span className="site-numbered-index">01</span>
-                <div>
-                  <h3 className="site-h4">Each loan sets its minimum</h3>
-                  <p>
-                    Every loan shows its own minimum investment. You see it on the loan page after you open your
-                    account and pass the identity check.
-                  </p>
-                </div>
-              </li>
-              <li>
-                <span className="site-numbered-index">02</span>
-                <div>
-                  <h3 className="site-h4">Exchange between CHF and EUR</h3>
-                  <p>
-                    Convert available balances in your account. The conversion fee is included in the rate and shown
-                    before you confirm. Exchanging does not restart the 60-day holding limit.
-                  </p>
-                </div>
-              </li>
-              <li>
-                <span className="site-numbered-index">03</span>
-                <div>
-                  <h3 className="site-h4">A 60-day holding limit</h3>
-                  <p>
-                    Money you add waits in your balance until you invest it. Balances earn no interest and are not bank
-                    deposits. Every amount has a 60-day holding limit, and to invest it must have enough time left to
-                    cover the loan's remaining funding period.
-                  </p>
-                </div>
-              </li>
-            </ol>
-            <Button className="site-gap-top" size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
-              Open account
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-section">
-        <div className="site-wrap site-split">
-          <div>
-            <span className="site-eyebrow">Questions</span>
-            <h2 className="site-h2">Frequently asked questions</h2>
-            <p className="site-lead site-gap-top">
-              Not answered here? See{" "}
-              <a
-                href="/faq"
-                onClick={(event) => {
-                  if (!isPlainLeftClick(event)) return;
-                  event.preventDefault();
-                  goTo(setRoute, "publicFaq");
-                }}
-              >
-                all questions
-              </a>{" "}
-              or write to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
-            </p>
-          </div>
-          <div className="site-faq">
-            <details className="site-faq-item" open>
-              <summary>Is {platformName} regulated?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  Yes. {platformName}® is a registered trademark; the platform is owned and operated by {operatorName},
-                  a Swiss financial company affiliated to VQF, a self-regulatory organisation recognised by FINMA, for
-                  its financial activities, and to FINOS, the Swiss financial ombudsman. Its accounts are audited by an
-                  independent auditor and its share capital is CHF 1'100'000.00. {operatorName} is not a bank.
-                </p>
-              </div>
-            </details>
-            <details className="site-faq-item">
-              <summary>How much do I need to start?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  Each loan sets its own minimum investment, and you invest in the currency of the loan. The loan shows
-                  its minimum before you invest.
-                </p>
-              </div>
-            </details>
-            <details className="site-faq-item">
-              <summary>Does {platformName} charge investors fees?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  There is no platform fee to invest in a loan and no fee to withdraw to your bank. If you sell early on
-                  the secondary market, the seller pays a 0.25% maker fee, only if the sale happens; the buyer pays a
-                  taker fee. Exchanging currency has a conversion fee, included in the rate. Every fee is shown in the
-                  flow before you confirm.
-                </p>
-              </div>
-            </details>
-            <details className="site-faq-item">
-              <summary>How long can money stay uninvested?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  Every incoming amount has a 60-day holding limit. To invest, it must have enough time left to cover
-                  the full remaining funding period of the loan you choose: a 30-day window needs at least 30 days of
-                  holding time left. Uninvested money must be withdrawn by the holding deadline, and exchanging
-                  currency does not restart this clock.
-                </p>
-              </div>
-            </details>
-            <details className="site-faq-item">
-              <summary>Where do repayments go?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  Borrower repayments are distributed to current holders according to their outstanding principal.
-                  Principal and interest credits appear in your balance and activity history, from where you can
-                  invest again or withdraw to your bank.
-                </p>
-              </div>
-            </details>
-            <details className="site-faq-item">
-              <summary>Can I lose money?</summary>
-              <div className="site-faq-answer">
-                <p>
-                  Yes. Borrowers can pay late, pay partially, default, or become subject to recovery proceedings.
-                  Collateral, guarantees or security may not fully cover losses or may take time and cost to enforce.
-                </p>
-              </div>
-            </details>
-          </div>
-        </div>
-      </section>
-    </>
-  );
-}
-
-function PublicProjectsPage({ route, setRoute }: { route: AppRoute; setRoute: (route: AppRoute) => void }) {
-  const loansQuery = usePublicMarketplaceLoansData();
-  const loans = loansQuery.data ?? [];
-  const previewLoanId = route.params?.loanId ?? null;
-  const previewLoan = loans.find((loan) => loan.loan_id === previewLoanId);
-  const openPreview = (loan: PublicMarketplaceLoan) => {
-    goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
-  };
-
-  return (
-    <SiteShell active="projects" setRoute={setRoute}>
-      {previewLoan ? (
-        <section className="site-section no-rule site-loan-section">
-          <div className="site-wrap">
-            <PublicLoanPreview
-              loan={previewLoan}
-              onBack={() => goTo(setRoute, "publicProjects")}
-              setRoute={setRoute}
-            />
-          </div>
-        </section>
-      ) : (
-        <>
-          <section className="site-page-head">
-            <div className="site-wrap">
-              <span className="site-eyebrow">Projects</span>
-              <h1 className="site-h1">Open loan opportunities</h1>
-              <p className="site-lead">
-                Preview current primary-market loans. Borrower documents, ratings, collateral detail and investing
-                unlock after registration and identity verification.
-              </p>
-              <p className="site-text site-page-lede">
-                Review project-specific business loans, their repayment schedules, risks, and any disclosed security
-                before deciding whether to invest.
-              </p>
-            </div>
-          </section>
-          <section className="site-section no-rule site-flush-top">
-            <div className="site-wrap">
-              <div className="site-locked site-preview-note">
-                <Icon className="site-preview-note-icon" name="lock" size={18} />
-                <p>
-                  <b>Preview mode.</b> You are seeing limited fields. Register as an individual lender in Switzerland
-                  or the EU/EEA to see full loan data and invest.
-                </p>
-                <div className="site-actions">
-                  <Button variant="primary" onClick={() => goTo(setRoute, "register")}>
-                    Get started
-                  </Button>
-                  {isFixturePreview ? (
-                    <Button className="site-btn-outline" onClick={() => goTo(setRoute, "dashboard")}>
-                      Open dummy portal
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-              {loansQuery.isError && loans.length === 0 ? (
-                <DataErrorCard
-                  title="Could not load loan previews"
-                  onRetry={() => void loansQuery.refetch()}
-                >
-                  We could not reach the marketplace API. Try again, or register later when live data is available.
-                </DataErrorCard>
-              ) : loansQuery.isLoading && loans.length === 0 ? (
-                <LoadingCard title="Loading loan previews">Fetching current marketplace opportunities.</LoadingCard>
-              ) : (
-                <LoansTable loans={loans} onOpen={openPreview} preview />
-              )}
-              <p className="site-risk-line">
-                {platformName} facilitates peer-to-peer loan claim participations operated by{" "}
-                {operatorName}. Investing involves risk of capital loss and is not a bank deposit,
-                fund unit, trading venue, or guaranteed-return product.
-              </p>
-            </div>
-          </section>
-        </>
-      )}
-    </SiteShell>
-  );
-}
-
-function PublicLoanPreview({
-  loan,
-  onBack,
-  setRoute
-}: {
-  loan: PublicMarketplaceLoan;
-  onBack: () => void;
-  setRoute: (route: AppRoute) => void;
-}) {
-  return (
-    <div className="site-loan">
-      <button className="backlink site-back" onClick={onBack} type="button">
-        <Icon name="arrowL" size={14} /> All loans
-      </button>
-      <div className="site-loan-tags">
-        <Chip status={loan.status} />
-        <span className="tag">{loan.currency}</span>
-        <span className="tag">{publicLoanTypeLabel(loan)}</span>
-        {loan.is_refinancing ? <RefinancedTag full /> : null}
-      </div>
-      <h1 className="site-h1">{loan.borrower_name}</h1>
-      <div className="site-loan-id"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
-      <div className="site-project-page">
-        <div>
-          <div className="site-loan-facts">
-            <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
-            <Stat label="Interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
-            <Stat label="Term" raw={`${loan.term_months} mo`} />
-            <Stat label="Status" raw={publicLoanStatusLabel(loan.status)} />
-            <Stat label="Borrower country" raw={publicCountryLabel(loan.borrower_country)} />
-            <Stat label="Loan type" raw={loan.is_refinancing ? `${publicLoanTypeLabel(loan)}, refinancing` : publicLoanTypeLabel(loan)} />
-          </div>
-          <div className="site-locked site-loan-locked">
-            <div className="eyebrow">Full loan data</div>
-            <Banner icon="lock" tone="neutral" title="Registration required">
-              Complete registration, phone verification and KYC to unlock borrower disclosures,
-              collateral, documents, LTV, risk rating and investment actions.
-            </Banner>
-          </div>
-        </div>
-        <aside className="site-sticky">
-          <div className="site-box is-ink-rule">
-            <h2 className="site-h4">Invest with {platformName}</h2>
-            <ul className="site-checks">
-              <li>Individual lenders in CH and EU/EEA</li>
-              <li>Minimum investment set per loan</li>
-              <li>Claim participation documents</li>
-            </ul>
-            <Button block size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
-              Create account
-            </Button>
-          </div>
-        </aside>
-      </div>
-    </div>
-  );
 }
 
 function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
@@ -2887,7 +1800,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
 
   const kycStatusQuery = useV1KycStatusRetrieve({
     query: {
-      enabled: !isFixturePreview && step === 2 && hasMatchingSession,
+      enabled: !isFixturePreview && step === 3 && hasMatchingSession,
       retry: false,
       // Identity capture can happen on another device (QR hand-off), so keep
       // polling until the provider reports a result.
@@ -2902,7 +1815,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const kycCaseStatus = kycStatusQuery.data?.status;
 
   useEffect(() => {
-    if (isFixturePreview || step !== 2 || !kycCaseStatus) return;
+    if (isFixturePreview || step !== 3 || !kycCaseStatus) return;
     if (kycCaseStatus === "not_started" || kycCaseStatus === "pending") return;
     // The provider produced a result: registration hand-off is complete, so
     // continue inside the account on this (already signed-in) device.
@@ -2919,6 +1832,14 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       setStep(2);
       setPhoneChallengeId(null);
       setPhoneCooldownUntil(0);
+    }
+    // The PIN step (ACC-DEC-009) is done once the account has a PIN.
+    if (
+      step === 2 &&
+      sessionUser?.pin_set === true &&
+      normalizedEmail(sessionUser.email) === normalizedEmail(email)
+    ) {
+      setStep(3);
     }
   }, [email, sessionUser, step]);
 
@@ -3079,7 +2000,14 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         }
         goTo(setRoute, "kyc");
       },
-      onError: (mutationError) => setError(apiErrorMessage(mutationError))
+      onError: (mutationError) => {
+        // Identity verification needs the PIN first (ACC-DEC-009): back to the PIN step.
+        if (pinApiError(mutationError)?.code === "pin_required") {
+          setStep(2);
+          return;
+        }
+        setError(apiErrorMessage(mutationError));
+      }
     });
   };
 
@@ -3089,7 +2017,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <>
           <PageHead
             description={<>Individual lenders only. Legal entities are onboarded by {operatorName} off-platform.</>}
-            eyebrow={`Step ${step + 1} of 3`}
+            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
             title="Create your lender account"
           />
           <div className="card auth-onb-card">
@@ -3204,7 +2132,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             <>
               <PageHead
                 description="We need your magic-link email opened in this browser before SMS verification."
-                eyebrow={`Step ${step + 1} of 3`}
+                eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
                 title="Confirm your email"
               />
               <div className="card auth-onb-card">
@@ -3257,7 +2185,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                     financial access.
                   </>
                 }
-                eyebrow={`Step ${step + 1} of 3`}
+                eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
                 title="Verify your phone"
               />
               <div className="card auth-onb-card">
@@ -3292,6 +2220,17 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             </>
           )}
         </>
+      ) : step === 2 ? (
+        <>
+          <PageHead
+            description="You will enter it with the email code for every investment, withdrawal and bank change."
+            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
+            title="Create your PIN"
+          />
+          <div className="card auth-onb-card">
+            <CreatePinForm layout="split" requiresEmailCode={false} onSaved={() => setStep(3)} />
+          </div>
+        </>
       ) : (
         <>
           <PageHead
@@ -3303,7 +2242,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                 continues automatically once the result arrives.
               </>
             }
-            eyebrow={`Step ${step + 1} of 3`}
+            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
             title="Identity verification"
           />
           <div className="card auth-onb-card">
@@ -3326,7 +2265,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   );
 }
 
-const registerStepLabels = ["Account", "Email and phone", "KYC"];
+const registerStepLabels = ["Account", "Email and phone", "PIN", "KYC"];
 
 // Registration uses the onboarding layout: a slim top bar, the numbered step
 // bar and a centred column with the step content.
@@ -3460,6 +2399,8 @@ function InvestorShell({
   // Sign out fails closed (audit A-58): the portal clears its state only after the server ended
   // the session. If the call fails, the server is asked whether the session is still valid.
   const [signOutError, setSignOutError] = useState("");
+  // Set once the post-login "Create your PIN" screen saved a PIN, before /auth/me says so.
+  const [pinJustCreated, setPinJustCreated] = useState(false);
   const logoutMutation = useV1AuthLogoutCreate({
     mutation: {
       onSuccess: () => {
@@ -3552,6 +2493,17 @@ function InvestorShell({
   });
   const financialAccessAllowed =
     isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
+  // Currency exchange can be switched off (platform setting fx.enabled, owner decision
+  // 2026-10-16): no FX menu item, and /fx shows the dashboard instead.
+  const fxFeature = useFxFeature();
+  const fxRouteUnavailable = route.name === "fx" && fxFeature.known && !fxFeature.enabled;
+  useEffect(() => {
+    if (!fxRouteUnavailable) return;
+    const dashboardRoute: AppRoute = { name: "dashboard" };
+    writeStoredObject(appRouteStorageKey, dashboardRoute);
+    window.history.replaceState({}, "", routePath(dashboardRoute));
+    setRoute(dashboardRoute);
+  }, [fxRouteUnavailable, setRoute]);
   const balancesData = useBalancesData(financialAccessAllowed).data;
   const balances = balancesData ?? { summaries: [], lots: [] };
   // Day-60 penalty mode (PAY-DEC-022) from the live balances; the preview switch only drives fixtures.
@@ -3655,7 +2607,10 @@ function InvestorShell({
       case "balances":
         return <BalancesScreen demoState={demoState} />;
       case "fx":
-        return <FxScreen demoState={demoState} />;
+        if (fxFeature.enabled) return <FxScreen demoState={demoState} />;
+        return fxFeature.known
+          ? <Dashboard demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />
+          : <ScreenLoading title="Currency exchange" />;
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
@@ -3686,7 +2641,7 @@ function InvestorShell({
         : <KycStatusScreen setRoute={setRoute} />
       : screen;
 
-  // Lots on their last day (withdraw-only), past the deadline, or in penalty mode need action.
+  // Lots on their last day (withdraw-only), due back to the bank, or in penalty mode need action.
   const overdueCount = balances.lots.filter((lot) => ["withdraw_only", "overdue", "penalty_mode", "penalty"].includes(lot.bucket)).length;
   const addFundsCurrency = balances.summaries.find((summary) => summary.currency === "CHF")?.currency
     ?? balances.summaries[0]?.currency
@@ -3724,11 +2679,35 @@ function InvestorShell({
       ? "Signing out..."
       : "Sign out";
 
+  // ACC-DEC-009: an investor without a PIN creates one before anything else.
+  const needsPin = isFixturePreview
+    ? demoState === "no_pin"
+    : Boolean(sessionUser) &&
+      !readonlyImpersonation.active &&
+      !pinJustCreated &&
+      sessionUser?.pin_set === false &&
+      lenderAccountTypes.has(sessionUser.account_type) &&
+      !blockedAccountStatuses.has(sessionUser.status);
+  if (needsPin) {
+    return (
+      <PinGateScreen
+        onCreated={() => {
+          if (isFixturePreview) setDemoState("active");
+          setPinJustCreated(true);
+        }}
+        onSignOut={signOut}
+        setRoute={setRoute}
+        signOutError={signOutError}
+        signOutLabel={signOutLabel}
+      />
+    );
+  }
+
   return (
     <UserSkin>
     <div className="app">
       <a
-        className="site-skip portal-skip"
+        className="portal-skip"
         href="#portal-content"
         onClick={(event) => {
           event.preventDefault();
@@ -3754,7 +2733,7 @@ function InvestorShell({
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
               <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
+              {group.items.filter((item) => !("route" in item) || item.route !== "fx" || fxFeature.enabled).map((item) => {
                 if ("children" in item) {
                   const childActive = item.children.some((child) => child.route === activeRoute);
                   const expanded = projectsMenuOpen || childActive;
@@ -3855,6 +2834,7 @@ function InvestorShell({
                   <option value="kyc_pending">KYC pending</option>
                   <option value="frozen">Day-60 freeze</option>
                   <option value="restricted">Restricted account</option>
+                  <option value="no_pin">No PIN yet</option>
                 </select>
               </div>
             ) : null}
@@ -4465,7 +3445,7 @@ function Dashboard({
         </div>
 
         {smartInvestQuery.isError && !smartInvest ? (
-          <DataErrorCard title="Smart Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
+          <DataErrorCard title="Smart-Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
             Your dashboard is still available. Retry to load your saved rule and matching opportunities.
           </DataErrorCard>
         ) : null}
@@ -5021,7 +4001,7 @@ function ApproveAllocationModal({
       return;
     }
     if (isFixturePreview) {
-      setStep("done");
+      if (codeRequest.pin.previewAccepts()) setStep("done");
       return;
     }
     if (!termsQuery.data || termsLabels.length === 0) {
@@ -5069,7 +4049,8 @@ function ApproveAllocationModal({
           document_acceptance_id: acceptance.id,
           idempotency_key: batchKey,
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       });
       // Money moved: refresh balances, portfolio and every list, as the other flows do
@@ -5078,6 +4059,7 @@ function ApproveAllocationModal({
       setBatchResult(placed);
       setStep("done");
     } catch (submitError) {
+      if (codeRequest.pin.handleError(submitError)) return;
       setError(apiErrorMessage(submitError));
     }
   };
@@ -5148,16 +4130,8 @@ function ApproveAllocationModal({
                 <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded. No order can be placed until a current version is available.</Banner>
               ) : null}
               {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-              <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code. One code covers the whole batch.</Banner>
-              <CodeRequestField
-                hint={previewHint("Demo: any 6 digits")}
-                label="Email confirmation code"
-                requestDisabled={emailCodeRequestDisabled(codeRequest)}
-                requestLabel={emailCodeRequestLabel(codeRequest)}
-                value={code}
-                onChange={setCode}
-                onRequest={codeRequest.requestCode}
-              />
+              <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code and your PIN. One code covers the whole batch.</Banner>
+              <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={() => void submit()} />
               {error ? <Banner tone="bad" title="Batch not placed">{error}</Banner> : null}
             </div>
           ) : (
@@ -5245,7 +4219,7 @@ function ApproveAllocationModal({
             <button className="aa-confirm" onClick={onDone} type="button">Done</button>
           ) : step === "confirm" ? (
             <>
-              <button className="aa-confirm" disabled={!ack || !riskAck || code.length < 6 || busy || quotesExpired || !hasPreparedQuotes || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing investments..." : `Place ${selectedCount === 1 ? "1 investment" : `${selectedCount} investments`}`}</button>
+              <button className="aa-confirm" disabled={!ack || !riskAck || code.length < 6 || !codeRequest.pin.ready || busy || quotesExpired || !hasPreparedQuotes || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing investments..." : `Place ${selectedCount === 1 ? "1 investment" : `${selectedCount} investments`}`}</button>
               <button className="aa-cancel" disabled={busy} onClick={() => { setStep("allocate"); setPreparedQuotes({}); setError(""); }} type="button">Back</button>
             </>
           ) : (
@@ -5272,6 +4246,7 @@ function ApproveAllocationModal({
 }
 
 function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const fxEnabled = useFxFeature().enabled;
   return (
     <Banner
       actions={<Button size="sm" variant="primary" onClick={() => goTo(setRoute, "kyc")}>View verification status</Button>}
@@ -5279,7 +4254,8 @@ function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       tone="info"
       title="Identity verification in progress"
     >
-      KYC is being reviewed. Deposits, investing, withdrawals and FX unlock once verification is approved.
+      KYC is being reviewed. Deposits, investing{fxEnabled ? ", withdrawals and FX unlock" : " and withdrawals unlock"} once verification
+      is approved.
     </Banner>
   );
 }
@@ -5588,11 +4564,11 @@ function MarketplaceScreen({
   const saveSmartFilters = async () => {
     setSmartInvestError("");
     if (!hasSmartInvestCriteria(filters)) {
-      setSmartInvestError("Choose at least one filter before saving a Smart Invest rule.");
+      setSmartInvestError("Choose at least one filter before saving a Smart-Invest rule.");
       return;
     }
     if (isReadonlyImpersonationActive()) {
-      setSmartInvestError("Smart Invest cannot be changed in a superadmin read-only view.");
+      setSmartInvestError("Smart-Invest cannot be changed in a superadmin read-only view.");
       return;
     }
     try {
@@ -6022,7 +4998,7 @@ function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: str
 
 type SmartInvestCheckOption = { value: string; label: string };
 
-// One Smart Invest criterion as square checkboxes. Nothing ticked = no restriction.
+// One Smart-Invest criterion as square checkboxes. Nothing ticked = no restriction.
 function SmartInvestChecks({
   compact = false,
   idPrefix,
@@ -6098,7 +5074,7 @@ function SmartInvestMatchTable({
     );
   }
   return (
-    <div className="smart-invest-match-table with-ticks" role="table" aria-label="Smart Invest matches">
+    <div className="smart-invest-match-table with-ticks" role="table" aria-label="Smart-Invest matches">
       <div className="smart-invest-match-head" role="row">
         <span /><span>Company</span><span>Yield</span><span>Term</span><span>Collateral</span><span>Available</span><span />
       </div>
@@ -6178,7 +5154,7 @@ function SmartInvestWizard({
   };
   const finish = async () => {
     if (!hasSmartInvestCriteria(filters)) {
-      setError("Choose at least one condition before activating Smart Invest.");
+      setError("Choose at least one condition before activating Smart-Invest.");
       return;
     }
     await onSave(filters);
@@ -6191,8 +5167,8 @@ function SmartInvestWizard({
   const currencyOptions = mkOptionUnion(smartInvestCatalog.currencies, filters.ccy).map((code) => ({ value: code, label: code }));
   return (
     <div className="ls-scrim si-wiz-scrim" role="presentation">
-      <button aria-label="Close Smart Invest setup" className="ls-overlay-btn" onClick={wizardDialog.dismissFromBackdrop} tabIndex={-1} type="button" />
-      <section aria-label="Smart Invest setup" aria-modal="true" className="si-wiz" ref={wizardRef} role="dialog">
+      <button aria-label="Close Smart-Invest setup" className="ls-overlay-btn" onClick={wizardDialog.dismissFromBackdrop} tabIndex={-1} type="button" />
+      <section aria-label="Smart-Invest setup" aria-modal="true" className="si-wiz" ref={wizardRef} role="dialog">
         <div className="si-wiz-head">
           <div className="si-wiz-head-main">
             <div className="si-wiz-pips">
@@ -6242,7 +5218,7 @@ function SmartInvestWizard({
                 <span className="si-wiz-value">{filters.minRate === null ? "no floor" : `${filters.minRate.toFixed(1)}%`}</span>
                 <span className="si-wiz-value-note">{filters.minRate === null ? "every rate qualifies" : "anything below this is skipped"}</span>
               </div>
-              <input aria-label="Minimum Smart Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+              <input aria-label="Minimum Smart-Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
               <div className="si-wiz-ends"><span>no floor</span><span>25%</span></div>
             </>
           ) : null}
@@ -6255,7 +5231,7 @@ function SmartInvestWizard({
                 <span className="si-wiz-value">{filters.maxTerm === null ? "no ceiling" : `${filters.maxTerm} months`}</span>
                 <span className="si-wiz-value-note">{filters.maxTerm === null ? "every term qualifies" : "anything longer is skipped"}</span>
               </div>
-              <input aria-label="Maximum Smart Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+              <input aria-label="Maximum Smart-Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
               <div className="si-wiz-ends"><span>6 months</span><span>no ceiling</span></div>
             </>
           ) : null}
@@ -6274,7 +5250,7 @@ function SmartInvestWizard({
                 ))}
               </div>
               <div className="si-wiz-outcome">
-                Smart Invest sends you a transactional alert when a newly published opportunity matches. It never places an order, reserves balance or judges whether the borrower is suitable for you.
+                Smart-Invest sends you a transactional alert when a newly published opportunity matches. It never places an order, reserves balance or judges whether the borrower is suitable for you.
               </div>
             </>
           ) : null}
@@ -6353,11 +5329,11 @@ function SmartInvestScreen({
   const save = async (nextFilters: MkFilters) => {
     setError("");
     if (!hasSmartInvestCriteria(nextFilters)) {
-      setError("Choose at least one condition before activating Smart Invest.");
+      setError("Choose at least one condition before activating Smart-Invest.");
       return;
     }
     if (isReadonlyImpersonationActive()) {
-      setError("Smart Invest cannot be changed in a superadmin read-only view.");
+      setError("Smart-Invest cannot be changed in a superadmin read-only view.");
       return;
     }
     try {
@@ -6375,7 +5351,7 @@ function SmartInvestScreen({
   const deactivate = async () => {
     setError("");
     if (isReadonlyImpersonationActive()) {
-      setError("Smart Invest cannot be changed in a superadmin read-only view.");
+      setError("Smart-Invest cannot be changed in a superadmin read-only view.");
       return;
     }
     try {
@@ -6410,9 +5386,9 @@ function SmartInvestScreen({
   };
 
   if (smartQuery.isError && !data) {
-    return <ScreenError onRetry={() => void smartQuery.refetch()} title="Smart Invest">We could not load your Smart Invest rule.</ScreenError>;
+    return <ScreenError onRetry={() => void smartQuery.refetch()} title="Smart-Invest">We could not load your Smart-Invest rule.</ScreenError>;
   }
-  if (!data) return <ScreenLoading title="Smart Invest" />;
+  if (!data) return <ScreenLoading title="Smart-Invest" />;
   const saving = updateMutation.isPending || deactivateMutation.isPending;
   const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => setFilters((current) => ({ ...current, [key]: value }));
   const toggle = (key: MkListKey, value: string) => setFilters((current) => ({ ...current, [key]: mkToggle(current[key], value) }));
@@ -6446,10 +5422,10 @@ function SmartInvestScreen({
         title="It finds them. You approve them."
       />
 
-      <section aria-label="Smart Invest status" className={`card si-status${active ? " active" : ""}`}>
+      <section aria-label="Smart-Invest status" className={`card si-status${active ? " active" : ""}`}>
         <div className="si-status-main">
           <h2 className="si-status-title">
-            Smart Invest <span className={`si-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</span>
+            Smart-Invest <span className={`si-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</span>
           </h2>
           {active ? (
             <p className="si-active-text">The rule is watching for opportunities that meet these conditions. When a qualifying opportunity is published we notify you with the match ready to review — nothing is committed until you do.</p>
@@ -6501,14 +5477,14 @@ function SmartInvestScreen({
                 <div className="si-cond-card">
                   <div className="si-cond-cap">Only if it pays at least</div>
                   <div className="si-cond-val">{filters.minRate === null ? "any rate" : `${filters.minRate.toFixed(1)}%`}</div>
-                  <input aria-label="Minimum Smart Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+                  <input aria-label="Minimum Smart-Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
                   <div className="si-cond-ends"><span>0% — any</span><span>25%</span></div>
                   <div className="si-cond-note">A high floor means the rule will often find nothing — and a high rate is not a sign of a better borrower, frequently the opposite.</div>
                 </div>
                 <div className="si-cond-card">
                   <div className="si-cond-cap">And runs no longer than</div>
                   <div className="si-cond-val">{filters.maxTerm === null ? "any term" : `${filters.maxTerm} mo`}</div>
-                  <input aria-label="Maximum Smart Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+                  <input aria-label="Maximum Smart-Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
                   <div className="si-cond-ends"><span>6 mo</span><span>120 mo — any</span></div>
                   <div className="si-cond-note">The longer the term, the longer your capital is committed at today&apos;s rate rather than tomorrow&apos;s.</div>
                 </div>
@@ -8084,28 +7060,9 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 }
 
-/** Public preview grid: project cards with only the MKT-DEC-002 fields. */
-function LoansTable({ loans, onOpen }: { loans: PublicMarketplaceLoan[]; onOpen: (loan: PublicMarketplaceLoan) => void; preview?: boolean }) {
-  if (loans.length === 0) {
-    return (
-      <div className="portal-table-empty">
-        <Empty icon="market" title="No loan previews available">
-          There are no published loan previews right now. Check again later or register to receive marketplace updates.
-        </Empty>
-      </div>
-    );
-  }
-  return (
-    <div className="site-projects loans-preview-grid">
-      {loans.map((loan) => (
-        <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpen} />
-      ))}
-    </div>
-  );
-}
-
 function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   const balancesQuery = useBalancesData();
+  const fxFeature = useFxFeature();
   const frozenAccount = useFrozenAccount();
   const balances = balancesQuery.data;
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
@@ -8113,7 +7070,8 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   // The account cards open the deposit and withdrawal dialogs for their own
   // currency; the page actions keep using the selected currency.
   const [modalCurrency, setModalCurrency] = useState<string>("CHF");
-  const pageDescription = "Funds are non-interest-bearing and subject to a 60-day holding limit.";
+  const returnDays = autoReturnDays(balancesQuery.data?.auto_return_after_days);
+  const pageDescription = `Funds are non-interest-bearing. ${autoReturnRuleText(returnDays)}`;
   if (balancesQuery.isError && !balances) {
     return (
       <ScreenError title="Account" onRetry={() => void balancesQuery.refetch()}>
@@ -8135,6 +7093,8 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   );
   const withdrawBlockedReason = (forCurrency: string) =>
     verifiedIbanCurrencies.has(forCurrency) ? "" : `No verified payout IBAN for ${forCurrency} yet. Garanta must verify an IBAN before you can withdraw.`;
+  // Money due back to the bank that cannot go back: there is no verified IBAN in its currency.
+  const returnBlocked = balances.summaries.filter((item) => item.overdue_minor > 0 && !verifiedIbanCurrencies.has(item.currency));
   if (!summary) {
     return (
       <main className="content acct-page acct-balances">
@@ -8163,28 +7123,40 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         description={pageDescription}
         title="Account"
       />
-      {readonly ? (
+      {readonly || returnBlocked.length > 0 ? (
         <div className="col gap-12 acct-alerts">
           {readonly ? (
             <Banner icon="lock" tone="info" title="Read-only view">
               Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
             </Banner>
           ) : null}
+          {returnBlocked.map((item) => (
+            <Banner
+              actions={readonly ? undefined : <Button size="sm" variant="primary" onClick={() => openModal("iban", item.currency)}>Add payout IBAN</Button>}
+              key={item.currency}
+              tone="warn"
+              title="Add a verified bank account so we can return your money"
+            >
+              {formatMoneyLabel(item.currency, item.overdue_minor)} was not invested within {returnDays} days and must go back to your bank,
+              but there is no verified {item.currency} payout IBAN. Add one in your name: when Garanta has verified it, we send the money there.
+              After 60 days (the legal limit) the money enters penalty mode.
+            </Banner>
+          ))}
         </div>
       ) : null}
 
       <div className="acct-ccy-grid">
         {balances.summaries.map((item) => {
           const ccy = item.currency;
-          const nextDeadline = item.next_withdrawal_deadline_at;
+          const nextReturn = item.next_return_date;
           return (
             <section className="card acct-ccy" key={ccy}>
               <h2 className="acct-ccy-title">{ccy} account</h2>
               <div className="acct-ccy-amount num">{ccy} {formatMoneyMinor(item.total_available_minor, ccy)}</div>
               <ul className="acct-ccy-list">
                 <BucketTile label="Potentially investable" value={item.investable_minor} currency={ccy} tone="ok" sub="Depends on the loan funding window" />
-                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub="Day 60: can only be withdrawn, until the end of today" />
-                <BucketTile label="Overdue" value={item.overdue_minor} currency={ccy} tone="warn" sub="Past the day-60 deadline" />
+                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub={`Day ${returnDays}: last day, can only be withdrawn today`} />
+                <BucketTile label="Due back to your bank" value={item.overdue_minor} currency={ccy} tone="warn" sub={`Not invested within ${returnDays} days`} />
                 {/* Blocked balance only. Penalties already charged are no longer in the balance; they are listed in the lots view. */}
                 <BucketTile
                   label="Frozen"
@@ -8207,7 +7179,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
                 <Button block className="acct-ccy-withdraw" disabled={readonly} variant="ghost" onClick={() => openModal("withdraw", ccy)}>Withdraw to IBAN</Button>
                 {withdrawBlockedReason(ccy) ? <p className="acct-ccy-note acct-ccy-blocked">{withdrawBlockedReason(ccy)}</p> : null}
                 <p className="acct-ccy-note">
-                  {nextDeadline ? <>Earliest holding deadline: <strong>{formatDate(nextDeadline)}</strong></> : "No holding deadline running."}
+                  {nextReturn ? <>Goes back to your bank on <strong>{formatDate(nextReturn)}</strong> if not invested</> : "No money waiting to go back to your bank."}
                 </p>
               </div>
             </section>
@@ -8229,7 +7201,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
             </span>
           </div>
         ) : null}
-        <BalanceLotsTable lots={lots} frozen={previewFrozen} />
+        <BalanceLotsTable lots={lots} frozen={previewFrozen} returnDays={returnDays} />
       </section>
 
       <div className="acct-two">
@@ -8265,10 +7237,11 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
       <section className="card acct-rules">
         <div className="card-head"><h2>Rules for your money</h2></div>
         <ul className="acct-rules-list">
-          <li>Every incoming amount has a 60-day holding limit.</li>
+          <li>{autoReturnRuleText(returnDays)} We send it to your verified payout IBAN.</li>
           <li>To invest, that amount must have enough time left to cover the loan's remaining funding period. Shorter periods can use older funds.</li>
           <li>Eligible lots are consumed oldest-first.</li>
-          <li>FX conversion does not reset this limit.</li>
+          {fxFeature.enabled ? <li>FX conversion does not restart this count.</li> : null}
+          <li>Without a verified payout IBAN we cannot return the money. After 60 days (the legal limit) it enters penalty mode.</li>
         </ul>
       </section>
       {modal === "deposit" ? <DepositModal currency={modalCurrency} onClose={() => setModal(null)} /> : null}
@@ -8291,7 +7264,7 @@ function BucketTile({ label, value, currency, tone, sub }: { label: string; valu
   );
 }
 
-function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolean }) {
+function BalanceLotsTable({ lots, frozen, returnDays }: { lots: BalanceLot[]; frozen: boolean; returnDays: number }) {
   if (lots.length === 0) {
     return <div className="portal-table-empty"><Empty icon="balance" title="No balance lots">Incoming deposits, repayments, recoveries, FX proceeds, or sale proceeds will appear here.</Empty></div>;
   }
@@ -8305,6 +7278,7 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
           <tbody>
             {lots.map((lot) => {
               const penalty = frozen && lot.bucket === "overdue";
+              const age = lotAgeLines(lot, returnDays);
               return (
                 <tr className={penalty ? "lot-penalty" : lot.bucket === "overdue" ? "lot-overdue" : ""} key={lot.id}>
                   <td data-label="Lot"><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
@@ -8315,13 +7289,13 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
                     <td className={`num lot-penalty-charged${lot.penalized_amount_minor > 0 ? " has-penalty" : ""}`} data-label="Penalty charged">{lot.penalized_amount_minor > 0 ? formatMoneyMinor(lot.penalized_amount_minor, lot.currency) : "-"}</td>
                   ) : null}
                   <td className="lot-deadline" data-label="Age / deadline">
-                    <DeadlineMeter daysUntilWithdrawal={lot.days_until_withdrawal_deadline} />
+                    <DeadlineMeter daysLeft={lot.days_until_last_day} totalDays={returnDays} />
                     <div className="lot-deadline-meta">
-                      <span>{lot.days_until_withdrawal_deadline > 0 ? `${lot.days_until_withdrawal_deadline}d holding time left` : lot.days_until_withdrawal_deadline === 0 ? "Day 60: last day" : "Holding deadline passed"}</span>
-                      <span>{lot.days_until_withdrawal_deadline >= 0 ? `Withdraw by end of ${formatDate(lot.withdrawal_deadline_at)}` : `Deadline: ${formatDate(lot.withdrawal_deadline_at)}`}</span>
+                      <span>{age.status}</span>
+                      <span>{age.detail}</span>
                     </div>
                   </td>
-                  <td data-label="Status"><Chip status={penalty ? "penalty" : lot.bucket} /></td>
+                  <td data-label="Status"><Chip status={penalty ? "penalty" : lot.bucket}>{!penalty && lot.bucket === "overdue" ? "Due back" : undefined}</Chip></td>
                 </tr>
               );
             })}
@@ -8423,7 +7397,7 @@ function DepositModal({
               BANXUM account.
             </span>
           </div>
-          <p className="acct-modal-note">The bank value date starts the new balance lot's 60-day holding period.</p>
+          <p className="acct-modal-note">The bank value date starts the new balance lot's count: what is not invested goes back to your bank after {AUTO_RETURN_AFTER_DAYS} days.</p>
           <p className="acct-modal-note">{payload.reference_rule}</p>
         </div>
       </div>
@@ -8504,7 +7478,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
   const submitWithdrawal = () => {
     setError("");
     if (isFixturePreview) {
-      setStep("done");
+      if (codeRequest.pin.previewAccepts()) setStep("done");
       return;
     }
     if (!selectedInstruction?.is_verified_usable || !codeRequest.codeId) {
@@ -8527,7 +7501,8 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
             destination_account_name: selectedInstruction.destination_account_name
           }),
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       },
       {
@@ -8535,7 +7510,10 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
           void queryClient.invalidateQueries();
           setStep("done");
         },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
+        onError: (mutationError) => {
+          if (codeRequest.pin.handleError(mutationError)) return;
+          setError(apiErrorMessage(mutationError));
+        }
       }
     );
   };
@@ -8543,7 +7521,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
   const footer = step === "done"
     ? <Button variant="primary" onClick={onClose}>Done</Button>
     : step === "confirm"
-      ? <><Button variant="ghost" onClick={() => setStep("form")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || withdrawalMutation.isPending} variant="primary" onClick={submitWithdrawal}>{withdrawalMutation.isPending ? "Submitting..." : "Confirm withdrawal"}</Button></>
+      ? <><Button variant="ghost" onClick={() => setStep("form")}>Back</Button><Button disabled={code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || withdrawalMutation.isPending} variant="primary" onClick={submitWithdrawal}>{withdrawalMutation.isPending ? "Submitting..." : "Confirm withdrawal"}</Button></>
       : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} variant="primary" onClick={() => setStep("confirm")}>Review</Button></>;
 
   return (
@@ -8569,16 +7547,8 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
       ) : step === "confirm" ? (
         <div className="col gap-16 acct-modal">
           <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "To IBAN", value: selectedInstruction ? formatIbanGroups(selectedInstruction.destination_iban) : "-" }, { label: "Account name", value: selectedInstruction?.destination_account_name || "-" }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
-          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
-          <CodeRequestField
-            hint={previewHint("Demo: any 6 digits")}
-            label="Email confirmation code"
-            requestDisabled={emailCodeRequestDisabled(codeRequest)}
-            requestLabel={emailCodeRequestLabel(codeRequest)}
-            value={code}
-            onChange={setCode}
-            onRequest={codeRequest.requestCode}
-          />
+          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code and your PIN.</Banner>
+          <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={submitWithdrawal} />
           {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
           {codeRequest.error || error ? <Banner tone="bad" title="Could not submit withdrawal">{codeRequest.error || error}</Banner> : null}
         </div>
@@ -8912,8 +7882,8 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           <div className="fx-cta-line">
             <span className="fx-cta-copy">
               {preview
-                ? `Converting makes ${fxMoneyLabel(to, preview.target_amount_minor)} available in your ${to} balance. Converted money keeps the earliest deadline of the funds it came from — FX never resets the 60-day holding clock.`
-                : "Converted money keeps the earliest deadline of the funds it came from — FX never resets the 60-day holding clock."}
+                ? `Converting makes ${fxMoneyLabel(to, preview.target_amount_minor)} available in your ${to} balance. Converted money keeps the earliest deadline of the funds it came from — FX never resets the holding clock.`
+                : "Converted money keeps the earliest deadline of the funds it came from — FX never resets the holding clock."}
             </span>
             <button
               className="fx-convert-btn"
@@ -9110,7 +8080,7 @@ function FxConfirmModal({
   const executeFx = () => {
     setError("");
     if (isFixturePreview) {
-      setDone(true);
+      if (codeRequest.pin.previewAccepts()) setDone(true);
       return;
     }
     if (!quote || !codeRequest.codeId) {
@@ -9128,7 +8098,8 @@ function FxConfirmModal({
           // One key per quote: a retry of the same quote is not executed twice.
           idempotency_key: intentIdempotencyKey("fx-execute", { quote_id: quote.id }),
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       },
       {
@@ -9136,7 +8107,10 @@ function FxConfirmModal({
           void queryClient.invalidateQueries();
           setDone(true);
         },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
+        onError: (mutationError) => {
+          if (codeRequest.pin.handleError(mutationError)) return;
+          setError(apiErrorMessage(mutationError));
+        }
       }
     );
   };
@@ -9144,7 +8118,7 @@ function FxConfirmModal({
     return (
       <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Exchange settled">
         <SuccessState title={`${formatMoneyLabel(to, targetMinor)} credited`}>
-          The new {to} lot inherits the deadline of the consumed source lots. FX does not reset the 60-day holding clock.
+          The new {to} lot inherits the deadline of the consumed source lots. FX does not reset the holding clock.
         </SuccessState>
       </Modal>
     );
@@ -9152,7 +8126,7 @@ function FxConfirmModal({
   return (
     <Modal
       busy={executeMutation.isPending}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || executeMutation.isPending || quoteExpired || refreshing} variant="primary" onClick={executeFx}>{executeMutation.isPending ? "Executing..." : "Confirm exchange"}</Button></>}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || executeMutation.isPending || quoteExpired || refreshing} variant="primary" onClick={executeFx}>{executeMutation.isPending ? "Executing..." : "Confirm exchange"}</Button></>}
       onClose={onClose}
       title="Confirm currency exchange"
     >
@@ -9179,16 +8153,8 @@ function FxConfirmModal({
           { label: "Fee, included in the rate", value: formatMoneyLabel(to, feeMinor) },
           { label: "You receive", value: formatMoneyLabel(to, targetMinor), total: true }
         ]} />
-        <CodeRequestField
-          hint={previewHint("Demo: any 6 digits")}
-          label="Email confirmation code"
-          requestDisabled={emailCodeRequestDisabled(codeRequest)}
-          requestLabel={emailCodeRequestLabel(codeRequest)}
-          value={code}
-          onChange={setCode}
-          onRequest={codeRequest.requestCode}
-        />
-        <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 60-day holding period.</Banner>
+        <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={executeFx} />
+        <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh holding period.</Banner>
         <Check checked={ack} id="fx-ack" onChange={setAck}>I accept the currency-exchange terms and understand the rate, fee and inherited deadline.</Check>
         {codeRequest.error || error || (quoteExpired && refreshError) ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error || refreshError}</Banner> : null}
       </div>
@@ -10489,11 +9455,12 @@ function ActivityAmount({ entry }: { entry: ActivityEntry }) {
 }
 
 function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; dense?: boolean }) {
+  const fxEnabled = useFxFeature().enabled;
   return (
     <section className="pf-data-section">
       <header className="pf-data-heading">
         <h2 className="sect">Activity</h2>
-        <p>Every deposit, investment, repayment, FX conversion and market event in one timeline.</p>
+        <p>Every deposit, investment, repayment, {fxEnabled ? "FX conversion " : ""}and market event in one timeline.</p>
       </header>
       {entries.length === 0 ? (
         <PortfolioEmptyState icon="clock" title="No activity yet">
@@ -11393,7 +10360,7 @@ function SmForSale({
         <div className="card-head sm-card-head">
           <div>
             <h2 className="sect">For sale now</h2>
-            <p className="sect-sub">A discount raises what you earn; a premium lowers it. The interest rate on the loan itself never changes — only what you paid for it.</p>
+            <p className="sect-sub">Holdings sell at par or a discount. A discount raises what you earn. The interest rate on the loan itself never changes — only what you paid for it.</p>
           </div>
         </div>
         {listings.length === 0 ? (
@@ -11445,11 +10412,11 @@ function SmForSale({
       <section className="card sm-card sm-explainer">
         <div className="card-head sm-card-head">
           <div>
-            <h2 className="sect">Why do loans sell at a premium or a discount?</h2>
-            <p className="sect-sub">The seller keeps one premium or discount percentage. Actual buyer cost also includes accrued interest and the disclosed taker fee.</p>
+            <h2 className="sect">Why do loans sell at a discount?</h2>
+            <p className="sect-sub">Sellers ask for par or a discount, never more than 100% of the outstanding principal. Your total cost also includes the accrued interest owed to the seller, and any buyer fee shown before you confirm.</p>
           </div>
         </div>
-        <div className="band band-3 sm-band">
+        <div className="band sm-band sm-band-2">
           <div className="cell">
             <div className="microlabel">At a discount</div>
             <div className="num sm-band-price">Below 100% of principal</div>
@@ -11460,13 +10427,7 @@ function SmForSale({
             <div className="microlabel">At par</div>
             <div className="num sm-band-price">100% of principal</div>
             <div className="sm-band-yield">same transfer price</div>
-            <div className="sm-band-copy">You step in at the holding's current outstanding principal. Accrued interest and the buyer fee still form part of total cost.</div>
-          </div>
-          <div className="cell">
-            <div className="microlabel">At a premium</div>
-            <div className="num sm-band-price">Above 100% of principal</div>
-            <div className="sm-band-yield">higher transfer price</div>
-            <div className="sm-band-copy">The rate beats anything open today, so the seller charges for access. You take a lower yield to lock it in.</div>
+            <div className="sm-band-copy">You step in at the holding's current outstanding principal. Accrued interest still forms part of the total cost. This is the highest price a seller can ask.</div>
           </div>
         </div>
       </section>
@@ -11483,7 +10444,7 @@ function SmForSale({
                   {pendingDisbursementCount > 0 ? ` ${pendingDisbursementCount} ${pendingDisbursementCount === 1 ? "holding becomes" : "holdings become"} available after borrower disbursement.` : ""}{" "}
                 </>
               ) : null}
-              You set the asking price; BANXUM's maker fee comes out of what you receive, and nothing is charged if it does not sell.
+              You set the asking price, at par or a discount; BANXUM's seller fee comes out of what you receive, and nothing is charged if it does not sell.
             </p>
           </div>
         </div>
@@ -11511,7 +10472,7 @@ function listingStatusLabel(status: string) {
 
 function listingStatusTooltip(status: string) {
   if (status === "active") {
-    return "Visible to eligible buyers. Servicing changes automatically recalculate the amounts while preserving the selected premium or discount.";
+    return "Visible to eligible buyers. Servicing changes automatically recalculate the amounts while keeping your price (par or discount).";
   }
   return undefined;
 }
@@ -11778,7 +10739,7 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
       return;
     }
     if (isFixturePreview) {
-      setDone(true);
+      if (codeRequest.pin.previewAccepts()) setDone(true);
       return;
     }
     const labels = templateLabels(termsQuery.data);
@@ -11839,7 +10800,8 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
           expected_price_bps: reviewed.price_bps,
           expected_current_principal_minor: reviewed.current_principal_minor,
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       });
       void queryClient.invalidateQueries();
@@ -11858,6 +10820,7 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
         void queryClient.invalidateQueries({ queryKey: getV1MarketplaceSecondaryListingsListQueryKey() });
         return;
       }
+      if (codeRequest.pin.handleError(mutationError)) return;
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -11882,7 +10845,7 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
     0
   );
   return (
-    <Modal xwide footer={isOwnListing ? <Button variant="ghost" onClick={onClose}>Close</Button> : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={Boolean(purchaseBlockedReason) || !ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || detailQuery.isFetching || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={isOwnListing ? `Your listing: ${listing.loan_title}` : `Buy ${listing.loan_title}`}>
+    <Modal xwide footer={isOwnListing ? <Button variant="ghost" onClick={onClose}>Close</Button> : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={Boolean(purchaseBlockedReason) || !ack || (needsExtra && !extraAck) || code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || detailQuery.isFetching || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={isOwnListing ? `Your listing: ${listing.loan_title}` : `Buy ${listing.loan_title}`}>
       <div className="col gap-16">
         {isOwnListing ? <Banner icon="lock" tone="neutral" title="This is your listing">Other investors see it with this price. You cannot buy your own listing. To change or cancel it, open Sell a holding.</Banner> : null}
         {purchaseBlockedReason && !isOwnListing ? <Banner icon="lock" tone="neutral" title="Purchase unavailable in this view">{purchaseBlockedReason}</Banner> : null}
@@ -11907,7 +10870,10 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
           { label: "Current principal", value: `${detail.currency} ${formatMoneyMinor(detail.current_principal_minor, detail.currency)}` },
           { label: "Sale price", value: priceLabel(detail.discount_premium_bps) },
           { label: "Accrued interest to seller", value: `${detail.currency} ${formatMoneyMinor(detail.accrued_interest_minor, detail.currency)}` },
-          { label: "Taker fee", value: `${detail.currency} ${formatMoneyMinor(detail.taker_fee_minor, detail.currency)}` },
+          // No buyer fee since 2026-10-16: the line shows only when the server charges one.
+          ...(detail.taker_fee_minor !== 0
+            ? [{ label: "Taker fee", value: `${detail.currency} ${formatMoneyMinor(detail.taker_fee_minor, detail.currency)}` }]
+            : []),
           { label: "Total cost", value: `${detail.currency} ${formatMoneyMinor(detail.buyer_total_cost_minor, detail.currency)}`, total: true }
         ]} />
         {detail.public_disclosure_note ? <Banner tone="warn" title="Listing disclosure">{detail.public_disclosure_note}</Banner> : null}
@@ -11934,15 +10900,7 @@ function BuyListingModal({ listing, onClose, ownListing = false, purchaseBlocked
             </Check>
             {needsExtra ? <Check checked={extraAck} id="sm-extra-ack" onChange={setExtraAck}>I acknowledge this is a non-standard claim with heightened risk of partial or total loss.</Check> : null}
             {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-            <CodeRequestField
-              hint={previewHint("Demo: any 6 digits")}
-              label="Email confirmation code"
-              requestDisabled={Boolean(purchaseBlockedReason) || emailCodeRequestDisabled(codeRequest)}
-              requestLabel={emailCodeRequestLabel(codeRequest)}
-              value={code}
-              onChange={setCode}
-              onRequest={codeRequest.requestCode}
-            />
+            <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={() => void submitPurchase()} requestDisabled={Boolean(purchaseBlockedReason)} />
             <p className="muted" style={{ fontSize: 11.5 }}>Request the email code only after you have reviewed the claim, schedules, price, and terms and intend to buy.</p>
             {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase listing">{codeRequest.error || error}</Banner> : null}
           </>
@@ -11970,6 +10928,12 @@ function listingPriceFromInput(value: string) {
   return Math.max(1, Number(value || 0));
 }
 
+// Owner decision 2026-10-16 (row 4): a sale price is par or a discount, never a premium.
+const LISTING_PAR_PRICE_BPS = 10_000;
+const LISTING_ABOVE_PAR_MESSAGE = "The sale price can be at most 100% (par).";
+// Fixture preview only (no server): the default seller fee, 2% of the price.
+const PREVIEW_MAKER_FEE_BPS = 200;
+
 function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; listing: OpenSecondaryListing | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const isEdit = listing !== null;
@@ -11990,20 +10954,26 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
     { query: { enabled: !isFixturePreview, retry: false } }
   );
   const price = listingPriceFromInput(priceBps);
+  const priceAbovePar = price > LISTING_PAR_PRICE_BPS;
+  const priceValid = Number.isFinite(price) && price >= 1 && !priceAbovePar;
   // Seller pricing from the server (audit A-34): transfer price, accrued interest to
   // today, the configured maker fee with its minimum, and the net proceeds. The preview
   // fixture keeps a local estimate because it has no server.
   const pricingQuery = useV1MarketplaceSecondaryListingsPricingPreviewRetrieve(
     { holding_id: holding.id, price_bps: price },
-    { query: { enabled: !isFixturePreview && Number.isFinite(price) && price >= 1, retry: false, staleTime: 30_000 } }
+    { query: { enabled: !isFixturePreview && priceValid, retry: false, staleTime: 30_000 } }
   );
   const fixtureTransfer = Math.round((holding.current_principal_minor * price) / 10000);
-  const fixtureMakerFee = Math.round(fixtureTransfer * 0.0025);
-  const pricing: Pick<SecondaryMarketListingPricingPreview, "transfer_price_minor" | "accrued_interest_minor" | "maker_fee_minor" | "seller_net_proceeds_minor"> | null = isFixturePreview
-    ? { transfer_price_minor: fixtureTransfer, accrued_interest_minor: 0, maker_fee_minor: fixtureMakerFee, seller_net_proceeds_minor: fixtureTransfer - fixtureMakerFee }
-    : pricingQuery.data?.price_bps === price ? pricingQuery.data : null;
+  const fixtureMakerFee = Math.round((fixtureTransfer * PREVIEW_MAKER_FEE_BPS) / 10000);
+  const pricing: Pick<SecondaryMarketListingPricingPreview, "transfer_price_minor" | "accrued_interest_minor" | "maker_fee_minor" | "seller_net_proceeds_minor"> | null = !priceValid
+    ? null
+    : isFixturePreview
+      ? { transfer_price_minor: fixtureTransfer, accrued_interest_minor: 0, maker_fee_minor: fixtureMakerFee, seller_net_proceeds_minor: fixtureTransfer - fixtureMakerFee }
+      : pricingQuery.data?.price_bps === price ? pricingQuery.data : null;
   const pricingValue = (minor: number | undefined) =>
-    minor === undefined ? (pricingQuery.isError ? "Not available" : "Calculating...") : `${holding.currency} ${formatMoneyMinor(minor, holding.currency)}`;
+    minor === undefined
+      ? priceAbovePar ? "—" : pricingQuery.isError ? "Not available" : "Calculating..."
+      : `${holding.currency} ${formatMoneyMinor(minor, holding.currency)}`;
   const pricingRows = [
     { label: "Transfer price", value: pricingValue(pricing?.transfer_price_minor) },
     { label: "Accrued interest to you", value: pricingValue(pricing?.accrued_interest_minor) },
@@ -12036,6 +11006,10 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
       setError("Enter a valid sale price in basis points.");
       return;
     }
+    if (priceAbovePar) {
+      setError(LISTING_ABOVE_PAR_MESSAGE);
+      return;
+    }
     if (!isFixturePreview && (!termsQuery.data || templateLabels(termsQuery.data).length === 0)) {
       setError("Current secondary-market listing terms are not available.");
       return;
@@ -12049,7 +11023,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
   const submitListing = async () => {
     setError("");
     if (isFixturePreview) {
-      setDone(true);
+      if (codeRequest.pin.previewAccepts()) setDone(true);
       return;
     }
     const labels = templateLabels(termsQuery.data);
@@ -12100,7 +11074,8 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             document_acceptance_id: acceptance.id,
             idempotency_key: current.listingKey,
             sensitive_action_code_id: codeRequest.codeId,
-            sensitive_action_code: code
+            sensitive_action_code: code,
+            pin: codeRequest.pin.value
           }
         });
       } else {
@@ -12111,13 +11086,15 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             document_acceptance_id: acceptance.id,
             idempotency_key: current.listingKey,
             sensitive_action_code_id: codeRequest.codeId,
-            sensitive_action_code: code
+            sensitive_action_code: code,
+            pin: codeRequest.pin.value
           }
         });
       }
       void queryClient.invalidateQueries();
       setDone(true);
     } catch (mutationError) {
+      if (codeRequest.pin.handleError(mutationError)) return;
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -12129,9 +11106,9 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
     <Modal
       xwide
       footer={step === "review" ? (
-        <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={notListable || !ack || !Number.isFinite(price) || price < 1 || !pricing || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
+        <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={notListable || !ack || !priceValid || !pricing || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
       ) : (
-        <><Button variant="ghost" onClick={() => { setError(""); setAttempt(newListingAttempt(price, isEdit)); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending ? "Submitting..." : isEdit ? "Verify and update" : "Verify and publish"}</Button></>
+        <><Button variant="ghost" onClick={() => { setError(""); setAttempt(newListingAttempt(price, isEdit)); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending ? "Submitting..." : isEdit ? "Verify and update" : "Verify and publish"}</Button></>
       )}
       onClose={onClose}
       title={`${isEdit ? "Edit listing for" : "List"} ${holding.loan.loan_title}`}
@@ -12152,8 +11129,12 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             <Card padded><Stat amountMinor={projectedInterestMinor} currency={holding.currency} label="Projected remaining interest" /></Card>
             <Card padded><Stat label="Annual interest / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
           </div>
-          <Field hint="10000 = at par, 9800 = 2% discount, 10100 = 1% premium." label="Sale price bps">
-            <input className="input mono" inputMode="numeric" onChange={(event) => changePrice(event.target.value.replace(/\D/g, ""))} value={priceBps} />
+          <Field
+            error={priceAbovePar ? LISTING_ABOVE_PAR_MESSAGE : undefined}
+            hint="Par or a discount, in basis points of the outstanding principal: 10000 = 100% (par), 9800 = 98% (a 2% discount). The most is 10000."
+            label="Sale price bps"
+          >
+            <input className="input mono" inputMode="numeric" maxLength={5} onChange={(event) => changePrice(event.target.value.replace(/\D/g, ""))} value={priceBps} />
           </Field>
           <Review rows={[
             { label: "Loan", value: holding.loan.loan_title },
@@ -12187,7 +11168,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
       ) : (
         <div className="col gap-16">
           <Banner icon="lock" tone="neutral" title={isEdit ? "Verify and update" : "Verify and publish"}>
-            The {isEdit ? "revised listing" : "listing"} data and terms are confirmed. Enter the code sent to your email to authorize this sensitive action.
+            The {isEdit ? "revised listing" : "listing"} data and terms are confirmed. Enter the code sent to your email and your PIN to authorize this sensitive action.
           </Banner>
           <Review rows={[
             { label: "Loan", value: holding.loan.loan_title },
@@ -12195,15 +11176,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
             { label: "Sale price", value: priceLabel(price - 10000) },
             ...pricingRows
           ]} />
-          <CodeRequestField
-            hint={previewHint("Demo: any 6 digits")}
-            label="Email confirmation code"
-            requestDisabled={emailCodeRequestDisabled(codeRequest)}
-            requestLabel={emailCodeRequestLabel(codeRequest)}
-            value={code}
-            onChange={setCode}
-            onRequest={codeRequest.requestCode}
-          />
+          <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={() => void submitListing()} />
           {codeRequest.error || error ? <Banner tone="bad" title={isEdit ? "Could not update listing" : "Could not list holding"}>{codeRequest.error || error}</Banner> : null}
         </div>
       )}
@@ -12417,7 +11390,7 @@ function kycChipTone(status: string) {
   return "bad" as const;
 }
 
-type SettingsSection = "profile" | "verification" | "payout" | "communication" | "support";
+type SettingsSection = "profile" | "verification" | "pin" | "payout" | "communication" | "support";
 
 function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const queryClient = useQueryClient();
@@ -12485,6 +11458,7 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const sections: Array<{ key: SettingsSection; label: string; icon: IconName; description: string }> = [
     { key: "profile", label: "Profile", icon: "user", description: "The details of your investor account." },
     { key: "verification", label: "Verification", icon: "shield", description: "Identity and phone checks for your account." },
+    { key: "pin", label: "PIN", icon: "lock", description: "Your 6-digit PIN confirms investments, withdrawals and bank changes with the email code." },
     { key: "payout", label: "Payout accounts", icon: "building", description: "Bank accounts in your name for withdrawals and forced returns." },
     { key: "communication", label: "Communication", icon: "mail", description: "Choose the optional emails you receive." },
     { key: "support", label: "Support & account", icon: "help", description: "Answers to common questions and how to reach support." }
@@ -12584,6 +11558,8 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             </div>
           ) : null}
 
+          {section === "pin" ? <SettingsPinPanel readonly={readonly} /> : null}
+
           {section === "payout" ? (
             <div className="col gap-16">
               {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
@@ -12650,7 +11626,6 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   );
 }
 
-
 function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [currency, setCurrency] = useState("CHF");
@@ -12664,12 +11639,12 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   const hasValidPayoutDetails =
     currency.length === 3 && iban.replace(/\s/g, "").length >= 15 && accountName.trim().length > 1;
   useAutoRequestEmailCode(codeRequest, !done && hasValidPayoutDetails);
-  const canSubmit = hasValidPayoutDetails && (isFixturePreview || (codeRequest.codeId && code.length >= 6));
+  const canSubmit = hasValidPayoutDetails && codeRequest.pin.ready && (isFixturePreview || (codeRequest.codeId && code.length >= 6));
 
   const submit = () => {
     setError("");
     if (isFixturePreview) {
-      setDone(true);
+      if (codeRequest.pin.previewAccepts()) setDone(true);
       return;
     }
     if (!codeRequest.codeId) {
@@ -12683,7 +11658,8 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
           destination_iban: iban,
           destination_account_name: accountName,
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       },
       {
@@ -12691,7 +11667,10 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
           void queryClient.invalidateQueries();
           setDone(true);
         },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
+        onError: (mutationError) => {
+          if (codeRequest.pin.handleError(mutationError)) return;
+          setError(apiErrorMessage(mutationError));
+        }
       }
     );
   };
@@ -12720,15 +11699,7 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
         <Field label="Account holder name">
           <input className="input" onChange={(event) => setAccountName(event.target.value)} placeholder={displayProfile().name} value={accountName} />
         </Field>
-        <CodeRequestField
-          hint={previewHint("Demo: any 6 digits")}
-          label="Email confirmation code"
-          requestDisabled={emailCodeRequestDisabled(codeRequest)}
-          requestLabel={emailCodeRequestLabel(codeRequest)}
-          value={code}
-          onChange={setCode}
-          onRequest={codeRequest.requestCode}
-        />
+        <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={submit} />
         {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
         {codeRequest.error || error ? <Banner tone="bad" title="Could not submit payout IBAN">{codeRequest.error || error}</Banner> : null}
       </div>
@@ -12738,6 +11709,57 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
 
 // Account statuses that block login and financial access (set by an admin).
 const blockedAccountStatuses = new Set(["restricted", "locked", "closed"]);
+const lenderAccountTypes = new Set(["natural_person_lender", "legal_entity_lender_representative"]);
+
+// After login, an account without a PIN (every account created before ACC-DEC-009)
+// creates it here before the portal opens. Outside registration this needs an email code.
+function PinGateScreen({
+  onCreated,
+  onSignOut,
+  setRoute,
+  signOutError,
+  signOutLabel
+}: {
+  onCreated: () => void;
+  onSignOut: () => void;
+  setRoute: (route: AppRoute) => void;
+  signOutError: string;
+  signOutLabel: string;
+}) {
+  const { status, isLoading, query } = usePinStatus();
+  return (
+    <UserSkin>
+      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
+        <div className="auth-card">
+          <div className="auth-form pin-gate">
+            <AuthStatusIcon name="lock" />
+            <div className="auth-head">
+              <h2>Create your PIN</h2>
+              <p>
+                Before you continue: you will enter this 6-digit PIN with the email code for every
+                investment, withdrawal and bank change.
+              </p>
+            </div>
+            {isLoading ? (
+              <ScreenLoading title="Loading" />
+            ) : query.isError && !isFixturePreview ? (
+              <Banner actions={<Button size="sm" onClick={() => void query.refetch()}>Retry</Button>} tone="bad" title="Could not load your account">
+                Check your connection and try again.
+              </Banner>
+            ) : (
+              <CreatePinForm
+                footer={<Button variant="link" onClick={onSignOut}>{signOutLabel}</Button>}
+                requiresEmailCode={status?.setup_requires_email_code ?? true}
+                onSaved={onCreated}
+              />
+            )}
+            {signOutError ? <Banner tone="bad" title="Could not sign out">{signOutError}</Banner> : null}
+          </div>
+        </div>
+      </AuthShell>
+    </UserSkin>
+  );
+}
 
 function AccountBlockedScreen({ status }: { status: string }) {
   const statusWord = status === "locked" ? "locked" : status === "closed" ? "closed" : "restricted";
@@ -12898,7 +11920,9 @@ type FaqSection = {
   items: Array<{ question: string; answer: ReactNode }>;
 };
 
-const faqSections: FaqSection[] = [
+// Texts that offer currency exchange follow the FX switch (fx.enabled, owner decision 2026-10-16).
+function faqSections(fxEnabled: boolean): FaqSection[] {
+  return [
   {
     title: "How BANXUM works",
     summary: "The platform connects individual lenders with project-specific business-loan opportunities.",
@@ -12972,7 +11996,7 @@ const faqSections: FaqSection[] = [
   },
   {
     title: "Balances and deadlines",
-    summary: "Uninvested funds have a 60-day holding limit. Investment eligibility depends on the loan funding window.",
+    summary: `${autoReturnRuleText()} Investment eligibility depends on the loan funding window.`,
     items: [
       {
         question: "How do I add funds?",
@@ -12999,21 +12023,24 @@ const faqSections: FaqSection[] = [
         question: "How long can money remain uninvested?",
         answer: (
           <>
-            Funds must cover the full remaining funding period of the loan you choose, within their
-            original 60-day holding limit. For example, a 30-day remaining subscription window needs
-            at least 30 days of holding time left; a 10-day window needs 10. Uninvested funds must be
-            returned by the holding deadline. Exchanging currency does not restart this clock.
+            Up to {AUTO_RETURN_AFTER_DAYS} days. Money that is not invested goes back to your bank automatically
+            after {AUTO_RETURN_AFTER_DAYS} days. To invest, the money must cover the full remaining funding period
+            of the loan you choose within those days. For example, a 30-day remaining subscription window needs
+            at least 30 days of holding time left; a 10-day window needs 10. Exchanging currency does not restart
+            this count.
           </>
         )
       },
       {
-        question: "What happens at the 60-day deadline?",
+        question: `What happens after ${AUTO_RETURN_AFTER_DAYS} days?`,
         answer: (
           <>
-            The deadline date is the last day: you can withdraw until the end of that day (Europe/Zurich). From
-            the next day, if a verified usable payout IBAN is on file, the system can create a forced withdrawal.
-            If there is no usable IBAN, money-moving actions are blocked and the overdue balance can enter
-            penalty mode. The 60-day limit cannot be extended.
+            Day {AUTO_RETURN_AFTER_DAYS} is the last day: you can withdraw the money until the end of that day
+            (Europe/Zurich), but you can no longer invest{fxEnabled ? " or exchange" : ""} it. The next day we send it back
+            automatically to your verified payout IBAN. If there is no verified IBAN, the money stays on your
+            balance and we ask you to add one. Money may not stay longer than 60 days, the legal limit: after
+            day 60 it enters penalty mode and money-moving actions are blocked until a verified IBAN is on file.
+            The 60-day limit cannot be extended.
           </>
         )
       }
@@ -13054,8 +12081,9 @@ const faqSections: FaqSection[] = [
         question: "What fees do lenders pay?",
         answer: (
           <>
-            Every fee that applies to an action — for example secondary-market transaction fees or the
-            currency-exchange fee — is shown in that flow before you confirm, together with the exact amounts.
+            Every fee that applies to an action — for example the secondary-market seller fee
+            {fxEnabled ? " or the currency-exchange fee" : ""} — is shown in that flow before you confirm, together
+            with the exact amounts.
             Nothing is charged without being displayed first.
           </>
         )
@@ -13096,8 +12124,10 @@ const faqSections: FaqSection[] = [
     ]
   },
   {
-    title: "Secondary market and FX",
-    summary: "Selling and currency conversion are available only under platform controls.",
+    title: fxEnabled ? "Secondary market and FX" : "Secondary market",
+    summary: fxEnabled
+      ? "Selling and currency conversion are available only under platform controls."
+      : "Selling is available only under platform controls.",
     items: [
       {
         question: "Can I sell before maturity?",
@@ -13118,15 +12148,19 @@ const faqSections: FaqSection[] = [
           </>
         )
       },
-      {
-        question: "Does converting currency reset the ageing clock?",
-        answer: (
-          <>
-            No. FX is a settlement function, not a way to restart deadlines. Converted balance inherits the
-            deadlines of the funds you converted — it never receives a fresh 60-day holding period.
-          </>
-        )
-      }
+      ...(fxEnabled
+        ? [
+          {
+            question: "Does converting currency reset the ageing clock?",
+            answer: (
+              <>
+                No. FX is a settlement function, not a way to restart deadlines. Converted balance inherits the
+                deadlines of the funds you converted — it never receives a fresh holding period.
+              </>
+            )
+          }
+          ]
+        : []),
     ]
   },
   {
@@ -13163,13 +12197,16 @@ const faqSections: FaqSection[] = [
       }
     ]
   }
-];
+  ];
+}
 
-function FaqContent({ variant = "portal", footer }: { variant?: "portal" | "site"; footer?: ReactNode }) {
+// Questions of the portal Help page (FaqScreen).
+function FaqContent() {
   const [open, setOpen] = useState("0-0");
-  const site = variant === "site";
+  const fxEnabled = useFxFeature().enabled;
+  const faqTopics = faqSections(fxEnabled);
   const title = "Help & FAQ";
-  const description = "Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market.";
+  const description = `Plain-English answers on onboarding, balances, orders, risk, ${fxEnabled ? "FX, " : ""}documents and the secondary market.`;
   const sectionId = (index: number) => `faq-topic-${index + 1}`;
 
   const intro = (
@@ -13194,7 +12231,7 @@ function FaqContent({ variant = "portal", footer }: { variant?: "portal" | "site
 
   const sections = (
     <div className="faq-sections">
-      {faqSections.map((section, sectionIndex) => (
+      {faqTopics.map((section, sectionIndex) => (
         <section aria-labelledby={`${sectionId(sectionIndex)}-title`} className="faq-section" id={sectionId(sectionIndex)} key={section.title}>
           <div className="faq-section-head">
             <h2 id={`${sectionId(sectionIndex)}-title`}>{section.title}</h2>
@@ -13234,125 +12271,29 @@ function FaqContent({ variant = "portal", footer }: { variant?: "portal" | "site
     </Banner>
   );
 
-  if (!site) {
-    return (
-      <div className="faq-v-portal">
-        <PageHead description={description} title={title} />
-        <div className="faq-layout">
-          <div className="faq-main">
-            {intro}
-            {sections}
-            {risk}
-          </div>
-          <aside className="faq-aside">{support}</aside>
-        </div>
-        {footer}
-      </div>
-    );
-  }
-
   return (
-    <div className="faq-v-site">
-      <section className="site-page-head">
-        <div className="site-wrap">
-          <span className="site-eyebrow">Help</span>
-          <h1 className="site-h1">{title}</h1>
-          <p className="site-lead">{description}</p>
+    <div className="faq-v-portal">
+      <PageHead description={description} title={title} />
+      <div className="faq-layout">
+        <div className="faq-main">
+          {intro}
+          {sections}
+          {risk}
         </div>
-      </section>
-      <section className="site-section no-rule site-flush-top">
-        <div className="site-wrap site-sidebar-layout">
-          <nav aria-label="Topics" className="site-side-nav">
-            <ul>
-              {faqSections.map((section, sectionIndex) => (
-                <li key={section.title}>
-                  <a
-                    href={`#${sectionId(sectionIndex)}`}
-                    onClick={(event) => {
-                      const target = document.getElementById(sectionId(sectionIndex));
-                      if (!target) return;
-                      event.preventDefault();
-                      siteScrollTo(target);
-                    }}
-                  >
-                    {section.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="faq-main">
-            {intro}
-            {sections}
-            {risk}
-            <div className="site-box is-ink-rule faq-still">
-              <h2 className="site-h4">Need help?</h2>
-              <p className="site-text">
-                Write to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
-              </p>
-              {footer}
-            </div>
-          </div>
-        </div>
-      </section>
+        <aside className="faq-aside">{support}</aside>
+      </div>
     </div>
   );
 }
 
-function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  return (
-    <SiteShell active="help" setRoute={setRoute}>
-      <FaqContent
-        footer={
-          <div className="faq-cta">
-            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "publicProjects")}>Back to marketplace</Button>
-            <Button variant="primary" onClick={() => goTo(setRoute, "register")}>Create lender account</Button>
-          </div>
-        }
-        variant="site"
-      />
-    </SiteShell>
-  );
-}
-
-// Unknown address (audit A-62): a real "page not found" page that keeps the bad URL visible,
-// instead of silently showing the home page or the Overview.
-function NotFoundPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  useEffect(() => {
-    document.title = `Page not found · ${platformName}`;
-  }, []);
-  return (
-    <SiteShell setRoute={setRoute}>
-      <section className="site-page-head">
-        <div className="site-wrap">
-          <span className="site-eyebrow">Error 404</span>
-          <h1 className="site-h1">Page not found</h1>
-          <p className="site-lead">
-            There is no page at this address. Check the link, or go to one of the pages below.
-          </p>
-        </div>
-      </section>
-      <section className="site-section no-rule site-flush-top">
-        <div className="site-wrap">
-          <div className="faq-cta not-found-actions">
-            <Button variant="primary" onClick={() => goTo(setRoute, "public")}>Home page</Button>
-            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "publicProjects")}>Projects</Button>
-            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "dashboard")}>My account</Button>
-          </div>
-        </div>
-      </section>
-    </SiteShell>
-  );
-}
-
-// Portal Help page (design "help"): FaqContent is shared with the public FAQ,
-// so it is wrapped here and left unchanged. Its own page head repeats this
-// page head and is hidden inside the wrapper (see skin/account.css).
+// Portal Help page (design "help"): FaqContent is wrapped here and left unchanged. Its own
+// page head repeats this page head and is hidden inside the wrapper (see skin/account.css).
 function FaqScreen() {
+  const fxEnabled = useFxFeature().enabled;
   return (
     <main className="content acct-page portal-help">
       <PageHead
-        description="Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market."
+        description={`Plain-English answers on onboarding, balances, orders, risk, ${fxEnabled ? "FX, " : ""}documents and the secondary market.`}
         title="Help"
       />
       <div className="portal-help-grid">
@@ -13373,139 +12314,6 @@ function FaqScreen() {
         </aside>
       </div>
     </main>
-  );
-}
-
-function LegalDocumentPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const category = window.location.pathname
-    .replace(/^\/legal\//, "")
-    .replace(/\/+$/, "")
-    .replace(/-/g, "_");
-  const known = category in legalDocumentTitles;
-  const [downloadError, setDownloadError] = useState("");
-  const [downloading, setDownloading] = useState(false);
-  const templateQuery = useV1DocumentsTemplatesCurrentRetrieve(
-    { category: category as CategoryEnum, template_key: "default", language: "en" },
-    { query: { enabled: !isFixturePreview && known, retry: false } }
-  );
-  const doc = templateQuery.data;
-  const title = doc?.title ?? legalDocumentTitles[category] ?? "Document";
-
-  const download = async () => {
-    setDownloadError("");
-    setDownloading(true);
-    try {
-      const response = await fetch(
-        `/api/v1/documents/templates/current/artifact/?category=${encodeURIComponent(category)}`
-      );
-      if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-      const payload = (await response.json()) as { content: string; content_type: string; filename: string };
-      const bytes = Uint8Array.from(atob(payload.content), (char) => char.charCodeAt(0));
-      const blob = new Blob([bytes], { type: payload.content_type });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = payload.filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setDownloadError(error instanceof Error ? error.message : "Download failed.");
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  const documentNav = (
-    <nav aria-label="Legal documents" className="site-side-nav">
-      <ul>
-        {Object.keys(legalDocumentTitles).map((item) => (
-          <li key={item}>
-            <a
-              aria-current={item === category ? "page" : undefined}
-              className={item === category ? "active" : undefined}
-              href={legalDocumentPath(item)}
-            >
-              {legalDocumentTitles[item]}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-
-  return (
-    <SiteShell setRoute={setRoute}>
-      <div className="legal-doc">
-        <section className="site-page-head">
-          <div className="site-wrap">
-            <span className="site-eyebrow">Legal</span>
-            <h1 className="site-h1">{known ? title : "Legal documents"}</h1>
-            {known ? (
-              <p className="site-lead">
-                The exact server-published version you accept in the platform. Values in brackets are
-                filled with your transaction data at acceptance time.
-              </p>
-            ) : null}
-          </div>
-        </section>
-        <section className="site-section no-rule site-flush-top">
-          <div className="site-wrap site-sidebar-layout">
-            {documentNav}
-            {!known ? (
-              <div className="site-box">
-                <Empty icon="doc" title="Document not found">
-                  This document address is not recognized. Open {platformName} and use the links in each flow.
-                </Empty>
-              </div>
-            ) : (
-              <div className="site-prose">
-                <div className="site-doc-meta">
-                  {doc ? (
-                    <div className="legal-doc-meta">
-                      <Chip status={`v${doc.version_number}`} tone="info" />
-                      <span>hash {doc.content_hash.slice(0, 16)}</span>
-                      {doc.published_at ? <span>published {formatDate(doc.published_at)}</span> : null}
-                    </div>
-                  ) : <span />}
-                  <Button disabled={downloading || isFixturePreview} icon="doc" variant="primary" onClick={download}>
-                    {downloading ? "Preparing PDF..." : "Download PDF"}
-                  </Button>
-                </div>
-                {downloadError ? <Banner tone="bad" title="Download failed">{downloadError}</Banner> : null}
-                {isFixturePreview ? (
-                  <p className="site-callout">Preview mode: live document content loads from the published server template.</p>
-                ) : templateQuery.isLoading ? (
-                  <p className="site-callout">Loading the current published document...</p>
-                ) : doc ? (
-                  <>
-                    <div className="legal-document-preview legal-doc-body">{renderLegalBody(doc.body)}</div>
-                    {Array.isArray(doc.checkbox_labels) && doc.checkbox_labels.length > 0 ? (
-                      <div className="legal-doc-acks">
-                        <h2>You will be asked to confirm</h2>
-                        <ul>
-                          {(doc.checkbox_labels as string[]).map((label) => (
-                            <li key={label}>{label}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </>
-                ) : templateQuery.error instanceof ApiClientError && templateQuery.error.status === 404 ? (
-                  <Banner icon="doc" tone="info" title="Not yet published">
-                    The current version of this document is being prepared and will appear on this page once it is
-                    published. Questions in the meantime: {supportEmail}.
-                  </Banner>
-                ) : (
-                  <Banner tone="bad" title="Document unavailable">
-                    The current published document could not be loaded. Retry, or contact {supportEmail}.
-                  </Banner>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    </SiteShell>
   );
 }
 
@@ -13771,6 +12579,8 @@ function OriginatorClaimInvestFlow({
       });
       applyQuote(nextQuote);
     } catch (mutationError) {
+      // A Swiss-borrower claim with no place left: reload the places.
+      if (isSwissInvestorLimitError(mutationError)) void queryClient.invalidateQueries();
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -13779,7 +12589,7 @@ function OriginatorClaimInvestFlow({
     if (!quote) return;
     setError("");
     if (isFixturePreview) {
-      setStep("done");
+      if (codeRequest.pin.previewAccepts()) setStep("done");
       return;
     }
     const labels = templateLabels(termsQuery.data);
@@ -13822,12 +12632,15 @@ function OriginatorClaimInvestFlow({
           document_acceptance_id: acceptance.id,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code,
+          pin: codeRequest.pin.value,
           idempotency_key: current.purchaseKey
         }
       });
       void queryClient.invalidateQueries();
       setStep("done");
     } catch (mutationError) {
+      if (codeRequest.pin.handleError(mutationError)) return;
+      if (isSwissInvestorLimitError(mutationError)) void queryClient.invalidateQueries();
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -13836,10 +12649,10 @@ function OriginatorClaimInvestFlow({
   const footer = step === "done"
     ? null
     : step === "confirm"
-      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
+      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
       : step === "review"
         ? <><Button onClick={() => { setQuote(null); setClaimAttempt(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
-        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
+        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending || swissLoanFullForViewer(loan)} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
 
   const amountRows = [
     { label: "Investor yield", value: `${formatRateBps(loan.yield_bps)} effective annual · ACT/365` },
@@ -13895,6 +12708,7 @@ function OriginatorClaimInvestFlow({
           <Field error={amountError} hint={`Minimum ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} · up to ${loan.currency} ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Cash amount to invest">
             <InvestAmountInput currency={loan.currency} label="Cash amount to invest" value={amount} onChange={setAmount} />
           </Field>
+          <SwissInvestorLimitNote loan={loan} />
           <InvestPaidFrom currency={loan.currency} investableBalanceMinor={investableBalanceMinor} />
           {error ? <Banner tone="bad" title="Could not price this claim">{error}</Banner> : null}
         </div>
@@ -13917,8 +12731,8 @@ function OriginatorClaimInvestFlow({
         </div>
       ) : step === "confirm" && quote ? (
         <div className="card iv-card iv-form">
-          <Banner icon="lock" tone="info" title="Confirm this claim purchase">Enter the 6-digit email confirmation code. A successful confirmation immediately assigns the claim and adds it to your portfolio.</Banner>
-          <CodeRequestField hint={previewHint("Demo: any 6 digits")} label="Email confirmation code" requestDisabled={emailCodeRequestDisabled(codeRequest)} requestLabel={emailCodeRequestLabel(codeRequest)} value={code} onChange={setCode} onRequest={codeRequest.requestCode} />
+          <Banner icon="lock" tone="info" title="Confirm this claim purchase">Enter the 6-digit email confirmation code and your PIN. A successful confirmation immediately assigns the claim and adds it to your portfolio.</Banner>
+          <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={() => void confirmPurchase()} />
           {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase claim">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
@@ -14153,7 +12967,7 @@ function InvestFlow({
   const confirmOrder = async () => {
     setError("");
     if (isFixturePreview) {
-      setStep("done");
+      if (codeRequest.pin.previewAccepts()) setStep("done");
       return;
     }
     const labels = templateLabels(termsQuery.data);
@@ -14200,14 +13014,18 @@ function InvestFlow({
           document_acceptance_id: acceptanceId,
           idempotency_key: current.allocationKey,
           sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
+          sensitive_action_code: code,
+          pin: codeRequest.pin.value
         }
       });
       void queryClient.invalidateQueries();
       setPlacedOrder(order);
       setStep("done");
     } catch (mutationError) {
+      if (codeRequest.pin.handleError(mutationError)) return;
       if (isOrderNotPendingError(mutationError)) setAttempt(newPrimaryOrderAttempt(amountMinor));
+      // The last place of a Swiss-borrower loan went to someone else: reload the places.
+      if (isSwissInvestorLimitError(mutationError)) void queryClient.invalidateQueries();
       setError(apiErrorMessage(mutationError));
     }
   };
@@ -14215,10 +13033,10 @@ function InvestFlow({
   const footer = step === "done"
     ? null
     : step === "confirm"
-      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || submitting} variant="primary" onClick={() => void confirmOrder()}>{submitting ? "Submitting..." : "Confirm order"}</Button></>
+      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || submitting} variant="primary" onClick={() => void confirmOrder()}>{submitting ? "Submitting..." : "Confirm order"}</Button></>
       : step === "review"
         ? <><Button onClick={backToAmount}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
-        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
+        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError) || swissLoanFullForViewer(loan)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
 
   // What the server did with the order (audit A-33 / SECONDARY-06): allocated in full,
   // partly allocated, or closed with nothing invested.
@@ -14268,6 +13086,7 @@ function InvestFlow({
           <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
             <InvestAmountInput currency={loan.currency} label="Investment amount" value={amount} onChange={changeAmount} />
           </Field>
+          <SwissInvestorLimitNote loan={loan} />
           <InvestPaidFrom currency={loan.currency} investableBalanceMinor={investableBalanceMinor} />
           <Banner tone="neutral" title={subscriptionClaim ? "Subscription at par" : "Allocation"}>
             {subscriptionClaim
@@ -14302,18 +13121,10 @@ function InvestFlow({
         </div>
       ) : step === "confirm" ? (
         <div className="card iv-card iv-form">
-          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
+          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code and your PIN.</Banner>
           {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
           {!isFixturePreview && termsQuery.data ? <p className="iv-note">Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-          <CodeRequestField
-            hint={previewHint("Demo: any 6 digits")}
-            label="Email confirmation code"
-            requestDisabled={emailCodeRequestDisabled(codeRequest)}
-            requestLabel={emailCodeRequestLabel(codeRequest)}
-            value={code}
-            onChange={setCode}
-            onRequest={codeRequest.requestCode}
-          />
+          <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={() => void confirmOrder()} />
           {codeRequest.expiresAt ? <p className="iv-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>

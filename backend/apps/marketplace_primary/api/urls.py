@@ -13,11 +13,33 @@ from backend.apps.marketplace_primary.api.views import (
     PrimaryLoanCloseView,
     PrimaryLoanExpiryScanView,
     PrimaryOrderBatchView,
-    PublicMarketplaceLoanListView,
+    PublicOriginatorListView,
+    PublicProjectDetailView,
+    PublicProjectListView,
+    PublicStatisticsView,
 )
 
 urlpatterns = [
-    path("loans/", PublicMarketplaceLoanListView.as_view(), name="marketplace-primary-loans"),
+    path(
+        "public/projects/",
+        PublicProjectListView.as_view(),
+        name="marketplace-primary-public-projects",
+    ),
+    path(
+        "public/projects/<uuid:loan_id>/",
+        PublicProjectDetailView.as_view(),
+        name="marketplace-primary-public-project-detail",
+    ),
+    path(
+        "public/statistics/",
+        PublicStatisticsView.as_view(),
+        name="marketplace-primary-public-statistics",
+    ),
+    path(
+        "public/originators/",
+        PublicOriginatorListView.as_view(),
+        name="marketplace-primary-public-originators",
+    ),
     path(
         "opportunities/",
         MarketplaceOpportunityListView.as_view(),

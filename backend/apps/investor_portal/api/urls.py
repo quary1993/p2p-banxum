@@ -13,6 +13,7 @@ from backend.apps.investor_portal.api.views import (
     InvestorNotificationReadView,
     InvestorNotificationsReadAllView,
     InvestorNotificationsView,
+    InvestorPortalFeaturesView,
     InvestorPortfolioView,
     InvestorPrimaryOrdersView,
     InvestorSecondaryMarketActivityView,
@@ -56,4 +57,5 @@ urlpatterns = [
         name="investor-portal-secondary-market",
     ),
     path("fx/", InvestorFxHistoryView.as_view(), name="investor-portal-fx"),
+    path("features/", InvestorPortalFeaturesView.as_view(), name="investor-portal-features"),
 ]

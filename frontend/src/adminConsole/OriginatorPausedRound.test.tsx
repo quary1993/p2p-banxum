@@ -37,7 +37,9 @@ function adminMe() {
       account_type: "admin",
       status: "active",
       phone_verified: true,
-      marketing_consent: false
+      marketing_consent: false,
+      pin_set: false,
+      pin_locked_until: null
     },
     platform_business_date: "2026-06-08"
   });

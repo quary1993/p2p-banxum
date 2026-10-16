@@ -1,0 +1,203 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: portal Help page and the portal skip link. All rules are scoped with .bxm (see
+   banxumSkin.css). These rules were part of skin/site.css, the old public site's skin, which went
+   when the public site moved to src/site/ (html.bxs); the rules and their order are unchanged. */
+
+/* Skip link of the investor portal: above the page until focused (focus: banxumSkin.css). */
+.bxm .portal-skip {
+  background: var(--bxm-ink);
+  color: #fff;
+  font-size: 14px;
+  left: 16px;
+  padding: 8px 16px;
+  position: absolute;
+  top: -60px;
+  z-index: 1100;
+}
+
+/* Questions of the portal Help page (App.tsx FaqContent) ---------------------------- */
+
+.bxm .faq-intro {
+  background: #fff;
+  border: 1px solid var(--bxm-line);
+  border-radius: 0;
+  display: block;
+  margin: 0 0 28px;
+  padding: 24px;
+}
+
+.bxm .faq-intro .eyebrow {
+  margin-bottom: 8px;
+}
+
+.bxm .faq-intro h2 {
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin: 0 0 8px;
+}
+
+.bxm .faq-intro p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: none;
+}
+
+.bxm .faq-sections {
+  display: grid;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.bxm .faq-section {
+  scroll-margin-top: 96px;
+}
+
+.bxm .faq-section-head {
+  border-bottom: 0;
+  padding: 0;
+}
+
+.bxm .faq-section-head h2 {
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin: 0 0 4px;
+}
+
+.bxm .faq-section-head p {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.bxm .faq-row {
+  border-bottom: 1px solid var(--bxm-line);
+}
+
+.bxm .faq-row:last-child {
+  border-bottom: 1px solid var(--bxm-line);
+}
+
+.bxm .faq-q {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-sans);
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 0;
+  text-align: left;
+  width: 100%;
+}
+
+.bxm .faq-q span {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.bxm .faq-q-icon {
+  color: var(--ink);
+  flex: none;
+}
+
+.bxm .faq-a {
+  color: var(--bxm-graphite);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 72ch;
+  padding: 0 0 20px;
+}
+
+.bxm .faq-support {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.bxm .faq-support-title {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.bxm .faq-support a {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Portal Help page: sections as cards, contact card on the right */
+.bxm .faq-v-portal .faq-layout {
+  align-items: start;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The Help screen sits in a narrow content column; give it the width of the
+   design's Help page (questions plus a contact card on the right). */
+.bxm .app .content.narrow:has(> .faq-v-portal) {
+  max-width: 1240px;
+}
+
+@media (min-width: 1200px) {
+  .bxm .faq-v-portal .faq-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .bxm .faq-v-portal .faq-aside {
+    position: sticky;
+    top: 81px;
+  }
+}
+
+.bxm .faq-v-portal .faq-section {
+  background: #fff;
+  border: 1px solid var(--bxm-line);
+}
+
+.bxm .faq-v-portal .faq-section-head {
+  border-bottom: 1px solid var(--bxm-line);
+  padding: 16px 24px;
+}
+
+.bxm .faq-v-portal .faq-row {
+  padding: 0 24px;
+}
+
+.bxm .faq-v-portal .faq-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .faq-v-portal .faq-aside .faq-support {
+  background: #fff;
+  border: 1px solid var(--bxm-line);
+  padding: 0;
+}
+
+.bxm .faq-v-portal .faq-aside .faq-support-title {
+  border-bottom: 1px solid var(--bxm-line);
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .faq-v-portal .faq-aside .faq-support a {
+  display: block;
+  padding: 20px 24px;
+}

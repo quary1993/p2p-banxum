@@ -24,6 +24,7 @@ from backend.apps.platform_core.services.impersonation import (
 )
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
+    assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
 from backend.apps.platform_core.tests.qa_clock import qa_clock
@@ -133,6 +134,7 @@ def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayl
     return {
         "sensitive_action_code_id": code.code_id,
         "sensitive_action_code": code.raw_code,
+        "pin": code.pin,
     }
 
 
@@ -423,12 +425,13 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
     assert listing.accrued_interest_from_date == date(2026, 1, 1)
     assert listing.accrued_interest_to_date == date(2026, 1, 16)
     assert listing.accrued_interest_minor == 4_932
-    assert listing.maker_fee_bps == 25
-    assert listing.taker_fee_bps == 75
-    assert listing.maker_fee_minor == 2_375
-    assert listing.taker_fee_minor == 7_125
-    assert listing.seller_net_proceeds_minor == 952_557
-    assert listing.buyer_total_cost_minor == 962_057
+    # Owner decision 2026-10-16: seller fee 2% of the price, no buyer fee.
+    assert listing.maker_fee_bps == 200
+    assert listing.taker_fee_bps == 0
+    assert listing.maker_fee_minor == 19_000
+    assert listing.taker_fee_minor == 0
+    assert listing.seller_net_proceeds_minor == 935_932
+    assert listing.buyer_total_cost_minor == 954_932
     assert listing.risk_acknowledgement_required is False
     assert listing.listed_at is not None
     assert listing.metadata["accrual_day_count"] == "ACT/365"
@@ -483,7 +486,7 @@ def test_automatic_listing_refresh_preserves_price_and_recomputes_or_cancels(
         CreateSecondaryMarketListingCommand(
             actor=investor,
             holding_id=str(cast(Any, holding).id),
-            price_bps=10_100,
+            price_bps=9_900,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-auto-refresh-listing",
             **_sensitive_code_payload(investor, "secondary_market_listing"),
@@ -503,13 +506,13 @@ def test_automatic_listing_refresh_preserves_price_and_recomputes_or_cancels(
 
     assert len(refreshes) == 1
     assert listing.status == SecondaryMarketListingStatus.ACTIVE
-    assert listing.price_bps == 10_100
-    assert listing.discount_premium_bps == 100
+    assert listing.price_bps == 9_900
+    assert listing.discount_premium_bps == -100
     assert listing.current_principal_minor == 8_000_00
-    assert listing.transfer_price_minor == 8_080_00
+    assert listing.transfer_price_minor == 7_920_00
     assert refreshes[0].principal_before_minor == 10_000_00
     assert refreshes[0].principal_after_minor == 8_000_00
-    assert refreshes[0].transfer_price_after_minor == 8_080_00
+    assert refreshes[0].transfer_price_after_minor == 7_920_00
     assert SecondaryMarketListingEvent.objects.filter(
         listing=listing,
         event_type=SecondaryMarketListingEventType.REPRICED,
@@ -574,7 +577,7 @@ def test_borrower_repayment_reprices_active_listing_and_notifies_seller(
         CreateSecondaryMarketListingCommand(
             actor=investor,
             holding_id=str(cast(Any, holding).id),
-            price_bps=10_100,
+            price_bps=9_900,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-repayment-refresh-listing",
             **_sensitive_code_payload(investor, "secondary_market_listing"),
@@ -604,9 +607,9 @@ def test_borrower_repayment_reprices_active_listing_and_notifies_seller(
 
     assert cast(Any, holding).current_principal_minor == 8_000_00
     assert listing.status == SecondaryMarketListingStatus.ACTIVE
-    assert listing.price_bps == 10_100
+    assert listing.price_bps == 9_900
     assert listing.current_principal_minor == 8_000_00
-    assert listing.transfer_price_minor == 8_080_00
+    assert listing.transfer_price_minor == 7_920_00
     # A regular installment paid early covers contractual interest through its
     # due date. Repricing must not start accruing that interest again from the
     # earlier bank date.
@@ -619,7 +622,7 @@ def test_borrower_repayment_reprices_active_listing_and_notifies_seller(
     assert repayment_email.payload["metadata"]["secondary_listing_repriced"] is True
     assert repayment_email.payload["metadata"]["secondary_listing_id"] == str(listing.id)
     assert "automatically recalculated" in repayment_email.payload["body_text"]
-    assert "1.00% premium" in repayment_email.payload["body_text"]
+    assert "1.00% discount" in repayment_email.payload["body_text"]
 
 
 @pytest.mark.django_db
@@ -1708,15 +1711,16 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
     assert buyer_holding.current_principal_minor == 10_000_00
     assert purchase.transfer_price_minor == 9_500_00
     assert purchase.accrued_interest_minor == 4_932
-    assert purchase.maker_fee_minor == 2_375
-    assert purchase.taker_fee_minor == 7_125
-    assert purchase.seller_net_proceeds_minor == 952_557
-    assert purchase.buyer_total_cost_minor == 962_057
+    # Seller fee 2% of the price, no buyer fee (owner decision 2026-10-16).
+    assert purchase.maker_fee_minor == 19_000
+    assert purchase.taker_fee_minor == 0
+    assert purchase.seller_net_proceeds_minor == 935_932
+    assert purchase.buyer_total_cost_minor == 954_932
     assert str(seller_balance_lot.investor_user_id) == str(investor.pk)
     assert seller_balance_lot.source_type == "secondary_market_proceeds"
-    assert seller_balance_lot.available_amount_minor == 952_557
-    assert deposit.balance_lot.available_amount_minor == 1_037_943
-    assert deposit.balance_lot.invested_amount_minor == 962_057
+    assert seller_balance_lot.available_amount_minor == 935_932
+    assert deposit.balance_lot.available_amount_minor == 1_045_068
+    assert deposit.balance_lot.invested_amount_minor == 954_932
 
     postings = {
         (posting.account.account_type, posting.account.owner_id, posting.side): (
@@ -1724,9 +1728,9 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
         )
         for posting in purchase.ledger_journal_entry.postings.select_related("account")
     }
-    assert postings[("investor_balance_liability", str(other_investor.pk), "debit")] == 962_057
-    assert postings[("investor_balance_liability", str(investor.pk), "credit")] == 952_557
-    assert postings[("platform_fee_revenue", "platform", "credit")] == 9_500
+    assert postings[("investor_balance_liability", str(other_investor.pk), "debit")] == 954_932
+    assert postings[("investor_balance_liability", str(investor.pk), "credit")] == 935_932
+    assert postings[("platform_fee_revenue", "platform", "credit")] == 19_000
     purchase_emails = OutboxMessage.objects.filter(
         topic__in=[
             "email.secondary_market_purchase_confirmation",
@@ -2028,7 +2032,7 @@ def test_secondary_market_api_purchase_response_hides_seller_economics(
     assert response.status_code == 201
     payload = response.json()
     assert payload["listing_id"] == str(listing.id)
-    assert payload["buyer_total_cost_minor"] == 962_057
+    assert payload["buyer_total_cost_minor"] == 954_932
     private_fields = {
         "seller_user_id",
         "seller_holding_id",
@@ -2286,11 +2290,12 @@ def test_purchase_rejects_seller_price_edit_between_review_and_confirm(
             )
         )
 
-    _edit_listing_price(investor, listing, price_bps=1_000_000, key="lock-edit-extreme")
+    # Since 2026-10-16 a price is at most par, so the edits are discounts.
+    _edit_listing_price(investor, listing, price_bps=5_000, key="lock-edit-extreme")
     with pytest.raises(SecondaryMarketPriceChangedError, match="price of this listing changed"):
         confirm(str(acceptance.pk), review, "lock-edit-buy-1")
 
-    _edit_listing_price(investor, listing, price_bps=10_500, key="lock-edit-premium")
+    _edit_listing_price(investor, listing, price_bps=9_500, key="lock-edit-discount")
     with pytest.raises(SecondaryMarketPriceChangedError):
         confirm(str(acceptance.pk), review, "lock-edit-buy-2")
 
@@ -2308,7 +2313,7 @@ def test_purchase_rejects_seller_price_edit_between_review_and_confirm(
     # The buyer reviews the new price and confirms again. The rejection happened
     # before the email code was checked, so the same code is still usable.
     new_review = _review_purchase(other_investor, listing)
-    assert new_review["price_bps"] == 10_500
+    assert new_review["price_bps"] == 9_500
     assert new_review["buyer_total_cost_minor"] != review["buyer_total_cost_minor"]
     new_acceptance = _create_purchase_acceptance(
         other_investor,
@@ -2319,7 +2324,7 @@ def test_purchase_rejects_seller_price_edit_between_review_and_confirm(
     purchase = confirm(str(new_acceptance.pk), new_review, "lock-edit-buy-3")
 
     deposit.balance_lot.refresh_from_db()
-    assert purchase.price_bps == 10_500
+    assert purchase.price_bps == 9_500
     assert purchase.current_principal_minor == 10_000_00
     assert purchase.buyer_total_cost_minor == new_review["buyer_total_cost_minor"]
     assert (
@@ -2412,7 +2417,7 @@ def test_purchase_rejects_servicing_repricing_between_review_and_confirm(
         metadata={},
     )
     holding = _create_holding(admin_user, investor, loan)
-    listing = _list_holding_for_sale(investor, holding, price_bps=10_100, key="lock-repay-list")
+    listing = _list_holding_for_sale(investor, holding, price_bps=9_900, key="lock-repay-list")
     deposit = _declare_deposit(admin_user, other_investor, idempotency_key="lock-repay-deposit")
     review = _review_purchase(other_investor, listing)
     acceptance = _create_purchase_acceptance(
@@ -2442,7 +2447,7 @@ def test_purchase_rejects_servicing_repricing_between_review_and_confirm(
         )
     )
     listing.refresh_from_db()
-    assert listing.price_bps == 10_100
+    assert listing.price_bps == 9_900
     assert listing.current_principal_minor == 8_000_00
     journal_entries_before = _journal_entry_count()
 
@@ -2480,7 +2485,7 @@ def test_purchase_rejects_servicing_repricing_between_review_and_confirm(
         )
     )
     assert purchase.current_principal_minor == 8_000_00
-    assert purchase.transfer_price_minor == 8_080_00
+    assert purchase.transfer_price_minor == 7_920_00
     assert purchase.buyer_total_cost_minor == new_review["buyer_total_cost_minor"]
 
 
@@ -2512,7 +2517,7 @@ def test_purchase_rejects_a_price_change_that_lands_after_the_early_check(
     def verify_then_seller_edits(command: Any) -> Any:
         result = real_verify(command)
         secondary_services.SecondaryMarketListing.objects.filter(id=listing.id).update(
-            price_bps=11_000
+            price_bps=9_000
         )
         return result
 
@@ -2700,7 +2705,7 @@ def test_secondary_market_api_purchase_price_change_returns_conflict_code(
     assert missing.status_code == 400
     assert "expected_buyer_total_cost_minor" in missing.json()
 
-    _edit_listing_price(investor, listing, price_bps=1_000_000, key="lock-api-edit")
+    _edit_listing_price(investor, listing, price_bps=5_000, key="lock-api-edit")
     conflict = client.post(purchase_url, body, content_type="application/json")
     assert conflict.status_code == 409
     assert conflict.json() == {
@@ -3223,7 +3228,7 @@ def test_listing_acceptance_snapshot_is_built_from_the_sellers_own_holding(
         context_type="secondary_market_listing",
         context_id=str(cast(Any, holding).id),
         snapshot={
-            "price_bps": 10_100,
+            "price_bps": 9_900,
             "current_principal_minor": 1,
             "currency": "EUR",
             "listing": {"seller_net_proceeds_minor": 999_999_999},
@@ -3231,10 +3236,10 @@ def test_listing_acceptance_snapshot_is_built_from_the_sellers_own_holding(
         key="real-listing-terms",
     )
     snapshot = acceptance.data_snapshot
-    assert snapshot["price_bps"] == 10_100
+    assert snapshot["price_bps"] == 9_900
     assert snapshot["current_principal_minor"] == 10_000_00
     assert snapshot["currency"] == "CHF"
-    assert snapshot["listing"]["transfer_price_minor"] == 10_100_00
+    assert snapshot["listing"]["transfer_price_minor"] == 9_900_00
     assert snapshot["listing"]["seller_net_proceeds_minor"] < 999_999_999
     assert snapshot["action"] == "create"
 
@@ -3244,7 +3249,7 @@ def test_listing_acceptance_snapshot_is_built_from_the_sellers_own_holding(
             CreateSecondaryMarketListingCommand(
                 actor=investor,
                 holding_id=str(cast(Any, holding).id),
-                price_bps=10_200,
+                price_bps=9_800,
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="listing-other-price",
                 **_sensitive_code_payload(investor, "secondary_market_listing"),
@@ -3328,7 +3333,7 @@ def test_purchase_without_money_names_the_missing_balance_not_the_60_day_rule(
         )
 
     assert str(error.value) == (
-        "You have no available CHF balance. Add funds or exchange currency first."
+        "You have no available CHF balance. Add funds first."
     )
     assert not SecondaryMarketPurchase.objects.exists()
 
@@ -3342,7 +3347,7 @@ def test_seller_pricing_preview_matches_listing_and_same_day_sale_credit(
 ) -> None:
     # Audit A-34 / SECONDARY-07: the listing form shows the server's seller net
     # (transfer price + accrued interest - configured maker fee), not a browser
-    # estimate without accrued interest and with a fixed 0.25 % fee.
+    # estimate without accrued interest and with a fixed fee rate.
     _approve_financial_access(investor)
     _approve_financial_access(other_investor)
     loan = _create_funded_loan(admin_user)
@@ -3356,8 +3361,10 @@ def test_seller_pricing_preview_matches_listing_and_same_day_sale_credit(
     preview = response.json()
     assert preview["transfer_price_minor"] == 9_500_00
     assert preview["accrued_interest_minor"] == 4_932
-    assert preview["maker_fee_minor"] == 2_375
-    assert preview["seller_net_proceeds_minor"] == 9_500_00 + 4_932 - 2_375
+    assert preview["maker_fee_bps"] == 200
+    assert preview["maker_fee_minor"] == 19_000
+    assert preview["taker_fee_minor"] == 0
+    assert preview["seller_net_proceeds_minor"] == 9_500_00 + 4_932 - 19_000
     assert preview["pricing_date"] == "2026-01-16"
 
     listing = _list_holding_for_sale(investor, holding, price_bps=9500, key="preview-listing")
@@ -3458,3 +3465,80 @@ def test_listing_terms_accepted_for_another_price_are_rejected(
         )
     )
     assert listing.price_bps == 10_000
+
+
+@pytest.mark.django_db
+def test_secondary_listing_edit_and_purchase_endpoints_need_the_pin(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    """ACC-DEC-009: PIN lock, then PIN, then the email code."""
+
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    created = assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            "/api/v1/marketplace/secondary/listings/",
+            {
+                "holding_id": str(cast(Any, holding).id),
+                "price_bps": 9500,
+                "document_acceptance_id": str(acceptance.pk),
+                "idempotency_key": "secondary-pin-create",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "secondary_market_listing",
+        success_status=201,
+    )
+    listing = SecondaryMarketListing.objects.get(id=created.json()["id"])
+
+    revised_acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-pin-edit-acceptance",
+    )
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            f"/api/v1/marketplace/secondary/listings/{listing.id}/edit/",
+            {
+                "price_bps": 9800,
+                "document_acceptance_id": str(revised_acceptance.pk),
+                "idempotency_key": "secondary-pin-edit",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "secondary_market_listing",
+        success_status=200,
+    )
+
+    listing.refresh_from_db()
+    _declare_deposit(admin_user, other_investor, idempotency_key="secondary-pin-deposit")
+    review = _review_purchase(other_investor, listing)
+    purchase_acceptance = _create_purchase_acceptance(other_investor, listing, review=review)
+    client.force_login(cast(Any, other_investor))
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            f"/api/v1/marketplace/secondary/listings/{listing.id}/purchase/",
+            {
+                "document_acceptance_id": str(purchase_acceptance.pk),
+                "idempotency_key": "secondary-pin-purchase",
+                **_expected_terms(review),
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        other_investor,
+        "secondary_market_purchase",
+        success_status=201,
+    )

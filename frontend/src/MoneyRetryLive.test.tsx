@@ -15,7 +15,9 @@ import {
   getV1LedgerWithdrawalRequestsCreateResponseMock
 } from "./api/generated/banxumApi";
 import { NETWORK_ERROR_MESSAGE } from "./api/client/httpClient";
+import { fxSwitchedOn } from "./test/liveHarness";
 import { balancesPayload, emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
+import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -61,6 +63,7 @@ async function openWithdrawalConfirm(amount: string) {
   fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: amount } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeEnabled());
 }
 
@@ -119,6 +122,7 @@ test("A-41: an FX execution retried after a network error keeps the key of its q
   };
   let executions = 0;
   server.use(
+    fxSwitchedOn(),
     ...investorShellHandlers(calls, {
       balances: () => balancesPayload([{ currency: "CHF", investableMinor: 500_000 }, { currency: "EUR", investableMinor: 0 }])
     }),
@@ -151,6 +155,7 @@ test("A-41: an FX execution retried after a network error keeps the key of its q
   const dialog = await screen.findByRole("dialog", {}, { timeout: 5000 });
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm exchange" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm exchange" }));
   await within(dialog).findByText(NETWORK_ERROR_MESSAGE, {}, { timeout: 5000 });

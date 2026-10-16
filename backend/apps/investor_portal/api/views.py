@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.db.models import Model
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from backend.apps.investor_portal.api.serializers import (
     InvestorDocumentsSerializer,
     InvestorNotificationReadResponseSerializer,
     InvestorNotificationsSerializer,
+    InvestorPortalFeaturesSerializer,
     InvestorPortfolioSerializer,
     PortalLimitQuerySerializer,
     PortfolioQuerySerializer,
@@ -40,6 +41,7 @@ from backend.apps.investor_portal.services import (
     get_investor_dashboard,
     get_investor_documents,
     get_investor_notifications,
+    get_investor_portal_features,
     get_investor_portfolio,
     get_primary_orders,
     get_secondary_market_activity,
@@ -307,3 +309,17 @@ class InvestorFxHistoryView(APIView):
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorPortalFeaturesView(APIView):
+    """Which optional features the investor app shows (for example currency exchange).
+
+    Anonymous-safe: it returns only platform switches, never account data.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(responses={200: InvestorPortalFeaturesSerializer})
+    def get(self, request: Request) -> Response:
+        return Response(get_investor_portal_features(), status=status.HTTP_200_OK)

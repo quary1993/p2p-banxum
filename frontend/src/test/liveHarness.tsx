@@ -28,6 +28,11 @@ export const investorUser = {
 
 export const platformAsOf = "2026-12-10T11:00:00Z";
 
+/** Currency exchange switched on (platform setting fx.enabled; off by default since 2026-10-16). */
+export function fxSwitchedOn() {
+  return http.get("*/api/v1/investor/portal/features/", () => HttpResponse.json({ fx_enabled: true }));
+}
+
 export function meResponse(businessDate = "2026-12-10") {
   return {
     ...getV1AuthMeRetrieveResponseMock(),
@@ -52,6 +57,7 @@ export function summary(currency: string, values: Partial<BalanceSummary> = {}):
     active_lot_count: 0,
     next_investment_deadline_at: null,
     next_withdrawal_deadline_at: null,
+    next_return_date: null,
     ...values
   };
 }
@@ -66,6 +72,9 @@ export function lot(values: Partial<BalanceLot> & Pick<BalanceLot, "id" | "curre
     withdrawal_deadline_at: "2026-11-30T23:00:00Z",
     days_until_investment_deadline: 20,
     days_until_withdrawal_deadline: 20,
+    last_day: "2026-11-29",
+    return_date: "2026-11-30",
+    days_until_last_day: 18,
     original_amount_minor: 0,
     available_amount_minor: 0,
     invested_amount_minor: 0,
@@ -87,6 +96,7 @@ export function balances(values: Partial<InvestorBalancePortal> = {}): InvestorB
     pending_withdrawals: [],
     has_penalty_mode_balance: false,
     penalty_bps_per_day: 100,
+    auto_return_after_days: 58,
     ...values
   };
 }

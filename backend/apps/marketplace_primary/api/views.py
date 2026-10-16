@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 
+from django.core.cache import cache
 from django.db.models import Model
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -27,11 +30,21 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryOrderBatchRequestSerializer,
     PrimaryOrderBatchResponseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
-    PublicMarketplaceLoanSerializer,
+    PublicOriginatorSerializer,
+    PublicProjectListQuerySerializer,
+    PublicProjectSerializer,
+    PublicStatisticsSerializer,
     serialize_primary_expiry_scan_result,
     serialize_primary_loan_cancellation,
     serialize_primary_loan_close,
     serialize_primary_order,
+)
+from backend.apps.marketplace_primary.public_site import (
+    PublicProjectNotFoundError,
+    get_public_project,
+    get_public_statistics,
+    list_public_originators,
+    list_public_projects,
 )
 from backend.apps.marketplace_primary.services import (
     AllocatePrimaryInvestmentOrderCommand,
@@ -40,6 +53,7 @@ from backend.apps.marketplace_primary.services import (
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryOrderNotPendingError,
+    MarketplacePrimarySwissInvestorLimitError,
     MarketplacePrimaryValidationError,
     PlacePrimaryOrderBatchCommand,
     PrimaryOrderBatchItemCommand,
@@ -52,7 +66,6 @@ from backend.apps.marketplace_primary.services import (
     download_marketplace_borrower_document,
     get_full_marketplace_loan,
     list_investor_marketplace_loans,
-    list_public_marketplace_loans,
     place_primary_order_batch,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
@@ -62,10 +75,14 @@ from backend.apps.platform_core.api.impersonation import (
     readonly_read_actor_from_request,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
+from backend.apps.platform_core.api.sensitive_actions import (
+    sensitive_action_pin_error_response,
+)
+from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 
 
 def _error_response(exc: Exception) -> Response:
-    status_code = (
+    status_code: int = (
         status.HTTP_403_FORBIDDEN
         if isinstance(exc, MarketplacePrimaryAuthorizationError)
         else status.HTTP_400_BAD_REQUEST
@@ -74,27 +91,124 @@ def _error_response(exc: Exception) -> Response:
     if isinstance(exc, MarketplacePrimaryOrderNotPendingError):
         # The client drops the closed order and creates a new one on retry.
         payload["code"] = MarketplacePrimaryOrderNotPendingError.code
+    if isinstance(exc, MarketplacePrimarySwissInvestorLimitError):
+        # A Swiss-borrower loan has no place left for a new investor (MKT-DEC-028).
+        status_code = status.HTTP_409_CONFLICT
+        payload["code"] = MarketplacePrimarySwissInvestorLimitError.code
     return Response(payload, status=status_code)
 
 
-class PublicMarketplaceLoanListView(APIView):
-    """Anonymous preview: only the MKT-DEC-002 public fields, for everyone."""
+PUBLIC_SITE_CACHE_SECONDS = 60
+PUBLIC_SITE_CACHE_PREFIX = "marketplace_primary:public_site:v1"
+
+
+def _cached_public_payload(key: str, build: Callable[[], Any]) -> Any:
+    """Short shared cache for the anonymous public site payloads (they simply expire)."""
+    cache_key = f"{PUBLIC_SITE_CACHE_PREFIX}:{key}"
+    try:
+        cached = cache.get(cache_key)
+    except Exception:  # A cache outage must not take the public site down.
+        cached = None
+    if cached is not None:
+        return cached
+    payload = build()
+    try:
+        cache.set(cache_key, payload, PUBLIC_SITE_CACHE_SECONDS)
+    except Exception:  # Serve the fresh payload even when it cannot be cached.
+        pass
+    return payload
+
+
+class PublicProjectListView(APIView):
+    """Public site: every loan a visitor may see (owner decision 2026-10-15, MKT-DEC-002)."""
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
-        parameters=[PublicMarketplaceLoanListQuerySerializer],
-        responses={200: PublicMarketplaceLoanSerializer(many=True)},
+        operation_id="v1_marketplace_primary_public_projects_list",
+        summary="Public projects",
+        description=(
+            "Anonymous. Open loans, fully subscribed loans still in their round and every "
+            "funded loan (Direct and Loan Originator claims): open first (newest published "
+            "first), then the rest (newest funding close first). Never the borrower's name."
+        ),
+        parameters=[PublicProjectListQuerySerializer],
+        responses={200: PublicProjectSerializer(many=True)},
     )
     def get(self, request: Request) -> Response:
-        serializer = PublicMarketplaceLoanListQuerySerializer(data=request.query_params)
+        serializer = PublicProjectListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        public_loans = PublicMarketplaceLoanSerializer(
-            list_public_marketplace_loans(limit=data["limit"]),
-            many=True,
+        limit = int(serializer.validated_data["limit"])
+
+        def build() -> list[Any]:
+            return list(PublicProjectSerializer(list_public_projects(limit=limit), many=True).data)
+
+        payload = _cached_public_payload(f"projects:{limit}", build)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class PublicProjectDetailView(APIView):
+    """Public site: one project page (404 unless the loan is public)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        operation_id="v1_marketplace_primary_public_projects_retrieve",
+        summary="Public project",
+        responses={
+            200: PublicProjectSerializer,
+            404: OpenApiResponse(description="The loan does not exist or is not public."),
+        },
+    )
+    def get(self, request: Request, loan_id: str) -> Response:
+        def build() -> dict[str, Any]:
+            return dict(PublicProjectSerializer(get_public_project(loan_id=str(loan_id))).data)
+
+        try:
+            payload = _cached_public_payload(f"project:{loan_id}", build)
+        except PublicProjectNotFoundError as exc:
+            raise NotFound() from exc
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class PublicStatisticsView(APIView):
+    """Public site: track record computed from the public projects."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        operation_id="v1_marketplace_primary_public_statistics_retrieve",
+        summary="Public statistics",
+        responses={200: PublicStatisticsSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        payload = _cached_public_payload(
+            "statistics",
+            lambda: dict(PublicStatisticsSerializer(get_public_statistics()).data),
         )
-        return Response(public_loans.data, status=status.HTTP_200_OK)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class PublicOriginatorListView(APIView):
+    """Public site: active Loan Originators with at least one public claim."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        operation_id="v1_marketplace_primary_public_originators_list",
+        summary="Public Loan Originators",
+        responses={200: PublicOriginatorSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        payload = _cached_public_payload(
+            "originators",
+            lambda: list(PublicOriginatorSerializer(list_public_originators(), many=True).data),
+        )
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class MarketplaceOpportunityListView(APIView):
@@ -201,10 +315,13 @@ class PrimaryInvestmentOrderAllocateView(APIView):
                     idempotency_key=data["idempotency_key"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_order(order), status=status.HTTP_200_OK)
@@ -239,11 +356,14 @@ class PrimaryOrderBatchView(APIView):
                     document_acceptance_id=str(data["document_acceptance_id"]),
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     idempotency_key=data["idempotency_key"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(

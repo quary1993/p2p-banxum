@@ -23,9 +23,10 @@ from backend.apps.admin_ops.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
-from backend.apps.platform_core.domain.funding import balance_is_overdue
+from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
+from backend.apps.platform_core.selectors.settings import balance_auto_return_after_days
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -1885,6 +1886,9 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
     )
     balance_lots_overdue_count = 0
     balance_lots_penalty_mode_count = 0
+    # Same rule as the ledger scan: money not invested goes back to the bank after day 58.
+    return_after_days = balance_auto_return_after_days()
+    today = business_date(as_of)
     for lot in active_lots.only(
         "id",
         "investor_user_id",
@@ -1902,10 +1906,11 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         summary["available_balance_minor"] += amount
         status = str(lot_ref.status)
         if status == BALANCE_AVAILABLE_STATUS:
-            if balance_is_overdue(
+            last_day = balance_last_day(
                 withdrawal_deadline_at=lot_ref.withdrawal_deadline_at,
-                as_of=as_of,
-            ):
+                return_after_days=return_after_days,
+            )
+            if today > last_day:
                 summary["overdue_available_minor"] += amount
                 balance_lots_overdue_count += 1
                 if len(queues["balance_ageing_actions"]) < queue_limit:
@@ -1913,7 +1918,10 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                         _queue_item(
                             kind="balance_lot_overdue",
                             item_id=str(lot.pk),
-                            title="Balance lot past 60-day withdrawal deadline",
+                            title=(
+                                f"Balance lot not invested after {return_after_days} days: "
+                                "due back to the investor's bank"
+                            ),
                             status=status,
                             due_at=getattr(lot, "withdrawal_deadline_at", None),
                             currency=currency_code,
@@ -1929,9 +1937,12 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                                 "withdrawal_deadline_at": (
                                     lot_ref.withdrawal_deadline_at.isoformat()
                                 ),
+                                "return_date": (last_day + timedelta(days=1)).isoformat(),
                             },
                         )
                     )
+            elif today == last_day:
+                summary["withdraw_only_available_minor"] += amount
             else:
                 summary["investable_available_minor"] += amount
         elif status == BALANCE_FROZEN_STATUS:

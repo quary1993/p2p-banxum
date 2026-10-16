@@ -1859,12 +1859,16 @@
   margin: 0;
 }
 
-/* Discount / par / premium: a bordered three-column band */
+/* Discount / par: a bordered band (no premium since 2026-10-16) */
 .bxm .sm-page .sm-band {
   background: #fff;
   border: 0;
   border-radius: 0;
   margin: 0;
+}
+
+.bxm .sm-page .sm-band.sm-band-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .bxm .sm-page .sm-band .cell {
@@ -2030,7 +2034,8 @@
     min-width: 820px;
   }
 
-  .bxm .sm-page .sm-band {
+  .bxm .sm-page .sm-band,
+  .bxm .sm-page .sm-band.sm-band-2 {
     grid-template-columns: minmax(0, 1fr);
   }
 

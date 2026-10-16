@@ -2072,15 +2072,6 @@ textarea.input {
   margin: 10px 0 4px;
 }
 
-.legal-document-preview {
-  border-top: 1px solid var(--line);
-  color: var(--ink-2);
-  font-family: var(--font-sans);
-  margin-top: 10px;
-  padding-top: 10px;
-  white-space: pre-wrap;
-}
-
 .terms-body-preview {
   max-height: 240px;
   overflow: auto;
@@ -3826,6 +3817,82 @@ table.tbl tfoot.schedule-totals th.num,
   gap: 10px;
 }
 
+/* Platform features (superadmin settings): one switch per feature, with reason and history. */
+.admin-feature-row {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.admin-feature-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.admin-feature-description {
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.admin-switch {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 10px;
+  position: relative;
+}
+
+.admin-action-form .admin-switch input,
+.admin-switch input {
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.admin-switch-track {
+  background: #c9cfcd;
+  border-radius: 999px;
+  flex: none;
+  height: 20px;
+  position: relative;
+  transition: background 120ms ease;
+  width: 36px;
+}
+
+.admin-switch-track::after {
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  content: "";
+  height: 16px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 120ms ease;
+  width: 16px;
+}
+
+.admin-switch input:checked + .admin-switch-track {
+  background: var(--accent);
+}
+
+.admin-switch input:checked + .admin-switch-track::after {
+  transform: translateX(16px);
+}
+
+.admin-switch input:focus-visible + .admin-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.admin-switch-label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .admin-context-bar {
   align-items: center;
   background: #f7f8f4;
@@ -4085,18 +4152,6 @@ table.tbl tfoot.schedule-totals th.num,
 .doc-link:hover { opacity: 0.85; }
 .doc-link-arrow { font-size: 0.85em; margin-left: 2px; }
 
-.public-body.legal-doc { display: block; margin: 0 auto; max-width: 860px; padding: 28px 20px 56px; width: 100%; }
-.legal-doc .page-head { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; margin-bottom: 16px; }
-.legal-doc-meta { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
-.legal-doc-body { font-size: 13px; line-height: 1.6; max-height: none; }
-.legal-doc-acks { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
-.legal-doc-acks h5 { font-size: 12px; margin: 0 0 8px; }
-.legal-doc-acks ul { margin: 0; padding-left: 18px; }
-.legal-doc-acks li { font-size: 12.5px; margin-bottom: 4px; }
-@media (max-width: 620px) {
-  .legal-doc .page-head { flex-direction: column; }
-  .legal-doc .page-head .btn { width: 100%; }
-}
 
 /* Investor marketplace redesign: website_redesign identity on live projections. */
 .marketplace-page {
@@ -4856,14 +4911,6 @@ table.tbl tfoot.schedule-totals th.num,
     border-right: 0;
   }
 }
-.legal-doc-body { white-space: normal; }
-.legal-doc-body h2 { font-size: 16px; margin: 18px 0 8px; }
-.legal-doc-body h3 { font-size: 13.5px; margin: 14px 0 6px; }
-.legal-doc-body p { margin: 0 0 10px; }
-.legal-doc-body ul { margin: 0 0 10px; padding-left: 18px; }
-.legal-doc-table { border-collapse: collapse; margin: 0 0 12px; width: 100%; }
-.legal-doc-table th, .legal-doc-table td { border: 1px solid var(--line); font-size: 12px; padding: 6px 8px; text-align: left; vertical-align: top; }
-.legal-doc-table th { background: var(--paper-2); }
 
 /* Manage-loan action menu (admin primary marketplace operations) */
 .admin-manage-hint { font-size: 12.5px; margin: 0; }
@@ -8288,6 +8335,11 @@ table.tbl tfoot.schedule-totals th.num,
   margin-bottom: 60px;
 }
 
+/* Par or a discount only (owner decision 2026-10-16): two cells. */
+.app .sm-band.sm-band-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
 .app .sm-band .cell {
   padding: 26px 28px;
 }
@@ -8405,6 +8457,10 @@ table.tbl tfoot.schedule-totals th.num,
   }
 
   .app .sm-band {
+    grid-template-columns: 1fr;
+  }
+
+  .app .sm-band.sm-band-2 {
     grid-template-columns: 1fr;
   }
 
@@ -8961,7 +9017,7 @@ table.tbl tfoot.schedule-totals th.num,
   .os-step-head .os-over { margin-left: 0; }
 }
 
-/* ---- Smart Invest: v9 alert-rule experience ---- */
+/* ---- Smart-Invest: v9 alert-rule experience ---- */
 .fs-save-rule {
   background: transparent;
   border: 1px solid var(--ink);
@@ -9384,7 +9440,7 @@ table.tbl tfoot.schedule-totals th.num,
   .dashboard-smart-matches-head { align-items: flex-start; flex-direction: column; gap: 7px; }
 }
 
-/* ---- Smart Invest v9 design port ---- */
+/* ---- Smart-Invest v9 design port ---- */
 .si-hero { text-align: center; margin: 0 auto 64px; }
 .si-state { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700; margin-bottom: 22px; }
 .si-state.active { color: var(--ok); }

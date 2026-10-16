@@ -419,11 +419,12 @@ def test_balances_are_self_scoped_and_bucketed(
 
 
 @pytest.mark.django_db
-def test_deadline_date_is_the_last_withdraw_only_day_before_overdue(
+def test_day_58_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_59(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    # Received 2026-01-14: last day (day 58) 03-13, return 03-14, legal limit 03-15.
     _declare_deposit(
         admin_user=admin_user,
         investor=investor,
@@ -432,15 +433,25 @@ def test_deadline_date_is_the_last_withdraw_only_day_before_overdue(
         idempotency_key="portal-deadline-day",
     )
 
-    deadline_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 15)))
-    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 16)))
+    day_57 = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 12)))
+    last_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 13)))
+    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 14)))
 
-    lot = deadline_day["lots"][0]
-    assert (lot["bucket"], lot["days_until_withdrawal_deadline"]) == ("withdraw_only", 0)
+    assert last_day["auto_return_after_days"] == 58
+    assert day_57["lots"][0]["bucket"] == "investable"
+    lot = last_day["lots"][0]
+    assert (lot["bucket"], lot["days_until_last_day"]) == ("withdraw_only", 0)
+    assert (lot["last_day"], lot["return_date"]) == (date(2026, 3, 13), date(2026, 3, 14))
+    assert lot["days_until_withdrawal_deadline"] == 2
     assert lot["requires_withdrawal"] is True
-    chf = next(item for item in deadline_day["summaries"] if item["currency"] == "CHF")
+    chf = next(item for item in last_day["summaries"] if item["currency"] == "CHF")
     assert (chf["withdraw_only_minor"], chf["overdue_minor"]) == (1_000_00, 0)
+    assert chf["next_return_date"] == date(2026, 3, 14)
     assert day_after["lots"][0]["bucket"] == "overdue"
+    assert day_after["lots"][0]["days_until_last_day"] == -1
+    # Money already due back is in overdue_minor; the next return date looks ahead only.
+    chf_after = next(item for item in day_after["summaries"] if item["currency"] == "CHF")
+    assert (chf_after["overdue_minor"], chf_after["next_return_date"]) == (1_000_00, None)
 
 
 @pytest.mark.django_db
@@ -1534,6 +1545,7 @@ def test_activity_labels_withdrawal_outcomes_and_shows_the_cancellation_credit(
                 idempotency_key=key,
                 sensitive_action_code_id=code.code_id,
                 sensitive_action_code=code.raw_code,
+                pin=code.pin,
             )
         )
 
@@ -1692,6 +1704,7 @@ def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_pen
                 idempotency_key=key,
                 sensitive_action_code_id=code.code_id,
                 sensitive_action_code=code.raw_code,
+                pin=code.pin,
             )
         )
 

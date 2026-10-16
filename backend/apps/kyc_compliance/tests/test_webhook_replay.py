@@ -26,6 +26,7 @@ from backend.apps.kyc_compliance.services import (
     create_kyc_session,
     verify_didit_webhook,
 )
+from backend.apps.platform_core.tests.factories import give_test_pin
 
 SECRET = "test-secret"
 THIRTY_DAYS = 30 * 24 * 60 * 60
@@ -48,6 +49,8 @@ def _lender() -> Model:
     )
     user.phone_verified_at = timezone.now()
     user.save(update_fields=["phone_verified_at"])
+    # The registration PIN step comes before KYC (ACC-DEC-009).
+    give_test_pin(user)
     return cast(Model, user)
 
 

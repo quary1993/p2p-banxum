@@ -403,6 +403,7 @@ def _pending_payout_iban_task(investor: Model) -> tuple[Any, AdminTask]:
             destination_account_name="Task Investor",
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
         )
     )
     task = AdminTask.objects.get(

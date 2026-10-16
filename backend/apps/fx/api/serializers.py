@@ -12,6 +12,7 @@ from backend.apps.fx.services import (
     FxRealizedSettlementReport,
     effective_net_rate_for_quote,
 )
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 from backend.apps.platform_core.domain.time import now_utc
 
 
@@ -155,6 +156,7 @@ class FxQuoteExecuteRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class FxDeltaReportQuerySerializer(serializers.Serializer[Any]):

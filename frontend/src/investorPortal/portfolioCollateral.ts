@@ -18,7 +18,7 @@ type CollateralHolding = {
 };
 
 /**
- * The one "unsecured" rule for every screen (marketplace, Smart Invest, loan sheet, portfolio):
+ * The one "unsecured" rule for every screen (marketplace, Smart-Invest, loan sheet, portfolio):
  * an unsecured type, no pledged collateral value, or no LTV because there is no value.
  */
 export function isUnsecuredLoan(loan: CollateralLoan) {

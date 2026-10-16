@@ -51,6 +51,7 @@ from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
+    assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
 from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
@@ -140,6 +141,7 @@ def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayl
     return {
         "sensitive_action_code_id": code.code_id,
         "sensitive_action_code": code.raw_code,
+        "pin": code.pin,
     }
 
 
@@ -1496,3 +1498,45 @@ def test_fx_settlement_api_without_collection_account_uses_each_currencys_accoun
     assert settlement.bought_bank_operation.payee_account_identifier == "Garanta_EUR"
     assert settlement.collection_account_identifier == "Garanta_CHF"
     assert settlement.metadata["bought_collection_account_identifier"] == "Garanta_EUR"
+
+
+@pytest.mark.django_db
+def test_fx_execute_endpoint_needs_the_pin(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """ACC-DEC-009: PIN lock, then PIN, then the email code."""
+
+    _approve_financial_access(investor)
+    today = timezone.localtime(timezone.now(), business_timezone()).date()
+    _deposit(
+        admin_user,
+        investor,
+        amount_minor=10_000_00,
+        value_date=today,
+        idempotency_key="fx-pin-deposit",
+    )
+    client.force_login(cast(Any, investor))
+    quote_id = client.post(
+        "/api/v1/fx/quotes/",
+        data={
+            "source_currency": "CHF",
+            "target_currency": "EUR",
+            "source_amount_minor": 1_000_00,
+            "idempotency_key": "fx-pin-quote",
+        },
+        content_type="application/json",
+    ).json()["id"]
+
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            f"/api/v1/fx/quotes/{quote_id}/execute/",
+            data={"idempotency_key": "fx-pin-execute", **fields},
+            content_type="application/json",
+        ),
+        investor,
+        "fx",
+        success_status=201,
+    )
+    assert FxExchange.objects.count() == 1

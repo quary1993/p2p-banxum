@@ -1,1 +1,1 @@
-"""Smart Invest API."""
+"""Smart-Invest API."""

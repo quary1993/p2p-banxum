@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password
 from django.core import serializers
 from django.core.cache import cache
 from django.db import connection
@@ -19,7 +20,10 @@ from backend.apps.platform_core.services.qa_dev_mode import (
     enable_qa_dev_mode,
     revert_qa_dev_mode,
 )
-from backend.apps.platform_core.services.qa_regression import RegressionAccounts
+from backend.apps.platform_core.services.qa_regression import (
+    REGRESSION_INVESTOR_PIN,
+    RegressionAccounts,
+)
 from backend.apps.platform_core.services.qa_reset import (
     _reset_models,
     qa_reset_plan,
@@ -84,6 +88,10 @@ def test_regression_balances_identities_capacity_and_idempotence(regression: Any
         if role != "admin":
             assert not user.has_usable_password()
             assert user.is_phone_verified and user.status == "active"
+            if all(row["id"] != user.pk for row in before):
+                # Created synthetic investors get the known QA PIN (ACC-DEC-009).
+                pin = apps.get_model("accounts_auth", "SensitiveActionPin").objects.get(user=user)
+                assert check_password(REGRESSION_INVESTOR_PIN, pin.pin_hash)
             assert (
                 apps.get_model("kyc_compliance", "KycVerificationCase")
                 .objects.get(user=user)

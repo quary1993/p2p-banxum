@@ -35,6 +35,7 @@ from backend.apps.fx.services import (
     DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
     FxAuthorizationError,
+    FxDisabledError,
     FxProviderRateUnavailableError,
     FxValidationError,
     IssueFxQuoteCommand,
@@ -46,8 +47,13 @@ from backend.apps.fx.services import (
     execute_fx_quote,
     issue_fx_quote,
     preview_fx_quote,
+    require_fx_enabled,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
+from backend.apps.platform_core.api.sensitive_actions import (
+    sensitive_action_pin_error_response,
+)
+from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +71,9 @@ def _safe_fx_error_message(exc: Exception) -> str:
 
 
 def _error_response(exc: Exception) -> Response:
+    if isinstance(exc, FxDisabledError):
+        # 409: currency exchange is switched off (platform setting ``fx.enabled``).
+        return Response({"detail": str(exc), "code": exc.code}, status=status.HTTP_409_CONFLICT)
     status_code = (
         status.HTTP_403_FORBIDDEN
         if isinstance(exc, FxAuthorizationError)
@@ -85,6 +94,8 @@ class FxQuoteIssueView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            # Checked before the provider is called: no rate is fetched while FX is off.
+            require_fx_enabled()
             provider_rate = configured_provider_rate(
                 source_currency=data["source_currency"],
                 target_currency=data["target_currency"],
@@ -116,6 +127,8 @@ class FxQuotePreviewView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            # Checked before the provider is called: no rate is fetched while FX is off.
+            require_fx_enabled()
             provider_rate = configured_provider_rate(
                 source_currency=data["source_currency"],
                 target_currency=data["target_currency"],
@@ -153,10 +166,13 @@ class FxQuoteExecuteView(APIView):
                     idempotency_key=data["idempotency_key"],
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (FxAuthorizationError, FxValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_fx_exchange(exchange), status=status.HTTP_201_CREATED)

@@ -107,7 +107,11 @@ def investor() -> Model:
 
 def _code(user: Model, action: str) -> dict[str, str]:
     code = issue_sensitive_action_test_code(user, action)
-    return {"sensitive_action_code_id": code.code_id, "sensitive_action_code": code.raw_code}
+    return {
+        "sensitive_action_code_id": code.code_id,
+        "sensitive_action_code": code.raw_code,
+        "pin": code.pin,
+    }
 
 
 def _deposit(
@@ -155,11 +159,14 @@ def test_deposit_credit_sends_one_notice_with_amount_value_date_and_hold_limit(
     body = notice.payload["body_text"]
     assert "CHF 25'000.00" in body
     assert "Value date: 2026-01-05" in body
-    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 60, 2026-03-06.
-    assert "until 2026-03-06" in body
+    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 58, 2026-03-04, and
+    # what is not invested goes back to the bank on 2026-03-05.
+    assert "goes back to your bank automatically after 58 days" in body
+    assert "it can stay until 2026-03-04, and we return what is left on 2026-03-05" in body
+    assert ["Goes back to your bank on", "2026-03-05"] in notice.payload["data_rows"]
     assert notice.payload["metadata"]["navigation_target"] == "balances"
     assert notice.payload["metadata"]["bank_operation_id"] == str(result.bank_operation.id)
-    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-06")
+    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-05")
 
     # The deposit verified the sending IBAN: one notice, IBAN masked, never in full.
     iban_notice = only_notice(investor, "email.payout_account_status")
@@ -252,7 +259,7 @@ def test_withdrawal_requested_sent_and_cancelled_each_send_one_notice(
     assert len(investor_notices(investor, "email.withdrawal_status")) == 4
 
 
-def test_day_61_forced_return_and_penalty_mode_send_one_notice_each(
+def test_day_59_return_and_day_61_penalty_mode_send_one_notice_each(
     admin_user: Model, investor: Model
 ) -> None:
     other = _investor("notice-penalty@example.test")
@@ -261,18 +268,37 @@ def test_day_61_forced_return_and_penalty_mode_send_one_notice_each(
         admin_user, other, key="pen-1", amount_minor=600_00, value_date=date(2026, 1, 1)
     )
     _deposit(admin_user, other, key="pen-2", amount_minor=400_00, value_date=date(2026, 1, 2))
-    # No usable IBAN for the second investor: day 61 means penalty mode, not a return.
+    # No usable IBAN for the second investor: day 59 cannot return it, and after the
+    # 60-day legal limit (day 61) it enters penalty mode.
     InvestorPayoutInstruction.objects.filter(investor_user_id=other.pk).update(status="disabled")
     assert first.payout_instruction is not None
 
-    for day in (date(2026, 3, 3), date(2026, 3, 3), date(2026, 3, 4), date(2026, 3, 5)):
+    for day in (
+        date(2026, 3, 1),
+        date(2026, 3, 1),
+        date(2026, 3, 2),
+        date(2026, 3, 3),
+        date(2026, 3, 3),
+        date(2026, 3, 4),
+        date(2026, 3, 5),
+    ):
         run_balance_ageing_scan(RunBalanceAgeingScanCommand(actor=admin_user, as_of=_at(day)))
 
     forced = only_notice(investor, "email.balance_forced_return")
     assert forced.payload["subject"] == "We are returning CHF 1'000.00 to your bank account"
+    assert forced.payload["headline"] == "Your money goes back to your bank"
+    assert "was not invested within 58 days" in forced.payload["body_text"]
     assert "IBAN ending 2957" in forced.payload["body_text"]
     assert "Started on" in [row[0] for row in forced.payload["data_rows"]]
-    assert ["Started on", "2026-03-03"] in forced.payload["data_rows"]
+    assert ["Started on", "2026-03-01"] in forced.payload["data_rows"]
+    # Without IBAN: one urgent notice when the money is due back, one on day 60, per lot.
+    blocked = [
+        (notice.payload["metadata"]["lot_id"], notice.payload["metadata"]["day"])
+        for notice in investor_notices(other, "email.balance_ageing_reminder")
+        if notice.payload["metadata"]["day"] > 58
+    ]
+    assert sorted(day for _lot, day in blocked) == [59, 59, 60, 60]
+    assert len(set(blocked)) == 4
     assert_renders_to(forced, investor, "CHF 1'000.00")
     assert not investor_notices(investor, "email.balance_penalty_mode")
 

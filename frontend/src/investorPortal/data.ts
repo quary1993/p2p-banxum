@@ -7,6 +7,7 @@ import {
   useV1InvestorPortalDashboardRetrieve,
   useV1InvestorPortalDepositInstructionsRetrieve,
   useV1InvestorPortalDocumentsRetrieve,
+  useV1InvestorPortalFeaturesRetrieve,
   useV1InvestorPortalFxRetrieve,
   useV1InvestorPortalNotificationsReadAllCreate,
   useV1InvestorPortalNotificationsReadCreate,
@@ -15,7 +16,6 @@ import {
   useV1InvestorPortalPrimaryOrdersRetrieve,
   useV1InvestorPortalSecondaryMarketRetrieve,
   useV1ServicingLoanRiskNotesList,
-  useV1MarketplacePrimaryLoansList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
   useV1MarketplaceSecondaryListingsRetrieve,
@@ -25,7 +25,8 @@ import {
 import type {
   InvestorDepositInstructions,
   InvestorDocuments,
-  InvestorNotifications
+  InvestorNotifications,
+  InvestorPortalFeatures
 } from "../api/generated/banxumApi";
 import {
   activityFixture,
@@ -36,7 +37,6 @@ import {
   marketplaceLoansFixture,
   portfolioFixture,
   publicLoanNotesFixture,
-  publicMarketplaceLoansFixture,
   primaryOrdersFixture,
   secondaryActivityFixture,
   secondaryListingDetailsFixture,
@@ -259,6 +259,38 @@ export function useSecondaryActivityData(limit = 50, enabled = true) {
   );
 }
 
+// Preview switch for the review of the FX screens: currency exchange is off by default
+// (owner decision 2026-10-16), as in production. Set localStorage "banxum.preview.fx" to
+// "on" to see the FX page and navigation in the fixture preview.
+export const previewFxStorageKey = "banxum.preview.fx";
+
+function previewFeaturesFixture(): InvestorPortalFeatures {
+  try {
+    return { fx_enabled: window.localStorage.getItem(previewFxStorageKey) === "on" };
+  } catch {
+    return { fx_enabled: false };
+  }
+}
+
+/** Platform switches the investor app reads before it shows a feature (anonymous-safe). */
+export function useInvestorFeaturesData() {
+  return useV1InvestorPortalFeaturesRetrieve({
+    query: { ...previewQuery(previewFeaturesFixture()), staleTime: 60_000 }
+  });
+}
+
+/**
+ * Currency exchange (platform setting fx.enabled). `known` is false until the first answer;
+ * FX stays hidden until then and when the answer cannot be loaded (fail closed).
+ */
+export function useFxFeature() {
+  const query = useInvestorFeaturesData();
+  return {
+    enabled: query.data?.fx_enabled === true,
+    known: query.data !== undefined || query.isError
+  };
+}
+
 export function useFxData(limit = 50, enabled = true) {
   return useV1InvestorPortalFxRetrieve(
     { limit },
@@ -270,13 +302,6 @@ export function useFxData(limit = 50, enabled = true) {
 export function useMarketplaceLoansData(enabled = true) {
   return useV1MarketplacePrimaryOpportunitiesList({ limit: 250 }, {
     query: previewQuery(marketplaceLoansFixture, enabled)
-  });
-}
-
-/** Public site list: only the MKT-DEC-002 fields, open to anonymous visitors. */
-export function usePublicMarketplaceLoansData() {
-  return useV1MarketplacePrimaryLoansList({ limit: 250 }, {
-    query: previewQuery(publicMarketplaceLoansFixture)
   });
 }
 

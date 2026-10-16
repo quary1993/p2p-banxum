@@ -1,6 +1,6 @@
 // Real-API checks for the QA audit round 2 market fixes (2026-10-09):
-// - A-44: the public site reads only the MKT-DEC-002 preview (borrower, country, loan type,
-//   amount, interest, term, readable status, currency) and never the investor list.
+// - A-44: the public site reads only the anonymous public endpoints (since 2026-10-15 the public
+//   site API contract: loan title, never the borrower's name) and never the investor list.
 // - A-32: late or defaulted holdings cannot be listed; there is no "Request listing" and no
 //   "Approval pending" in the investor UI.
 // - SECONDARY-11: two lots of one loan count as one loan and say when each was invested or bought.
@@ -11,9 +11,10 @@ import type { ComponentType } from "react";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
-import type { Holding, PublicMarketplaceLoan } from "./api/generated/banxumApi";
+import type { Holding } from "./api/generated/banxumApi";
 import { getV1AuthMeRetrieveResponseMock, getV1KycStatusRetrieveResponseMock } from "./api/generated/banxumApi";
 import { portfolioFixture } from "./investorPortal/fixtures";
+import type { PublicProject } from "./site/data";
 
 // Leave fixture preview mode so the pages talk to the (mocked) API.
 vi.stubEnv("MODE", "development");
@@ -31,31 +32,54 @@ afterEach(() => {
 const directLoanId = "11111111-1111-4111-8111-111111111111";
 const originatorLoanId = "22222222-2222-4222-8222-222222222222";
 
-const publicLoans: PublicMarketplaceLoan[] = [
-  {
+// Anonymous public projects (public site API contract 2026-10-15): the loan title, never the
+// borrower's name.
+function publicProject(overrides: Partial<PublicProject>): PublicProject {
+  return {
     loan_id: directLoanId,
-    borrower_name: "Alpine Equipment AG",
-    borrower_country: "CH",
+    title: "Machining centre purchase",
     product_type: "direct",
     is_refinancing: false,
+    public_status: "open",
     currency: "CHF",
     principal_minor: 25_000_000,
+    committed_principal_minor: 10_000_000,
+    remaining_capacity_minor: 15_000_000,
+    minimum_investment_minor: 50_000,
+    investors_count: 4,
     interest_rate_bps: 750,
     term_months: 24,
-    status: "open"
-  },
-  {
+    repayment_type: "equal_installments",
+    risk_rating: "B",
+    collateral_type: "equipment",
+    collateral_description: "Pledge on the machine",
+    ltv_bps: null,
+    purpose: "capex",
+    purpose_description: "",
+    investor_summary: "",
+    borrower_country: "CH",
+    borrower_sector: "Manufacturing",
+    borrower_year_founded: 2004,
+    originator: null,
+    published_at: "2026-09-01T07:00:00Z",
+    funding_deadline: "2099-12-31",
+    funded_at: null,
+    record: null,
+    ...overrides
+  };
+}
+
+const publicProjects: PublicProject[] = [
+  publicProject({}),
+  publicProject({
     loan_id: originatorLoanId,
-    borrower_name: "Benelux logistics borrower",
-    borrower_country: "NL",
+    title: "Invoice financing, logistics",
     product_type: "originator_claim",
-    is_refinancing: false,
     currency: "EUR",
-    principal_minor: 18_000_000,
-    interest_rate_bps: 840,
-    term_months: 9,
-    status: "open"
-  }
+    borrower_country: "NL",
+    borrower_sector: "",
+    originator: { id: "33333333-3333-4333-8333-333333333333", name: "Sample Originator BV", country: "NL" }
+  })
 ];
 
 function renderAt(path: string) {
@@ -69,14 +93,23 @@ function renderAt(path: string) {
 }
 
 function useAnonymousApi() {
-  const calls = { publicList: 0, investorList: 0 };
+  const calls = { publicList: 0, publicDetail: 0, oldPublicList: 0, investorList: 0 };
   server.use(
     http.get("*/api/v1/auth/me/", () =>
       HttpResponse.json({ detail: "Authentication credentials were not provided." }, { status: 403 })
     ),
-    http.get("*/api/v1/marketplace/primary/loans/", () => {
+    http.get("*/api/v1/marketplace/primary/public/projects/", () => {
       calls.publicList += 1;
-      return HttpResponse.json(publicLoans);
+      return HttpResponse.json(publicProjects);
+    }),
+    http.get("*/api/v1/marketplace/primary/public/projects/:loanId/", ({ params }) => {
+      calls.publicDetail += 1;
+      const project = publicProjects.find((item) => item.loan_id === params.loanId);
+      return project ? HttpResponse.json(project) : HttpResponse.json({ detail: "Not found." }, { status: 404 });
+    }),
+    http.get("*/api/v1/marketplace/primary/loans/", () => {
+      calls.oldPublicList += 1;
+      return HttpResponse.json([]);
     }),
     http.get("*/api/v1/marketplace/primary/opportunities/", () => {
       calls.investorList += 1;
@@ -86,34 +119,36 @@ function useAnonymousApi() {
   return calls;
 }
 
-test("public projects show only the public preview fields with a readable status", async () => {
+test("the public home page reads only the anonymous public projects and shows titles, not borrowers", async () => {
   const calls = useAnonymousApi();
-  renderAt("/projects");
+  renderAt("/");
 
-  expect(await screen.findByRole("heading", { name: "Alpine Equipment AG" }, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Benelux logistics borrower" })).toBeInTheDocument();
-  expect(screen.getByText("Switzerland")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 3, name: "Machining centre purchase" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 3, name: "Invoice financing, logistics" })).toBeInTheDocument();
+  // No city in the API: "Country · Sector", or the country alone without a public sector.
+  expect(screen.getByText("Switzerland · Manufacturing")).toBeInTheDocument();
   expect(screen.getByText("Netherlands")).toBeInTheDocument();
-  expect(screen.getByText("Direct loan · CHF")).toBeInTheDocument();
-  expect(screen.getByText("Loan Originator claim · EUR")).toBeInTheDocument();
-  expect(screen.getAllByText("interest a year")).toHaveLength(2);
-  expect(screen.queryByText(/published/i)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "All 2 open projects" })).toBeInTheDocument();
+  expect(screen.queryByText(/Sample Originator BV/)).not.toBeInTheDocument();
   expect(calls.publicList).toBeGreaterThan(0);
+  expect(calls.oldPublicList).toBe(0);
   expect(calls.investorList).toBe(0);
 }, 30_000);
 
-test("a public project page opens from its URL with borrower, country and loan type", async () => {
+test("a public project page opens from its URL with the loan title", async () => {
   const calls = useAnonymousApi();
   renderAt(`/projects/${originatorLoanId}`);
 
-  expect(await screen.findByRole("heading", { name: "Benelux logistics borrower" }, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByText("Open for investment")).toBeInTheDocument();
-  expect(screen.getByText("Netherlands")).toBeInTheDocument();
-  expect(screen.getAllByText("Loan Originator claim").length).toBeGreaterThan(0);
-  expect(screen.getByText("Registration required")).toBeInTheDocument();
-  expect(screen.queryByText(/published/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Rating/)).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "Invoice financing, logistics" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(calls.publicDetail).toBeGreaterThan(0);
   expect(calls.investorList).toBe(0);
+}, 30_000);
+
+test("an unknown public project shows the site's not-found page", async () => {
+  useAnonymousApi();
+  renderAt("/projects/44444444-4444-4444-8444-444444444444");
+
+  expect(await screen.findByRole("heading", { level: 1, name: "This page does not exist" }, { timeout: 5000 })).toBeInTheDocument();
 }, 30_000);
 
 function holdingWith(base: Holding, overrides: Partial<Holding>, loan: Partial<Holding["loan"]>): Holding {

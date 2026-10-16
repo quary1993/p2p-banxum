@@ -12,7 +12,9 @@ import {
 import { hasSessionExpiredNotice, reportSessionExpired } from "./api/client/sessionExpiry";
 import { activityFixture, balanceLotsFixture, balancesFixture, loanDetailsFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
+import { siteDesignProjectIds } from "./site/siteFixtures";
 import { formatMoneyMinor, formatRateBps } from "./investorPortal/format";
+import { enterPin } from "./test/pin";
 
 function renderApp(path = "/") {
   window.history.pushState({}, "", path);
@@ -35,74 +37,187 @@ function clickNav(label: string | RegExp) {
   fireEvent.click(within(nav).getByRole("button", { name: label }));
 }
 
-test("renders the BANXUM public investor preview", () => {
+test("renders the public site shell on the projects page", () => {
   renderApp("/projects");
 
   const header = screen.getByRole("banner");
-  expect(within(header).getByRole("img", { name: "BANXUM" })).toBeInTheDocument();
+  expect(within(header).getByRole("img", { name: "Banxum" })).toBeInTheDocument();
   const footer = screen.getByRole("contentinfo");
-  expect(within(footer).getByText(/BANXUM is owned and operated by Garanta Finanzgruppe AG\./)).toBeInTheDocument();
-  expect(within(footer).getByText(`© ${new Date().getFullYear()} Garanta Finanzgruppe AG`)).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
-  expect(screen.getByText("Preview mode.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Get started" })).toBeInTheDocument();
-  expect(within(header).getByRole("button", { name: "Open account" })).toBeInTheDocument();
+  expect(within(footer).getByText(/Owned and operated by Garanta Finanzgruppe AG\./)).toBeInTheDocument();
+  expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Garanta Finanzgruppe AG`);
+  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
+  expect(within(header).getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
+  expect(within(header).getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
   expect(within(header).getByRole("link", { name: "Projects" })).toHaveAttribute("aria-current", "page");
-
-  fireEvent.click(screen.getByRole("button", { name: "View Rhône Vignobles SA" }));
-  expect(window.location.pathname).toBe("/projects/GA-2399");
-  expect(screen.getByRole("heading", { name: "Rhône Vignobles SA" })).toBeInTheDocument();
-  expect(screen.getByText("Registration required")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "All loans" }));
-  expect(window.location.pathname).toBe("/projects");
-  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
+  expect(within(header).getByRole("link", { name: "Help" })).not.toHaveAttribute("aria-current");
+  // The design's skin: html.bxs (not the investor area's html.bxm) and body.bxm-site.
+  expect(document.documentElement).toHaveClass("bxs");
+  expect(document.documentElement).not.toHaveClass("bxm");
+  expect(document.body).toHaveClass("bxm-site");
 });
 
-test("public project URLs restore the selected loan", () => {
-  renderApp("/projects/GA-2399");
+test("public project URLs open the project, and the crumbs lead back to the projects", () => {
+  renderApp("/");
+  const card = screen.getAllByRole("link", { name: /Packaging factory extension/ }).find((link) => link.classList.contains("site-project"));
+  expect(card).toBeDefined();
+  fireEvent.click(card as HTMLElement);
+  expect(window.location.pathname).toBe(`/projects/${siteDesignProjectIds["bx-1046"]}`);
+  expect(screen.getByRole("heading", { level: 1, name: "Packaging factory extension" })).toBeInTheDocument();
+  expect(document.title).toBe("Packaging factory extension · Banxum");
 
-  expect(window.location.pathname).toBe("/projects/GA-2399");
-  expect(screen.getByRole("heading", { name: "Rhône Vignobles SA" })).toBeInTheDocument();
-  expect(screen.getByText("Registration required")).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Projects" }));
+  expect(window.location.pathname).toBe("/projects");
+  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
 });
 
 test("page titles follow public routes and reset after sign out", () => {
   const projects = renderApp("/projects");
-  expect(document.title).toBe("Projects · BANXUM");
+  expect(document.title).toBe("Projects · Banxum");
   projects.unmount();
 
   renderApp("/smart-invest");
-  expect(document.title).toBe("Smart Invest · BANXUM");
+  expect(document.title).toBe("Smart-Invest · BANXUM");
   fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
   expect(window.location.pathname).toBe("/");
-  expect(document.title).toBe("BANXUM");
+  expect(document.title).toBe("Banxum · Lend to real companies");
 });
 
-test("public home page shows live open loans and links to the projects page", () => {
+test("public home page shows the open projects and links to the projects page", () => {
   renderApp();
 
-  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
-  const carousel = screen.getByRole("region", { name: "Loans open for investment" });
-  expect(within(carousel).getByText("Funding now")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Your capital. Your choice." })).toBeInTheDocument();
+  const carousel = screen.getByRole("region", { name: "Projects funding now" });
+  expect(within(carousel).getAllByText("Funding now")).toHaveLength(7);
+  expect(within(carousel).getByText("1 / 7")).toBeInTheDocument();
+  fireEvent.click(within(carousel).getByRole("button", { name: "Next project" }));
+  expect(within(carousel).getByText("2 / 7")).toBeInTheDocument();
+  expect(within(carousel).getByRole("button", { name: /^Project 2: / })).toHaveAttribute("aria-current", "true");
+
   expect(screen.getByRole("heading", { name: "Projects looking for investors" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Choose. Build. Follow." }).closest("section")).toHaveAttribute("id", "how-it-works");
-  expect(screen.getAllByText(/60-day holding limit/).length).toBeGreaterThan(0);
-  expect(screen.queryByText(/50 days/)).not.toBeInTheDocument();
+  expect(screen.getByText("2 more opening soon: Truck fleet renewal, Co-working space fit-out.")).toBeInTheDocument();
+  // The design's figures line, from the statistics, without "sample figures".
+  expect(screen.getByText(/^7 loans funded · CHF 300k and EUR 735k lent · 8\.1% average interest\.$/)).toBeInTheDocument();
+  expect(screen.queryByText(/sample figures/)).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Choose. Build. Follow." }).closest("section")).toHaveAttribute("id", "start");
+  expect(screen.getByRole("heading", { name: "Frequently asked questions" })).toBeInTheDocument();
+  expect(screen.getByText("Is Banxum regulated?").closest("details")).toHaveAttribute("open");
+  expect(screen.getByText("Can I lose money?").closest("details")).not.toHaveAttribute("open");
   expect(screen.getByText(/Lending to companies puts your capital at risk: a borrower can pay late/)).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /^All \d+ open projects$/ }));
+  fireEvent.click(screen.getByRole("link", { name: "All 7 open projects" }));
   expect(window.location.pathname).toBe("/projects");
-  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
 });
 
-test("renders the FAQ for logged-out visitors", () => {
+test("the old FAQ address opens Help for logged-out visitors", () => {
   renderApp("/faq");
 
-  expect(screen.getByRole("heading", { name: "Help & FAQ" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "How BANXUM works" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Account and verification" })).toBeInTheDocument();
-  expect(within(screen.getByRole("navigation", { name: "Topics" })).getByRole("link", { name: "How BANXUM works" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Create lender account" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/help");
+  expect(screen.getByRole("heading", { level: 1, name: "Questions and answers" })).toBeInTheDocument();
+  expect(document.title).toBe("Help · Banxum");
+});
+
+test("site routing: design pages, backend legal templates, unknown addresses", () => {
+  const legal = renderApp("/legal/terms");
+  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
+  expect(document.title).toBe("Terms of use · Banxum");
+  legal.unmount();
+
+  // The investor flows link to the published templates: the same address is the site's terms
+  // page (the published "registration" template live, the design outline in preview).
+  const template = renderApp("/legal/registration");
+  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "Legal pages" })).getByRole("link", { name: "Terms of use" })).toHaveClass("active");
+  expect(window.location.pathname).toBe("/legal/registration");
+  template.unmount();
+
+  const unknown = renderApp("/nothing-here");
+  expect(screen.getByRole("heading", { level: 1, name: "This page does not exist" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/nothing-here");
+  expect(document.title).toBe("Not found · Banxum");
+  fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Home" }));
+  expect(window.location.pathname).toBe("/");
+  expect(screen.getByRole("heading", { level: 1, name: "Your capital. Your choice." })).toBeInTheDocument();
+  unknown.unmount();
+
+  renderApp("/how-it-works");
+  expect(screen.getByRole("heading", { level: 1, name: "From your first transfer to the last repayment" })).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Statistics" }));
+  expect(window.location.pathname).toBe("/statistics");
+  expect(screen.getByRole("heading", { level: 1, name: "Every loan, including the ones that went wrong" })).toBeInTheDocument();
+});
+
+test("the phone menu opens and closes like the design", () => {
+  renderApp("/");
+  const burger = screen.getByRole("button", { name: "Menu" });
+  expect(burger).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("navigation", { name: "Menu" })).not.toBeInTheDocument();
+
+  fireEvent.click(burger);
+  expect(burger).toHaveAttribute("aria-expanded", "true");
+  expect(document.body).toHaveClass("site-menu-open");
+  const menu = screen.getByRole("navigation", { name: "Menu" });
+  expect(within(menu).getByRole("link", { name: "For loan originators" })).toHaveAttribute("href", "/originators");
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(burger).toHaveAttribute("aria-expanded", "false");
+  expect(document.body).not.toHaveClass("site-menu-open");
+
+  fireEvent.click(burger);
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Menu" })).getByRole("link", { name: "About" }));
+  expect(window.location.pathname).toBe("/about");
+  expect(document.body).not.toHaveClass("site-menu-open");
+  expect(screen.getByRole("heading", { level: 1, name: "Swiss-regulated financial platform" })).toBeInTheDocument();
+});
+
+test("the cookie choice is stored and can be changed from the footer", () => {
+  renderApp("/");
+  const notice = screen.getByRole("dialog", { name: "Cookies" });
+  expect(document.body).not.toHaveClass("site-has-cta");
+
+  fireEvent.click(within(notice).getByRole("button", { name: "Necessary only" }));
+  expect(screen.queryByRole("dialog", { name: "Cookies" })).not.toBeInTheDocument();
+  expect(JSON.parse(window.localStorage.getItem("bxm-site-cookies") ?? "{}")).toMatchObject({ necessary: true, measure: false });
+  expect(screen.getByText("Cookie choice saved.")).toBeInTheDocument();
+  expect(document.body).toHaveClass("site-has-cta");
+
+  fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Cookie settings" }));
+  const settings = screen.getByRole("dialog", { name: "Cookies" });
+  expect(within(settings).getByLabelText("Necessary (always on)")).toBeDisabled();
+  fireEvent.click(within(settings).getByLabelText("Measurement of visits"));
+  fireEvent.click(within(settings).getByRole("button", { name: "Save choice" }));
+  expect(JSON.parse(window.localStorage.getItem("bxm-site-cookies") ?? "{}")).toMatchObject({ measure: true });
+});
+
+test("the language menu announces German and French with a toast", () => {
+  renderApp("/");
+  const header = screen.getByRole("banner");
+  const toggle = within(header).getByRole("button", { name: "Language: English" });
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(within(header).getByRole("link", { name: /^Deutsch/ }));
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByText("The German version follows once the English texts are approved.")).toBeInTheDocument();
+});
+
+test("the home newsletter checks the address and shows the double opt-in note", async () => {
+  renderApp("/");
+  const input = screen.getByLabelText("Email address");
+  const submit = screen.getByRole("button", { name: "Get new projects" });
+
+  fireEvent.click(submit);
+  expect(input).toHaveClass("is-invalid");
+  expect(screen.getByText("Enter a valid email address.")).toBeInTheDocument();
+
+  fireEvent.change(input, { target: { value: "anna@example.com" } });
+  expect(input).not.toHaveClass("is-invalid");
+  fireEvent.click(submit);
+  expect(await screen.findByText(/We sent a confirmation link to anna@example\.com\./)).toBeInTheDocument();
+  expect(screen.getByText("Almost done.")).toBeInTheDocument();
+  expect(screen.getByText("Check your inbox to confirm.")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("link", { name: "Use another address" }));
+  expect(screen.getByLabelText("Email address")).toHaveValue("");
 });
 
 test("portfolio labels preserved pre-reset activity without replacing its details", () => {
@@ -111,7 +226,7 @@ test("portfolio labels preserved pre-reset activity without replacing its detail
   entry.archived_at = "2026-09-09T12:00:00Z";
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
@@ -137,13 +252,14 @@ test("direct registration and login URLs render the requested public flow", () =
 test("client navigation writes a stable URL and browser history restores the screen", () => {
   renderApp("/");
 
-  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Open account" }));
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Open account" }));
   expect(window.location.pathname).toBe("/register");
   expect(screen.getByRole("heading", { name: "Create your lender account" })).toBeInTheDocument();
 
   window.history.pushState({}, "", "/faq");
   fireEvent(window, new PopStateEvent("popstate"));
-  expect(screen.getByRole("heading", { name: "Help & FAQ" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Questions and answers" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/help");
 });
 
 test("login resume sends incomplete accounts back to onboarding", () => {
@@ -155,13 +271,25 @@ test("login resume sends incomplete accounts back to onboarding", () => {
     })
   ).toBe(1);
 
+  // Phone verified, no PIN yet: the PIN step (ACC-DEC-009).
   expect(
     onboardingStepForUser({
       account_type: "natural_person_lender",
       status: "pending_kyc",
-      phone_verified: true
+      phone_verified: true,
+      pin_set: false
     })
   ).toBe(2);
+
+  // Phone verified and PIN created: identity verification.
+  expect(
+    onboardingStepForUser({
+      account_type: "natural_person_lender",
+      status: "pending_kyc",
+      phone_verified: true,
+      pin_set: true
+    })
+  ).toBe(3);
 
   expect(
     onboardingStepForUser({
@@ -175,7 +303,7 @@ test("login resume sends incomplete accounts back to onboarding", () => {
 test("fixture-backed authenticated portal is visibly marked as preview data", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -194,7 +322,7 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   fireEvent.click(projectsToggle);
   expect(within(portalNav).getByRole("button", { name: "Primary market" })).toHaveClass("nav-sublink");
   expect(within(portalNav).getByRole("button", { name: "Secondary market" })).toHaveClass("nav-sublink");
-  const smartInvestLink = within(portalNav).getByRole("button", { name: "Smart Invest" });
+  const smartInvestLink = within(portalNav).getByRole("button", { name: "Smart-Invest" });
   expect(smartInvestLink).toHaveClass("nav-link");
   expect(smartInvestLink).not.toHaveClass("nav-sublink");
   expect(within(portalNav).getByRole("button", { name: "My investments" })).toBeInTheDocument();
@@ -211,7 +339,7 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
 test("dashboard renders the v9 financial overview and opens matching loans in the opportunity sheet", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -246,7 +374,7 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -270,6 +398,7 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
     });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    enterPin();
     // A batch needs the same risk acknowledgement as a single investment (audit A-31).
     expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
@@ -292,7 +421,7 @@ test("rule desk batch-reserves a v2 Loan Originator subscription at par", async 
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -319,6 +448,7 @@ test("rule desk batch-reserves a v2 Loan Originator subscription at par", async 
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), {
       target: { value: "123456" }
     });
+    enterPin();
     fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
     expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
     expect(within(dialog).queryByText(/purchased immediately/)).not.toBeInTheDocument();
@@ -352,13 +482,13 @@ test("smart invest table bulk-selects across currencies and approves one allocat
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
 
     // Both currencies come ticked by default and the committing total shows both books.
     expect(screen.getByRole("button", { name: "Untick Bulk CHF loan" })).toBeInTheDocument();
@@ -384,6 +514,7 @@ test("smart invest table bulk-selects across currencies and approves one allocat
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    enterPin();
     fireEvent.click(within(dialog).getByRole("button", { name: /Place \d+ investments?/ }));
     expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
   } finally {
@@ -418,7 +549,7 @@ test("rule desk blocks loans whose minimum the split cannot reach and explains w
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -437,8 +568,8 @@ test("rule desk blocks loans whose minimum the split cannot reach and explains w
     expect(screen.getByRole("button", { name: "Untick Affordable loan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review & confirm →" })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
-    const matches = screen.getByRole("table", { name: "Smart Invest matches" });
+    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+    const matches = screen.getByRole("table", { name: "Smart-Invest matches" });
     const tableBlocked = within(matches).getByLabelText(/Expensive minimum loan cannot be selected/);
     fireEvent.mouseEnter(tableBlocked);
     expect(screen.getByRole("tooltip")).toHaveTextContent("minimum investment");
@@ -453,7 +584,7 @@ test("rule desk blocks loans whose minimum the split cannot reach and explains w
 test("balance ageing reminders appear in notifications instead of a persistent dashboard warning", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -471,34 +602,34 @@ test("balance ageing reminders appear in notifications instead of a persistent d
   expect(screen.getByText(/must be withdrawn within 3 days/i)).toBeInTheDocument();
 });
 
-test("Smart Invest matching loans open the same opportunity sheet without leaving the rule page", () => {
+test("Smart-Invest matching loans open the same opportunity sheet without leaving the rule page", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
 
-  const matches = screen.getByRole("table", { name: "Smart Invest matches" });
+  const matches = screen.getByRole("table", { name: "Smart-Invest matches" });
   fireEvent.click(within(matches).getByRole("row", { name: /Adriatic Marine d\.o\.o\./i }));
 
   expect(screen.getByRole("dialog", { name: "Adriatic Marine d.o.o." })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/smart-invest");
 });
 
-test("Smart Invest uses the five approved wizard steps and never implies automatic investing", async () => {
+test("Smart-Invest uses the five approved wizard steps and never implies automatic investing", async () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
 
   expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
   expect(screen.getByText(/never invests for you/i)).toBeInTheDocument();
@@ -509,7 +640,7 @@ test("Smart Invest uses the five approved wizard steps and never implies automat
   expect(await screen.findByText("Not active", { selector: ".si-state" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Walk me through it/ }));
 
-  const wizard = screen.getByRole("dialog", { name: "Smart Invest setup" });
+  const wizard = screen.getByRole("dialog", { name: "Smart-Invest setup" });
   expect(within(wizard).getByText("Step 1 of 5 · what must be behind the loan")).toBeInTheDocument();
   expect(within(wizard).getByText("Would qualify today")).toBeInTheDocument();
   expect(within(wizard).queryByRole("heading", { name: /originator cap/i })).not.toBeInTheDocument();
@@ -543,10 +674,10 @@ test("Smart Invest uses the five approved wizard steps and never implies automat
   expect(within(wizard).queryByText(/repayment preference/i)).not.toBeInTheDocument();
 });
 
-test("Marketplace filters can be saved as the active Smart Invest rule", async () => {
+test("Marketplace filters can be saved as the active Smart-Invest rule", async () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -568,7 +699,7 @@ test("Marketplace filters can be saved as the active Smart Invest rule", async (
 test("investor data tables use the shared editorial table surface", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -606,7 +737,7 @@ test("read-only impersonation token survives a new tab and opens the investor po
 test("login form submits when the form is submitted from the email field", () => {
   const login = renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -735,10 +866,10 @@ test("a restricted account is told why its data is unavailable", () => {
 
 test("logos on public, sign-in and registration screens lead back to the home page", () => {
   const projects = renderApp("/projects");
-  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "BANXUM home" }));
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Banxum home" }));
   expect(window.location.pathname).toBe("/");
   expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
-  expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "BANXUM home" })).toHaveAttribute("href", "/");
+  expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Banxum home" })).toHaveAttribute("href", "/");
   projects.unmount();
 
   const login = renderApp("/login");
@@ -759,7 +890,7 @@ test("logos on public, sign-in and registration screens lead back to the home pa
 test("published primary-market loans appear in dashboard and marketplace open views", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -791,7 +922,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
 test("marketplace redesign preserves live filters, detail mode, and order guidance", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -835,7 +966,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
 test("marketplace filters combine chips, sliders and tokens with live counts", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -881,7 +1012,7 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
 test("marketplace filter groups are multi-select without combined Either/Both chips", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -923,16 +1054,16 @@ test("marketplace filter groups are multi-select without combined Either/Both ch
   expect(count("3 of 5 match")).toBeInTheDocument();
 });
 
-test("Smart Invest rule editor saves several values per condition", async () => {
+test("Smart-Invest rule editor saves several values per condition", async () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
   fireEvent.click(screen.getByRole("button", { name: "Adjust the rule" }));
 
   const editor = document.getElementById("rule-conditions") as HTMLElement;
@@ -963,7 +1094,7 @@ test("Smart Invest rule editor saves several values per condition", async () => 
 test("marketplace sheet shows the v9 opportunity layout and hands off to the order flow", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1009,7 +1140,7 @@ test("marketplace closing countdown uses the platform as-of date", () => {
   balancesFixture.as_of = "2026-06-17T10:00:00+02:00";
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1029,7 +1160,7 @@ test("marketplace closing countdown uses the platform as-of date", () => {
 test("opportunity sheet calculator validates the amount and projects the investor schedule", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1073,7 +1204,7 @@ test("opportunity sheet calculator validates the amount and projects the investo
 test("marketplace sorts from the header and the sort menu", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1114,7 +1245,7 @@ test("marketplace sorts from the header and the sort menu", () => {
 test("portfolio loans sort from the header and the sort menu", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1155,11 +1286,12 @@ test("portfolio loans sort from the header and the sort menu", () => {
 test("loan-specific funding windows block an otherwise positive balance in the opportunity sheet", () => {
   const loan = marketplaceLoansFixture.find((item) => item.loan_id === "LO-2601")!;
   const lots = balanceLotsFixture.filter((lot) => lot.currency === loan.currency);
-  const originals = lots.map((lot) => lot.withdrawal_deadline_at);
-  lots.forEach((lot) => { lot.withdrawal_deadline_at = `${loan.funding_deadline}T00:00:00Z`; });
+  // A lot whose last day (day 58) is the loan's last funding day cannot cover the window.
+  const originals = lots.map((lot) => lot.last_day);
+  lots.forEach((lot) => { lot.last_day = loan.funding_deadline ?? lot.last_day; });
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1170,14 +1302,14 @@ test("loan-specific funding windows block an otherwise positive balance in the o
     const sheet = screen.getByRole("dialog", { name: loan.title });
     expect(within(sheet).getByRole("button", { name: "Invest now" })).toBeDisabled();
   } finally {
-    lots.forEach((lot, index) => { lot.withdrawal_deadline_at = originals[index]; });
+    lots.forEach((lot, index) => { lot.last_day = originals[index]; });
   }
 });
 
 test("originator subscription validates the minimum and stages a par reservation", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1211,9 +1343,11 @@ test("originator subscription validates the minimum and stages a par reservation
 });
 
 test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {
+  // FX is off by default since 2026-10-16; the preview switch shows the FX screens.
+  window.localStorage.setItem("banxum.preview.fx", "on");
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1248,7 +1382,7 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
 test("refinanced marketplace loan shows badge and informational original loan schedule", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1289,7 +1423,7 @@ test("refinanced marketplace loan shows badge and informational original loan sc
 test("meet the borrower page shows key facts plus the admin story, safely rendered", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1335,7 +1469,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
 test("originator loans lead to the originator story and a schedule page with payment history", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1366,7 +1500,7 @@ test("originator loans lead to the originator story and a schedule page with pay
 test("investing from the loan page runs on the invest page: amount, terms, email code and success", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1405,6 +1539,7 @@ test("investing from the loan page runs on the invest page: amount, terms, email
   const confirmButton = within(page).getByRole("button", { name: "Confirm order" });
   expect(confirmButton).toBeDisabled();
   fireEvent.change(within(page).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+  enterPin();
   fireEvent.click(confirmButton);
 
   // The success state stays on the page and offers the ways onward.
@@ -1425,7 +1560,7 @@ test("immediate originator claim purchases run on the invest page: quote, terms,
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1461,6 +1596,7 @@ test("immediate originator claim purchases run on the invest page: quote, terms,
     const purchaseButton = within(page).getByRole("button", { name: "Purchase claim" });
     expect(purchaseButton).toBeDisabled();
     fireEvent.change(within(page).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    enterPin();
     fireEvent.click(purchaseButton);
 
     expect(within(page).getByRole("heading", { name: "Claim purchased" })).toBeInTheDocument();
@@ -1508,7 +1644,7 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1562,7 +1698,7 @@ test("primary-order status chips explain released and never-invested outcomes", 
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1589,7 +1725,7 @@ test("primary-order status chips explain released and never-invested outcomes", 
 test("secondary market redesign shows for-sale table, explainer band and selling card", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1609,13 +1745,16 @@ test("secondary market redesign shows for-sale table, explainer band and selling
   expect(screen.getByText(/Equipment · 9.4% coupon/)).toBeInTheDocument();
   expect(screen.getByText("24 mo")).toBeInTheDocument();
   expect(screen.getByText("2.0% discount")).toBeInTheDocument();
-  expect(screen.getByText("CHF 5'185.30")).toBeInTheDocument();
+  // Buyer cost without a buyer fee (owner decision 2026-10-16).
+  expect(screen.getByText("CHF 5'147.00")).toBeInTheDocument();
   expect(screen.getByText(/non-standard/)).toBeInTheDocument();
 
-  // Premium/discount explainer band and the selling caution card.
-  expect(screen.getByRole("heading", { name: "Why do loans sell at a premium or a discount?" })).toBeInTheDocument();
+  // Discount/par explainer band (no premium since 2026-10-16) and the selling caution card.
+  expect(screen.getByRole("heading", { name: "Why do loans sell at a discount?" })).toBeInTheDocument();
   expect(screen.getByText("At a discount")).toBeInTheDocument();
   expect(screen.getByText("Below 100% of principal")).toBeInTheDocument();
+  expect(screen.getByText("At par")).toBeInTheDocument();
+  expect(screen.queryByText("At a premium")).not.toBeInTheDocument();
   expect(screen.queryByText(/your return/i)).not.toBeInTheDocument();
   expect(screen.getByText(/not a withdrawal button/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Choose a loan to sell" }));
@@ -1625,7 +1764,7 @@ test("secondary market redesign shows for-sale table, explainer band and selling
 test("portfolio redesign shows hero, tabs, loans table views and widgets", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1710,7 +1849,7 @@ test("portfolio activity and order empty states retain meaningful holding insigh
 
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1742,7 +1881,7 @@ function openHoldingPage(loanTitle: string) {
 test("holding details open on the investment page with factual projections and collateral", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1803,7 +1942,7 @@ test("the investment page shows every public loan note with its full message, ne
 test("originator claim holdings disclose the retained claim without implying protection", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1829,7 +1968,7 @@ test("impaired holding details do not estimate default interest from days past d
   holding.loan.days_past_due = 18;
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
@@ -1855,7 +1994,7 @@ test("funded holdings explain that secondary listing starts after disbursement",
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1892,7 +2031,7 @@ test("portfolio listing action opens the sell tab and separates review from emai
   try {
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
       target: { value: "lukas.brunner@example.ch" }
     });
@@ -1926,7 +2065,7 @@ test("portfolio listing action opens the sell tab and separates review from emai
 test("listed holdings expose edit and cancel controls plus filtered secondary activity", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1976,7 +2115,7 @@ test("listed holdings expose edit and cancel controls plus filtered secondary ac
 test("secondary purchase review loads buyer-safe schedules and waits for a manual code request", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -1998,7 +2137,7 @@ test("secondary purchase review loads buyer-safe schedules and waits for a manua
 test("a frozen investor can inspect a secondary listing but cannot request a code or purchase", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2021,7 +2160,7 @@ test("a frozen investor can inspect a secondary listing but cannot request a cod
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2040,7 +2179,7 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
 test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
   renderApp();
 
-  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Open account" }));
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Open account" }));
   // Checkbox labels embed new-tab document links, so the text spans elements.
   fireEvent.click(
     screen.getByLabelText((label) => label.includes("I accept the") && label.includes("platform terms"))
@@ -2055,6 +2194,12 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
     target: { value: "123456" }
   });
   fireEvent.click(screen.getByRole("button", { name: "Verify phone" }));
+
+  // The PIN step comes before the KYC hand-off (ACC-DEC-009).
+  expect(screen.getByRole("heading", { name: "Create your PIN" })).toBeInTheDocument();
+  enterPin();
+  enterPin(undefined, "Repeat PIN");
+  fireEvent.click(screen.getByRole("button", { name: "Save PIN" }));
 
   expect(screen.getByRole("heading", { name: "Identity verification" })).toBeInTheDocument();
   expect(screen.getByText(/Didit for identity capture and verification/i)).toBeInTheDocument();
@@ -2183,7 +2328,7 @@ test("admin loans distinguish annual borrower interest from investor yield", () 
 test("deposit instructions explain how to use the required payment reference", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2200,7 +2345,7 @@ test("deposit instructions explain how to use the required payment reference", (
 test("account page shows one card per currency whose actions open that currency", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2226,7 +2371,7 @@ test("account page shows one card per currency whose actions open that currency"
 test("profile and settings keep every section reachable from the side menu", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2346,7 +2491,7 @@ test("borrower repayment asks for the payer account before recording", () => {
 });
 
 function loginDemo() {
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "lukas.brunner@example.ch" }
   });
@@ -2355,9 +2500,10 @@ function loginDemo() {
 }
 
 test("public and portal footers link the platform Terms and Conditions", () => {
+  // The public site's footer links the design's terms page; the portal links the published template.
   const site = renderApp("/projects");
-  const siteLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "Terms and Conditions" });
-  expect(siteLink).toHaveAttribute("href", "/legal/registration");
+  const siteLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "Terms" });
+  expect(siteLink).toHaveAttribute("href", "/legal/terms");
   site.unmount();
 
   renderApp();
@@ -2381,7 +2527,7 @@ test("Add Funds offers a copy icon for the IBAN and QR IBAN in CHF and EUR", () 
   expect(within(eur).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
 });
 
-test("Smart Invest matches show the purpose as a readable label under the name", () => {
+test("Smart-Invest matches show the purpose as a readable label under the name", () => {
   const match = smartInvestFixture.matches[0];
   const previous = { purpose: match.purpose, originator_name: match.originator_name };
   match.purpose = "bridge_financing";
@@ -2389,9 +2535,9 @@ test("Smart Invest matches show the purpose as a readable label under the name",
   try {
     renderApp();
     loginDemo();
-    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
 
-    const table = screen.getByRole("table", { name: "Smart Invest matches" });
+    const table = screen.getByRole("table", { name: "Smart-Invest matches" });
     expect(within(table).getByText("Bridge financing")).toBeInTheDocument();
     expect(within(table).queryByText(/bridge_financing/)).not.toBeInTheDocument();
   } finally {
@@ -2484,7 +2630,7 @@ test("Invest now explains when the balance is too old for the funding window", (
     const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
     const investNow = within(sheet).getByRole("button", { name: "Invest now" });
     expect(investNow).toBeDisabled();
-    expect(investNow.getAttribute("title")).toMatch(/does not have enough holding time left for this loan's funding period\. Every incoming amount has a 60-day holding limit/);
+    expect(investNow.getAttribute("title")).toMatch(/does not have enough holding time left for this loan's funding period\. Money that is not invested goes back to your bank automatically after 58 days/);
     expect(investNow.getAttribute("title")).not.toMatch(/No investable balance is available/);
     expect(within(sheet).getByText("Your CHF balance does not have enough holding time left for this loan's funding period.")).toBeInTheDocument();
   } finally {

@@ -6,7 +6,7 @@ import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
-import { balances, lot, renderLiveApp, shellHandlers, summary } from "./test/liveHarness";
+import { balances, fxSwitchedOn, lot, renderLiveApp, shellHandlers, summary } from "./test/liveHarness";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -38,6 +38,9 @@ const frozenBalances = () =>
         status: "penalty_mode",
         bucket: "penalty_mode",
         days_until_withdrawal_deadline: -10,
+        last_day: "2026-11-28",
+        return_date: "2026-11-29",
+        days_until_last_day: -12,
         available_amount_minor: 489_803_689,
         original_amount_minor: 500_000_000,
         penalized_amount_minor: 9_995_994,
@@ -92,7 +95,7 @@ const frozenBalances = () =>
   });
 
 test("the frozen state from the balances API shows a banner, counts frozen money and blocks FX", async () => {
-  server.use(...shellHandlers({ balances: frozenBalances }));
+  server.use(fxSwitchedOn(), ...shellHandlers({ balances: frozenBalances }));
   renderLiveApp(App, "/dashboard");
 
   const banner = await screen.findByText("Financial actions are frozen", {}, { timeout: 5000 });

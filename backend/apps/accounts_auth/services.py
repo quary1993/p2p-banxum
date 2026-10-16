@@ -29,6 +29,7 @@ from backend.apps.accounts_auth.models import (
     AccountType,
     EmailLoginToken,
     PhoneVerificationChallenge,
+    PhoneVerificationPurpose,
     PhoneVerificationStatus,
     RegistrationTermsAcceptance,
     SensitiveAction,
@@ -444,6 +445,9 @@ class SensitiveActionCodeConsumeCommand:
     expected_action: SensitiveAction | None = None
     ip_address: str | None = None
     user_agent: str = ""
+    # False only checks the code (a wrong code still counts as an attempt) and leaves it
+    # usable, for a flow that must check a second factor before using the code up.
+    consume: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -1273,7 +1277,12 @@ def confirm_phone_verification(
     with transaction.atomic():
         challenge = (
             PhoneVerificationChallenge.objects.select_for_update()
-            .filter(id=command.challenge_id, user=command.user)
+            .filter(
+                id=command.challenge_id,
+                user=command.user,
+                # A PIN-reset SMS code never verifies a phone number.
+                purpose=PhoneVerificationPurpose.PHONE_VERIFICATION,
+            )
             .first()
         )
         now = timezone.now()
@@ -1476,7 +1485,7 @@ def consume_sensitive_action_code(
                 failure = InvalidOrExpiredCodeError(
                     "Sensitive-action code is invalid or expired."
                 )
-        elif failure is None:
+        elif failure is None and command.consume:
             code_record.attempts += 1
             code_record.consumed_at = now
             code_record.consumed_ip = command.ip_address

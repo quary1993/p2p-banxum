@@ -73,6 +73,7 @@ from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent,
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
+    assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
 
@@ -135,6 +136,7 @@ def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayl
     return {
         "sensitive_action_code_id": code.code_id,
         "sensitive_action_code": code.raw_code,
+        "pin": code.pin,
     }
 
 
@@ -1081,9 +1083,10 @@ def test_reservation_skips_old_sources_for_long_windows_and_preserves_failed_att
         investment_deadline_at=_received_at(date(2026, 1, 31))
     )
     as_of = _received_at(date(2026, 2, 15))
+    # The older source's last day is 02-28 (day 58): a window ending 02-27 still fits.
     short = plan_investment_balance_consumption(
         investor_user_id=str(investor.pk), currency="CHF", amount_minor=100_00,
-        loan_funding_deadline=date(2026, 3, 1), as_of=as_of,
+        loan_funding_deadline=date(2026, 2, 27), as_of=as_of,
     )
     assert short[0].lot_id == str(first.pk)
     command = ReserveInvestmentBalanceCommand(
@@ -1862,6 +1865,7 @@ def test_withdrawal_wrong_sensitive_code_attempts_persist_through_endpoint(
                 "idempotency_key": f"withdrawal-bruteforce-{attempt}",
                 "sensitive_action_code_id": code_payload["sensitive_action_code_id"],
                 "sensitive_action_code": raw_code,
+                "pin": code_payload["pin"],
             },
             content_type="application/json",
         )
@@ -3029,3 +3033,54 @@ def test_admin_withdrawal_history_lists_closed_withdrawals_newest_first(
         "/api/v1/ledger/admin/withdrawal-requests/history/",
         {"currency": "EUR"},
     ).json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_withdrawal_and_bank_change_endpoints_need_the_pin(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """ACC-DEC-009: PIN lock, then PIN, then the email code."""
+
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    client.force_login(cast(Any, investor))
+
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            "/api/v1/ledger/withdrawal-requests/",
+            data={
+                "amount_minor": 60_00,
+                "currency": "CHF",
+                "destination_iban": "CH9300762011623852957",
+                "destination_account_name": "Ledger Investor",
+                "idempotency_key": "withdrawal-pin-guard",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "withdrawal",
+        success_status=201,
+    )
+    assert InvestorWithdrawalRequest.objects.count() == 1
+
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            "/api/v1/ledger/payout-instructions/",
+            data={
+                "currency": "CHF",
+                "destination_iban": "CH5604835012345678009",
+                "destination_account_name": "Ledger Investor Updated",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "bank_account_change",
+        success_status=201,
+    )
+    assert InvestorPayoutInstruction.objects.filter(
+        destination_iban="CH5604835012345678009"
+    ).exists()

@@ -2,7 +2,7 @@
 // sign out fails closed, a failed minute re-check does not sign the investor out, "/" shows the
 // public home page to a visitor whose session ended, Forward into /admin switches screens, and
 // unknown addresses get a real "page not found" page.
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
@@ -102,11 +102,11 @@ test("an unknown address shows a page-not-found page and keeps the address", asy
   server.use(http.get("*/api/v1/auth/me/", signedOut));
   renderLiveApp(App, "/this-page-does-not-exist");
 
-  expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "This page does not exist" })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/this-page-does-not-exist");
-  fireEvent.click(screen.getByRole("button", { name: "Home page" }));
+  fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Home" }));
   await waitFor(() => expect(window.location.pathname).toBe("/"));
-  expect(screen.queryByRole("heading", { name: "Page not found" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "This page does not exist" })).not.toBeInTheDocument();
 });
 
 test("form labels are linked to their inputs on the investor and admin login screens", async () => {

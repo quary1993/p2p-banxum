@@ -1,0 +1,287 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: the 6-digit PIN (ACC-DEC-009). All rules are scoped with .bxm. */
+
+/* ==========================================================================
+   Six-box PIN input
+   ========================================================================== */
+
+.bxm .pin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bxm .pin-field-head {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  max-width: 336px;
+}
+
+.bxm .pin-field-label {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.bxm .pin-field-tools {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 16px;
+}
+
+.bxm .pin-text-btn {
+  background: none;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 2px;
+}
+
+.bxm .pin-text-btn:hover {
+  color: var(--ink-2);
+}
+
+.bxm .pin-text-btn:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+.bxm .pin-text-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.bxm .pin-boxes {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(6, 48px);
+}
+
+.bxm .pin-box {
+  appearance: none;
+  background: #fff;
+  border: 1px solid #0a0a0a;
+  border-radius: 0;
+  box-shadow: none;
+  caret-color: var(--ink);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  height: 56px;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  width: 48px;
+}
+
+.bxm .pin-box:focus {
+  box-shadow: inset 0 0 0 1px #0a0a0a;
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+
+.bxm .pin-box:disabled {
+  background: var(--bxm-paper);
+  border-color: var(--line-strong);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+.bxm .pin-field.has-error .pin-box {
+  border-color: var(--bxm-signal);
+}
+
+.bxm .pin-field.has-error .pin-box:focus {
+  box-shadow: inset 0 0 0 1px var(--bxm-signal);
+  outline-color: var(--bxm-signal);
+}
+
+.bxm .pin-field-error,
+.bxm .pin-field-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 336px;
+}
+
+.bxm .pin-field-error {
+  color: var(--bxm-signal);
+}
+
+.bxm .pin-field-hint {
+  color: var(--ink-3);
+}
+
+@media (max-width: 400px) {
+  .bxm .pin-boxes {
+    gap: 6px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    max-width: 316px;
+  }
+
+  .bxm .pin-box {
+    height: 52px;
+    width: 100%;
+  }
+}
+
+/* ==========================================================================
+   Create PIN (registration step, post-login screen, dialogs)
+   ========================================================================== */
+
+.bxm .pin-create {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bxm .pin-create-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bxm .pin-create-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+@media (min-width: 720px) {
+  .bxm .pin-create-split .pin-create-body {
+    align-items: start;
+    display: grid;
+    gap: 32px;
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
+.bxm .pin-create-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+@media (max-width: 640px) {
+  .bxm .pin-create-actions .btn {
+    width: 100%;
+  }
+}
+
+.bxm .pin-email-code .field {
+  max-width: 440px;
+}
+
+/* Rules checklist: a paper panel with square marks that fill in black. */
+.bxm .pin-rules {
+  background: var(--bxm-paper);
+  padding: 16px 18px 18px;
+}
+
+.bxm .pin-rules-title {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.bxm .pin-rules ul {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bxm .pin-rules li {
+  align-items: flex-start;
+  color: var(--ink-3);
+  display: flex;
+  font-size: 13px;
+  gap: 10px;
+  line-height: 1.45;
+}
+
+.bxm .pin-rules li.is-met {
+  color: var(--ink);
+}
+
+.bxm .pin-rule-mark {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  color: #fff;
+  display: inline-flex;
+  flex: none;
+  height: 16px;
+  justify-content: center;
+  margin-top: 1px;
+  width: 16px;
+}
+
+.bxm .pin-rules li.is-met .pin-rule-mark {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+/* Post-login "Create your PIN" screen in the split sign-in layout. */
+.bxm .auth-split .pin-create .pin-rules {
+  max-width: 336px;
+}
+
+.bxm .auth-split .pin-create-actions .btn {
+  width: 100%;
+}
+
+/* ==========================================================================
+   Sensitive actions, dialogs and Settings
+   ========================================================================== */
+
+.bxm .pin-sensitive {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bxm .pin-dialog-intro {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.bxm .pin-dialog-intro b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .pin-settings-actions {
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+.bxm .sensitive-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

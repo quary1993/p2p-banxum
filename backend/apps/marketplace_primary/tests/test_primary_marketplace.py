@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
@@ -22,6 +23,7 @@ from backend.apps.marketplace_primary.models import (
     PrimaryLoanClose,
     PrimaryLoanCloseType,
 )
+from backend.apps.marketplace_primary.public_site import list_public_projects
 from backend.apps.marketplace_primary.services import (
     AllocatePrimaryInvestmentOrderCommand,
     CancelPrimaryLoanFundingCommand,
@@ -52,6 +54,7 @@ from backend.apps.platform_core.services.impersonation import (
 )
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
+    assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
 
@@ -122,10 +125,11 @@ def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayl
     return {
         "sensitive_action_code_id": code.code_id,
         "sensitive_action_code": code.raw_code,
+        "pin": code.pin,
     }
 
 
-def _create_borrower(admin_user: Model) -> Model:
+def _create_borrower(admin_user: Model, *, country: str = "CH") -> Model:
     borrower_model = apps.get_model("entities", "BorrowerEntity")
     return cast(
         Model,
@@ -134,7 +138,7 @@ def _create_borrower(admin_user: Model) -> Model:
             year_founded=2010,
             entity_type="swiss_company",
             kyb_status="approved",
-            country="CH",
+            country=country,
             created_by_admin_id=admin_user.pk,
         ),
     )
@@ -147,9 +151,10 @@ def _create_published_loan(
     funding_deadline: date | None = None,
     minimum_subscription_bps: int = 5_000,
     currency_code: str = "CHF",
+    borrower_country: str = "CH",
 ) -> Model:
     funding_deadline = funding_deadline or business_date(timezone.now()) + timedelta(days=20)
-    borrower = _create_borrower(admin_user)
+    borrower = _create_borrower(admin_user, country=borrower_country)
     loan_model = apps.get_model("loans", "Loan")
     currency = Currency.objects.get(code=currency_code)
     return cast(
@@ -1018,7 +1023,8 @@ def test_new_order_closes_the_investors_unconfirmed_order_on_the_same_loan(
     # Audit SECONDARY-09: a failed or abandoned confirmation leaves a pending order
     # that the investor cannot cancel. A new order on the same loan replaces it.
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user)
+    # Not a Swiss borrower: the launch minimum applies (no investor limit, MKT-DEC-028).
+    loan = _create_published_loan(admin_user, borrower_country="DE")
     _declare_deposit(admin_user, investor, amount_minor=5_000_00)
     first = create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
@@ -1092,7 +1098,8 @@ def test_abandoned_pending_orders_expire_and_do_not_block_new_orders(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loans = [_create_published_loan(admin_user) for _ in range(3)]
+    # Not Swiss borrowers: the launch minimum applies (no investor limit, MKT-DEC-028).
+    loans = [_create_published_loan(admin_user, borrower_country="DE") for _ in range(3)]
     services = import_module("backend.apps.marketplace_primary.services")
     with patch.object(services, "_pending_order_cap", return_value=2):
         abandoned = [
@@ -1852,7 +1859,8 @@ def test_cancel_funding_requires_investor_message_when_orders_exist(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    # Not a Swiss borrower: the launch minimum applies (no investor limit, MKT-DEC-028).
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00, borrower_country="DE")
     create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
             actor=investor,
@@ -2168,10 +2176,7 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
     assert not PrimaryLoanClose.objects.filter(loan_id=loan.pk).exists()
     assert task.status == "open"
     assert alert.payload["email"] == "hq@banxum.com"
-    assert all(
-        row["loan_id"] != str(loan.pk)
-        for row in marketplace_services.list_public_marketplace_loans()
-    )
+    assert all(row["loan_id"] != str(loan.pk) for row in list_public_projects())
 
     with pytest.raises(MarketplacePrimaryValidationError, match="published minimum is met"):
         cancel_primary_loan_funding(
@@ -2391,7 +2396,7 @@ def test_primary_marketplace_api_flow(
     loan = _create_published_loan(admin_user)
     _declare_deposit(admin_user, investor, amount_minor=50_000_00)
 
-    preview_response = client.get("/api/v1/marketplace/primary/loans/")
+    preview_response = client.get("/api/v1/marketplace/primary/public/projects/")
     client.force_login(cast(Any, investor))
     detail_response = client.get(f"/api/v1/marketplace/primary/loans/{loan.pk}/")
     order_response = client.post(
@@ -2420,9 +2425,10 @@ def test_primary_marketplace_api_flow(
 
     assert preview_response.status_code == 200
     assert preview_response.json()[0]["loan_id"] == str(loan.pk)
-    # Before login only the MKT-DEC-002 fields leave the server.
-    assert "minimum_investment_minor" not in preview_response.json()[0]
-    assert "ltv_bps" not in preview_response.json()[0]
+    # Before login the public site shows the loan title, never the borrower (MKT-DEC-002,
+    # updated 2026-10-15).
+    assert "borrower_name" not in preview_response.json()[0]
+    assert "Marketplace Borrower AG" not in preview_response.content.decode()
     opportunities_response = client.get("/api/v1/marketplace/primary/opportunities/")
     assert opportunities_response.status_code == 200
     assert opportunities_response.json()[0]["loan_id"] == str(loan.pk)
@@ -3283,7 +3289,8 @@ def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user)
+    # Not a Swiss borrower: the launch minimum applies (no investor limit, MKT-DEC-028).
+    loan = _create_published_loan(admin_user, borrower_country="DE")
     today = business_date(timezone.now())
     # An order placed before the freeze, still pending.
     _declare_deposit(admin_user, investor, amount_minor=5_000_00, idempotency_key="fresh")
@@ -3346,78 +3353,26 @@ def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
     assert pending.status == PrimaryInvestmentOrderStatus.PENDING
     assert pending.allocated_amount_minor == 0
 
-PUBLIC_PREVIEW_FIELDS = {
-    "loan_id",
-    "borrower_name",
-    "borrower_country",
-    "product_type",
-    "is_refinancing",
-    "currency",
-    "principal_minor",
-    "interest_rate_bps",
-    "term_months",
-    "status",
-}
-
 
 @pytest.mark.django_db
-def test_anonymous_marketplace_preview_returns_only_public_fields(
+def test_old_anonymous_preview_list_is_retired(
     client: Client,
     admin_user: Model,
     investor: Model,
 ) -> None:
-    """MKT-DEC-002 / SECCODE-06: the public preview carries 8 facts and the loan id."""
+    """2026-10-15: the public site reads /public/projects/; the old list that carried the
+    borrower name is gone, and investors keep their full list behind KYC."""
+    cache.clear()  # the public payloads are cached for 60 s
     direct = _create_published_loan(admin_user)
-    originator_loan = _create_originator_batch_loan(admin_user, suffix="PUBLIC")
-    profile_model = apps.get_model("originator_claims", "OriginatorLoanProfile")
-    profile_model.objects.filter(loan_id=originator_loan.pk).update(borrower_country="DE")
 
-    response = client.get("/api/v1/marketplace/primary/loans/")
+    assert client.get("/api/v1/marketplace/primary/loans/").status_code == 404
+    public = client.get("/api/v1/marketplace/primary/public/projects/")
+    assert public.status_code == 200
+    assert [row["loan_id"] for row in public.json()] == [str(direct.pk)]
+    assert "Marketplace Borrower AG" not in public.content.decode()
 
-    assert response.status_code == 200
-    rows = {row["loan_id"]: row for row in response.json()}
-    assert set(rows) == {str(direct.pk), str(originator_loan.pk)}
-    for row in rows.values():
-        assert set(row) == PUBLIC_PREVIEW_FIELDS
-        assert row["status"] == "open"
-    assert rows[str(direct.pk)] == {
-        "loan_id": str(direct.pk),
-        "borrower_name": "Marketplace Borrower AG",
-        "borrower_country": "CH",
-        "product_type": "direct",
-        "is_refinancing": False,
-        "currency": "CHF",
-        "principal_minor": 100_000_00,
-        "interest_rate_bps": 1000,
-        "term_months": 12,
-        "status": "open",
-    }
-    lo_row = rows[str(originator_loan.pk)]
-    # The anonymized borrower name, never the confidential legal name.
-    assert lo_row["borrower_name"] == "Batch borrower PUBLIC"
-    assert lo_row["borrower_country"] == "DE"
-    assert lo_row["product_type"] == "originator_claim"
-    assert lo_row["interest_rate_bps"] == 800
-    body = response.content.decode()
-    for hidden in (
-        "Confidential Batch Borrower",
-        "risk_rating",
-        "ltv_bps",
-        "collateral",
-        "committed_principal_minor",
-        "funding_deadline",
-        "minimum_investment_minor",
-        "participation_bps",
-        "originator_name",
-        "title",
-        "published",
-    ):
-        assert hidden not in body
-
-    # A logged-in investor gets the same public payload here, the full list elsewhere.
     _approve_financial_access(investor)
     client.force_login(cast(Any, investor))
-    assert client.get("/api/v1/marketplace/primary/loans/").json() == response.json()
     full = client.get("/api/v1/marketplace/primary/opportunities/")
     assert full.status_code == 200
     full_rows = {row["loan_id"]: row for row in full.json()}
@@ -3431,7 +3386,10 @@ def test_public_preview_leaves_out_a_fully_funded_loan(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    """Verify 2026-10-09: a fully committed loan was still shown to visitors as "open"."""
+    """Verify 2026-10-09: a fully committed loan was still shown to visitors as "open".
+
+    Since 2026-10-15 the public site lists it as "fully_funded"."""
+    cache.clear()  # the public payloads are cached for 60 s
     open_loan = _create_published_loan(admin_user)
     full_loan = _create_published_loan(admin_user)
     loan_model = apps.get_model("loans", "Loan")
@@ -3439,8 +3397,11 @@ def test_public_preview_leaves_out_a_fully_funded_loan(
         committed_principal_minor=cast(Any, full_loan).principal_minor
     )
 
-    public_ids = {row["loan_id"] for row in client.get("/api/v1/marketplace/primary/loans/").json()}
-    assert public_ids == {str(open_loan.pk)}
+    public_statuses = {
+        row["loan_id"]: row["public_status"]
+        for row in client.get("/api/v1/marketplace/primary/public/projects/").json()
+    }
+    assert public_statuses == {str(open_loan.pk): "open", str(full_loan.pk): "fully_funded"}
 
     # Investors still see it in their list, shown as fully funded by the portal.
     _approve_financial_access(investor)
@@ -3467,20 +3428,86 @@ def test_investor_opportunity_list_requires_login_and_kyc(
     assert unverified.status_code == 403
 
 
-def test_openapi_schema_describes_the_public_preview_payload() -> None:
+def test_openapi_schema_describes_the_public_site_payload() -> None:
     generators: Any = import_module("drf_spectacular.generators")
     schema = generators.SchemaGenerator().get_schema(request=None, public=True)
-    operation = schema["paths"]["/api/v1/marketplace/primary/loans/"]["get"]
+    assert "/api/v1/marketplace/primary/loans/" not in schema["paths"]
+    operation = schema["paths"]["/api/v1/marketplace/primary/public/projects/"]["get"]
     items = operation["responses"]["200"]["content"]["application/json"]["schema"]["items"]
     component = schema["components"]["schemas"][items["$ref"].rsplit("/", 1)[-1]]
-    assert set(component["properties"]) == PUBLIC_PREVIEW_FIELDS
+    assert "title" in component["properties"]
+    assert "borrower_name" not in component["properties"]
     investor_operation = schema["paths"]["/api/v1/marketplace/primary/opportunities/"]["get"]
     investor_items = investor_operation["responses"]["200"]["content"]["application/json"][
         "schema"
     ]["items"]
-    investor_component = schema["components"]["schemas"][
-        investor_items["$ref"].rsplit("/", 1)[-1]
-    ]
+    investor_component = schema["components"]["schemas"][investor_items["$ref"].rsplit("/", 1)[-1]]
     assert {"risk_rating", "ltv_bps", "minimum_investment_minor"} <= set(
         investor_component["properties"]
     )
+
+
+@pytest.mark.django_db
+def test_primary_allocation_and_batch_endpoints_need_the_pin(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """ACC-DEC-009: PIN lock, then PIN, then the email code."""
+
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=5_000_00, idempotency_key="pin-deposit")
+    client.force_login(cast(Any, investor))
+    order_id = client.post(
+        "/api/v1/marketplace/primary/orders/",
+        data={"loan_id": str(loan.pk), "amount_minor": 1_000_00, "idempotency_key": "pin-order"},
+        content_type="application/json",
+    ).json()["id"]
+    acceptance = _create_primary_acceptance(
+        investor, order_id=order_id, idempotency_key="pin-accept"
+    )
+
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            f"/api/v1/marketplace/primary/orders/{order_id}/allocate-balance/",
+            data={
+                "document_acceptance_id": str(acceptance.pk),
+                "idempotency_key": "pin-allocate",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "primary_investment",
+        success_status=200,
+    )
+
+    batch_key = "pin-batch"
+    batch_acceptance = _create_primary_acceptance(
+        investor,
+        order_id="",
+        idempotency_key="pin-batch-accept",
+        context_type="primary_order_batch",
+        context_id=batch_key,
+        data_snapshot={
+            "currency": "CHF",
+            "items": [{"loan_id": str(loan.pk), "amount_minor": 1_000_00}],
+        },
+    )
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            "/api/v1/marketplace/primary/orders/batch/",
+            data={
+                "items": [{"loan_id": str(loan.pk), "amount_minor": 1_000_00}],
+                "document_acceptance_id": str(batch_acceptance.pk),
+                "idempotency_key": batch_key,
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "primary_investment",
+        success_status=201,
+    )
+    assert PrimaryInvestmentOrderBatch.objects.count() == 1

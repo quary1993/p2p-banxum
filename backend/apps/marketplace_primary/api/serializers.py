@@ -10,33 +10,214 @@ from backend.apps.marketplace_primary.models import (
     PrimaryLoanCancellation,
     PrimaryLoanClose,
 )
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 
 
-class PublicMarketplaceLoanSerializer(serializers.Serializer[Any]):
-    """Anonymous loan preview: only the MKT-DEC-002 fields (plus the loan id)."""
+class PublicProjectListQuerySerializer(serializers.Serializer[Any]):
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        default=250,
+        help_text="Maximum number of projects to return (1 to 500).",
+    )
 
-    loan_id = serializers.UUIDField(help_text="Public id for the project page link.")
-    borrower_name = serializers.CharField(
+
+class PublicProjectOriginatorSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(help_text="Loan Originator id.")
+    name = serializers.CharField(help_text="The Loan Originator's public name.")
+    country = serializers.CharField(
+        allow_blank=True,
+        help_text="ISO 3166-1 alpha-2 country of the Loan Originator when known, else empty.",
+    )
+
+
+class PublicProjectRecordSerializer(serializers.Serializer[Any]):
+    installments_total = serializers.IntegerField(
         help_text=(
-            "Direct loans: the borrower's legal name. Loan Originator claims: the "
-            "anonymized borrower name unless the originator published the legal name."
+            "Installments of the repayment schedule (for a Loan Originator claim: the "
+            "installments after the investors' entitlement start)."
         ),
     )
-    borrower_country = serializers.CharField(allow_blank=True)
+    installments_paid = serializers.IntegerField(help_text="Installments paid in full.")
+    principal_repaid_minor = serializers.IntegerField(
+        help_text="Principal repaid to investors so far, in minor units.",
+    )
+    interest_paid_minor = serializers.IntegerField(
+        help_text="Interest paid to investors so far, in minor units.",
+    )
+    outstanding_principal_minor = serializers.IntegerField(
+        help_text=(
+            "Principal not repaid yet (loan amount minus principal repaid), in minor units. "
+            "For a loan in default: outstanding at default, before recovery."
+        ),
+    )
+    days_past_due = serializers.IntegerField(
+        help_text="Days past the due date of the oldest unpaid installment; 0 unless late or "
+        "in default.",
+    )
+    defaulted_on = serializers.DateField(
+        allow_null=True,
+        help_text="Date the loan went into default; null unless in default.",
+    )
+    public_note = serializers.CharField(
+        allow_blank=True,
+        help_text="Text of the latest public loan note by Garanta, or empty.",
+    )
+
+
+class PublicProjectSerializer(serializers.Serializer[Any]):
+    """A loan on the public site. Never carries the borrower's name or identifiers."""
+
+    loan_id = serializers.UUIDField(help_text="Public id for the project page link.")
+    title = serializers.CharField(help_text="Loan title (never the borrower's name).")
     product_type = serializers.ChoiceField(
         choices=["direct", "originator_claim"],
-        help_text="Loan type: a BANXUM Direct loan or a Loan Originator claim.",
+        help_text="A BANXUM Direct loan or a Loan Originator claim.",
     )
     is_refinancing = serializers.BooleanField(help_text="Loan type: new or refinancing.")
-    currency = serializers.CharField()
-    principal_minor = serializers.IntegerField(help_text="Loan amount in minor units.")
+    public_status = serializers.ChoiceField(
+        choices=["open", "fully_funded", "repaying", "late", "repaid", "default"],
+        help_text=(
+            "open: published, capacity left, round still taking orders; fully_funded: "
+            "nothing left to invest, round not closed yet; repaying: funded or active; "
+            "late; repaid; default: defaulted or written off."
+        ),
+    )
+    currency = serializers.CharField(help_text="ISO currency code (CHF or EUR).")
+    principal_minor = serializers.IntegerField(
+        help_text=(
+            "Loan amount offered to investors, in minor units: the final principal after "
+            "a partial close; for a Loan Originator claim the principal offered in (or "
+            "subscribed at the close of) its round."
+        ),
+    )
+    committed_principal_minor = serializers.IntegerField(
+        help_text="Funded so far, in minor units (equal to the principal once funded).",
+    )
+    remaining_capacity_minor = serializers.IntegerField(
+        help_text="Amount still open for investment, in minor units; 0 unless open.",
+    )
+    minimum_investment_minor = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "What a new investor must invest now (the loan minimum, capped by the remaining "
+            "capacity; for a Swiss-borrower loan raised so the places left can fill the "
+            "loan), in minor units; null unless open, and null when a Swiss-borrower loan "
+            "has no place left."
+        ),
+    )
+    investors_count = serializers.IntegerField(
+        help_text=(
+            "Distinct investors: current (not transferred) holders and investors with money "
+            "allocated to the funding round."
+        ),
+    )
+    max_investors = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Most investors this loan may have (Swiss borrower, platform setting, default "
+            "20); null when no limit applies."
+        ),
+    )
+    places_left = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Places left for new investors (max_investors - investors_count, never below "
+            "0); null when no limit applies."
+        ),
+    )
     interest_rate_bps = serializers.IntegerField(
-        help_text="Investor interest per year in basis points."
+        help_text="Investor interest per year in basis points (the investor marketplace yield).",
     )
     term_months = serializers.IntegerField(help_text="Loan period in months.")
-    status = serializers.ChoiceField(
-        choices=["open"],
-        help_text="Every public preview is open for investment.",
+    repayment_type = serializers.CharField(help_text="RepaymentType value.")
+    risk_rating = serializers.CharField(help_text="RiskRating value.")
+    collateral_type = serializers.CharField(help_text="CollateralType value.")
+    collateral_description = serializers.CharField(allow_blank=True)
+    ltv_bps = serializers.IntegerField(
+        allow_null=True,
+        help_text="Loan-to-value in basis points; null without a collateral value.",
+    )
+    purpose = serializers.CharField(help_text="LoanPurpose value.")
+    purpose_description = serializers.CharField(allow_blank=True)
+    investor_summary = serializers.CharField(allow_blank=True)
+    borrower_country = serializers.CharField(
+        allow_blank=True,
+        help_text="Borrower country as ISO 3166-1 alpha-2 when known, else empty.",
+    )
+    borrower_sector = serializers.CharField(
+        allow_blank=True,
+        help_text="Borrower business classification when it is marked public, else empty.",
+    )
+    borrower_year_founded = serializers.IntegerField(allow_null=True)
+    originator = PublicProjectOriginatorSerializer(
+        allow_null=True,
+        help_text="The Loan Originator of a claim; null for a Direct loan.",
+    )
+    published_at = serializers.DateTimeField(allow_null=True)
+    funding_deadline = serializers.DateField(allow_null=True)
+    funded_at = serializers.DateField(
+        allow_null=True,
+        help_text="Funding close date; null while the round is running.",
+    )
+    record = PublicProjectRecordSerializer(
+        allow_null=True,
+        help_text="Repayment record; only for repaying, late, repaid and default loans.",
+    )
+
+
+class PublicStatisticsCurrencySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField(help_text="ISO currency code (CHF or EUR).")
+    loans = serializers.IntegerField(help_text="Funded loans in this currency.")
+    lent_minor = serializers.IntegerField(help_text="Principal lent, in minor units.")
+    principal_repaid_minor = serializers.IntegerField()
+    interest_paid_minor = serializers.IntegerField()
+    outstanding_minor = serializers.IntegerField(
+        help_text="Outstanding principal of loans not in default, in minor units.",
+    )
+    defaulted_minor = serializers.IntegerField(
+        help_text="Outstanding principal of loans in default (before recovery), in minor units.",
+    )
+
+
+class PublicStatisticsSerializer(serializers.Serializer[Any]):
+    as_of = serializers.DateTimeField(help_text="When the figures were computed.")
+    loans_funded = serializers.IntegerField(
+        help_text="Funded public loans (repaying, late, repaid or in default).",
+    )
+    loans_repaid = serializers.IntegerField()
+    loans_late = serializers.IntegerField()
+    loans_defaulted = serializers.IntegerField()
+    average_interest_rate_bps = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Investor interest weighted by principal over funded loans, rounded half up; "
+            "null without funded loans."
+        ),
+    )
+    originators_count = serializers.IntegerField(
+        help_text="Active Loan Originators with at least one public claim.",
+    )
+    countries_count = serializers.IntegerField(
+        help_text="Distinct borrower countries over all public projects.",
+    )
+    by_currency = PublicStatisticsCurrencySerializer(
+        many=True,
+        help_text="One row per currency; CHF and EUR are always present.",
+    )
+
+
+class PublicOriginatorSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(help_text="Loan Originator id.")
+    name = serializers.CharField(help_text="The Loan Originator's public name.")
+    country = serializers.CharField(
+        allow_blank=True,
+        help_text="ISO 3166-1 alpha-2 country when known, else empty.",
+    )
+    partner_since = serializers.DateField(help_text="Date the partner was added.")
+    claims_funded = serializers.IntegerField(
+        help_text="Public claims of this originator that were funded.",
     )
 
 
@@ -63,7 +244,35 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     committed_principal_minor = serializers.IntegerField()
     remaining_capacity_minor = serializers.IntegerField()
     fillable_amount_minor = serializers.IntegerField()
-    minimum_investment_minor = serializers.IntegerField()
+    minimum_investment_minor = serializers.IntegerField(
+        help_text=(
+            "What the viewing investor must invest now, in minor units. On a Swiss-borrower "
+            "loan a new investor's minimum is raised so the places left can fill the loan; "
+            "an investor who already invests keeps the loan minimum, capped by the "
+            "remaining capacity."
+        ),
+    )
+    max_investors = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Most investors this loan may have (Swiss borrower, platform setting, default "
+            "20); null when no limit applies."
+        ),
+    )
+    places_left = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Places left for new investors; null when no limit applies.",
+    )
+    is_existing_investor = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The viewing investor already invests in this loan, so needs no new place; "
+            "null when no limit applies."
+        ),
+    )
     ltv_bps = serializers.IntegerField(allow_null=True)
     is_refinancing = serializers.BooleanField()
     originator_id = serializers.UUIDField(allow_null=True)
@@ -234,6 +443,7 @@ class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class PrimaryOrderBatchItemSerializer(serializers.Serializer[Any]):
@@ -248,6 +458,7 @@ class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=128)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class PrimaryOrderBatchOriginatorPurchaseResponseSerializer(serializers.Serializer[Any]):

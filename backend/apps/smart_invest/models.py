@@ -11,7 +11,7 @@ from backend.apps.platform_core.models.base import (
     TimestampedModel,
 )
 
-# Smart Invest criteria are multi-select lists. An empty list never restricts
+# Smart-Invest criteria are multi-select lists. An empty list never restricts
 # matching; a non-empty list matches an opportunity carrying any listed value.
 SMART_INVEST_BANXUM_SOURCE = "banxum"
 

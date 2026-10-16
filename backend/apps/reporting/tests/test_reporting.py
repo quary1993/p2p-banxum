@@ -228,6 +228,42 @@ def investor() -> Model:
     )
 
 
+@pytest.mark.django_db
+def test_balance_ageing_report_buckets_follow_the_58_day_return(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # On 2026-03-01: day 59 (due back), day 58 (last day), day 55, day 40.
+    with freeze_time("2026-01-20T12:00:00Z"):
+        for index, value_date in enumerate(
+            (date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 20))
+        ):
+            _declare_deposit(
+                admin_user,
+                investor,
+                idempotency_key=f"reporting-ageing-{index}",
+                value_date=value_date,
+            )
+
+    rows = _csv_rows(
+        generate_report(
+            GenerateReportCommand(
+                actor=admin_user,
+                report_type=ReportType.BALANCE_AGEING,
+                start_date=date(2026, 3, 1),
+                end_date=date(2026, 3, 1),
+            )
+        ).content
+    )
+
+    assert [(row["age_days"], row["ageing_bucket"], row["action_required"]) for row in rows] == [
+        ("59", "return_due_or_penalty_mode", "forced_return_or_usable_iban_required"),
+        ("58", "last_day_withdraw_only", "last_day_reminder"),
+        ("55", "final_reminders", "withdrawal_reminder"),
+        ("40", "investable", "loan_specific_funding_deadline_check"),
+    ]
+
+
 def _received_at(value_date: date) -> datetime:
     return datetime.combine(value_date, time.min, tzinfo=business_timezone())
 

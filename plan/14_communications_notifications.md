@@ -33,7 +33,7 @@ Define transactional notifications, operational messaging, support communication
 - KYC/KYB session started/completed.
 - Compliance information request.
 - Investment order confirmation.
-- Smart Invest newly published opportunity match.
+- Smart-Invest newly published opportunity match.
 - Primary investment document package generated and sent.
 - Pending order created.
 - Payment received pending validation.
@@ -42,9 +42,10 @@ Define transactional notifications, operational messaging, support communication
 - Balance ageing reminder day 25.
 - Balance ageing reminder day 46.
 - Balance ageing reminder day 53.
-- Balance ageing reminder day 58.
-- Balance ageing reminder day 59.
-- Balance day-60 penalty notice.
+- Balance ageing reminders day 56 and 57 (2026-10-16, replacing day 59).
+- Balance ageing last-day reminder day 58: tomorrow the money goes back to the bank, or without a usable IBAN "add a bank account today".
+- Without a usable IBAN only: day-59 urgent notice (add a verified bank account so we can return your money) and day-60 notice that penalty mode starts tomorrow (2026-10-16, replacing the day-60 penalty notice).
+- Automatic return started (forced return, from day 59).
 - Currency exchange quote accepted.
 - Currency exchange completed/failed.
 - Investment order validated.
@@ -136,6 +137,8 @@ Capturing consent from v1 avoids rework later while keeping the active launch me
 
 Follow-ups:
 Define exact marketing consent wording, SendGrid list/audience names, consent audit fields, and unsubscribe/suppression-list synchronization behavior.
+
+Updated 2026-10-15: the public site "New projects by email" newsletter is live as its own double opt-in list, independent of the account consent captured here; see COMMS-DEC-009.
 
 ### COMMS-DEC-003: Mandatory Transactional Emails
 
@@ -265,24 +268,67 @@ Template editing needs guardrails so superadmin can safely use valid variables w
 Follow-ups:
 Define the template variable registry, validation rules, preview/test-send behavior, legal review evidence fields, and template rollback process.
 
-### COMMS-DEC-008: Smart Invest Match Alerts Are Transactional And First-Publication-Only
+### COMMS-DEC-008: Smart-Invest Match Alerts Are Transactional And First-Publication-Only
 
 Status: Accepted.
 Date: 2026-08-06.
 Owner: Garanta product / compliance / technology.
 
 Decision:
-When a loan first becomes public and investable, the platform evaluates every active Smart Invest rule owned by an investor who still has financial access. A matching investor receives one transactional email and one portal notification for that investor/loan pair, regardless of marketing consent.
+When a loan first becomes public and investable, the platform evaluates every active Smart-Invest rule owned by an investor who still has financial access. A matching investor receives one transactional email and one portal notification for that investor/loan pair, regardless of marketing consent.
 
 Activating or changing a rule does not backfill alerts for opportunities that were already open. Ordinary changes to an open loan do not resend the match alert. The rule and alert contain discovery information only: they do not reserve a balance, create an order, buy a claim, rank credit quality, or invest automatically.
 
-The Smart Invest setup wizard contains collateral, currency, optional minimum yield, optional maximum term, and review. It intentionally has no repayment/reinvestment preference and no originator-concentration step.
+The Smart-Invest setup wizard contains collateral, currency, optional minimum yield, optional maximum term, and review. It intentionally has no repayment/reinvestment preference and no originator-concentration step.
 
 Rationale:
-This gives investors timely notice without presenting Smart Invest as discretionary management, suitability advice, or an automated investment mandate. Per-investor/per-loan deduplication prevents repeated promotional pressure and creates a clear notification audit boundary.
+This gives investors timely notice without presenting Smart-Invest as discretionary management, suitability advice, or an automated investment mandate. Per-investor/per-loan deduplication prevents repeated promotional pressure and creates a clear notification audit boundary.
 
 Follow-ups:
-Final legal/compliance review should approve the match-email wording and confirm whether later material loan changes require a separate event-driven notice rather than another Smart Invest match alert.
+Final legal/compliance review should approve the match-email wording and confirm whether later material loan changes require a separate event-driven notice rather than another Smart-Invest match alert.
+
+### COMMS-DEC-009: Public Site Newsletter and Public Forms
+
+Status: Accepted.
+Date: 2026-10-15.
+Owner: Garanta product / marketing / compliance / technology.
+
+Decision:
+The public site has three forms (For companies, For loan originators, Contact) and a "New projects by email" newsletter. All of it lives in `communications` and uses the normal outbox, so retries, delivery records and evidence work as for every other email.
+
+Public forms (`POST /api/v1/public/enquiries/`, anonymous, no session or CSRF):
+
+- An accepted form is stored as `PublicEnquiry` (kind, reference, cleaned field values, sender email, IP as a keyed SHA-256 hash with a pepper derived from `SECRET_KEY`, user agent cut to 255 characters, delivery status) and sends ONE email (`email.public_enquiry`) to `PUBLIC_ENQUIRY_EMAIL` (default `hq@banxum.com`). Nothing is ever sent to the person who filled the form.
+- References are `APP` (company), `PAR` (loan originator) or `MSG` (contact), the Europe/Zurich year and a 4-digit sequence, for example `APP-2026-0143`. The number comes from one counter row per prefix and year, raised with a single row-locking UPDATE inside the submit transaction, so two submissions never share a number; deleting old enquiries never reuses one.
+- The subject is fixed text plus the reference only ("New company application APP-2026-0143", "New loan originator request PAR-…", "New contact message MSG-…"). The body uses the shared BANXUM layout with a table of every field, HTML-escaped and never turned into links, plus a plain-text part. Reply-To is set to the sender's address only on a provider that supports it (SendGrid) and only after re-validating it as a single address without CR/LF; the Twilio Email API has no reply-to field, so nothing is set there. The address is always in the body.
+- Validation per form with DRF serializers: required fields, short fields 200 characters, email 254, phone 40, free text 4000; select values exactly as the site lists them; amounts are positive decimals with at most 2 decimals and at most 1,000,000,000,000, written plain or grouped by threes ("250000", "250,000.00", "250'000"; "250,50" is refused, not read as 25050) and stored normalised ("250000.00"); founded is a year from 1800 to the current year. Free text keeps line breaks and loses every other control character and bidi override; one-line fields turn them into spaces. Field errors are returned under `fields`.
+- Abuse guards: a filled honeypot (`website`) or `elapsed_ms` under 3000 gets a 201 with a believable reference, stores and sends nothing and is logged at info level; a body over 32 KB is a 400; more than 5 links (`http://`, `https://`, `www.`) across the free-text fields is a 400 on that field ("Please remove some links."); `consent` must be true.
+- Throttles (fixed cache windows, the pattern of the auth throttles through the shared `platform_core.services.rate_limits` helper; values in settings): per client IP 3 per 10 minutes and 10 per day, per sender email 3 per day, 200 per day in total. They count accepted submissions (including refused bots), so a visitor correcting validation errors does not use up the budget. A throttled request gets 429 `{detail: "Too many messages. Please try again later or write to us by email.", code: "throttled"}` with Retry-After.
+
+Newsletter (double opt-in):
+
+- `POST /api/v1/public/newsletter/subscribe/` always answers 202 "Check your inbox to confirm." for a well-formed address (no enumeration); a malformed address is a 400 on `email`; a filled honeypot gets the same 202 and nothing is stored. New address: a pending `NewsletterSubscription` and a confirmation email. Pending: the confirmation again, at most once an hour and three times in 24 hours. Confirmed: nothing. Unsubscribed: a new double opt-in with new links.
+- `POST …/confirm/` with the token from `{PUBLIC_APP_BASE_URL}/newsletter/confirm?token=…` (7 days) and `POST …/unsubscribe/` with the token from `{PUBLIC_APP_BASE_URL}/newsletter/unsubscribe?token=…`. Both answer 400 `invalid_token` for an unknown, malformed or expired link; confirming twice and unsubscribing twice are fine. The unsubscribe endpoint also accepts the RFC 8058 one-click POST (token in the query string, form body `List-Unsubscribe=One-Click`); GET never unsubscribes.
+- Link tokens are an HMAC of a random per-subscription nonce under a key derived from `SECRET_KEY`. The database stores the nonce and the SHA-256 hash of the token only, so a database copy alone cannot confirm or unsubscribe anyone. The live token is rebuilt only when the email is rendered for the provider; the stored copy in the delivery record carries "[redacted]". A still-valid confirmation link is kept on a re-send, so the first email keeps working. After a `SECRET_KEY` rotation the next email renews the stored hash for the new key (logged as a warning), so sending keeps working; links in emails sent before the rotation then stop working.
+- Throttles: subscribe per IP 5 per hour and 20 per day (every request counts); confirmation emails 500 per day in total, checked on every subscribe request so a 429 never reveals whether an address is already subscribed; confirm and unsubscribe 30 per hour per IP each. Newsletter 429 bodies are `{detail: "Too many requests. Please try again later.", code: "throttled"}`.
+- These are marketing emails to people who may have no account. They use their own `marketing_email.` topics, so they never appear in the investor notification centre (which lists `email.` deliveries by address), are not tied to an account and are separate from investor notices and from Smart-Invest alerts (transactional, COMMS-DEC-008). The account marketing consent of COMMS-DEC-002 is a different consent and is not used for this list; an investor who wants these emails subscribes on the site like anyone else. The emails use the shared layout with a footer that says why the person gets them and links to unsubscribe, instead of the account-holder footer.
+- New-projects email: the scheduled job `newsletter_new_projects` runs daily in the default `run_scheduled_jobs` set (Europe/Zurich business-date run key, `ScheduledJobRun` evidence, monitored by `check_scheduled_jobs`, runs as the system without the admin actor). It lists loans first published after the end of the previous run's window and still open (the investor marketplace's open-loan selector `list_open_marketplace_loans`: published, capacity left, funding deadline not passed; Direct loans and Loan Originator claims) and queues ONE email per confirmed subscriber with title, interest a year, term, currency and a link to `{PUBLIC_APP_BASE_URL}/projects/<loan_id>`. No new projects, no email. The borrower's name is never used. What was sent is recorded per run (`NewsletterDigestRun`: window and the projects snapshot) and per subscriber (`NewsletterDigestDelivery`, unique per run and subscriber, append-only), so a repeat run sends nothing and a run interrupted on an earlier day is finished first. A loan announced in the last 180 days is not announced again. The first run ever looks back one day only. Every email has the unsubscribe link; on a provider that supports custom headers (SendGrid) it also carries `List-Unsubscribe: <{PUBLIC_APP_BASE_URL}/api/v1/public/newsletter/unsubscribe/?token=…>` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. An email queued for someone who unsubscribes before it goes out is closed unsent. There is at most one email a day and only when projects open; "once or twice a month" in the confirmation text describes the expected pace of new projects.
+
+Retention:
+
+- The scheduled job `public_site_retention` runs daily in the same set. Enquiries are deleted 24 months after they were received. Unsubscribed newsletter rows are anonymised 30 days after unsubscribing (address, IP hash and link nonces cleared; the unsubscribe hash is kept, so a late click on an old link still answers "unsubscribed", and the address can subscribe again from scratch). Rows never confirmed are anonymised 30 days after their link expired.
+- Email evidence is append-only. The stored copy of an enquiry email has the field values redacted (the details live only in the enquiry row and go with it after 24 months); the outbox payload holds only the enquiry id and reference. Newsletter delivery records keep the recipient address and the email content without tokens, as for every email the platform sends.
+
+Rationale:
+One path for every email keeps retries and evidence uniform. Answering every newsletter request the same way, counting confirmation emails globally and storing only token hashes keeps the anonymous endpoints from being used to probe or flood addresses. Separate marketing topics keep the newsletter out of investor notices.
+
+Impacted modules:
+- Communications (endpoints, models, emails, jobs).
+- Platform core (shared rate-limit helper, scheduled-job registration).
+- Public site frontend (forms, newsletter confirm and unsubscribe pages).
+
+Follow-ups:
+Legal/compliance to approve the consent text, the privacy notice for forms and newsletter, and the retention periods. Decide the marketing sender identity and domain authentication before real sending. Bounce/suppression handling for the newsletter. Admin views of enquiries and subscribers. Failed `marketing_email.` sends do not appear in the admin failed-email queue (it lists `email.` topics); add them when that queue is next changed. One-click unsubscribe headers for Twilio Email once its API supports custom headers.
 
 ## Communication Channels
 
@@ -371,16 +417,17 @@ Regards,
 The current backend queues idempotent transactional email outbox messages for:
 
 - Authentication magic links and sensitive-action confirmation codes, with the plaintext secret stored only in the short-lived encrypted auth record and rendered at dispatch time.
-- Balance-ageing reminder thresholds on days 25, 46, 53, 58, 59, and 60.
+- Balance-ageing reminder thresholds on days 25, 46, 53, 56, 57, and 58 (2026-10-16; before: 25, 46, 53, 58, 59, 60), plus day 59 and 60 notices only without a usable IBAN.
 - Borrower repayment distributions credited to lender balances.
 - Recovery distributions credited to lender balances.
 - Secondary-market listing lifecycle updates for sellers.
 - Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
-- Smart Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
+- Smart-Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
 - Balance events (audit 2026-10, A-18): deposit credited; withdrawal requested, sent and cancelled; day-61 forced return started; penalty mode entered; payout IBAN added (also when added again after a rejection), verified, not verified (the admin rejects the request) or no longer usable (the admin revokes it). The IBAN verification task cannot be closed while the request is pending; the reject action closes it.
 - Currency exchange completed, with amounts, rate, fee and date.
 - Primary market: order placed with the amount actually reserved (also a partial reservation); funding closed (holding active) or partly closed (new loan amount); funding cancelled, with the admin's investor message; order released by an admin.
 - Loan status: Direct and Loan Originator loans turned Late (day 5) or Defaulted (day 16), sent to current holders.
+- Public site (COMMS-DEC-009): one email per accepted public form to `PUBLIC_ENQUIRY_EMAIL` (`email.public_enquiry`); newsletter confirmation and daily new-projects emails (`marketing_email.newsletter_confirmation`, `marketing_email.newsletter_new_projects`, scheduled job `newsletter_new_projects`); retention clean-up in the scheduled job `public_site_retention`.
 
 Each business event creates one email and one portal notice through `platform_core.services.investor_notices` (idempotency key per event, Europe/Zurich business dates from the platform clock, amounts in the currency's minor units, masked IBANs, no secrets). Penalty mode sends one notice per investor, currency and entry day; daily penalty charges send no notice, and no weekly summary is sent. Internal admin reasons (withdrawal cancellation, order release, IBAN rejection or revocation) are not sent to investors; the investor message of a partial close or a funding cancellation is. A test renders every email topic produced in the backend through the real renderer. All emails share one layout in the site's design (October 2026 re-skin) with the Banxum wordmark in the header and the footer. The logo is a hosted PNG on the app domain (`/brand/banxum-email-logo.png`, or `EMAIL_ASSET_BASE_URL`), because email clients do not show SVG; its alt text keeps the name visible when images are blocked.
 
@@ -397,7 +444,7 @@ Local development uses the mock email provider. Staging and production use `COMM
 - Relevant monetary actions are communicated by email at launch.
 - Any secondary-market transaction involving a user must generate relevant transactional email.
 - Lender balance-credit emails state the credited amount and payment context, but internal distribution artifacts are not sent as files by default.
-- Balance ageing reminders must be sent on days 25, 46, 53, 58, 59, and 60 for remaining unconsumed balance source entries.
+- Balance ageing reminders must be sent on days 25, 46, 53, 56, 57, and 58 for remaining unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days; day 59 and 60 notices only without a usable IBAN).
 - Reminder emails must state that the regulatory/compliance requirement to avoid holding user funds beyond 60 days cannot be extended.
 - Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw before the deadline.
 - Day-60 notifications must state that missing usable IBAN causes penalty mode and freezes financial actions until a usable IBAN is declared, while read-only access to portfolio, documents, tax information statements, notices, and messages remains available.

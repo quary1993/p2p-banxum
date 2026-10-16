@@ -74,6 +74,13 @@ def user_kyc_status_value(user: Any) -> str:
     return str(getattr(case, "status", "not_started"))
 
 
+def user_has_sensitive_action_pin(user: Any) -> bool:
+    """True once the investor created the PIN for sensitive actions (ACC-DEC-009)."""
+
+    pin_model = apps.get_model("accounts_auth", "SensitiveActionPin")
+    return bool(pin_model.objects.filter(user_id=getattr(user, "pk", None)).exists())
+
+
 def user_can_access_financial_features(user: Any) -> bool:
     if not is_lender_actor(user):
         return False

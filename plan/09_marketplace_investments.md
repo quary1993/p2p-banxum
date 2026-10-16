@@ -60,6 +60,14 @@ Public preview fields before login:
 
 Implementation 2026-10-09 (QA audit): the anonymous list `GET /api/v1/marketplace/primary/loans/` returns only these fields plus the loan id for the `/projects/<id>` page: `borrower_name` (Direct: legal name; Loan Originator: the anonymized name unless the legal name is published), `borrower_country`, `principal_minor`, `interest_rate_bps` (investor interest), `term_months`, loan type as `product_type` (Direct or Loan Originator claim) and `is_refinancing`, `status` (`open`) and `currency`. Risk rating, LTV, collateral, funding progress, deadline, minimum and participation terms are not public. Logged-in KYC-approved investors get the full list from `GET /api/v1/marketplace/primary/opportunities/`.
 
+Updated 2026-10-15 (product owner): the public site publishes the design's project fields; this replaces the field list above. The borrower name is not public: anonymous payloads show the loan title and never the borrower's legal or display name, registration number, address, contact or documents. New anonymous endpoints (no session, no CSRF, 60 s cache):
+
+- `GET /api/v1/marketplace/primary/public/projects/` (`limit` 1-500, default 250) and `.../public/projects/<loan_id>/` (404 unless public): open loans, fully subscribed rounds and every funded loan (funded, active, late, defaulted, written off, repaid), Direct and Loan Originator claims; never drafts, cancelled rounds or failed funding closes. Fields: title, product type, new/refinancing, public status (open, fully_funded, repaying, late, repaid, default), currency, amount, funded so far, remaining capacity and current minimum (open only, investor marketplace rules; for a Swiss borrower the new-investor minimum of MKT-DEC-028, null when no place is left), investor count, investor limit and places left (Swiss borrowers, MKT-DEC-028, added 2026-10-16), investor yield, term, repayment type, risk rating, collateral type and description, LTV, purpose and description, investor summary, borrower country (ISO code), borrower sector (only when the business classification is marked public), year founded, Loan Originator (public name, country), published, funding deadline and funding close dates, and for funded loans a repayment record (installments paid/total, principal repaid, interest paid, outstanding principal, days past due, default date, latest public loan note).
+- `GET /api/v1/marketplace/primary/public/statistics/`: funded/repaid/late/defaulted counts, principal-weighted average investor rate, Loan Originator and borrower country counts, and per currency (CHF and EUR always) lent, principal repaid, interest paid, outstanding and in-default principal, computed from the same data as the projects.
+- `GET /api/v1/marketplace/primary/public/originators/`: active Loan Originators with at least one public claim (public name, country, partner since, funded claims).
+
+The old anonymous `GET /api/v1/marketplace/primary/loans/` (which returned the borrower name) is removed since the new public site uses the endpoints above (2026-10-15).
+
 Rationale:
 This allows investors to evaluate opportunities early while keeping full loan data, balances, deposits, FX, and investment functionality behind onboarding controls.
 
@@ -139,9 +147,11 @@ Confirm launch restrictions by jurisdiction if needed. V1 does not enforce hard 
 
 ### MKT-DEC-007: Secondary Market Seller Pricing
 
-Status: Accepted.
-Date: 2026-05-16. Updated 2026-05-29, 2026-10-09.
+Status: Accepted. Amended 2026-10-16 (par or discount only).
+Date: 2026-05-16. Updated 2026-05-29, 2026-10-09, 2026-10-16.
 Owner: Garanta product / operations / legal.
+
+Update 2026-10-16 (owner decision, row 4: "No premium allowed, only par or discount"): a sale price is more than 0% and at most 100% of the holding's current principal balance (`price_bps` 1 to 10,000), for Direct and Loan Originator holdings alike. A listing, a listing edit, the listing terms and the pricing preview above par are refused with HTTP 400 "The sale price can be at most 100% (par)."; a purchase of a listing above par is refused too. The automatic refresh after a repayment keeps `price_bps`, so a par or discount listing stays valid. Open listings priced above par before the decision were cancelled by migration `secondary_market.0011_cancel_listings_above_par` (system actor, reason recorded, seller notice, no money moved). The seller form allows at most 10,000 bps and says "par or a discount"; buyer screens no longer explain premiums. The rest of this decision is unchanged; where it says "discount or premium", read "par or discount".
 
 Decision:
 Secondary-market sellers can set their own sale price for the full holding being transferred. The sale price may be at a discount or premium to the current principal balance of that holding.
@@ -161,7 +171,7 @@ Seller-defined discount/premium pricing supports flexible exits while the separa
 
 Follow-ups:
 Finalize legal display wording for discount/premium and accrued-interest disclosure.
-Decide whether seller `price_bps` needs a tighter product bound than the technical 1 to 1,000,000 bps (0.01% to 10,000% of principal) range; the plan sets none today (QA audit 2026-10-09).
+Resolved 2026-10-16: seller `price_bps` is bounded to 1 to 10,000 bps (par or a discount); the earlier open question about a tighter bound than the technical 1 to 1,000,000 bps range (QA audit 2026-10-09) is closed.
 
 ### MKT-DEC-008: Legal-Entity Lender Offline Investments
 
@@ -233,6 +243,8 @@ Launch minimum primary-market investment amount is:
 - 1,000 EUR.
 
 The minimum investment amount is configurable by superadmin.
+
+Updated 2026-10-16 (MKT-DEC-028): on a loan to a Swiss borrower a new investor's minimum rises so that the places left (at most 20 investors per loan) can fill the loan, capped by the remaining capacity; an investor who already invests keeps the launch minimum, capped by the remaining capacity.
 
 The maximum investment amount is the maximum remaining amount/cap available on the loan. There is no separate per-investor hard maximum at launch beyond available eligible balance, remaining loan capacity, eligibility, and compliance rules.
 
@@ -315,15 +327,19 @@ Direct acceptance keeps the bulletin-board secondary market simple and usable wh
 
 ### MKT-DEC-017: Secondary-Market Fees
 
-Status: Accepted.
-Date: 2026-05-22. Updated 2026-05-29.
+Status: Accepted. Amended 2026-10-16 (fee rates).
+Date: 2026-05-22. Updated 2026-05-29, 2026-10-16.
 Owner: Garanta product / finance / operations.
 
-Decision:
+Update 2026-10-16 (owner decisions, rows 2 and 3): the seller (maker) fee is 2% of the sale price and there is no buyer (taker) fee. The defaults are `secondary_market.maker_fee_bps` = 200 and `secondary_market.taker_fee_bps` = 0 (settings definitions and code defaults). Migration `secondary_market.0010_secondary_fee_defaults_2026_10_16` changes a seeded setting row from the old default (25 / 75) to the new one with a new setting version and a system audit event; a value configured on purpose is kept. The formulas, rounding and minimum-fee support below are unchanged. The investor screens show the fee lines from the API; a zero buyer fee is not shown as a line.
+
+Open listings at the change (implementation decision 2026-10-16): a listing stores the seller fee rate and minimum it was created, edited or last refreshed with, and a sale charges that stored seller fee, so an open listing keeps the fee the seller accepted (0.25%) until an automatic servicing refresh (MKT-DEC-021) or a seller edit recomputes it with the current rate (2%). The buyer fee is always the current one (none), as the buyer reviews it at purchase. New listings use the new rates.
+
+Decision (history: the launch rates before 2026-10-16):
 Launch secondary-market fees are:
 
-- Maker/seller fee: 0.25%.
-- Taker/buyer fee: 0.75%.
+- Maker/seller fee: 0.25% (2% since 2026-10-16).
+- Taker/buyer fee: 0.75% (none since 2026-10-16).
 
 Both fees are charged at settlement. The maker fee is charged to the seller side and deducted from seller proceeds. The taker fee is charged to the buyer side as part of the settlement amount/cost.
 
@@ -415,14 +431,14 @@ Date: 2026-07-27.
 Owner: Garanta product / finance / operations.
 
 Decision:
-The seller's `price_bps` is the durable commercial choice: 10,000 is par, values above are a premium, and values below are a discount. After any borrower repayment, repayment in advance, recovery distribution, or servicing-status transition changes a loan or holding, every unsold open listing for that loan is refreshed atomically from the latest loan and holding data. The platform preserves only `price_bps` and recomputes current principal, transfer price, accrued interest, maker/taker fees, seller net proceeds, buyer total, payment date, days past due, risk-acknowledgement state, and disclosure status. A zero-principal/unlistable holding is automatically cancelled. A performing `active` loan remains automatically listed. Since 2026-10-09 (C18) a listing whose loan turns `late` or `defaulted` is cancelled automatically and the seller is told; it no longer returns to approval-required status.
+The seller's `price_bps` is the durable commercial choice: 10,000 is par and values below are a discount (values above par, a premium, are not allowed since 2026-10-16, MKT-DEC-007). After any borrower repayment, repayment in advance, recovery distribution, or servicing-status transition changes a loan or holding, every unsold open listing for that loan is refreshed atomically from the latest loan and holding data. The platform preserves only `price_bps` and recomputes current principal, transfer price, accrued interest, maker/taker fees, seller net proceeds, buyer total, payment date, days past due, risk-acknowledgement state, and disclosure status. A zero-principal/unlistable holding is automatically cancelled. A performing `active` loan remains automatically listed. Since 2026-10-09 (C18) a listing whose loan turns `late` or `defaulted` is cancelled automatically and the seller is told; it no longer returns to approval-required status.
 
 `Funded` means funding has closed but the borrower has not yet been paid. Holdings in that state are visible in the portfolio but cannot be listed or submitted for listing review. The investor UI disables the listing action with a disbursement-pending explanation. When an `active` loan becomes `late` or `defaulted`, its open listing is cancelled at once (C18, 2026-10-09).
 
 For a regular installment paid before its due date, secondary-market accrued interest starts only after the contractual due date because that installment already paid full contractual interest through that date. For a repayment in advance, accrual restarts from the actual borrower bank date. Purchase settlement still recomputes all economics again on the purchase date. The repayment-credit email mentions automatic listing recalculation only for the seller of a listing that remains active and unsold.
 
 Rationale:
-Keeping the percentage premium/discount while refreshing every derived amount honors seller intent without exposing buyers to stale principal, stale fees, or duplicate accrued interest after servicing events.
+Keeping the percentage (par or discount) while refreshing every derived amount honors seller intent without exposing buyers to stale principal, stale fees, or duplicate accrued interest after servicing events.
 
 ## Marketplace Lifecycle
 
@@ -480,11 +496,11 @@ Launch requirements:
 - Listed holdings must have a positive current principal balance.
 - No minimum holding period applies for current/performing holdings.
 - No separate secondary-market minimum transfer size applies.
-- Sellers define the sale price as a percentage of current principal balance and may offer a discount or premium.
-- The platform displays current principal balance, sale price, discount/premium, accrued interest, seller fee, seller net proceeds, buyer fee, and buyer total cost.
+- Sellers define the sale price as a percentage of current principal balance, at par or a discount, never a premium (at most 100%, 2026-10-16).
+- The platform displays current principal balance, sale price, discount, accrued interest, seller fee, seller net proceeds, buyer fee (when not zero), and buyer total cost.
 - Accrued interest up to settlement is calculated separately, daily, pro rata, and belongs to the seller up to transfer date for current/performing loans/projects.
 - Future interest after settlement belongs to the buyer.
-- Open unsold listings are automatically repriced after repayment, recovery, or status changes using current holding/loan data while preserving only the seller's percentage premium/discount (`price_bps`).
+- Open unsold listings are automatically repriced after repayment, recovery, or status changes using current holding/loan data while preserving only the seller's percentage (`price_bps`, par or discount).
 - Maker/taker fees are calculated on transfer price excluding accrued interest, rounded half-up to the nearest cent/minor unit, with configurable minimum-fee support.
 - Current/performing holdings may be listed automatically after system checks.
 - Late, overdue, time-extended, default or otherwise non-performing holdings cannot be listed (C18, 2026-10-09); open listings are cancelled when the loan turns late or defaulted.
@@ -493,7 +509,7 @@ Launch requirements:
 - Secondary-market assignment or reassignment documentation generated for each secondary-market purchase.
 - Secondary-market seller/listing terms accepted when a seller lists a holding.
 - Settlement through Garanta's collection account or investor balances under PAY-DEC-009, with maker/taker fees deducted before net proceeds are credited to the seller balance.
-- Launch secondary-market fees are 0.25% maker/seller fee and 0.75% taker/buyer fee, both charged at settlement.
+- Secondary-market fees (2026-10-16): 2% maker/seller fee charged at settlement, no taker/buyer fee (earlier launch rates: 0.25% / 0.75%).
 - Settlement should normally be much faster than 60 days from buyer-fund receipt or balance reservation and must not exceed the 60-day maximum operational period.
 - Servicing record update after transfer.
 - Disclosure of late, default, operational loan change, recovery, impairment, or non-standard listing status.
@@ -577,6 +593,7 @@ Investor balance entries use loan-specific remaining-window eligibility and the 
 - The last inclusive loan funding date must be strictly earlier than every consumed source's withdrawal-deadline date.
 - Show potentially investable balance by currency, and the exact loan-eligible amount in the investment flow. Explain insufficient holding time explicitly.
 - Amount limits are enforced. Exposure metrics and concentration warnings are shown/reported, but hard concentration limits are not enforced at launch.
+- A loan to a Swiss borrower has at most 20 investors (configurable, 0 = off); a new investor's minimum rises so the places left can fill the loan, and a new investor is refused when no place is left (MKT-DEC-028, 2026-10-16).
 - First-come-first-served allocation is based on bank value date of validated received funds or balance reservation/allocation timestamp for balance-funded orders.
 - Orders cannot exceed available amount after validation/allocation; excess funds are returned, credited, or released to balance according to policy.
 - Investors cannot cancel orders.
@@ -593,13 +610,13 @@ Investor balance entries use loan-specific remaining-window eligibility and the 
 - Garanta may reject or remove non-standard listings at its discretion.
 - Buyers of approved non-standard listings must see a clear warning and accept an additional risk acknowledgement before purchase.
 - Non-standard listing pages show loan status, days past due if applicable, recovery/default status, last payment date, and any public admin note.
-- Secondary-market settlement charges 0.25% maker/seller fee to seller proceeds and 0.75% taker/buyer fee to the buyer side.
+- Secondary-market settlement charges the 2% maker/seller fee to seller proceeds; there is no taker/buyer fee (2026-10-16).
 - Secondary-market fees are calculated on the agreed transfer price excluding accrued interest and rounded half-up to the nearest cent/minor currency unit. Minimum fee support is configurable.
 - Secondary-market sellers must accept seller/listing terms before publishing a listing.
-- Secondary-market sellers can set their own discount or premium price as a percentage of current principal balance.
+- Secondary-market sellers can set their own price as a percentage of current principal balance, at par or a discount (at most 100%, 2026-10-16).
 - Secondary-market sellers may list only entire holdings. Partial sales or partial transfers of one holding are not allowed.
 - Accrued interest up to settlement belongs to the seller; future interest after settlement belongs to the buyer.
-- The interface displays current principal balance, sale price, discount/premium, accrued interest, seller fee, seller net proceeds, buyer fee, and buyer total cost.
+- The interface displays current principal balance, sale price, discount, accrued interest, seller fee, seller net proceeds, buyer fee (when not zero), and buyer total cost.
 - Secondary-market transfers must preserve the assigned-claim legal structure and servicing audit trail.
 - Primary investment and secondary-market purchase documents are accepted by checkbox/clickwrap in v1.
 - Primary investment assignment documents are generated per investment order.
@@ -629,7 +646,7 @@ Investor balance entries use loan-specific remaining-window eligibility and the 
 9. Answered by launch scope/admin TODO: auto-invest is future scope and not included at launch.
 10. Partly answered by DOC-DEC-005: assignment documentation is generated per investment order in v1; exact legal template remains open.
 11. Answered by MKT-DEC-006: secondary market is available at launch.
-12. Answered by MKT-DEC-007/MKT-DEC-009/MKT-DEC-016/MKT-DEC-017/MKT-DEC-020: secondary market is a bulletin-board claim/participation transfer mechanism; seller may list only an entire holding; seller sets price as a discount/premium percentage of current principal balance; accrued interest to settlement belongs to seller and future interest belongs to buyer; launch fees are 0.25% maker/seller and 0.75% taker/buyer, calculated on transfer price excluding accrued interest and rounded half-up; current/performing listings can settle directly after checks, while non-performing/non-standard listings require admin approval, disclosure note, and additional buyer acknowledgement before purchase.
+12. Answered by MKT-DEC-007/MKT-DEC-009/MKT-DEC-016/MKT-DEC-017/MKT-DEC-020: secondary market is a bulletin-board claim/participation transfer mechanism; seller may list only an entire holding; seller sets price as a percentage of current principal balance at par or a discount (no premium since 2026-10-16); accrued interest to settlement belongs to seller and future interest belongs to buyer; fees are 2% maker/seller and no taker/buyer fee since 2026-10-16 (launch rates were 0.25% / 0.75%), calculated on transfer price excluding accrued interest and rounded half-up; current/performing listings can settle directly after checks, while non-performing/non-standard listings require admin approval, disclosure note, and additional buyer acknowledgement before purchase.
 
 ## Loan Originator Primary-Market Purchases
 
@@ -657,7 +674,7 @@ For v1, a payment, prepayment, or principal/schedule change dated while subscrip
 
 ### MKT-DEC-024: Secondary-Market Continuity
 
-Originator-derived holdings may be transferred through the existing secondary market as a complete holding. The principal participation and its interest/penalty component rights travel together. A current `par_component_v2` holding may be listed only at par or a discount; a premium is rejected. Accrued interest through secondary settlement belongs to the seller and future entitlement to the buyer. The buyer pays that accrued amount at settlement under the same clean-price-plus-accrued convention as direct holdings; the next borrower installment belongs entirely to the buyer. This deliberately supersedes the earlier idea of leaving the seller entitled to a later installment-time payment: atomic settlement avoids an unsecured residual seller claim and makes the ownership transfer final, while the buyer retains borrower non-payment risk after purchase. Historical acquisition economics remain private.
+Originator-derived holdings may be transferred through the existing secondary market as a complete holding. The principal participation and its interest/penalty component rights travel together. A current `par_component_v2` holding may be listed only at par or a discount; a premium is rejected (since 2026-10-16 this applies to every holding, MKT-DEC-007). Accrued interest through secondary settlement belongs to the seller and future entitlement to the buyer. The buyer pays that accrued amount at settlement under the same clean-price-plus-accrued convention as direct holdings; the next borrower installment belongs entirely to the buyer. This deliberately supersedes the earlier idea of leaving the seller entitled to a later installment-time payment: atomic settlement avoids an unsecured residual seller claim and makes the ownership transfer final, while the buyer retains borrower non-payment risk after purchase. Historical acquisition economics remain private.
 
 ### MKT-DEC-025: Optional Loan-Originator Retention Floor
 
@@ -667,13 +684,13 @@ The originator-owned principal consists of the required retained amount plus any
 
 Borrower principal repayments reduce investor and originator claims using the contractual allocation, with minor-unit remainders assigned so the originator remains at or above the recalculated floor after every payment. The retained claim continues to receive its applicable borrower-payment entitlement and is never converted into an investor holding. A service or data inconsistency below the floor fails loudly instead of being hidden as zero sellable principal.
 
-### MKT-DEC-026: Smart Invest Is One Saved Alert Rule, Not Auto-Invest
+### MKT-DEC-026: Smart-Invest Is One Saved Alert Rule, Not Auto-Invest
 
 Status: Accepted.
 Date: 2026-08-06.
 Owner: Garanta product / compliance / technology.
 
-Each eligible investor may maintain one current Smart Invest rule made from structured Marketplace criteria: minimum yield, maximum remaining term, BANXUM/direct versus Loan-Originator source (including one specific originator), secured/unsecured/specific collateral, CHF/EUR scope, risk rating, purpose, and new/refinancing loan type. Search text, sorting, and visual display mode are not persisted. At least one effective criterion is required; a zero yield floor is treated as no floor.
+Each eligible investor may maintain one current Smart-Invest rule made from structured Marketplace criteria: minimum yield, maximum remaining term, BANXUM/direct versus Loan-Originator source (including one specific originator), secured/unsecured/specific collateral, CHF/EUR scope, risk rating, purpose, and new/refinancing loan type. Search text, sorting, and visual display mode are not persisted. At least one effective criterion is required; a zero yield floor is treated as no floor.
 
 Update 2026-10-09 (QA row 37): source, collateral, currency, risk rating, purpose and loan type are multi-select lists in the rule, the API and the Marketplace filters. An empty list does not restrict; the values ticked in one list combine with OR and the conditions combine with AND. Source takes `banxum` and/or Loan Originator ids. Collateral takes `any_secured` (every secured loan, including collateral types added later), individual collateral types and `unsecured`. Combined "either/both" choices no longer exist, and a list that ticks every possible value (both currencies, both loan types, any collateral plus unsecured, the whole rating or purpose catalog) is not an effective criterion. Existing single-value rules were migrated to the equivalent lists without a new revision; the append-only rule events keep the shape they were recorded with.
 
@@ -683,7 +700,7 @@ The investor setup wizard contains five steps only: collateral, currency, option
 
 When an opportunity first becomes public and investable, the platform evaluates active rules for investors who still have financial access. Each investor/loan pair may produce at most one transactional match email and notification. Activating or changing a rule does not backfill already-open opportunities, and ordinary loan updates do not resend the first-publication alert.
 
-Smart Invest is a discovery mechanism only. It does not rank credit quality, assess suitability, reserve balance, create a primary order, execute an originator-claim purchase, or invest automatically. Every investment still requires the ordinary detail review, current terms acceptance, sensitive-action verification, balance/capacity checks, and explicit investor confirmation.
+Smart-Invest is a discovery mechanism only. It does not rank credit quality, assess suitability, reserve balance, create a primary order, execute an originator-claim purchase, or invest automatically. Every investment still requires the ordinary detail review, current terms acceptance, sensitive-action verification, balance/capacity checks, and explicit investor confirmation.
 
 ### MKT-DEC-027: Explicit Multi-Currency Batch Placement
 
@@ -691,10 +708,36 @@ Status: Accepted.
 Date: 2026-08-08.
 Owner: Garanta product / compliance / technology.
 
-The investor dashboard may present several Smart Invest matches for explicit selection and place up to 20 selected direct-loan orders and current Loan Originator subscription orders as one batch. This is not auto-invest: the investor explicitly selects every opportunity, reviews the exact cash amount for every investment, accepts the current primary-market terms for that list, enters one fresh sensitive-action email code, and confirms the batch.
+The investor dashboard may present several Smart-Invest matches for explicit selection and place up to 20 selected direct-loan orders and current Loan Originator subscription orders as one batch. This is not auto-invest: the investor explicitly selects every opportunity, reviews the exact cash amount for every investment, accepts the current primary-market terms for that list, enters one fresh sensitive-action email code, and confirms the batch.
 
 The reviewed allocation may contain both CHF and EUR opportunities, while every balance movement remains strictly isolated in its own currency. Direct loans and `par_component_v2` Loan Originator subscriptions both reserve the reviewed amount at par through primary orders. Historical `legacy_yield_v1` opportunities, if still open, retain the separate executable quote flow and quote-bound evidence.
 
 The backend locks all funding-round loans in stable ID order. Each item must satisfy its order minimum, same-currency eligible balance, remaining capacity, and any Loan Originator retention floor. Direct and `par_component_v2` items become allocated orders awaiting their respective close/activation lifecycle. A legacy quoted claim still completes through its historical immediate purchase primitive. One outer database transaction rolls back every child order, reservation, legacy purchase, holding, ledger posting, derived acceptance, and counter across every currency if any selected item fails. The append-only umbrella acceptance remains as internal evidence of the investor's reviewed placement attempt.
 
 An immutable parent batch record binds the investor, per-currency cash totals, item snapshot, primary-order IDs, legacy Loan Originator purchase IDs, umbrella acceptance, idempotency key, and request fingerprint. Mixed-currency batches never store or display a meaningless cross-currency scalar total. Exact replays return the parent record without consuming a second code; conflicting replays are rejected. The system derives server-owned `primary_order` evidence for direct and current Loan Originator subscription orders, and retains `originator_claim_quote` evidence only for legacy quoted claims.
+
+### MKT-DEC-028: Swiss-Borrower Investor Limit
+
+Status: Accepted.
+Date: 2026-10-16.
+Owner: Garanta product owner (owner decision row 24).
+
+Decision:
+A loan to a Swiss borrower may have at most 20 investors. The minimum for a new investor goes up so that the places left can still fill the loan. The rule applies to Swiss-borrower loans only; texts elsewhere stay as they are.
+
+- Swiss borrower: a Direct loan whose borrower entity country is Switzerland, or a Loan Originator claim whose borrower country is Switzerland. The free-text country is read like the public site's ISO code ("Switzerland", "CH", "Schweiz", "Suisse", "Svizzera", any case).
+- Investors of a loan: distinct investor accounts with a current (not transferred) holding of the loan, or with money allocated to its funding round (an allocated or partly allocated primary order, which also covers Loan Originator subscriptions). Orders closed as invested count only for a loan without any holding record. Pending orders are intents and do not count. The same function gives the public `investors_count`.
+- Limit: platform setting `investment.swiss_borrower_max_investors`, default 20; 0 switches the limit off.
+- `places_left = max_investors - investors` (never below 0). A new investor's minimum is `min(remaining, max(minimum, ceil(remaining / places_left)))`, where the share `ceil(remaining / places_left)` is rounded up to whole currency units (multiples of 100 minor units); it is never above the remaining capacity, so the last place takes the rest. For a quoted (legacy) Loan Originator claim the remaining capacity is the cash that buys every sellable principal.
+- A new investor when no place is left is refused with HTTP 409, code `swiss_investor_limit`: "This loan to a Swiss company already has the maximum of 20 investors." (the number is the setting).
+- An investor who already invests in the loan does not take a new place: their minimum stays the loan minimum, capped by the remaining capacity, also when no place is left.
+- Every investment path applies the rule: primary order creation, order allocation from balance (the minimum of now; the order stays pending when refused, and an early check runs before the email code is used), each line of a Smart-Invest batch (a full loan refuses the whole batch, nothing is committed), Loan Originator subscriptions (primary orders) and quoted claims (quote and purchase), and the secondary market. A whole-holding secondary purchase by a new investor must not raise the count above the limit: the buyer takes the seller's place when the seller sells their last holding of the loan; otherwise the buyer needs a free place, else 409 with the same code.
+- Concurrency: the count is taken under the loan row lock (`select_for_update`) that every primary allocation, batch, quoted claim purchase (Swiss loans) and secondary purchase already takes, so two new investors cannot both take the last place.
+- Payloads: the investor marketplace list and detail report `minimum_investment_minor` for the viewing investor (the new-investor minimum, or the capped loan minimum when the viewer already invests), `max_investors` (20 or null), `places_left` (int or null) and `is_existing_investor` (bool, or null when no limit applies). The public project payload reports the new-investor minimum (null when no place is left), `max_investors` and `places_left`.
+- Invest page: for Swiss-borrower loans a line under the amount reads "Swiss borrower: at most 20 investors. N places left."; when no place is left a new investor sees the 409 message and cannot continue.
+
+Rationale:
+Owner decision. A Swiss company that takes loans from more than 20 lenders can be treated as accepting deposits from the public (legal to confirm the exact basis); the platform keeps each Swiss-borrower loan within 20 investors and keeps the loan fillable by raising the minimum as places fill.
+
+Follow-ups:
+Confirm with legal whether the limit should also count lenders the borrower has outside BANXUM, and whether Loan Originator claims on Swiss borrowers need a different limit.

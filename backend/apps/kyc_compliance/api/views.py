@@ -31,6 +31,7 @@ from backend.apps.kyc_compliance.services import (
     CreateKycSessionCommand,
     DiditApiError,
     KycManualReviewError,
+    KycPinRequiredError,
     KycSessionStartBlockedError,
     KycWebhookMatchError,
     KycWebhookSignatureError,
@@ -90,6 +91,11 @@ class KycSessionCreateView(APIView):
     def post(self, request: Request) -> Response:
         try:
             result = create_kyc_session(CreateKycSessionCommand(user=cast(Model, request.user)))
+        except KycPinRequiredError as exc:
+            return Response(
+                {"detail": str(exc), "code": exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
         except KycSessionStartBlockedError as exc:
             # Deliberately generic: the investor is not told why the case is held.
             return Response(

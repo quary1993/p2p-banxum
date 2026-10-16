@@ -15,6 +15,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
+from django.test import Client
 from django.utils import timezone
 from pypdf import PdfReader
 
@@ -79,7 +80,10 @@ from backend.apps.originator_claims.services import (
 from backend.apps.platform_core.domain.time import business_date, business_timezone
 from backend.apps.platform_core.models import Currency, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
-from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
+from backend.apps.platform_core.tests.factories import (
+    assert_pin_guards_sensitive_action,
+    issue_sensitive_action_test_code,
+)
 from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[4] / "imports_examples"
@@ -652,6 +656,7 @@ def _allocate_par_subscription(
             idempotency_key=f"subscription-{suffix}-allocate",
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
         )
     )
 
@@ -1153,6 +1158,7 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
             document_acceptance_id=str(acceptance.pk),
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
             idempotency_key="originator-purchase-1",
         )
     )
@@ -1313,6 +1319,7 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
             document_acceptance_id=str(acceptance.pk),
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
             idempotency_key="dated-entitlement-purchase",
         )
     )
@@ -1448,6 +1455,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
             document_acceptance_id=str(primary_acceptance.pk),
             sensitive_action_code_id=primary_code.code_id,
             sensitive_action_code=primary_code.raw_code,
+            pin=primary_code.pin,
             idempotency_key="originator-resale-primary-purchase",
         )
     )
@@ -1472,6 +1480,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
             document_acceptance_id=str(listing_acceptance.pk),
             sensitive_action_code_id=listing_code.code_id,
             sensitive_action_code=listing_code.raw_code,
+            pin=listing_code.pin,
             idempotency_key="originator-resale-listing",
         )
     )
@@ -1502,6 +1511,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
             document_acceptance_id=str(purchase_acceptance.pk),
             sensitive_action_code_id=purchase_code.code_id,
             sensitive_action_code=purchase_code.raw_code,
+            pin=purchase_code.pin,
             idempotency_key="originator-resale-purchase",
             **_secondary_expected_terms(resale_review),
         )
@@ -1568,6 +1578,7 @@ def test_originator_claim_resale_preserves_entitlement_and_pays_current_holder(
                 document_acceptance_id=str(impaired_acceptance.pk),
                 sensitive_action_code_id=impaired_code.code_id,
                 sensitive_action_code=impaired_code.raw_code,
+                pin=impaired_code.pin,
                 idempotency_key="originator-impaired-resale-listing",
             )
         )
@@ -1800,6 +1811,7 @@ def test_originator_settlement_task_appears_after_three_calendar_days(
             document_acceptance_id=str(acceptance.pk),
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
             idempotency_key="originator-task-purchase",
         )
     )
@@ -2634,6 +2646,7 @@ def test_batch_places_multiple_par_subscriptions_as_reserved_orders(
             document_acceptance_id=str(acceptance.pk),
             sensitive_action_code_id=code.code_id,
             sensitive_action_code=code.raw_code,
+            pin=code.pin,
             idempotency_key=batch_key,
         )
     )
@@ -3463,7 +3476,8 @@ def test_par_subscription_rejects_quotes_and_secondary_market_premiums(
             )
         )
     secondary = import_module("backend.apps.secondary_market.services")
-    with pytest.raises(secondary.SecondaryMarketValidationError, match="not at a premium"):
+    # Since 2026-10-16 every listing (Direct and Loan Originator) is at par or a discount.
+    with pytest.raises(secondary.SecondaryMarketValidationError, match=r"at most 100% \(par\)"):
         secondary._validate_loan_listing_price(result.loan, 10_001)
     secondary._validate_loan_listing_price(result.loan, 10_000)
 
@@ -3613,6 +3627,7 @@ def test_qa_clock_lo_resale_lot_is_yours_since_the_purchase_not_activation(
                 ),
                 sensitive_action_code_id=listing_code.code_id,
                 sensitive_action_code=listing_code.raw_code,
+                pin=listing_code.pin,
                 idempotency_key="r87-listing",
             )
         )
@@ -3643,6 +3658,7 @@ def test_qa_clock_lo_resale_lot_is_yours_since_the_purchase_not_activation(
                 ),
                 sensitive_action_code_id=purchase_code.code_id,
                 sensitive_action_code=purchase_code.raw_code,
+                pin=purchase_code.pin,
                 idempotency_key="r87-purchase",
                 **_secondary_expected_terms(r87_review),
             )
@@ -3841,7 +3857,7 @@ def test_closed_subscription_loan_page_stays_readable_but_not_investable(
                 idempotency_key="subscription-read-late-order",
             )
         )
-    # The open list and Smart Invest still offer only open rounds.
+    # The open list and Smart-Invest still offer only open rounds.
     assert all(
         row["loan_id"] != str(result.loan.id)
         for row in list_open_originator_marketplace_payloads(limit=100)
@@ -3885,3 +3901,111 @@ def test_claim_quote_acceptance_needs_the_investors_own_quote(
     assert snapshot["order"]["allocated_amount_minor"] == quote.executable_cash_minor
     assert snapshot["originator"]["legal_name"] == "Lifecycle Originator OWNQ AG"
     assert snapshot["user"]["email"] == cast(Any, investor).email
+
+
+@pytest.mark.django_db
+def test_originator_claim_purchase_endpoint_needs_the_pin(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """ACC-DEC-009: PIN lock, then PIN, then the email code."""
+
+    _approve_financial_access(investor)
+    today = business_date(timezone.now())
+    originator = create_loan_originator(
+        CreateLoanOriginatorCommand(
+            actor=admin_user,
+            legal_name="Pin Originator AG",
+            public_name="Pin Originator",
+            registration_number="CHE-444.555.777",
+            jurisdiction="CH",
+            registered_address="Bern, Switzerland",
+            settlement_account_name="Pin Originator AG",
+            settlement_iban="CH9300762011623852957",
+            kyb_evidence_reference="KYB-PIN-001",
+            status=LoanOriginatorStatus.ACTIVE,
+        )
+    )
+    result = create_originator_loan(
+        CreateOriginatorLoanCommand(
+            actor=admin_user,
+            originator_id=str(originator.id),
+            title="PIN guarded SME loan",
+            investor_summary="Performing claim offered by a Loan Originator.",
+            purpose="working_capital",
+            purpose_description="Working capital",
+            currency="CHF",
+            original_principal_minor=1_000_000,
+            interest_rate_bps=1200,
+            target_yield_bps=800,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
+            minimum_investment_minor=100_000,
+            repayment_type="equal_installments",
+            interest_only_months=0,
+            collateral_type="receivables",
+            collateral_value_minor=1_500_000,
+            collateral_description="Assigned receivables",
+            risk_rating="BBB",
+            csv_content=_dated_two_period_csv(
+                today=today,
+                include_payment=False,
+                final_due_days=90,
+            ),
+            source_filename="originator_equal_installments.csv",
+            as_of_date=today,
+            borrower_snapshot={
+                "borrower_legal_name": "Confidential Pin Borrower AG",
+                "borrower_display_name": "Swiss SME borrower",
+            },
+        )
+    )
+    publish_originator_loan(
+        PublishOriginatorLoanCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today,
+        )
+    )
+    ledger = import_module("backend.apps.ledger.services")
+    ledger.declare_lender_deposit(
+        ledger.DeclareLenderDepositCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            amount_minor=500_000,
+            currency="CHF",
+            booking_date=today,
+            value_date=today,
+            collection_account_identifier="CH11 83019 GARANTAFI001",
+            payer_name="Originator Investor",
+            payer_account_identifier="CH9300762011623852957",
+            bank_reference="ORIGINATOR-PIN-DEPOSIT",
+            payment_reference="ORIGINATOR-PIN",
+            idempotency_key="originator-pin-deposit",
+        )
+    )
+    quote = create_originator_claim_quote(
+        CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(result.loan.id),
+            requested_cash_minor=250_000,
+        )
+    )
+    acceptance = _primary_acceptance(investor, quote_id=str(quote.id))
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    assert_pin_guards_sensitive_action(
+        lambda fields: client.post(
+            f"/api/v1/originator-claims/quotes/{quote.id}/purchase/",
+            data={
+                "document_acceptance_id": str(acceptance.pk),
+                "idempotency_key": "originator-pin-purchase",
+                **fields,
+            },
+            content_type="application/json",
+        ),
+        investor,
+        "primary_investment",
+        success_status=201,
+    )
+    assert OriginatorClaimPurchase.objects.filter(quote=quote).count() == 1

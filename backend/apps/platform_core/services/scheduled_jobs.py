@@ -30,6 +30,10 @@ PRIMARY_FUNDING_EXPIRY_SCAN_JOB = "primary_funding_expiry_scan"
 RECONCILIATION_BREAK_TASK_SYNC_JOB = "reconciliation_break_task_sync"
 ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB = "originator_settlement_task_sync"
 ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB = "originator_opportunity_lifecycle_scan"
+# Public site (communications, COMMS-DEC-009): the daily "new projects" newsletter email and
+# the retention clean-up of public forms and newsletter rows.
+NEWSLETTER_NEW_PROJECTS_JOB = "newsletter_new_projects"
+PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -39,9 +43,16 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     LOAN_SERVICING_STATUS_SCAN_JOB,
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
     ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB,
+    # After the funding scans, so a project whose round just closed is not announced.
+    NEWSLETTER_NEW_PROJECTS_JOB,
+    PUBLIC_SITE_RETENTION_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
-ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
+# Jobs that change no financial or admin state run as the system, without the admin actor.
+SYSTEM_JOB_NAMES = frozenset(
+    {EMAIL_OUTBOX_DISPATCH_JOB, NEWSLETTER_NEW_PROJECTS_JOB, PUBLIC_SITE_RETENTION_JOB}
+)
+ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
 DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
 
 
@@ -485,6 +496,16 @@ def _originator_opportunity_lifecycle_summary(
     }
 
 
+def _newsletter_new_projects_summary(*, as_of: datetime) -> dict[str, Any]:
+    jobs: Any = import_module("backend.apps.communications.public_site_jobs")
+    return cast(dict[str, Any], jobs.newsletter_new_projects_job(as_of=as_of))
+
+
+def _public_site_retention_summary(*, as_of: datetime) -> dict[str, Any]:
+    jobs: Any = import_module("backend.apps.communications.public_site_jobs")
+    return cast(dict[str, Any], jobs.public_site_retention_job(as_of=as_of))
+
+
 def _execute_scheduled_job(
     *,
     job_name: str,
@@ -494,6 +515,10 @@ def _execute_scheduled_job(
 ) -> dict[str, Any]:
     if job_name == EMAIL_OUTBOX_DISPATCH_JOB:
         return _email_outbox_dispatch_summary(command, as_of)
+    if job_name == NEWSLETTER_NEW_PROJECTS_JOB:
+        return _newsletter_new_projects_summary(as_of=as_of)
+    if job_name == PUBLIC_SITE_RETENTION_JOB:
+        return _public_site_retention_summary(as_of=as_of)
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
     if job_name == BALANCE_AGEING_SCAN_JOB:

@@ -19,6 +19,9 @@ from backend.apps.platform_core.domain.time import now_utc
 
 REGRESSION_PROFILE = "manual-regression-v1"
 REGRESSION_BALANCES = {"user1": 500_000_000, "user2": 500_000_000, "user3": 0}
+# Known PIN of the synthetic regression investors this module creates (ACC-DEC-009).
+# Existing accounts keep their own PIN.
+REGRESSION_INVESTOR_PIN = "246810"
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,9 @@ def create_missing_regression_investors(*, actor: Any, accounts: RegressionAccou
             account_type="natural_person_lender",
             status="active",
             phone_verified_at=now_utc(),
+        )
+        import_module("backend.apps.accounts_auth.pin_services").assign_known_qa_pin(
+            investor, pin=REGRESSION_INVESTOR_PIN, source=REGRESSION_PROFILE
         )
         case = kyc.get_or_create_user_kyc_case(investor)
         for decision in ("reopen", "approve"):

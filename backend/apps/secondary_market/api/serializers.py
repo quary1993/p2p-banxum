@@ -5,6 +5,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 from backend.apps.secondary_market.models import SecondaryMarketListing, SecondaryMarketPurchase
 
 
@@ -233,6 +234,7 @@ class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any])
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
@@ -242,6 +244,7 @@ class SecondaryMarketListingEditRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
@@ -277,6 +280,7 @@ class SecondaryMarketPurchaseRequestSerializer(serializers.Serializer[Any]):
     expected_current_principal_minor = serializers.IntegerField(min_value=1)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class SecondaryMarketListingListQuerySerializer(serializers.Serializer[Any]):

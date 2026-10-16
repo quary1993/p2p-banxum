@@ -51,6 +51,10 @@ class EmailProviderError(CommunicationsError):
     pass
 
 
+class EmailNotNeededError(CommunicationsError):
+    """The email is no longer wanted (for example the subscriber left): close it unsent."""
+
+
 @dataclass(frozen=True, slots=True)
 class EmailAttachment:
     filename: str
@@ -68,6 +72,10 @@ class RenderedEmail:
     template_key: str
     metadata: dict[str, Any] = field(default_factory=dict)
     attachments: tuple[EmailAttachment, ...] = ()
+    # Optional extras. Only providers that support them safely apply them (SendGrid); the
+    # others ignore them, so content must never depend on them.
+    reply_to: str = ""
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +91,16 @@ class EmailButton:
 
 
 @dataclass(frozen=True, slots=True)
+class EmailListItem:
+    """One linked entry of a list section, for example a new project."""
+
+    title: str
+    detail: str
+    url: str
+    link_label: str
+
+
+@dataclass(frozen=True, slots=True)
 class EmailTemplateContent:
     notice_label: str
     preheader: str
@@ -95,6 +113,14 @@ class EmailTemplateContent:
     fine_print: str = ""
     # One value shown large above the details, for example a confirmation code.
     highlight: tuple[str, str] | None = None
+    # Data values typed by someone outside BANXUM: escaped, never turned into links, and
+    # left-aligned so long text stays readable.
+    plain_data_values: bool = False
+    items: tuple[EmailListItem, ...] = ()
+    # Replace the account-holder footer for emails to people without an account (public
+    # site) and for internal emails. Empty keeps the default footer.
+    footer_note: str = ""
+    footer_links: tuple[tuple[str, str], ...] = ()
 
 
 class EmailProvider(Protocol):
@@ -121,6 +147,8 @@ class DispatchEmailOutboxResult:
 
 class MockEmailProvider:
     provider_name = "mock"
+    supports_reply_to = True
+    supports_custom_headers = True
 
     def send(self, email: RenderedEmail) -> EmailProviderResult:
         stable = f"{email.template_key}:{email.recipient_email}:{timezone.now().timestamp()}"
@@ -129,6 +157,9 @@ class MockEmailProvider:
 
 class SendGridEmailProvider:
     provider_name = "sendgrid"
+    # SendGrid v3 mail/send documents both "reply_to" and "headers".
+    supports_reply_to = True
+    supports_custom_headers = True
 
     def send(self, email: RenderedEmail) -> EmailProviderResult:
         api_key = settings.SENDGRID_API_KEY
@@ -155,6 +186,10 @@ class SendGridEmailProvider:
                 "open_tracking": {"enable": False},
             },
         }
+        if email.reply_to:
+            payload["reply_to"] = {"email": email.reply_to}
+        if email.headers:
+            payload["headers"] = dict(email.headers)
         if email.attachments:
             payload["attachments"] = [
                 {
@@ -191,6 +226,10 @@ class SendGridEmailProvider:
 
 class TwilioEmailProvider:
     provider_name = "twilio_email"
+    # The Twilio Email API (comms.twilio.com/v1/Emails) documents no reply-to and no
+    # custom-header field, so neither is sent: the content never depends on them.
+    supports_reply_to = False
+    supports_custom_headers = False
 
     def send(self, email: RenderedEmail) -> EmailProviderResult:
         api_key_sid = settings.TWILIO_EMAIL_API_KEY_SID
@@ -442,21 +481,67 @@ def _buttons_html(buttons: tuple[EmailButton, ...]) -> str:
               </table>"""
 
 
-def _data_rows_html(rows: tuple[tuple[str, str], ...]) -> str:
+def _plain_text_html(value: str) -> str:
+    """Escaped text with line breaks kept and no links made (text typed by outsiders)."""
+
+    return html.escape(value).replace("\n", "<br>")
+
+
+def _data_rows_html(rows: tuple[tuple[str, str], ...], *, plain: bool = False) -> str:
     if not rows:
         return ""
     row_html: list[str] = []
     for key, value in rows:
         border = f" border-top:1px solid {EMAIL_LINE};"
+        if plain:
+            value_cell = (
+                f'<td class="font-sans data-v" align="left" style="padding:12px 0; color:{EMAIL_INK}; font-size:14px; line-height:20px; font-weight:500; word-break:break-word; overflow-wrap:anywhere; vertical-align:top;{border}">'
+                f"{_plain_text_html(value)}</td>"
+            )
+            key_style = " vertical-align:top; width:34%;"
+        else:
+            value_cell = (
+                f'<td class="font-mono data-v" align="right" style="padding:12px 0; color:{EMAIL_INK}; font-size:14px; line-height:20px; font-weight:600; word-break:break-word; overflow-wrap:anywhere;{border}">'
+                f"{_linkified_text(value)}</td>"
+            )
+            key_style = ""
         row_html.append(
             "<tr>"
-            f'<td class="font-sans data-k" style="padding:12px 16px 12px 0; color:{EMAIL_STEEL}; font-size:13px; line-height:19px;{border}">'
+            f'<td class="font-sans data-k" style="padding:12px 16px 12px 0; color:{EMAIL_STEEL}; font-size:13px; line-height:19px;{key_style}{border}">'
             f"{html.escape(key)}</td>"
-            f'<td class="font-mono data-v" align="right" style="padding:12px 0; color:{EMAIL_INK}; font-size:14px; line-height:20px; font-weight:600; word-break:break-word; overflow-wrap:anywhere;{border}">'
-            f"{_linkified_text(value)}</td>"
+            f"{value_cell}"
             "</tr>"
         )
     rows_combined = "".join(row_html)
+    return f"""
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:8px 40px 24px 40px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid {EMAIL_LINE};">
+                      {rows_combined}
+                    </table>
+                  </td>
+                </tr>
+              </table>"""
+
+
+def _items_html(items: tuple[EmailListItem, ...]) -> str:
+    if not items:
+        return ""
+    item_html: list[str] = []
+    for item in items:
+        safe_url = _escape_attr(item.url)
+        item_html.append(
+            f"""
+                      <tr>
+                        <td style="padding:16px 0; border-top:1px solid {EMAIL_LINE};">
+                          <a class="font-sans" href="{safe_url}" target="_blank" style="color:{EMAIL_INK}; font-size:16px; line-height:22px; font-weight:600; text-decoration:none;">{html.escape(item.title)}</a>
+                          <div class="font-sans" style="color:{EMAIL_STEEL}; font-size:13px; line-height:19px; margin:4px 0 8px 0;">{html.escape(item.detail)}</div>
+                          <a class="font-sans" href="{safe_url}" target="_blank" style="color:{EMAIL_INK}; font-size:13px; line-height:19px; font-weight:600; text-decoration:underline;">{html.escape(item.link_label)}</a>
+                        </td>
+                      </tr>"""
+        )
+    rows_combined = "".join(item_html)
     return f"""
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
@@ -480,6 +565,8 @@ def _action_label(action: str) -> str:
     """Readable action name: bank_account_change -> Bank account change."""
 
     words = action.replace("_", " ").replace("-", " ").strip()
+    # pin_setup -> PIN setup
+    words = " ".join("PIN" if word == "pin" else word for word in words.split(" "))
     return words[:1].upper() + words[1:] if words else "Account action"
 
 
@@ -523,7 +610,8 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
     headline = html.escape(content.headline)
     paragraphs = _paragraph_html(content.paragraphs)
     highlight = _highlight_html(content.highlight)
-    data_panel = _data_rows_html(content.data_rows)
+    data_panel = _data_rows_html(content.data_rows, plain=content.plain_data_values)
+    items_panel = _items_html(content.items)
     buttons = _buttons_html(content.buttons)
     header_logo = _wordmark_html(inverse=False)
     footer_logo = _wordmark_html(inverse=True)
@@ -540,6 +628,22 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
         else ""
     )
     footer_link = "color:#ffffff; text-decoration:underline; font-size:12px; line-height:18px;"
+    if content.footer_note:
+        footer_note = _linkified_text(content.footer_note, link_color="#ffffff")
+    else:
+        footer_note = f"""You receive transactional emails because you hold an active account or requested secure access. These cannot be unsubscribed while your account is open.
+                Manage marketing preferences in <a href="{settings_url}" style="{footer_link}">Settings</a>."""
+    if content.footer_links:
+        footer_link_cells = "".join(
+            f'<td class="font-sans" style="padding:{"0 16px 0 0" if index < len(content.footer_links) - 1 else "0"};">'
+            f'<a href="{_escape_attr(url)}" style="{footer_link}">{html.escape(label)}</a></td>'
+            for index, (label, url) in enumerate(content.footer_links)
+        )
+    else:
+        footer_link_cells = f"""
+                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{portal_url}" style="{footer_link}">Portal</a></td>
+                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{documents_url}" style="{footer_link}">Documents</a></td>
+                  <td class="font-sans" style="padding:0;"><a href="{support_mailto}" style="{footer_link}">{support_email}</a></td>"""
     return f"""<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -617,6 +721,7 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
               </table>
               {highlight}
               {data_panel}
+              {items_panel}
               {buttons}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
@@ -639,14 +744,10 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
                 <strong style="color:#ffffff; font-weight:600;">{platform}</strong> is a peer-to-peer lending platform operated by {operator}.
               </p>
               <p class="font-sans" style="margin:0 0 18px 0; color:{EMAIL_STEEL_ON_INK}; font-size:12px; line-height:19px;">
-                You receive transactional emails because you hold an active account or requested secure access. These cannot be unsubscribed while your account is open.
-                Manage marketing preferences in <a href="{settings_url}" style="{footer_link}">Settings</a>.
+                {footer_note}
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{portal_url}" style="{footer_link}">Portal</a></td>
-                  <td class="font-sans" style="padding:0 16px 0 0;"><a href="{documents_url}" style="{footer_link}">Documents</a></td>
-                  <td class="font-sans" style="padding:0;"><a href="{support_mailto}" style="{footer_link}">{support_email}</a></td>
+                <tr>{footer_link_cells}
                 </tr>
               </table>
               <p class="font-sans" style="margin:20px 0 0 0; color:{EMAIL_STEEL}; font-size:11px; line-height:16px;">&copy; 2026 {operator}. All rights reserved.</p>
@@ -683,6 +784,22 @@ def _html_from_text(body_text: str) -> str:
 
 REDACTED_SECRET = "[redacted]"
 MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT = "existing_account"
+# Investor and account emails use "email."; the public-site newsletter uses
+# "marketing_email." so it stays out of the investor notification centre, which lists
+# "email." deliveries by recipient address (COMMS-DEC-009).
+TRANSACTIONAL_EMAIL_TOPIC_PREFIX = "email."
+MARKETING_EMAIL_TOPIC_PREFIX = "marketing_email."
+EMAIL_TOPIC_PREFIXES = (TRANSACTIONAL_EMAIL_TOPIC_PREFIX, MARKETING_EMAIL_TOPIC_PREFIX)
+PUBLIC_ENQUIRY_EMAIL_TOPIC = "email.public_enquiry"
+NEWSLETTER_CONFIRMATION_EMAIL_TOPIC = "marketing_email.newsletter_confirmation"
+NEWSLETTER_NEW_PROJECTS_EMAIL_TOPIC = "marketing_email.newsletter_new_projects"
+
+
+def _email_topic_filter() -> Q:
+    query = Q()
+    for prefix in EMAIL_TOPIC_PREFIXES:
+        query |= Q(topic__startswith=prefix)
+    return query
 
 
 def magic_link_login_url(raw_token: str) -> str:
@@ -1044,6 +1161,14 @@ def render_email_for_outbox_message(
         return _render_sensitive_action_code_email(message, redact_secrets=redact_secrets)
     if message.topic == "email.document_acceptance_pdf":
         return _render_document_acceptance_pdf_email(message)
+    if message.topic == PUBLIC_ENQUIRY_EMAIL_TOPIC:
+        from backend.apps.communications import public_forms
+
+        return public_forms.render_public_enquiry_email(message, redact=redact_secrets)
+    if message.topic in {NEWSLETTER_CONFIRMATION_EMAIL_TOPIC, NEWSLETTER_NEW_PROJECTS_EMAIL_TOPIC}:
+        from backend.apps.communications import newsletter
+
+        return newsletter.render_newsletter_email(message, redact=redact_secrets)
     if message.topic.startswith("email."):
         return _render_payload_email(message)
     raise UnsupportedEmailTopicError(f"Outbox topic '{message.topic}' is not an email topic.")
@@ -1142,10 +1267,8 @@ def _record_delivery_events(record: EmailDeliveryRecord) -> None:
 
 def _due_email_message_ids(*, limit: int, now: Any) -> list[int]:
     return list(
-        OutboxMessage.objects.filter(
-            status=OutboxStatus.PENDING,
-            topic__startswith="email.",
-        )
+        OutboxMessage.objects.filter(status=OutboxStatus.PENDING)
+        .filter(_email_topic_filter())
         .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
         .order_by("created_at", "id")
         .values_list("id", flat=True)[:limit]
@@ -1156,7 +1279,8 @@ def _due_email_message_ids(*, limit: int, now: Any) -> list[int]:
 def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now: Any) -> bool:
     message = (
         OutboxMessage.objects.select_for_update()
-        .filter(id=message_id, status=OutboxStatus.PENDING, topic__startswith="email.")
+        .filter(id=message_id, status=OutboxStatus.PENDING)
+        .filter(_email_topic_filter())
         .first()
     )
     if message is None:
@@ -1182,6 +1306,9 @@ def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now
         )
         mark_outbox_processed(message)
         _record_delivery_events(record)
+    except EmailNotNeededError:
+        # Nothing was sent and nothing will be: close the message without a delivery record.
+        mark_outbox_processed(message)
         return True
     except Exception as exc:
         error = str(exc) or exc.__class__.__name__
@@ -1195,7 +1322,19 @@ def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now
         )
         mark_outbox_failed(message, error)
         _record_delivery_events(record)
+        _after_email_delivery(message, record)
         return True
+    _after_email_delivery(message, record)
+    return True
+
+
+def _after_email_delivery(message: OutboxMessage, record: EmailDeliveryRecord) -> None:
+    """Mirror the delivery outcome on the business record that asked for the email."""
+
+    if message.topic == PUBLIC_ENQUIRY_EMAIL_TOPIC:
+        from backend.apps.communications import public_forms
+
+        public_forms.record_public_enquiry_delivery(message, record)
 
 
 def dispatch_due_email_outbox_messages(

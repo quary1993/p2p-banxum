@@ -27,6 +27,7 @@ from backend.apps.platform_core.domain.access import (
     is_superadmin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.money import minor_units_to_decimal
 from backend.apps.platform_core.domain.pdf_text import (
     PDF_STANDARD_FONT_OBJECTS,
@@ -40,6 +41,7 @@ from backend.apps.platform_core.domain.time import (
     now_utc,
 )
 from backend.apps.platform_core.models import AuditEvent, Currency
+from backend.apps.platform_core.selectors.settings import balance_auto_return_after_days
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.reporting.investor_statement import (
@@ -1084,6 +1086,7 @@ def _balance_ageing_dataset(
         lots=lots,
         as_of=end_dt,
     )
+    return_after_days = balance_auto_return_after_days()
     rows: list[dict[str, Any]] = []
     for lot in lots:
         state = historical[str(lot.pk)]
@@ -1096,14 +1099,23 @@ def _balance_ageing_dataset(
         withdrawal_days_left = (
             lot.withdrawal_deadline_at.astimezone(business_timezone()).date() - end_date
         ).days
-        if state["status"] == "penalty_mode" or withdrawal_days_left <= 0:
-            bucket = "day_60_plus_penalty_or_withdraw_required"
-            action = "withdraw_or_forced_withdrawal"
-        elif withdrawal_days_left <= 2:
-            bucket = "day_58_to_60"
-            action = "urgent_withdrawal_reminder"
-        elif withdrawal_days_left <= 7:
-            bucket = "day_53_to_57"
+        # Same days as the ageing scan: money not invested goes back to the bank after the
+        # last day (day 58 by default); penalty mode only after the 60-day legal limit.
+        last_day_days_left = (
+            balance_last_day(
+                withdrawal_deadline_at=lot.withdrawal_deadline_at,
+                return_after_days=return_after_days,
+            )
+            - end_date
+        ).days
+        if state["status"] == "penalty_mode" or last_day_days_left < 0:
+            bucket = "return_due_or_penalty_mode"
+            action = "forced_return_or_usable_iban_required"
+        elif last_day_days_left == 0:
+            bucket = "last_day_withdraw_only"
+            action = "last_day_reminder"
+        elif last_day_days_left <= 5:
+            bucket = "final_reminders"
             action = "withdrawal_reminder"
         else:
             bucket = "investable"

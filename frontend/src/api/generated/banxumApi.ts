@@ -93,6 +93,9 @@ export interface UserSummary {
   status: string;
   phone_verified: boolean;
   marketing_consent: boolean;
+  readonly pin_set: boolean;
+  /** @nullable */
+  readonly pin_locked_until: string | null;
 }
 
 export interface AccountAccessEvent {
@@ -123,6 +126,9 @@ export interface AccountAccessChangeResponse {
  * * `primary_investment` - primary_investment
  * * `secondary_market_listing` - secondary_market_listing
  * * `secondary_market_purchase` - secondary_market_purchase
+ * * `pin_setup` - pin_setup
+ * * `pin_change` - pin_change
+ * * `pin_reset` - pin_reset
  */
 export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
 
@@ -134,6 +140,9 @@ export const ActionEnum = {
   primary_investment: 'primary_investment',
   secondary_market_listing: 'secondary_market_listing',
   secondary_market_purchase: 'secondary_market_purchase',
+  pin_setup: 'pin_setup',
+  pin_change: 'pin_change',
+  pin_reset: 'pin_reset',
 } as const;
 
 export interface ActivityEntry {
@@ -725,9 +734,16 @@ export interface BalanceLot {
   received_at: string;
   /** Compatibility alias of withdrawal_deadline_at, not a fixed source-age cutoff. */
   investment_deadline_at: string;
+  /** 60-day legal holding limit; penalty mode can start only after this day. */
   withdrawal_deadline_at: string;
   days_until_investment_deadline: number;
   days_until_withdrawal_deadline: number;
+  /** Last Europe/Zurich day the money may stay (holding day auto_return_after_days, 58 by default). On that day it can only be withdrawn. */
+  last_day: string;
+  /** Day the platform returns money still not invested to the investor's verified bank account (the day after last_day). */
+  return_date: string;
+  /** Days until last_day: 0 on the last day, negative once the money is due back. */
+  days_until_last_day: number;
   original_amount_minor: number;
   available_amount_minor: number;
   invested_amount_minor: number;
@@ -745,7 +761,9 @@ export interface BalanceSummary {
   total_available_minor: number;
   /** Potentially investable balance; each loan's remaining funding window is checked separately. */
   investable_minor: number;
+  /** Balance on its last day (day 58 by default): it can only be withdrawn. */
   withdraw_only_minor: number;
+  /** Balance due back to the investor's bank (from the day after the last day) that is not returned yet, usually because no verified payout IBAN is known. */
   overdue_minor: number;
   frozen_minor: number;
   /** Remaining balance of lots in penalty mode: blocked until withdrawn. */
@@ -761,6 +779,11 @@ export interface BalanceSummary {
   next_investment_deadline_at: string | null;
   /** @nullable */
   next_withdrawal_deadline_at: string | null;
+  /**
+     * Next Europe/Zurich date on which money of this currency that is still not invested goes back to the investor's bank (money already due back is in overdue_minor).
+     * @nullable
+     */
+  next_return_date: string | null;
 }
 
 export interface BankOperation {
@@ -1242,6 +1265,191 @@ export interface CollectionAccount {
   bank_name: string;
 }
 
+/**
+ * * `Switzerland` - Switzerland
+ * * `Germany` - Germany
+ * * `Austria` - Austria
+ * * `Italy` - Italy
+ * * `Romania` - Romania
+ * * `France` - France
+ * * `Other EU country` - Other EU country
+ */
+export type PublicEnquiryCountryEnum = typeof PublicEnquiryCountryEnum[keyof typeof PublicEnquiryCountryEnum];
+
+
+export const PublicEnquiryCountryEnum = {
+  Switzerland: 'Switzerland',
+  Germany: 'Germany',
+  Austria: 'Austria',
+  Italy: 'Italy',
+  Romania: 'Romania',
+  France: 'France',
+  Other_EU_country: 'Other EU country',
+} as const;
+
+/**
+ * * `1 month` - 1 month
+ * * `3 months` - 3 months
+ * * `6 months` - 6 months
+ * * `12 months` - 12 months
+ * * `18 months` - 18 months
+ * * `24 months` - 24 months
+ * * `36 months` - 36 months
+ * * `48 months` - 48 months
+ * * `60 months` - 60 months
+ */
+export type PublicEnquiryTermEnum = typeof PublicEnquiryTermEnum[keyof typeof PublicEnquiryTermEnum];
+
+
+export const PublicEnquiryTermEnum = {
+  '1_month': '1 month',
+  '3_months': '3 months',
+  '6_months': '6 months',
+  '12_months': '12 months',
+  '18_months': '18 months',
+  '24_months': '24 months',
+  '36_months': '36 months',
+  '48_months': '48 months',
+  '60_months': '60 months',
+} as const;
+
+/**
+ * * `Extension or construction` - Extension or construction
+ * * `Machines and equipment` - Machines and equipment
+ * * `Real estate` - Real estate
+ * * `Stock and working capital` - Stock and working capital
+ * * `Refinancing` - Refinancing
+ * * `Other` - Other
+ */
+export type PublicEnquiryPurposeEnum = typeof PublicEnquiryPurposeEnum[keyof typeof PublicEnquiryPurposeEnum];
+
+
+export const PublicEnquiryPurposeEnum = {
+  Extension_or_construction: 'Extension or construction',
+  Machines_and_equipment: 'Machines and equipment',
+  Real_estate: 'Real estate',
+  Stock_and_working_capital: 'Stock and working capital',
+  Refinancing: 'Refinancing',
+  Other: 'Other',
+} as const;
+
+/**
+ * * `Mortgage note` - Mortgage note
+ * * `Pledge on equipment` - Pledge on equipment
+ * * `Receivables` - Receivables
+ * * `Guarantee of the owners` - Guarantee of the owners
+ * * `Not sure yet` - Not sure yet
+ */
+export type PublicEnquirySecurityEnum = typeof PublicEnquirySecurityEnum[keyof typeof PublicEnquirySecurityEnum];
+
+
+export const PublicEnquirySecurityEnum = {
+  Mortgage_note: 'Mortgage note',
+  Pledge_on_equipment: 'Pledge on equipment',
+  Receivables: 'Receivables',
+  Guarantee_of_the_owners: 'Guarantee of the owners',
+  Not_sure_yet: 'Not sure yet',
+} as const;
+
+export interface CompanyEnquiryFields {
+  /** @maxLength 200 */
+  company_name: string;
+  country: PublicEnquiryCountryEnum;
+  /** @maxLength 200 */
+  company_number: string;
+  /** @maxLength 200 */
+  amount: string;
+  term: PublicEnquiryTermEnum;
+  purpose: PublicEnquiryPurposeEnum;
+  security: PublicEnquirySecurityEnum;
+  /** @maxLength 200 */
+  revenue?: string;
+  /** @maxLength 4 */
+  founded: string;
+  /** @maxLength 4000 */
+  about?: string;
+  /** @maxLength 200 */
+  contact_name: string;
+  /** @maxLength 200 */
+  role: string;
+  /** @maxLength 254 */
+  email: string;
+  /** @maxLength 40 */
+  phone: string;
+}
+
+export type CompanyEnquiryRequestKind = typeof CompanyEnquiryRequestKind[keyof typeof CompanyEnquiryRequestKind];
+
+
+export const CompanyEnquiryRequestKind = {
+  company: 'company',
+} as const;
+
+export interface CompanyEnquiryRequest {
+  /** Must be true. */
+  consent: boolean;
+  /** Honeypot: leave empty. */
+  website?: string;
+  /**
+     * Milliseconds from showing the form to sending it.
+     * @minimum 0
+     */
+  elapsed_ms?: number;
+  kind: CompanyEnquiryRequestKind;
+  fields: CompanyEnquiryFields;
+}
+
+/**
+ * * `Investing` - Investing
+ * * `My account` - My account
+ * * `A loan for my company` - A loan for my company
+ * * `Loan originators` - Loan originators
+ * * `Press` - Press
+ * * `Other` - Other
+ */
+export type PublicEnquiryTopicEnum = typeof PublicEnquiryTopicEnum[keyof typeof PublicEnquiryTopicEnum];
+
+
+export const PublicEnquiryTopicEnum = {
+  Investing: 'Investing',
+  My_account: 'My account',
+  A_loan_for_my_company: 'A loan for my company',
+  Loan_originators: 'Loan originators',
+  Press: 'Press',
+  Other: 'Other',
+} as const;
+
+export interface ContactEnquiryFields {
+  /** @maxLength 200 */
+  name: string;
+  /** @maxLength 254 */
+  email: string;
+  topic: PublicEnquiryTopicEnum;
+  /** @maxLength 4000 */
+  message: string;
+}
+
+export type ContactEnquiryRequestKind = typeof ContactEnquiryRequestKind[keyof typeof ContactEnquiryRequestKind];
+
+
+export const ContactEnquiryRequestKind = {
+  contact: 'contact',
+} as const;
+
+export interface ContactEnquiryRequest {
+  /** Must be true. */
+  consent: boolean;
+  /** Honeypot: leave empty. */
+  website?: string;
+  /**
+     * Milliseconds from showing the form to sending it.
+     * @minimum 0
+     */
+  elapsed_ms?: number;
+  kind: ContactEnquiryRequestKind;
+  fields: ContactEnquiryFields;
+}
+
 export interface CurrentUserResponse {
   user: UserSummary;
   qa_controls_available: boolean;
@@ -1686,6 +1894,8 @@ export interface FxQuoteExecuteRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export interface FxQuoteIssueRequest {
@@ -1926,7 +2136,7 @@ export interface PendingWithdrawal {
   destination_iban: string;
   destination_account_name: string;
   requested_at: string;
-  /** Forced return of an overdue balance (day-60 rule), not asked by the investor. */
+  /** Automatic return of money not invested within auto_return_after_days days, not asked by the investor. */
   is_forced: boolean;
 }
 
@@ -1940,6 +2150,8 @@ export interface InvestorBalancePortal {
   has_penalty_mode_balance: boolean;
   /** Daily balance-ageing penalty on a balance in penalty mode, in basis points. */
   penalty_bps_per_day: number;
+  /** Money still not invested goes back to the investor's bank the day after this holding day (58 by default; the legal limit is 60). */
+  auto_return_after_days: number;
 }
 
 export interface InvestorBalanceSummary {
@@ -2205,6 +2417,13 @@ export interface InvestorPayoutInstructionVerifyRequest {
   destination_account_name?: string;
 }
 
+/**
+ * Platform switches the investor app reads before it shows a feature.
+ */
+export interface InvestorPortalFeatures {
+  fx_enabled: boolean;
+}
+
 export interface InvestorPortfolio {
   as_of: string;
   summary: PortfolioSummary;
@@ -2242,6 +2461,8 @@ export interface InvestorSelfServicePayoutInstructionRegisterRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export interface InvestorWithdrawalCancelRequest {
@@ -2326,6 +2547,8 @@ export interface InvestorWithdrawalRequestCreateRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export interface InvestorWithdrawalRequestCreateResponse {
@@ -3140,7 +3363,23 @@ export interface MarketplaceLoanDetail {
   committed_principal_minor: number;
   remaining_capacity_minor: number;
   fillable_amount_minor: number;
+  /** What the viewing investor must invest now, in minor units. On a Swiss-borrower loan a new investor's minimum is raised so the places left can fill the loan; an investor who already invests keeps the loan minimum, capped by the remaining capacity. */
   minimum_investment_minor: number;
+  /**
+     * Most investors this loan may have (Swiss borrower, platform setting, default 20); null when no limit applies.
+     * @nullable
+     */
+  max_investors?: number | null;
+  /**
+     * Places left for new investors; null when no limit applies.
+     * @nullable
+     */
+  places_left?: number | null;
+  /**
+     * The viewing investor already invests in this loan, so needs no new place; null when no limit applies.
+     * @nullable
+     */
+  is_existing_investor?: boolean | null;
   /** @nullable */
   ltv_bps: number | null;
   is_refinancing: boolean;
@@ -3222,7 +3461,23 @@ export interface MarketplaceLoanPreview {
   committed_principal_minor: number;
   remaining_capacity_minor: number;
   fillable_amount_minor: number;
+  /** What the viewing investor must invest now, in minor units. On a Swiss-borrower loan a new investor's minimum is raised so the places left can fill the loan; an investor who already invests keeps the loan minimum, capped by the remaining capacity. */
   minimum_investment_minor: number;
+  /**
+     * Most investors this loan may have (Swiss borrower, platform setting, default 20); null when no limit applies.
+     * @nullable
+     */
+  max_investors?: number | null;
+  /**
+     * Places left for new investors; null when no limit applies.
+     * @nullable
+     */
+  places_left?: number | null;
+  /**
+     * The viewing investor already invests in this loan, so needs no new place; null when no limit applies.
+     * @nullable
+     */
+  is_existing_investor?: boolean | null;
   /** @nullable */
   ltv_bps: number | null;
   is_refinancing: boolean;
@@ -3271,6 +3526,43 @@ export interface NaturalPersonRegistrationRequest {
 export interface NaturalPersonRegistrationResponse {
   status: string;
   email_login_sent: boolean;
+}
+
+export interface NewsletterAccepted {
+  detail: string;
+}
+
+/**
+ * * `home` - Home
+ * * `projects` - Projects
+ * * `guides` - Guides
+ * * `other` - Other
+ */
+export type NewsletterSourceEnum = typeof NewsletterSourceEnum[keyof typeof NewsletterSourceEnum];
+
+
+export const NewsletterSourceEnum = {
+  home: 'home',
+  projects: 'projects',
+  guides: 'guides',
+  other: 'other',
+} as const;
+
+export interface NewsletterStatus {
+  status: string;
+}
+
+export interface NewsletterSubscribeRequest {
+  /** @maxLength 254 */
+  email: string;
+  /** Honeypot: leave empty. */
+  website?: string;
+  source: NewsletterSourceEnum;
+}
+
+export interface NewsletterTokenRequest {
+  /** @maxLength 256 */
+  token: string;
 }
 
 export interface OriginalLoanScheduleRow {
@@ -3429,6 +3721,8 @@ export interface OriginatorClaimPurchaseRequest {
   sensitive_action_code_id: string;
   /** @pattern ^\d{6}$ */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
   /** @maxLength 160 */
   idempotency_key: string;
 }
@@ -3467,6 +3761,62 @@ export interface OriginatorClaimQuoteResponse {
   entitlement_start_at: string;
   expires_at: string;
   cash_flows: OriginatorClaimCashFlowResponse[];
+}
+
+/**
+ * * `Leasing` - Leasing
+ * * `Invoices (factoring)` - Invoices (factoring)
+ * * `Business loans` - Business loans
+ * * `Real estate loans` - Real estate loans
+ * * `Other` - Other
+ */
+export type PublicEnquiryProductEnum = typeof PublicEnquiryProductEnum[keyof typeof PublicEnquiryProductEnum];
+
+
+export const PublicEnquiryProductEnum = {
+  Leasing: 'Leasing',
+  'Invoices_(factoring)': 'Invoices (factoring)',
+  Business_loans: 'Business loans',
+  Real_estate_loans: 'Real estate loans',
+  Other: 'Other',
+} as const;
+
+export interface OriginatorEnquiryFields {
+  /** @maxLength 200 */
+  company_name: string;
+  country: PublicEnquiryCountryEnum;
+  /** @maxLength 200 */
+  licence: string;
+  product: PublicEnquiryProductEnum;
+  /** @maxLength 200 */
+  loan_book: string;
+  /** @maxLength 4000 */
+  about?: string;
+  /** @maxLength 200 */
+  contact_name: string;
+  /** @maxLength 254 */
+  email: string;
+}
+
+export type OriginatorEnquiryRequestKind = typeof OriginatorEnquiryRequestKind[keyof typeof OriginatorEnquiryRequestKind];
+
+
+export const OriginatorEnquiryRequestKind = {
+  originator: 'originator',
+} as const;
+
+export interface OriginatorEnquiryRequest {
+  /** Must be true. */
+  consent: boolean;
+  /** Honeypot: leave empty. */
+  website?: string;
+  /**
+     * Milliseconds from showing the form to sending it.
+     * @minimum 0
+     */
+  elapsed_ms?: number;
+  kind: OriginatorEnquiryRequestKind;
+  fields: OriginatorEnquiryFields;
 }
 
 export interface OriginatorFundingRoundCloseRequest {
@@ -3899,6 +4249,103 @@ export interface PhoneVerificationRequestResponse {
   phone_verified: boolean;
 }
 
+export interface PinChangeRequest {
+  /** @pattern ^\d{6}$ */
+  pin: string;
+  /** @pattern ^\d{6}$ */
+  new_pin: string;
+  /** @pattern ^\d{6}$ */
+  new_pin_confirmation: string;
+  sensitive_action_code_id: string;
+  /** @maxLength 32 */
+  sensitive_action_code: string;
+}
+
+/**
+ * Error body of the PIN checks; ``code`` names the case (ACC-DEC-009).
+ */
+export interface PinErrorResponse {
+  detail: string;
+  code: string;
+  attempts_left?: number;
+  locked_until?: string;
+}
+
+export interface PinResetConfirmRequest {
+  sensitive_action_code_id: string;
+  /** @maxLength 32 */
+  sensitive_action_code: string;
+  phone_challenge_id: string;
+  /** @pattern ^\d{6}$ */
+  phone_code: string;
+  /** @pattern ^\d{6}$ */
+  new_pin: string;
+  /** @pattern ^\d{6}$ */
+  new_pin_confirmation: string;
+}
+
+export interface PinResetStartResponse {
+  phone_challenge_id: string;
+  expires_at: string;
+  phone_last_digits: string;
+}
+
+export interface PinSetRequest {
+  /** @pattern ^\d{6}$ */
+  new_pin: string;
+  /** @pattern ^\d{6}$ */
+  new_pin_confirmation: string;
+  /** @nullable */
+  sensitive_action_code_id?: string | null;
+  /** @maxLength 32 */
+  sensitive_action_code?: string;
+}
+
+export interface PinStatus {
+  pin_set: boolean;
+  /** @nullable */
+  locked_until: string | null;
+  attempts_left: number;
+  max_attempts: number;
+  setup_requires_email_code: boolean;
+  reset_available: boolean;
+  phone_last_digits: string;
+}
+
+export interface PinStatusResponse {
+  pin: PinStatus;
+}
+
+export interface PlatformFeatureLastChange {
+  version: number;
+  enabled: boolean;
+  changed_at: string;
+  changed_by_type: string;
+  changed_by_id: string;
+  changed_by_email: string;
+  reason: string;
+}
+
+export interface PlatformFeature {
+  key: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  last_change: PlatformFeatureLastChange | null;
+}
+
+export interface PlatformFeatureUpdateRequest {
+  /** @maxLength 128 */
+  key: string;
+  enabled: boolean;
+  /** @maxLength 1000 */
+  reason: string;
+}
+
+export interface PlatformFeatures {
+  features: PlatformFeature[];
+}
+
 export interface PrimaryInvestmentOrder {
   id: string;
   loan_id: string;
@@ -3937,6 +4384,8 @@ export interface PrimaryInvestmentOrderAllocateRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export interface PrimaryInvestmentOrderCreateRequest {
@@ -4062,6 +4511,8 @@ export interface PrimaryOrderBatchRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export type PrimaryOrderBatchResponseCurrencyTotalsItem = {[key: string]: unknown};
@@ -4127,6 +4578,47 @@ export interface PublicDocumentTemplateVersion {
   published_at: string | null;
 }
 
+/**
+ * * `company` - company
+ */
+export type PublicEnquiryCompanyKindEnum = typeof PublicEnquiryCompanyKindEnum[keyof typeof PublicEnquiryCompanyKindEnum];
+
+
+export const PublicEnquiryCompanyKindEnum = {
+  company: 'company',
+} as const;
+
+/**
+ * * `contact` - contact
+ */
+export type PublicEnquiryContactKindEnum = typeof PublicEnquiryContactKindEnum[keyof typeof PublicEnquiryContactKindEnum];
+
+
+export const PublicEnquiryContactKindEnum = {
+  contact: 'contact',
+} as const;
+
+export interface PublicEnquiryCreated {
+  reference: string;
+}
+
+/**
+ * * `originator` - originator
+ */
+export type PublicEnquiryOriginatorKindEnum = typeof PublicEnquiryOriginatorKindEnum[keyof typeof PublicEnquiryOriginatorKindEnum];
+
+
+export const PublicEnquiryOriginatorKindEnum = {
+  originator: 'originator',
+} as const;
+
+export type PublicEnquiryRequest = CompanyEnquiryRequest | OriginatorEnquiryRequest | ContactEnquiryRequest;
+
+export interface PublicError {
+  detail: string;
+  code: string;
+}
+
 export interface PublicLoanRiskNote {
   id: string;
   loan_id: string;
@@ -4137,27 +4629,80 @@ export interface PublicLoanRiskNote {
   occurred_at: string;
 }
 
+export interface PublicOriginator {
+  /** Loan Originator id. */
+  id: string;
+  /** The Loan Originator's public name. */
+  name: string;
+  /** ISO 3166-1 alpha-2 country when known, else empty. */
+  country: string;
+  /** Date the partner was added. */
+  partner_since: string;
+  /** Public claims of this originator that were funded. */
+  claims_funded: number;
+}
+
 /**
  * * `open` - open
+ * * `fully_funded` - fully_funded
+ * * `repaying` - repaying
+ * * `late` - late
+ * * `repaid` - repaid
+ * * `default` - default
  */
-export type PublicMarketplaceLoanStatusEnum = typeof PublicMarketplaceLoanStatusEnum[keyof typeof PublicMarketplaceLoanStatusEnum];
+export type PublicStatusEnum = typeof PublicStatusEnum[keyof typeof PublicStatusEnum];
 
 
-export const PublicMarketplaceLoanStatusEnum = {
+export const PublicStatusEnum = {
   open: 'open',
+  fully_funded: 'fully_funded',
+  repaying: 'repaying',
+  late: 'late',
+  repaid: 'repaid',
+  default: 'default',
 } as const;
 
+export interface PublicProjectOriginator {
+  /** Loan Originator id. */
+  id: string;
+  /** The Loan Originator's public name. */
+  name: string;
+  /** ISO 3166-1 alpha-2 country of the Loan Originator when known, else empty. */
+  country: string;
+}
+
+export interface PublicProjectRecord {
+  /** Installments of the repayment schedule (for a Loan Originator claim: the installments after the investors' entitlement start). */
+  installments_total: number;
+  /** Installments paid in full. */
+  installments_paid: number;
+  /** Principal repaid to investors so far, in minor units. */
+  principal_repaid_minor: number;
+  /** Interest paid to investors so far, in minor units. */
+  interest_paid_minor: number;
+  /** Principal not repaid yet (loan amount minus principal repaid), in minor units. For a loan in default: outstanding at default, before recovery. */
+  outstanding_principal_minor: number;
+  /** Days past the due date of the oldest unpaid installment; 0 unless late or in default. */
+  days_past_due: number;
+  /**
+     * Date the loan went into default; null unless in default.
+     * @nullable
+     */
+  defaulted_on: string | null;
+  /** Text of the latest public loan note by Garanta, or empty. */
+  public_note: string;
+}
+
 /**
- * Anonymous loan preview: only the MKT-DEC-002 fields (plus the loan id).
+ * A loan on the public site. Never carries the borrower's name or identifiers.
  */
-export interface PublicMarketplaceLoan {
+export interface PublicProject {
   /** Public id for the project page link. */
   loan_id: string;
-  /** Direct loans: the borrower's legal name. Loan Originator claims: the anonymized borrower name unless the originator published the legal name. */
-  borrower_name: string;
-  borrower_country: string;
+  /** Loan title (never the borrower's name). */
+  title: string;
   /**
-     * Loan type: a BANXUM Direct loan or a Loan Originator claim.
+     * A BANXUM Direct loan or a Loan Originator claim.
      *
      * * `direct` - direct
      * * `originator_claim` - originator_claim
@@ -4165,19 +4710,117 @@ export interface PublicMarketplaceLoan {
   product_type: ProductTypeEnum;
   /** Loan type: new or refinancing. */
   is_refinancing: boolean;
+  /**
+     * open: published, capacity left, round still taking orders; fully_funded: nothing left to invest, round not closed yet; repaying: funded or active; late; repaid; default: defaulted or written off.
+     *
+     * * `open` - open
+     * * `fully_funded` - fully_funded
+     * * `repaying` - repaying
+     * * `late` - late
+     * * `repaid` - repaid
+     * * `default` - default
+     */
+  public_status: PublicStatusEnum;
+  /** ISO currency code (CHF or EUR). */
   currency: string;
-  /** Loan amount in minor units. */
+  /** Loan amount offered to investors, in minor units: the final principal after a partial close; for a Loan Originator claim the principal offered in (or subscribed at the close of) its round. */
   principal_minor: number;
-  /** Investor interest per year in basis points. */
+  /** Funded so far, in minor units (equal to the principal once funded). */
+  committed_principal_minor: number;
+  /** Amount still open for investment, in minor units; 0 unless open. */
+  remaining_capacity_minor: number;
+  /**
+     * What a new investor must invest now (the loan minimum, capped by the remaining capacity; for a Swiss-borrower loan raised so the places left can fill the loan), in minor units; null unless open, and null when a Swiss-borrower loan has no place left.
+     * @nullable
+     */
+  minimum_investment_minor: number | null;
+  /** Distinct investors: current (not transferred) holders and investors with money allocated to the funding round. */
+  investors_count: number;
+  /**
+     * Most investors this loan may have (Swiss borrower, platform setting, default 20); null when no limit applies.
+     * @nullable
+     */
+  max_investors: number | null;
+  /**
+     * Places left for new investors (max_investors - investors_count, never below 0); null when no limit applies.
+     * @nullable
+     */
+  places_left: number | null;
+  /** Investor interest per year in basis points (the investor marketplace yield). */
   interest_rate_bps: number;
   /** Loan period in months. */
   term_months: number;
+  /** RepaymentType value. */
+  repayment_type: string;
+  /** RiskRating value. */
+  risk_rating: string;
+  /** CollateralType value. */
+  collateral_type: string;
+  collateral_description: string;
   /**
-     * Every public preview is open for investment.
-     *
-     * * `open` - open
+     * Loan-to-value in basis points; null without a collateral value.
+     * @nullable
      */
-  status: PublicMarketplaceLoanStatusEnum;
+  ltv_bps: number | null;
+  /** LoanPurpose value. */
+  purpose: string;
+  purpose_description: string;
+  investor_summary: string;
+  /** Borrower country as ISO 3166-1 alpha-2 when known, else empty. */
+  borrower_country: string;
+  /** Borrower business classification when it is marked public, else empty. */
+  borrower_sector: string;
+  /** @nullable */
+  borrower_year_founded: number | null;
+  /** The Loan Originator of a claim; null for a Direct loan. */
+  originator: PublicProjectOriginator | null;
+  /** @nullable */
+  published_at: string | null;
+  /** @nullable */
+  funding_deadline: string | null;
+  /**
+     * Funding close date; null while the round is running.
+     * @nullable
+     */
+  funded_at: string | null;
+  /** Repayment record; only for repaying, late, repaid and default loans. */
+  record: PublicProjectRecord | null;
+}
+
+export interface PublicStatisticsCurrency {
+  /** ISO currency code (CHF or EUR). */
+  currency: string;
+  /** Funded loans in this currency. */
+  loans: number;
+  /** Principal lent, in minor units. */
+  lent_minor: number;
+  principal_repaid_minor: number;
+  interest_paid_minor: number;
+  /** Outstanding principal of loans not in default, in minor units. */
+  outstanding_minor: number;
+  /** Outstanding principal of loans in default (before recovery), in minor units. */
+  defaulted_minor: number;
+}
+
+export interface PublicStatistics {
+  /** When the figures were computed. */
+  as_of: string;
+  /** Funded public loans (repaying, late, repaid or in default). */
+  loans_funded: number;
+  loans_repaid: number;
+  loans_late: number;
+  loans_defaulted: number;
+  /**
+     * Investor interest weighted by principal over funded loans, rounded half up; null without funded loans.
+     * @nullable
+     */
+  average_interest_rate_bps: number | null;
+  /** Active Loan Originators with at least one public claim. */
+  originators_count: number;
+  /** Distinct borrower countries over all public projects. */
+  countries_count: number;
+  /** One row per currency; CHF and EUR are always present. */
+  by_currency: PublicStatisticsCurrency[];
 }
 
 export interface PublishLoanRequest {
@@ -4759,6 +5402,8 @@ export interface SecondaryMarketListingCreateRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
   notes?: string;
 }
 
@@ -4774,6 +5419,8 @@ export interface SecondaryMarketListingEditRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
   notes?: string;
 }
 
@@ -4852,6 +5499,8 @@ export interface SecondaryMarketPurchaseRequest {
   sensitive_action_code_id: string;
   /** @maxLength 32 */
   sensitive_action_code: string;
+  /** @pattern ^\d{6}$ */
+  pin: string;
 }
 
 export interface SensitiveActionCodeRequest {
@@ -5967,7 +6616,7 @@ export const V1LoansAdminLoansListStatus = {
   cancelled: 'cancelled',
 } as const;
 
-export type V1MarketplacePrimaryLoansListParams = {
+export type V1MarketplacePrimaryOpportunitiesListParams = {
 /**
  * @minimum 1
  * @maximum 250
@@ -5975,10 +6624,11 @@ export type V1MarketplacePrimaryLoansListParams = {
 limit?: number;
 };
 
-export type V1MarketplacePrimaryOpportunitiesListParams = {
+export type V1MarketplacePrimaryPublicProjectsListParams = {
 /**
+ * Maximum number of projects to return (1 to 500).
  * @minimum 1
- * @maximum 250
+ * @maximum 500
  */
 limit?: number;
 };
@@ -6016,6 +6666,13 @@ export type OriginatorClaimsAdminOriginatorsListParams = {
  * Case-insensitive search over legal name, public name, and registration number.
  */
 query?: string;
+};
+
+export type V1PublicNewsletterUnsubscribeCreateParams = {
+/**
+ * Token for one-click unsubscribe (RFC 8058) instead of the body.
+ */
+token?: string;
 };
 
 export type V1ServicingAdminRiskNotesListParams = {
@@ -8035,6 +8692,181 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AdminOpsUsersReadonlyImpersonationCreateMutationOptions(options), queryClient);
     }
 
+export const getV1AdminPlatformFeaturesRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/admin/platform-features/`
+}
+
+/**
+ * Superadmin platform switches (for example currency exchange), with the last change.
+ */
+export const v1AdminPlatformFeaturesRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<PlatformFeatures> => {
+
+  return httpClient<PlatformFeatures>(getV1AdminPlatformFeaturesRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AdminPlatformFeaturesRetrieveQueryKey = () => {
+    return [
+    `/api/v1/admin/platform-features/`
+    ] as const;
+    }
+
+
+export const getV1AdminPlatformFeaturesRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminPlatformFeaturesRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>> = ({ signal }) => v1AdminPlatformFeaturesRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminPlatformFeaturesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>>
+export type V1AdminPlatformFeaturesRetrieveQueryError = unknown
+
+
+export function useV1AdminPlatformFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminPlatformFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminPlatformFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminPlatformFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminPlatformFeaturesRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1AdminPlatformFeaturesCreateUrl = () => {
+
+
+
+
+  return `/api/v1/admin/platform-features/`
+}
+
+/**
+ * Superadmin platform switches (for example currency exchange), with the last change.
+ */
+export const v1AdminPlatformFeaturesCreate = async (platformFeatureUpdateRequest: PlatformFeatureUpdateRequest, options?: Parameters<typeof httpClient>[1]): Promise<PlatformFeatures> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PlatformFeatures>(getV1AdminPlatformFeaturesCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(platformFeatureUpdateRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AdminPlatformFeaturesCreateMutationKey = () => ['v1AdminPlatformFeaturesCreate'] as const;
+
+export const getV1AdminPlatformFeaturesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>, TError,V1AdminPlatformFeaturesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>, TError,V1AdminPlatformFeaturesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AdminPlatformFeaturesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>, V1AdminPlatformFeaturesCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AdminPlatformFeaturesCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminPlatformFeaturesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>>
+    export type V1AdminPlatformFeaturesCreateMutationBody = PlatformFeatureUpdateRequest
+    export type V1AdminPlatformFeaturesCreateMutationError = unknown
+    export type V1AdminPlatformFeaturesCreateMutationVariables = {data: PlatformFeatureUpdateRequest}
+
+    export const useV1AdminPlatformFeaturesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>, TError,V1AdminPlatformFeaturesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminPlatformFeaturesCreate>>,
+        TError,
+        V1AdminPlatformFeaturesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AdminPlatformFeaturesCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AdminStoryImagesCreateUrl = () => {
 
 
@@ -8863,6 +9695,401 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1AuthPhoneRequestCreateMutationOptions(options), queryClient);
     }
+
+export const getV1AuthPinChangeCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/pin/change/`
+}
+
+export const v1AuthPinChangeCreate = async (pinChangeRequest: PinChangeRequest, options?: Parameters<typeof httpClient>[1]): Promise<PinStatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PinStatusResponse>(getV1AuthPinChangeCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(pinChangeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPinChangeCreateMutationKey = () => ['v1AuthPinChangeCreate'] as const;
+
+export const getV1AuthPinChangeCreateMutationOptions = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinChangeCreate>>, TError,V1AuthPinChangeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinChangeCreate>>, TError,V1AuthPinChangeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPinChangeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinChangeCreate>>, V1AuthPinChangeCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPinChangeCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPinChangeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinChangeCreate>>>
+    export type V1AuthPinChangeCreateMutationBody = PinChangeRequest
+    export type V1AuthPinChangeCreateMutationError = PinErrorResponse
+    export type V1AuthPinChangeCreateMutationVariables = {data: PinChangeRequest}
+
+    export const useV1AuthPinChangeCreate = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinChangeCreate>>, TError,V1AuthPinChangeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPinChangeCreate>>,
+        TError,
+        V1AuthPinChangeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPinChangeCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPinResetConfirmCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/pin/reset/confirm/`
+}
+
+/**
+ * Forgot PIN, step 2: email code, SMS code and the new PIN twice; clears the lock.
+ */
+export const v1AuthPinResetConfirmCreate = async (pinResetConfirmRequest: PinResetConfirmRequest, options?: Parameters<typeof httpClient>[1]): Promise<PinStatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PinStatusResponse>(getV1AuthPinResetConfirmCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(pinResetConfirmRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPinResetConfirmCreateMutationKey = () => ['v1AuthPinResetConfirmCreate'] as const;
+
+export const getV1AuthPinResetConfirmCreateMutationOptions = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>, TError,V1AuthPinResetConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>, TError,V1AuthPinResetConfirmCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPinResetConfirmCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>, V1AuthPinResetConfirmCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPinResetConfirmCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPinResetConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>>
+    export type V1AuthPinResetConfirmCreateMutationBody = PinResetConfirmRequest
+    export type V1AuthPinResetConfirmCreateMutationError = PinErrorResponse
+    export type V1AuthPinResetConfirmCreateMutationVariables = {data: PinResetConfirmRequest}
+
+    export const useV1AuthPinResetConfirmCreate = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>, TError,V1AuthPinResetConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPinResetConfirmCreate>>,
+        TError,
+        V1AuthPinResetConfirmCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPinResetConfirmCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPinResetStartCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/pin/reset/start/`
+}
+
+/**
+ * Forgot PIN, step 1: an SMS code to the verified phone (the email code is requested
+ * through /auth/sensitive-action-code/request/ with ``pin_reset``).
+ */
+export const v1AuthPinResetStartCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<PinResetStartResponse> => {
+
+  return httpClient<PinResetStartResponse>(getV1AuthPinResetStartCreateUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthPinResetStartCreateMutationKey = () => ['v1AuthPinResetStartCreate'] as const;
+
+export const getV1AuthPinResetStartCreateMutationOptions = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext> => {
+
+const mutationKey = getV1AuthPinResetStartCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, void> = () => {
+
+
+          return  v1AuthPinResetStartCreate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPinResetStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>>
+
+    export type V1AuthPinResetStartCreateMutationError = PinErrorResponse
+
+
+    export const useV1AuthPinResetStartCreate = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getV1AuthPinResetStartCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPinSetCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/pin/set/`
+}
+
+/**
+ * First PIN: at registration without an email code, otherwise with ``pin_setup``.
+ */
+export const v1AuthPinSetCreate = async (pinSetRequest: PinSetRequest, options?: Parameters<typeof httpClient>[1]): Promise<PinStatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PinStatusResponse>(getV1AuthPinSetCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(pinSetRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPinSetCreateMutationKey = () => ['v1AuthPinSetCreate'] as const;
+
+export const getV1AuthPinSetCreateMutationOptions = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinSetCreate>>, TError,V1AuthPinSetCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinSetCreate>>, TError,V1AuthPinSetCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPinSetCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinSetCreate>>, V1AuthPinSetCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPinSetCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPinSetCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinSetCreate>>>
+    export type V1AuthPinSetCreateMutationBody = PinSetRequest
+    export type V1AuthPinSetCreateMutationError = PinErrorResponse
+    export type V1AuthPinSetCreateMutationVariables = {data: PinSetRequest}
+
+    export const useV1AuthPinSetCreate = <TError = PinErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinSetCreate>>, TError,V1AuthPinSetCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPinSetCreate>>,
+        TError,
+        V1AuthPinSetCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPinSetCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPinStatusRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/auth/pin/status/`
+}
+
+export const v1AuthPinStatusRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<PinStatusResponse> => {
+
+  return httpClient<PinStatusResponse>(getV1AuthPinStatusRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthPinStatusRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/pin/status/`
+    ] as const;
+    }
+
+
+export const getV1AuthPinStatusRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthPinStatusRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>> = ({ signal }) => v1AuthPinStatusRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthPinStatusRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>>
+export type V1AuthPinStatusRetrieveQueryError = unknown
+
+
+export function useV1AuthPinStatusRetrieve<TData = Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthPinStatusRetrieve<TData = Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthPinStatusRetrieve<TData = Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthPinStatusRetrieve<TData = Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthPinStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthPinStatusRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1AuthPreferencesMarketingPartialUpdateUrl = () => {
 
@@ -11575,6 +12802,106 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1InvestorPortalDocumentsDownloadCreateMutationOptions(options), queryClient);
     }
+
+export const getV1InvestorPortalFeaturesRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/investor/portal/features/`
+}
+
+/**
+ * Which optional features the investor app shows (for example currency exchange).
+ *
+ * Anonymous-safe: it returns only platform switches, never account data.
+ */
+export const v1InvestorPortalFeaturesRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<InvestorPortalFeatures> => {
+
+  return httpClient<InvestorPortalFeatures>(getV1InvestorPortalFeaturesRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalFeaturesRetrieveQueryKey = () => {
+    return [
+    `/api/v1/investor/portal/features/`
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalFeaturesRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalFeaturesRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>> = ({ signal }) => v1InvestorPortalFeaturesRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalFeaturesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>>
+export type V1InvestorPortalFeaturesRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalFeaturesRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalFeaturesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalFeaturesRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1InvestorPortalFxRetrieveUrl = (params?: V1InvestorPortalFxRetrieveParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -15197,111 +16524,6 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationOptions(options), queryClient);
     }
 
-export const getV1MarketplacePrimaryLoansListUrl = (params?: V1MarketplacePrimaryLoansListParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/v1/marketplace/primary/loans/?${stringifiedParams}` : `/api/v1/marketplace/primary/loans/`
-}
-
-/**
- * Anonymous preview: only the MKT-DEC-002 public fields, for everyone.
- */
-export const v1MarketplacePrimaryLoansList = async (params?: V1MarketplacePrimaryLoansListParams, options?: Parameters<typeof httpClient>[1]): Promise<PublicMarketplaceLoan[]> => {
-
-  return httpClient<PublicMarketplaceLoan[]>(getV1MarketplacePrimaryLoansListUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getV1MarketplacePrimaryLoansListQueryKey = (params?: V1MarketplacePrimaryLoansListParams,) => {
-    return [
-    `/api/v1/marketplace/primary/loans/`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getV1MarketplacePrimaryLoansListQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryLoansListQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>> = ({ signal }) => v1MarketplacePrimaryLoansList(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type V1MarketplacePrimaryLoansListQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>>
-export type V1MarketplacePrimaryLoansListQueryError = unknown
-
-
-export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
- params: undefined |  V1MarketplacePrimaryLoansListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>,
-          TError,
-          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
- params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>,
-          TError,
-          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
- params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
- params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getV1MarketplacePrimaryLoansListQueryOptions(params,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
 export const getV1MarketplacePrimaryLoansRetrieveUrl = (loanId: string,) => {
 
 
@@ -15827,6 +17049,421 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getMarketplacePrimaryOrdersBatchCreateMutationOptions(options), queryClient);
     }
+
+export const getV1MarketplacePrimaryPublicOriginatorsListUrl = () => {
+
+
+
+
+  return `/api/v1/marketplace/primary/public/originators/`
+}
+
+/**
+ * Public site: active Loan Originators with at least one public claim.
+ * @summary Public Loan Originators
+ */
+export const v1MarketplacePrimaryPublicOriginatorsList = async ( options?: Parameters<typeof httpClient>[1]): Promise<PublicOriginator[]> => {
+
+  return httpClient<PublicOriginator[]>(getV1MarketplacePrimaryPublicOriginatorsListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicOriginatorsListQueryKey = () => {
+    return [
+    `/api/v1/marketplace/primary/public/originators/`
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryPublicOriginatorsListQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryPublicOriginatorsListQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>> = ({ signal }) => v1MarketplacePrimaryPublicOriginatorsList({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryPublicOriginatorsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>>
+export type V1MarketplacePrimaryPublicOriginatorsListQueryError = unknown
+
+
+export function useV1MarketplacePrimaryPublicOriginatorsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicOriginatorsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicOriginatorsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Public Loan Originators
+ */
+
+export function useV1MarketplacePrimaryPublicOriginatorsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicOriginatorsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryPublicOriginatorsListQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicProjectsListUrl = (params?: V1MarketplacePrimaryPublicProjectsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/marketplace/primary/public/projects/?${stringifiedParams}` : `/api/v1/marketplace/primary/public/projects/`
+}
+
+/**
+ * Anonymous. Open loans, fully subscribed loans still in their round and every funded loan (Direct and Loan Originator claims): open first (newest published first), then the rest (newest funding close first). Never the borrower's name.
+ * @summary Public projects
+ */
+export const v1MarketplacePrimaryPublicProjectsList = async (params?: V1MarketplacePrimaryPublicProjectsListParams, options?: Parameters<typeof httpClient>[1]): Promise<PublicProject[]> => {
+
+  return httpClient<PublicProject[]>(getV1MarketplacePrimaryPublicProjectsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicProjectsListQueryKey = (params?: V1MarketplacePrimaryPublicProjectsListParams,) => {
+    return [
+    `/api/v1/marketplace/primary/public/projects/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryPublicProjectsListQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError = unknown>(params?: V1MarketplacePrimaryPublicProjectsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryPublicProjectsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>> = ({ signal }) => v1MarketplacePrimaryPublicProjectsList(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryPublicProjectsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>>
+export type V1MarketplacePrimaryPublicProjectsListQueryError = unknown
+
+
+export function useV1MarketplacePrimaryPublicProjectsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError = unknown>(
+ params: undefined |  V1MarketplacePrimaryPublicProjectsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicProjectsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryPublicProjectsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicProjectsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryPublicProjectsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Public projects
+ */
+
+export function useV1MarketplacePrimaryPublicProjectsList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryPublicProjectsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryPublicProjectsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicProjectsRetrieveUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/marketplace/primary/public/projects/${loanId}/`
+}
+
+/**
+ * Public site: one project page (404 unless the loan is public).
+ * @summary Public project
+ */
+export const v1MarketplacePrimaryPublicProjectsRetrieve = async (loanId: string, options?: Parameters<typeof httpClient>[1]): Promise<PublicProject> => {
+
+  return httpClient<PublicProject>(getV1MarketplacePrimaryPublicProjectsRetrieveUrl(loanId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicProjectsRetrieveQueryKey = (loanId: string,) => {
+    return [
+    `/api/v1/marketplace/primary/public/projects/${loanId}/`
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryPublicProjectsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError = void>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryPublicProjectsRetrieveQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>> = ({ signal }) => v1MarketplacePrimaryPublicProjectsRetrieve(loanId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: loanId !== null && loanId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryPublicProjectsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>>
+export type V1MarketplacePrimaryPublicProjectsRetrieveQueryError = void
+
+
+export function useV1MarketplacePrimaryPublicProjectsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError = void>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicProjectsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError = void>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicProjectsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError = void>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Public project
+ */
+
+export function useV1MarketplacePrimaryPublicProjectsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError = void>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicProjectsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryPublicProjectsRetrieveQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicStatisticsRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/marketplace/primary/public/statistics/`
+}
+
+/**
+ * Public site: track record computed from the public projects.
+ * @summary Public statistics
+ */
+export const v1MarketplacePrimaryPublicStatisticsRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<PublicStatistics> => {
+
+  return httpClient<PublicStatistics>(getV1MarketplacePrimaryPublicStatisticsRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1MarketplacePrimaryPublicStatisticsRetrieveQueryKey = () => {
+    return [
+    `/api/v1/marketplace/primary/public/statistics/`
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryPublicStatisticsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryPublicStatisticsRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>> = ({ signal }) => v1MarketplacePrimaryPublicStatisticsRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryPublicStatisticsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>>
+export type V1MarketplacePrimaryPublicStatisticsRetrieveQueryError = unknown
+
+
+export function useV1MarketplacePrimaryPublicStatisticsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicStatisticsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryPublicStatisticsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Public statistics
+ */
+
+export function useV1MarketplacePrimaryPublicStatisticsRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryPublicStatisticsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryPublicStatisticsRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1MarketplaceSecondaryAdminListingsListUrl = (params?: V1MarketplaceSecondaryAdminListingsListParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -18190,6 +19827,322 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getOriginatorClaimsQuotesPurchaseCreateMutationOptions(options), queryClient);
     }
 
+export const getV1PublicEnquiriesCreateUrl = () => {
+
+
+
+
+  return `/api/v1/public/enquiries/`
+}
+
+/**
+ * The For companies, For loan originators and Contact forms: one email to BANXUM.
+ */
+export const v1PublicEnquiriesCreate = async (publicEnquiryRequest: PublicEnquiryRequest, options?: Parameters<typeof httpClient>[1]): Promise<PublicEnquiryCreated> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PublicEnquiryCreated>(getV1PublicEnquiriesCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(publicEnquiryRequest)
+  }
+);}
+
+
+
+
+
+export const getV1PublicEnquiriesCreateMutationKey = () => ['v1PublicEnquiriesCreate'] as const;
+
+export const getV1PublicEnquiriesCreateMutationOptions = <TError = void | PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>, TError,V1PublicEnquiriesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>, TError,V1PublicEnquiriesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1PublicEnquiriesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>, V1PublicEnquiriesCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1PublicEnquiriesCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1PublicEnquiriesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>>
+    export type V1PublicEnquiriesCreateMutationBody = PublicEnquiryRequest
+    export type V1PublicEnquiriesCreateMutationError = void | PublicError
+    export type V1PublicEnquiriesCreateMutationVariables = {data: PublicEnquiryRequest}
+
+    export const useV1PublicEnquiriesCreate = <TError = void | PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>, TError,V1PublicEnquiriesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1PublicEnquiriesCreate>>,
+        TError,
+        V1PublicEnquiriesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1PublicEnquiriesCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1PublicNewsletterConfirmCreateUrl = () => {
+
+
+
+
+  return `/api/v1/public/newsletter/confirm/`
+}
+
+export const v1PublicNewsletterConfirmCreate = async (newsletterTokenRequest: NewsletterTokenRequest, options?: Parameters<typeof httpClient>[1]): Promise<NewsletterStatus> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<NewsletterStatus>(getV1PublicNewsletterConfirmCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(newsletterTokenRequest)
+  }
+);}
+
+
+
+
+
+export const getV1PublicNewsletterConfirmCreateMutationKey = () => ['v1PublicNewsletterConfirmCreate'] as const;
+
+export const getV1PublicNewsletterConfirmCreateMutationOptions = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>, TError,V1PublicNewsletterConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>, TError,V1PublicNewsletterConfirmCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1PublicNewsletterConfirmCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>, V1PublicNewsletterConfirmCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1PublicNewsletterConfirmCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1PublicNewsletterConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>>
+    export type V1PublicNewsletterConfirmCreateMutationBody = NewsletterTokenRequest
+    export type V1PublicNewsletterConfirmCreateMutationError = PublicError
+    export type V1PublicNewsletterConfirmCreateMutationVariables = {data: NewsletterTokenRequest}
+
+    export const useV1PublicNewsletterConfirmCreate = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>, TError,V1PublicNewsletterConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1PublicNewsletterConfirmCreate>>,
+        TError,
+        V1PublicNewsletterConfirmCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1PublicNewsletterConfirmCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1PublicNewsletterSubscribeCreateUrl = () => {
+
+
+
+
+  return `/api/v1/public/newsletter/subscribe/`
+}
+
+/**
+ * Start the double opt-in. Always the same answer for a well-formed address.
+ */
+export const v1PublicNewsletterSubscribeCreate = async (newsletterSubscribeRequest: NewsletterSubscribeRequest, options?: Parameters<typeof httpClient>[1]): Promise<NewsletterAccepted> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<NewsletterAccepted>(getV1PublicNewsletterSubscribeCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(newsletterSubscribeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1PublicNewsletterSubscribeCreateMutationKey = () => ['v1PublicNewsletterSubscribeCreate'] as const;
+
+export const getV1PublicNewsletterSubscribeCreateMutationOptions = <TError = void | PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>, TError,V1PublicNewsletterSubscribeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>, TError,V1PublicNewsletterSubscribeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1PublicNewsletterSubscribeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>, V1PublicNewsletterSubscribeCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1PublicNewsletterSubscribeCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1PublicNewsletterSubscribeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>>
+    export type V1PublicNewsletterSubscribeCreateMutationBody = NewsletterSubscribeRequest
+    export type V1PublicNewsletterSubscribeCreateMutationError = void | PublicError
+    export type V1PublicNewsletterSubscribeCreateMutationVariables = {data: NewsletterSubscribeRequest}
+
+    export const useV1PublicNewsletterSubscribeCreate = <TError = void | PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>, TError,V1PublicNewsletterSubscribeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1PublicNewsletterSubscribeCreate>>,
+        TError,
+        V1PublicNewsletterSubscribeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1PublicNewsletterSubscribeCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1PublicNewsletterUnsubscribeCreateUrl = (params?: V1PublicNewsletterUnsubscribeCreateParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/public/newsletter/unsubscribe/?${stringifiedParams}` : `/api/v1/public/newsletter/unsubscribe/`
+}
+
+/**
+ * Unsubscribe; repeating it is fine.
+ *
+ * Also the RFC 8058 one-click target of the ``List-Unsubscribe`` header: mail providers
+ * POST ``List-Unsubscribe=One-Click`` as a form body with the token in the query string.
+ */
+export const v1PublicNewsletterUnsubscribeCreate = async (newsletterTokenRequest: NewsletterTokenRequest,
+    params?: V1PublicNewsletterUnsubscribeCreateParams, options?: Parameters<typeof httpClient>[1]): Promise<NewsletterStatus> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<NewsletterStatus>(getV1PublicNewsletterUnsubscribeCreateUrl(params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(newsletterTokenRequest)
+  }
+);}
+
+
+
+
+
+export const getV1PublicNewsletterUnsubscribeCreateMutationKey = () => ['v1PublicNewsletterUnsubscribeCreate'] as const;
+
+export const getV1PublicNewsletterUnsubscribeCreateMutationOptions = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>, TError,V1PublicNewsletterUnsubscribeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>, TError,V1PublicNewsletterUnsubscribeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1PublicNewsletterUnsubscribeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>, V1PublicNewsletterUnsubscribeCreateMutationVariables> = (props) => {
+          const {data,params} = props ?? {};
+
+          return  v1PublicNewsletterUnsubscribeCreate(data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1PublicNewsletterUnsubscribeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>>
+    export type V1PublicNewsletterUnsubscribeCreateMutationBody = NewsletterTokenRequest
+    export type V1PublicNewsletterUnsubscribeCreateMutationError = PublicError
+    export type V1PublicNewsletterUnsubscribeCreateMutationVariables = {data: NewsletterTokenRequest;params?: V1PublicNewsletterUnsubscribeCreateParams}
+
+    export const useV1PublicNewsletterUnsubscribeCreate = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>, TError,V1PublicNewsletterUnsubscribeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1PublicNewsletterUnsubscribeCreate>>,
+        TError,
+        V1PublicNewsletterUnsubscribeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1PublicNewsletterUnsubscribeCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1QaDevModeRetrieveUrl = () => {
 
 
@@ -19432,25 +21385,39 @@ export const getV1AdminOpsUsersDocumentsArtifactCreateResponseMock = (overrideRe
 
 export const getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock = (overrideResponse: Partial<Extract<ReadOnlyImpersonationStartResponse, object>> = {}): ReadOnlyImpersonationStartResponse => ({token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in_seconds: faker.number.int(), target_user_id: faker.string.uuid(), target_email: faker.internet.email(), target_full_name: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getV1AdminPlatformFeaturesRetrieveResponseMock = (overrideResponse: Partial<Extract<PlatformFeatures, object>> = {}): PlatformFeatures => ({features: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), enabled: faker.datatype.boolean(), last_change: faker.helpers.arrayElement([{version: faker.number.int(), enabled: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z', changed_by_type: faker.string.alpha({length: {min: 10, max: 20}}), changed_by_id: faker.string.alpha({length: {min: 10, max: 20}}), changed_by_email: faker.string.alpha({length: {min: 10, max: 20}}), reason: faker.string.alpha({length: {min: 10, max: 20}})},null,])})), ...overrideResponse})
+
+export const getV1AdminPlatformFeaturesCreateResponseMock = (overrideResponse: Partial<Extract<PlatformFeatures, object>> = {}): PlatformFeatures => ({features: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), enabled: faker.datatype.boolean(), last_change: faker.helpers.arrayElement([{version: faker.number.int(), enabled: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z', changed_by_type: faker.string.alpha({length: {min: 10, max: 20}}), changed_by_id: faker.string.alpha({length: {min: 10, max: 20}}), changed_by_email: faker.string.alpha({length: {min: 10, max: 20}}), reason: faker.string.alpha({length: {min: 10, max: 20}})},null,])})), ...overrideResponse})
+
 export const getV1AdminStoryImagesCreateResponseMock = (overrideResponse: Partial<Extract<StoryImage, object>> = {}): StoryImage => ({id: faker.string.uuid(), url: faker.string.alpha({length: {min: 10, max: 20}}), width: faker.number.int(), height: faker.number.int(), byte_size: faker.number.int(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial<Extract<AdminLoginStartResponse, object>> = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
-export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
+export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
 
-export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
 
-export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationRequestResponse, object>> = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthPinChangeCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthPinResetConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthPinResetStartCreateResponseMock = (overrideResponse: Partial<Extract<PinResetStartResponse, object>> = {}): PinResetStartResponse => ({phone_challenge_id: faker.string.uuid(), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthPinSetCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthPinStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial<Extract<NaturalPersonRegistrationResponse, object>> = {}): NaturalPersonRegistrationResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), email_login_sent: faker.datatype.boolean(), ...overrideResponse})
 
@@ -19506,15 +21473,17 @@ export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial<Extrac
 
 export const getV1InvestorPortalActivityRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorActivity, object>> = {}): InvestorActivity => ({entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), ...overrideResponse})
 
-export const getV1InvestorPortalBalancesRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorBalancePortal, object>> = {}): InvestorBalancePortal => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', summaries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), lots: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), bucket: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', investment_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', withdrawal_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', days_until_investment_deadline: faker.number.int(), days_until_withdrawal_deadline: faker.number.int(), original_amount_minor: faker.number.int(), available_amount_minor: faker.number.int(), invested_amount_minor: faker.number.int(), converted_amount_minor: faker.number.int(), withdrawn_amount_minor: faker.number.int(), penalized_amount_minor: faker.number.int(), requires_withdrawal: faker.datatype.boolean(), blocks_financial_actions: faker.datatype.boolean()})), payout_instructions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), pending_withdrawals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_forced: faker.datatype.boolean()})), has_penalty_mode_balance: faker.datatype.boolean(), penalty_bps_per_day: faker.number.int(), ...overrideResponse})
+export const getV1InvestorPortalBalancesRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorBalancePortal, object>> = {}): InvestorBalancePortal => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', summaries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_return_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), lots: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), bucket: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', investment_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', withdrawal_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', days_until_investment_deadline: faker.number.int(), days_until_withdrawal_deadline: faker.number.int(), last_day: faker.date.past().toISOString().slice(0, 10), return_date: faker.date.past().toISOString().slice(0, 10), days_until_last_day: faker.number.int(), original_amount_minor: faker.number.int(), available_amount_minor: faker.number.int(), invested_amount_minor: faker.number.int(), converted_amount_minor: faker.number.int(), withdrawn_amount_minor: faker.number.int(), penalized_amount_minor: faker.number.int(), requires_withdrawal: faker.datatype.boolean(), blocks_financial_actions: faker.datatype.boolean()})), payout_instructions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), pending_withdrawals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_forced: faker.datatype.boolean()})), has_penalty_mode_balance: faker.datatype.boolean(), penalty_bps_per_day: faker.number.int(), auto_return_after_days: faker.number.int(), ...overrideResponse})
 
-export const getV1InvestorPortalDashboardRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDashboard, object>> = {}): InvestorDashboard => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', investor_user_id: faker.string.uuid(), balances: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), portfolio_summary: {holding_count: faker.number.int(), active_holding_count: faker.number.int(), outstanding_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), original_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), realized_interest_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), late_or_defaulted_exposure_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()}))}, exposure: {by_borrower: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_country: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_purpose: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_risk_rating: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_collateral_type: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_maturity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_loan_status: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()}))}, pending_actions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({type: faker.string.alpha({length: {min: 10, max: 20}}), severity: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), amount_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), count: faker.helpers.arrayElement([faker.number.int(), undefined]), message: faker.string.alpha({length: {min: 10, max: 20}})})), recent_activity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), ...overrideResponse})
+export const getV1InvestorPortalDashboardRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDashboard, object>> = {}): InvestorDashboard => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', investor_user_id: faker.string.uuid(), balances: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_return_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), portfolio_summary: {holding_count: faker.number.int(), active_holding_count: faker.number.int(), outstanding_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), original_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), realized_interest_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), late_or_defaulted_exposure_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()}))}, exposure: {by_borrower: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_country: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_purpose: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_risk_rating: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_collateral_type: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_maturity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_loan_status: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()}))}, pending_actions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({type: faker.string.alpha({length: {min: 10, max: 20}}), severity: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), amount_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), count: faker.helpers.arrayElement([faker.number.int(), undefined]), message: faker.string.alpha({length: {min: 10, max: 20}})})), recent_activity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), ...overrideResponse})
 
 export const getV1InvestorPortalDepositInstructionsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDepositInstructions, object>> = {}): InvestorDepositInstructions => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', instructions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), account_holder_name: faker.string.alpha({length: {min: 10, max: 20}}), iban: faker.string.alpha({length: {min: 10, max: 20}}), qr_iban: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), bic: faker.string.alpha({length: {min: 10, max: 20}}), bank_name: faker.string.alpha({length: {min: 10, max: 20}}), collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), qr_bill_payload: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), is_configured: faker.datatype.boolean()})), reference_rule: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1InvestorPortalDocumentsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDocuments, object>> = {}): InvestorDocuments => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', documents: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), document_kind: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), template_title: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), document_type: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), version: faker.string.alpha({length: {min: 10, max: 20}}), date: faker.date.past().toISOString().slice(0, 19) + 'Z', context_label: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), context_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), output_formats: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), generated_on_request: faker.datatype.boolean(), content_hash: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), period_start: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), undefined]), period_end: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), undefined])})), disclaimer: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1InvestorPortalDocumentsDownloadCreateResponseMock = (overrideResponse: Partial<Extract<InvestorDocumentDownloadResponse, object>> = {}): InvestorDocumentDownloadResponse => ({content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
+
+export const getV1InvestorPortalFeaturesRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorPortalFeatures, object>> = {}): InvestorPortalFeatures => ({fx_enabled: faker.datatype.boolean(), ...overrideResponse})
 
 export const getV1InvestorPortalFxRetrieveResponseMock = (overrideResponse: Partial<Extract<FxHistoryPortal, object>> = {}): FxHistoryPortal => ({quotes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int(), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int(), gross_target_amount_minor: faker.number.int(), fee_minor: faker.number.int(), target_amount_minor: faker.number.int(), issued_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_expired: faker.datatype.boolean(), has_exchange: faker.datatype.boolean()})), exchanges: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.uuid(), quote_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int(), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int(), gross_target_amount_minor: faker.number.int(), fee_minor: faker.number.int(), target_amount_minor: faker.number.int(), effective_net_rate: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), executed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), terms: {daily_limit_chf_minor: faker.number.int(), daily_limit_used_chf_minor: faker.number.int(), quote_ttl_seconds: faker.number.int(), platform_fee_bps: faker.number.int()}, ...overrideResponse})
 
@@ -19608,9 +21577,7 @@ export const getV1MarketplacePrimaryAdminLoansExpiryScanCreateResponseMock = (ov
 
 export const getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryInvestmentOrder, object>> = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int(), allocated_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), released_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), closed_reason: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1MarketplacePrimaryLoansListResponseMock = (): PublicMarketplaceLoan[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), borrower_name: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), status: faker.helpers.arrayElement(Object.values(PublicMarketplaceLoanStatusEnum))})))
-
-export const getV1MarketplacePrimaryLoansRetrieveResponseMock = (overrideResponse: Partial<Extract<MarketplaceLoanDetail, object>> = {}): MarketplaceLoanDetail => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), distribution_model: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), entitlement_start_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), investor_interest_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), investor_penalty_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int(), default_penalty_interest_bps: faker.number.int(), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_disclosure: {
+export const getV1MarketplacePrimaryLoansRetrieveResponseMock = (overrideResponse: Partial<Extract<MarketplaceLoanDetail, object>> = {}): MarketplaceLoanDetail => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), places_left: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), is_existing_investor: faker.helpers.arrayElement([faker.datatype.boolean(), undefined]), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), distribution_model: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), entitlement_start_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), investor_interest_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), investor_penalty_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int(), default_penalty_interest_bps: faker.number.int(), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_disclosure: {
         [faker.string.alphanumeric(5)]: {}
       }, story: faker.helpers.arrayElement([{version: faker.number.int(), blocks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: {}
@@ -19618,7 +21585,7 @@ export const getV1MarketplacePrimaryLoansRetrieveResponseMock = (overrideRespons
 
 export const getV1MarketplacePrimaryLoansDocumentsRetrieveResponseMock = (overrideResponse: Partial<Extract<MarketplaceBorrowerDocumentDownload, object>> = {}): MarketplaceBorrowerDocumentDownload => ({document_id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_type: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1MarketplacePrimaryOpportunitiesListResponseMock = (): MarketplaceLoanPreview[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), distribution_model: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), entitlement_start_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), investor_interest_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), investor_penalty_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int()})))
+export const getV1MarketplacePrimaryOpportunitiesListResponseMock = (): MarketplaceLoanPreview[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), places_left: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), is_existing_investor: faker.helpers.arrayElement([faker.datatype.boolean(), undefined]), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), distribution_model: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), entitlement_start_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), investor_interest_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), investor_penalty_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int()})))
 
 export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryInvestmentOrder, object>> = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int(), allocated_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), released_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), closed_reason: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
@@ -19627,6 +21594,14 @@ export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (o
 export const getMarketplacePrimaryOrdersBatchCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryOrderBatchResponse, object>> = {}): PrimaryOrderBatchResponse => ({batch_id: faker.string.uuid(), currency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), currency_totals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: {}
       })), orders: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int(), allocated_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), released_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), closed_reason: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), order_count: faker.number.int(), originator_purchases: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({purchase_id: faker.string.uuid(), quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), holding_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), cash_consideration_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), originator_purchase_count: faker.number.int(), total_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), ...overrideResponse})
+
+export const getV1MarketplacePrimaryPublicOriginatorsListResponseMock = (): PublicOriginator[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}}), partner_since: faker.date.past().toISOString().slice(0, 10), claims_funded: faker.number.int()})))
+
+export const getV1MarketplacePrimaryPublicProjectsListResponseMock = (): PublicProject[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,])})))
+
+export const getV1MarketplacePrimaryPublicProjectsRetrieveResponseMock = (overrideResponse: Partial<Extract<PublicProject, object>> = {}): PublicProject => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,]), ...overrideResponse})
+
+export const getV1MarketplacePrimaryPublicStatisticsRetrieveResponseMock = (overrideResponse: Partial<Extract<PublicStatistics, object>> = {}): PublicStatistics => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', loans_funded: faker.number.int(), loans_repaid: faker.number.int(), loans_late: faker.number.int(), loans_defaulted: faker.number.int(), average_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), originators_count: faker.number.int(), countries_count: faker.number.int(), by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), loans: faker.number.int(), lent_minor: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_minor: faker.number.int(), defaulted_minor: faker.number.int()})), ...overrideResponse})
 
 export const getV1MarketplaceSecondaryAdminListingsListResponseMock = (): AdminSecondaryMarketListingRow[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), accrued_interest_to_date: faker.date.past().toISOString().slice(0, 10), maker_fee_bps: faker.number.int(), taker_fee_bps: faker.number.int(), minimum_maker_fee_minor: faker.number.int(), minimum_taker_fee_minor: faker.number.int(), maker_fee_minor: faker.number.int(), taker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), buyer_total_cost_minor: faker.number.int(), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int(), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', loan_title: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), seller_email: faker.string.alpha({length: {min: 10, max: 20}}), seller_full_name: faker.string.alpha({length: {min: 10, max: 20}})})))
 
@@ -19685,6 +21660,14 @@ export const getOriginatorClaimsAdminSettlementsOutstandingListResponseMock = ()
 export const getOriginatorClaimsLoansQuoteCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorClaimQuoteResponse, object>> = {}): OriginatorClaimQuoteResponse => ({quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), requested_cash_minor: faker.number.int(), executable_cash_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), premium_discount_minor: faker.number.int(), rounding_remainder_minor: faker.number.int(), entitlement_start_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', cash_flows: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), accrual_start_date: faker.date.past().toISOString().slice(0, 10), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), total_minor: faker.number.int(), days_to_payment: faker.number.int(), present_value_minor: faker.number.int()})), ...overrideResponse})
 
 export const getOriginatorClaimsQuotesPurchaseCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorClaimPurchaseResponse, object>> = {}): OriginatorClaimPurchaseResponse => ({purchase_id: faker.string.uuid(), quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), holding_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), cash_consideration_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getV1PublicEnquiriesCreateResponseMock = (overrideResponse: Partial<Extract<PublicEnquiryCreated, object>> = {}): PublicEnquiryCreated => ({reference: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1PublicNewsletterConfirmCreateResponseMock = (overrideResponse: Partial<Extract<NewsletterStatus, object>> = {}): NewsletterStatus => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1PublicNewsletterSubscribeCreateResponseMock = (overrideResponse: Partial<Extract<NewsletterAccepted, object>> = {}): NewsletterAccepted => ({detail: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1PublicNewsletterUnsubscribeCreateResponseMock = (overrideResponse: Partial<Extract<NewsletterStatus, object>> = {}): NewsletterStatus => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1QaDevModeRetrieveResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -19969,6 +21952,30 @@ export const getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler = (overrid
   }, options)
 }
 
+export const getV1AdminPlatformFeaturesRetrieveMockHandler = (overrideResponse?: PlatformFeatures | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlatformFeatures> | PlatformFeatures), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin/platform-features/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminPlatformFeaturesRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AdminPlatformFeaturesCreateMockHandler = (overrideResponse?: PlatformFeatures | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PlatformFeatures> | PlatformFeatures), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/admin/platform-features/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminPlatformFeaturesCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1AdminStoryImagesCreateMockHandler = (overrideResponse?: StoryImage | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StoryImage> | StoryImage), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/admin/story-images/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -20093,6 +22100,66 @@ export const getV1AuthPhoneRequestCreateMockHandler = (overrideResponse?: PhoneV
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthPhoneRequestCreateResponseMock(),
       { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthPinChangeCreateMockHandler = (overrideResponse?: PinStatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PinStatusResponse> | PinStatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/pin/change/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPinChangeCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthPinResetConfirmCreateMockHandler = (overrideResponse?: PinStatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PinStatusResponse> | PinStatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/pin/reset/confirm/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPinResetConfirmCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthPinResetStartCreateMockHandler = (overrideResponse?: PinResetStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PinResetStartResponse> | PinResetStartResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/pin/reset/start/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPinResetStartCreateResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthPinSetCreateMockHandler = (overrideResponse?: PinStatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PinStatusResponse> | PinStatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/pin/set/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPinSetCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1AuthPinStatusRetrieveMockHandler = (overrideResponse?: PinStatusResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PinStatusResponse> | PinStatusResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/pin/status/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPinStatusRetrieveResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -20464,6 +22531,18 @@ export const getV1InvestorPortalDocumentsDownloadCreateMockHandler = (overrideRe
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1InvestorPortalDocumentsDownloadCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalFeaturesRetrieveMockHandler = (overrideResponse?: InvestorPortalFeatures | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorPortalFeatures> | InvestorPortalFeatures), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/features/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalFeaturesRetrieveResponseMock(),
       { status: 200
       })
   }, options)
@@ -20985,18 +23064,6 @@ export const getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMockHandler =
   }, options)
 }
 
-export const getV1MarketplacePrimaryLoansListMockHandler = (overrideResponse?: PublicMarketplaceLoan[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicMarketplaceLoan[]> | PublicMarketplaceLoan[]), options?: RequestHandlerOptions) => {
-  return http.get('*/api/v1/marketplace/primary/loans/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getV1MarketplacePrimaryLoansListResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
 export const getV1MarketplacePrimaryLoansRetrieveMockHandler = (overrideResponse?: MarketplaceLoanDetail | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MarketplaceLoanDetail> | MarketplaceLoanDetail), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/marketplace/primary/loans/:loanId/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
@@ -21065,6 +23132,54 @@ export const getMarketplacePrimaryOrdersBatchCreateMockHandler = (overrideRespon
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getMarketplacePrimaryOrdersBatchCreateResponseMock(),
       { status: 201
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryPublicOriginatorsListMockHandler = (overrideResponse?: PublicOriginator[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicOriginator[]> | PublicOriginator[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/public/originators/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryPublicOriginatorsListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryPublicProjectsListMockHandler = (overrideResponse?: PublicProject[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicProject[]> | PublicProject[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/public/projects/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryPublicProjectsListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryPublicProjectsRetrieveMockHandler = (overrideResponse?: PublicProject | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicProject> | PublicProject), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/public/projects/:loanId/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryPublicProjectsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryPublicStatisticsRetrieveMockHandler = (overrideResponse?: PublicStatistics | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicStatistics> | PublicStatistics), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/public/statistics/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryPublicStatisticsRetrieveResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -21417,6 +23532,54 @@ export const getOriginatorClaimsQuotesPurchaseCreateMockHandler = (overrideRespo
   }, options)
 }
 
+export const getV1PublicEnquiriesCreateMockHandler = (overrideResponse?: PublicEnquiryCreated | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PublicEnquiryCreated> | PublicEnquiryCreated), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/public/enquiries/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1PublicEnquiriesCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1PublicNewsletterConfirmCreateMockHandler = (overrideResponse?: NewsletterStatus | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NewsletterStatus> | NewsletterStatus), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/public/newsletter/confirm/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1PublicNewsletterConfirmCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1PublicNewsletterSubscribeCreateMockHandler = (overrideResponse?: NewsletterAccepted | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NewsletterAccepted> | NewsletterAccepted), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/public/newsletter/subscribe/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1PublicNewsletterSubscribeCreateResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1PublicNewsletterUnsubscribeCreateMockHandler = (overrideResponse?: NewsletterStatus | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NewsletterStatus> | NewsletterStatus), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/public/newsletter/unsubscribe/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1PublicNewsletterUnsubscribeCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1QaDevModeRetrieveMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/qa/dev-mode/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
@@ -21622,6 +23785,8 @@ export const getBanxumApiMock = () => [
   getV1AdminOpsUsersDocumentsRetrieveMockHandler(),
   getV1AdminOpsUsersDocumentsArtifactCreateMockHandler(),
   getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler(),
+  getV1AdminPlatformFeaturesRetrieveMockHandler(),
+  getV1AdminPlatformFeaturesCreateMockHandler(),
   getV1AdminStoryImagesCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
@@ -21633,6 +23798,11 @@ export const getBanxumApiMock = () => [
   getV1AuthMeRetrieveMockHandler(),
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
+  getV1AuthPinChangeCreateMockHandler(),
+  getV1AuthPinResetConfirmCreateMockHandler(),
+  getV1AuthPinResetStartCreateMockHandler(),
+  getV1AuthPinSetCreateMockHandler(),
+  getV1AuthPinStatusRetrieveMockHandler(),
   getV1AuthPreferencesMarketingPartialUpdateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1AuthSensitiveActionCodeRequestCreateMockHandler(),
@@ -21664,6 +23834,7 @@ export const getBanxumApiMock = () => [
   getV1InvestorPortalDepositInstructionsRetrieveMockHandler(),
   getV1InvestorPortalDocumentsRetrieveMockHandler(),
   getV1InvestorPortalDocumentsDownloadCreateMockHandler(),
+  getV1InvestorPortalFeaturesRetrieveMockHandler(),
   getV1InvestorPortalFxRetrieveMockHandler(),
   getV1InvestorPortalNotificationsRetrieveMockHandler(),
   getV1InvestorPortalNotificationsReadCreateMockHandler(),
@@ -21707,13 +23878,16 @@ export const getBanxumApiMock = () => [
   getV1MarketplacePrimaryAdminLoansCloseFundingCreateMockHandler(),
   getV1MarketplacePrimaryAdminLoansExpiryScanCreateMockHandler(),
   getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMockHandler(),
-  getV1MarketplacePrimaryLoansListMockHandler(),
   getV1MarketplacePrimaryLoansRetrieveMockHandler(),
   getV1MarketplacePrimaryLoansDocumentsRetrieveMockHandler(),
   getV1MarketplacePrimaryOpportunitiesListMockHandler(),
   getV1MarketplacePrimaryOrdersCreateMockHandler(),
   getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler(),
   getMarketplacePrimaryOrdersBatchCreateMockHandler(),
+  getV1MarketplacePrimaryPublicOriginatorsListMockHandler(),
+  getV1MarketplacePrimaryPublicProjectsListMockHandler(),
+  getV1MarketplacePrimaryPublicProjectsRetrieveMockHandler(),
+  getV1MarketplacePrimaryPublicStatisticsRetrieveMockHandler(),
   getV1MarketplaceSecondaryAdminListingsListMockHandler(),
   getV1MarketplaceSecondaryAdminListingsApproveCreateMockHandler(),
   getV1MarketplaceSecondaryAdminListingsRejectCreateMockHandler(),
@@ -21743,6 +23917,10 @@ export const getBanxumApiMock = () => [
   getOriginatorClaimsAdminSettlementsOutstandingListMockHandler(),
   getOriginatorClaimsLoansQuoteCreateMockHandler(),
   getOriginatorClaimsQuotesPurchaseCreateMockHandler(),
+  getV1PublicEnquiriesCreateMockHandler(),
+  getV1PublicNewsletterConfirmCreateMockHandler(),
+  getV1PublicNewsletterSubscribeCreateMockHandler(),
+  getV1PublicNewsletterUnsubscribeCreateMockHandler(),
   getV1QaDevModeRetrieveMockHandler(),
   getV1QaDevModeAdvanceCreateMockHandler(),
   getV1QaDevModeEnableCreateMockHandler(),

@@ -44,6 +44,7 @@ from backend.apps.originator_claims.services import (
     FinalizeOriginatorSettlementCommand,
     HoldOriginatorLoanCommand,
     OriginatorClaimsAuthorizationError,
+    OriginatorClaimsSwissInvestorLimitError,
     OriginatorClaimsValidationError,
     PublishOriginatorLoanCommand,
     PurchaseOriginatorClaimCommand,
@@ -71,9 +72,19 @@ from backend.apps.originator_claims.services import (
     update_loan_originator,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
+from backend.apps.platform_core.api.sensitive_actions import (
+    sensitive_action_pin_error_response,
+)
+from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 
 
 def _error_response(exc: Exception) -> Response:
+    if isinstance(exc, OriginatorClaimsSwissInvestorLimitError):
+        # A Swiss-borrower claim has no place left for a new investor (MKT-DEC-028).
+        return Response(
+            {"detail": str(exc), "code": exc.code},
+            status=status.HTTP_409_CONFLICT,
+        )
     response_status = (
         status.HTTP_403_FORBIDDEN
         if isinstance(exc, OriginatorClaimsAuthorizationError)
@@ -491,11 +502,14 @@ class OriginatorClaimPurchaseView(APIView):
                     document_acceptance_id=str(data["document_acceptance_id"]),
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=str(data["sensitive_action_code"]),
+                    pin=data["pin"],
                     idempotency_key=str(data["idempotency_key"]),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
             )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
         except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
             return _error_response(exc)
         return Response(

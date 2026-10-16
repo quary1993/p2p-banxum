@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from backend.apps.accounts_auth.models import (
@@ -15,6 +17,8 @@ from backend.apps.accounts_auth.phone_numbers import (
     InvalidPhoneNumberError,
     normalize_e164_phone_number,
 )
+from backend.apps.accounts_auth.pin_services import PinStatus, pin_locked_until, user_has_pin
+from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
 
 
 def _validated_phone_number(value: str) -> str:
@@ -22,6 +26,9 @@ def _validated_phone_number(value: str) -> str:
         return normalize_e164_phone_number(value)
     except InvalidPhoneNumberError as exc:
         raise serializers.ValidationError(str(exc)) from exc
+
+
+pin_field = sensitive_action_pin_field
 
 
 class UserSummarySerializer(serializers.Serializer[Any]):
@@ -33,6 +40,19 @@ class UserSummarySerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     phone_verified = serializers.BooleanField(source="is_phone_verified")
     marketing_consent = serializers.BooleanField()
+    # ACC-DEC-009: the portal asks for a PIN before anything else while this is false.
+    pin_set = serializers.SerializerMethodField()
+    # Only while the PIN is locked after too many wrong attempts.
+    pin_locked_until = serializers.SerializerMethodField()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_pin_set(self, user: User) -> bool:
+        return user_has_pin(user)
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_pin_locked_until(self, user: User) -> str | None:
+        locked_until = pin_locked_until(user)
+        return locked_until.isoformat() if locked_until is not None else None
 
 
 class NaturalPersonRegistrationRequestSerializer(serializers.Serializer[Any]):
@@ -131,6 +151,9 @@ class SensitiveActionCodeRequestSerializer(serializers.Serializer[Any]):
             SensitiveAction.PRIMARY_INVESTMENT,
             SensitiveAction.SECONDARY_MARKET_LISTING,
             SensitiveAction.SECONDARY_MARKET_PURCHASE,
+            SensitiveAction.PIN_SETUP,
+            SensitiveAction.PIN_CHANGE,
+            SensitiveAction.PIN_RESET,
         ]
     )
 
@@ -198,6 +221,83 @@ class PhoneVerificationConfirmRequestSerializer(serializers.Serializer[Any]):
 
 class PhoneVerificationConfirmResponseSerializer(serializers.Serializer[Any]):
     user = UserSummarySerializer()
+
+
+class PinStatusSerializer(serializers.Serializer[Any]):
+    pin_set = serializers.BooleanField()
+    locked_until = serializers.DateTimeField(allow_null=True)
+    attempts_left = serializers.IntegerField()
+    max_attempts = serializers.IntegerField()
+    # False only at the registration step (pending KYC, phone just verified).
+    setup_requires_email_code = serializers.BooleanField()
+    # Forgot PIN sends an SMS code to the verified phone number ending in these digits.
+    reset_available = serializers.BooleanField()
+    phone_last_digits = serializers.CharField(allow_blank=True)
+
+
+class PinStatusResponseSerializer(serializers.Serializer[Any]):
+    pin = PinStatusSerializer()
+
+
+class PinSetRequestSerializer(serializers.Serializer[Any]):
+    new_pin = pin_field()
+    new_pin_confirmation = pin_field()
+    # Not needed at the registration step; required for every other first PIN.
+    sensitive_action_code_id = serializers.UUIDField(required=False, allow_null=True)
+    sensitive_action_code = serializers.CharField(
+        max_length=32,
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+
+
+class PinChangeRequestSerializer(serializers.Serializer[Any]):
+    pin = pin_field()
+    new_pin = pin_field()
+    new_pin_confirmation = pin_field()
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class PinResetStartResponseSerializer(serializers.Serializer[Any]):
+    phone_challenge_id = serializers.UUIDField()
+    expires_at = serializers.DateTimeField()
+    phone_last_digits = serializers.CharField(allow_blank=True)
+
+
+class PinResetConfirmRequestSerializer(serializers.Serializer[Any]):
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    phone_challenge_id = serializers.UUIDField()
+    phone_code = serializers.RegexField(regex=r"^\d{6}$")
+    new_pin = pin_field()
+    new_pin_confirmation = pin_field()
+
+
+class PinErrorResponseSerializer(serializers.Serializer[Any]):
+    """Error body of the PIN checks; ``code`` names the case (ACC-DEC-009)."""
+
+    detail = serializers.CharField()
+    code = serializers.CharField()
+    attempts_left = serializers.IntegerField(required=False)
+    locked_until = serializers.DateTimeField(required=False)
+
+
+def serialize_pin_status(status: PinStatus) -> dict[str, Any]:
+    return dict(
+        PinStatusSerializer(
+            {
+                "pin_set": status.pin_set,
+                "locked_until": status.locked_until,
+                "attempts_left": status.attempts_left,
+                "max_attempts": status.max_attempts,
+                "setup_requires_email_code": status.setup_requires_email_code,
+                "reset_available": status.reset_available,
+                "phone_last_digits": status.phone_last_digits,
+            }
+        ).data
+    )
 
 
 def serialize_user(user: User) -> dict[str, Any]:

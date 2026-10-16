@@ -348,3 +348,10 @@ Each entry should include:
 - Current first-version behavior: every direct and Loan Originator payment uses the server-owned order Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal. Recovery admins enter evidence-backed obligations rather than a desired category split; the server derives current principal and the applied allocation. Loan Originator CSV `fee_minor` is treated as first-tier legal/recovery-cost evidence, and a replacement import is rejected when its split attempts to pay principal before a due higher tier.
 - Required admin-console improvement: when legal-cost and penalty accrual evidence becomes structured data, replace manual recovery-obligation entry with an authoritative read-only obligation projection and evidence links. Until then, keep the four-tier preview and clearly distinguish amounts due from amounts applied.
 - Priority: important.
+
+## 2026-10-16: Platform Features Card (Superadmin Settings)
+
+- Screen or component: Superadmin settings > "Platform features" card (`PlatformFeaturesCard` in `frontend/src/adminConsole/AdminModulePanels.tsx`), backed by `GET`/`POST /api/v1/admin/platform-features/` (superadmin only).
+- Current first-version behavior: one row per platform switch; today only "Currency exchange (FX)" (`fx.enabled`, off by owner decision 2026-10-16). The row shows a switch, an On/Off tag, the description, and the last change (state, time, who, reason) from the setting history. Moving the switch shows a required "Reason for this change" field and a "Switch on"/"Switch off" button; the change goes through the audited settings service (new setting version with the reason and an audit event). Switching to the state it already has is refused ("... is already on. Nothing was changed.").
+- Suggested improvement / required admin-console improvement: a "History" link with every version of the switch (the API keeps them in `PlatformSettingVersion`); a confirm dialog that says what investors will see before switching FX on; a link to the audit log filtered on `fx.enabled`.
+- Priority: nice-to-have.

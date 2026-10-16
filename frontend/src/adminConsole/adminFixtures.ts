@@ -207,7 +207,7 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
       queueItem({
         kind: "balance_ageing",
         id: "lot-883",
-        title: "Balance lot reaches its 60-day holding deadline",
+        title: "Balance lot not invested after 58 days: due back to the investor's bank",
         status: "available",
         priority: "normal",
         due_date: "2026-06-05",

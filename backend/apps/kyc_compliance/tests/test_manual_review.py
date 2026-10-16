@@ -28,20 +28,21 @@ from backend.apps.kyc_compliance.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.factories import give_test_pin
 
 
 def create_lender(email: str = "investor@example.test") -> Model:
     user_model: Any = get_user_model()
-    return cast(
-        Model,
-        user_model.objects.create_user(
-            email=email,
-            full_name="Investor",
-            account_type="natural_person_lender",
-            status="pending_kyc",
-            phone_number="+41790000000",
-        ),
+    user = user_model.objects.create_user(
+        email=email,
+        full_name="Investor",
+        account_type="natural_person_lender",
+        status="pending_kyc",
+        phone_number="+41790000000",
     )
+    # The registration PIN step comes before KYC (ACC-DEC-009).
+    give_test_pin(user)
+    return cast(Model, user)
 
 
 def create_admin(email: str = "admin@example.test") -> Model:

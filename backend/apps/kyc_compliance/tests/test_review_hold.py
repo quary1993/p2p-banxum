@@ -38,6 +38,7 @@ from backend.apps.kyc_compliance.services import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.models import AuditEvent
+from backend.apps.platform_core.tests.factories import give_test_pin
 
 SESSION_URL = "/api/v1/kyc/session/"
 STATUS_URL = "/api/v1/kyc/status/"
@@ -68,6 +69,8 @@ def create_lender(email: str = "held-investor@example.test") -> Model:
     )
     user.phone_verified_at = timezone.now()
     user.save(update_fields=["phone_verified_at"])
+    # The registration PIN step comes before KYC (ACC-DEC-009).
+    give_test_pin(user)
     return cast(Model, user)
 
 

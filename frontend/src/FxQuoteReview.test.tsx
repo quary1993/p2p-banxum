@@ -7,7 +7,7 @@ import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
-import { balances, renderLiveApp, shellHandlers, summary } from "./test/liveHarness";
+import { balances, fxSwitchedOn, renderLiveApp, shellHandlers, summary } from "./test/liveHarness";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -50,6 +50,7 @@ function previewPayload(source: string, target: string, sourceMinor: number) {
 test("FX review: minor-unit amount, one rate, countdown from receipt, refresh, limit from the API", async () => {
   let quotes = 0;
   server.use(
+    fxSwitchedOn(),
     ...shellHandlers({
       balances: () =>
         balances({
