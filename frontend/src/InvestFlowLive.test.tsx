@@ -175,9 +175,9 @@ test("A-15: a new amount after a failed confirm places a new order with new evid
   expect(calls.allocate[1]).toMatchObject({ document_acceptance_id: "acc-2" });
   expect(calls.allocate[1].idempotency_key).not.toBe(calls.allocate[0].idempotency_key);
   // The done screen shows the server's order.
-  expect(summaryValue("Order amount")).toMatch(/CHF 2.000\.00/);
-  expect(summaryValue("Investment amount")).toMatch(/CHF 2.000\.00/);
-  expect(screen.getByText(/CHF 2.000\.00 of your balance is reserved for this loan/)).toBeInTheDocument();
+  expect(summaryValue("Order amount")).toMatch(/CHF 2\.000,00/);
+  expect(summaryValue("Investment amount")).toMatch(/CHF 2\.000,00/);
+  expect(screen.getByText(/CHF 2\.000,00 of your balance is reserved for this loan/)).toBeInTheDocument();
   expect(screen.queryByText(/pending allocation/)).not.toBeInTheDocument();
 }, 30_000);
 
@@ -211,8 +211,8 @@ test("A-33: the done screen says when only part of the amount, or nothing, was i
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await reviewAndConfirm("5000", "111111");
   await screen.findByText("Order partly placed", {}, { timeout: 5000 });
-  expect(screen.getByText(/Only CHF 1.500\.00 was left in this loan\. We reserved CHF 1.500\.00 of the CHF 5.000\.00 you asked for\./)).toBeInTheDocument();
-  expect(summaryValue("Investment amount")).toMatch(/CHF 1.500\.00/);
+  expect(screen.getByText(/Only CHF 1\.500,00 was left in this loan\. We reserved CHF 1\.500,00 of the CHF 5\.000,00 you asked for\./)).toBeInTheDocument();
+  expect(summaryValue("Investment amount")).toMatch(/CHF 1\.500,00/);
   expect(screen.queryByText("Order placed")).not.toBeInTheDocument();
 }, 30_000);
 
@@ -228,8 +228,8 @@ test("A-33: an order closed below the minimum is shown as not placed, with no mo
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await reviewAndConfirm("5000", "111111");
   await screen.findByText("Order not placed", {}, { timeout: 5000 });
-  expect(screen.getByText(/Less than the minimum order of CHF 1.000\.00 was left in this loan\. Nothing was invested and no money moved\./)).toBeInTheDocument();
-  expect(summaryValue("Investment amount")).toMatch(/CHF 0\.00/);
+  expect(screen.getByText(/Less than the minimum order of CHF 1\.000,00 was left in this loan\. Nothing was invested and no money moved\./)).toBeInTheDocument();
+  expect(summaryValue("Investment amount")).toMatch(/CHF 0,00/);
   expect(summaryValue("Status")).toBe("Not invested");
 }, 30_000);
 
@@ -262,14 +262,15 @@ test("A-40: the amount field keeps the decimal comma and explains an ambiguous c
 
   fireEvent.change(amountInput, { target: { value: "1500,50" } });
   expect(amountInput).toHaveValue("1500,50");
-  expect(summaryValue("Order amount")).toMatch(/CHF 1.500\.50/);
+  expect(summaryValue("Order amount")).toMatch(/CHF 1\.500,50/);
   expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled();
 
   fireEvent.change(amountInput, { target: { value: "2’500.00" } });
-  expect(summaryValue("Order amount")).toMatch(/CHF 2.500\.00/);
+  expect(summaryValue("Order amount")).toMatch(/CHF 2\.500,00/);
 
   fireEvent.change(amountInput, { target: { value: "1,000" } });
-  expect(screen.getByText(/A comma is the decimal sign\. Write thousands as 1'000\./)).toBeInTheDocument();
+  // European format (U33-DEC-32): 1,000 is one with three decimals, refused with a hint, not guessed.
+  expect(screen.getByText(/CHF amounts support at most 2 decimal places\. Write thousands as 1\.000\./)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
 }, 30_000);
 

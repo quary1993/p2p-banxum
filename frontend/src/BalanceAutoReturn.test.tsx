@@ -102,7 +102,7 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
 
   // EUR cannot go back: no verified EUR IBAN. CHF has one, so it gets no such banner.
   const banner = screen.getByRole("heading", { name: "Add a verified bank account so we can return your money" }).closest("[role='status']") as HTMLElement;
-  expect(banner).toHaveTextContent("EUR 500.00 was not invested within 58 days and must go back to your bank");
+  expect(banner).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank");
   expect(banner).toHaveTextContent("After 60 days (the legal limit) the money enters penalty mode.");
   expect(within(banner).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
   expect(screen.getAllByText("Add a verified bank account so we can return your money")).toHaveLength(1);

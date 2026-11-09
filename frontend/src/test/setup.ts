@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 
 import { server } from "../api/mocks/server";
+import { resetNumberFormatForTests } from "../investorPortal/format";
 import { resetAppearanceForTests } from "../portal/appearance";
 
 beforeAll(() => {
@@ -20,6 +21,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   // Preferences cached by the investor area (U33): each test starts from the defaults.
+  resetNumberFormatForTests();
   resetAppearanceForTests();
 });
 

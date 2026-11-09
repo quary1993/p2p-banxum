@@ -3,7 +3,7 @@
 // per currency (EUR then CHF, each a link to Account), account dropdown and notifications bell.
 import type { InvestorNotifications } from "../../api/generated/banxumApi";
 import { useT } from "../../i18n";
-import { formatMoneyLabel } from "../../investorPortal/format";
+import { formatMoneyLabel, useNumberFormat } from "../../investorPortal/format";
 import { NiIcon, PortalLink } from "../components";
 import { brandDisplayName, isBanxumBrand } from "../brand";
 import { NotificationsMenu } from "./NotificationsMenu";
@@ -29,6 +29,7 @@ export type HeaderProps = {
 
 export function Header(props: HeaderProps) {
   const t = useT();
+  useNumberFormat();
   const brand = brandDisplayName();
   return (
     <header aria-label={t("Investor account header")} className="nk-header nk-header-fixed is-light">

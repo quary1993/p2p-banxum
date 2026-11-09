@@ -176,22 +176,22 @@ test("A-39: the quick-view sheet projects what can be lent here, names the borro
   const sheet = await screen.findByRole("dialog", { name: "Audit Direct Loan" });
   await within(sheet).findByText(/Your claim is against Audit Borrower AG/, {}, { timeout: 5000 });
 
-  expect(within(sheet).getByText(/What your CHF 10.000\.00 does here/)).toBeInTheDocument();
-  expect(within(sheet).queryByText(/100.500\.01 does here/)).not.toBeInTheDocument();
+  expect(within(sheet).getByText(/What your CHF 10\.000,00 does here/)).toBeInTheDocument();
+  expect(within(sheet).queryByText(/100\.500,01 does here/)).not.toBeInTheDocument();
   expect(within(sheet).queryByText(/paid at maturity/)).not.toBeInTheDocument();
   expect(within(sheet).getByText(/capital and interest every month/)).toBeInTheDocument();
   expect(within(sheet).queryByText(/claim is against Audit Direct Loan/)).not.toBeInTheDocument();
 
   fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
   const amount = within(sheet).getByRole("textbox", { name: "Amount to invest" });
-  expect(amount).toHaveValue("10000.00");
+  expect(amount).toHaveValue("10000,00");
   // Editing the pre-filled amount works, with or without separators.
   fireEvent.change(amount, { target: { value: "9500.00" } });
-  expect(within(sheet).getByText(/^CHF 9.500\.00$/)).toBeInTheDocument();
+  expect(within(sheet).getByText(/^CHF 9\.500,00$/)).toBeInTheDocument();
   fireEvent.change(amount, { target: { value: "9’000,50" } });
-  expect(within(sheet).getByText(/^CHF 9.000\.50$/)).toBeInTheDocument();
+  expect(within(sheet).getByText(/^CHF 9\.000,50$/)).toBeInTheDocument();
   expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeEnabled();
   fireEvent.change(amount, { target: { value: "1,000" } });
-  expect(within(sheet).getByRole("alert")).toHaveTextContent(/A comma is the decimal sign/);
+  expect(within(sheet).getByRole("alert")).toHaveTextContent(/Write thousands as 1\.000\./);
   expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeDisabled();
 }, 30_000);

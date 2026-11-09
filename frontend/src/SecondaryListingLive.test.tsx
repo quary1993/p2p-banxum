@@ -131,10 +131,10 @@ test("A-34: the listing form shows the server's seller net, with accrued interes
   fireEvent.change(screen.getByDisplayValue("10000"), { target: { value: "9900" } });
 
   // 5,940.00 transfer + 7.89 accrued - 118.80 maker fee (2 %).
-  await waitFor(() => expect(reviewValue("Seller net proceeds")).toMatch(/CHF 5.829\.09/));
-  expect(reviewValue("Transfer price")).toMatch(/CHF 5.940\.00/);
-  expect(reviewValue("Accrued interest to you")).toMatch(/CHF 7\.89/);
-  expect(reviewValue("Maker fee")).toMatch(/CHF 118\.80/);
+  await waitFor(() => expect(reviewValue("Seller net proceeds")).toMatch(/CHF 5\.829,09/));
+  expect(reviewValue("Transfer price")).toMatch(/CHF 5\.940,00/);
+  expect(reviewValue("Accrued interest to you")).toMatch(/CHF 7,89/);
+  expect(reviewValue("Maker fee")).toMatch(/CHF 118,80/);
   expect(calls.previews.at(-1)).toEqual({ priceBps: 9_900 });
 }, 30_000);
 

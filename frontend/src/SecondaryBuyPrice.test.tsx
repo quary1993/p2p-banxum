@@ -191,9 +191,9 @@ test("no buyer fee (owner decision 2026-10-16): the review has no taker fee line
   const api = useInvestorApi({ detailPriceBps: 9_800, takerFeeBps: 0, purchaseResponses: [] });
   const dialog = await openBuyDialog();
 
-  expect(reviewValue(dialog, "Sale price")).toBe("2.0% discount");
+  expect(reviewValue(dialog, "Sale price")).toBe("2,0% discount");
   expect(within(dialog).queryByText("Taker fee")).not.toBeInTheDocument();
-  expect(reviewValue(dialog, "Total cost")).toMatch(/9.800\.00/);
+  expect(reviewValue(dialog, "Total cost")).toMatch(/9\.800,00/);
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
@@ -209,10 +209,10 @@ test("buy modal shows, accepts and sends the fresh listing price, not the stale 
   const api = useInvestorApi({ detailPriceBps: 12_000, purchaseResponses: [] });
   const dialog = await openBuyDialog();
 
-  expect(reviewValue(dialog, "Sale price")).toBe("20.0% premium");
-  expect(reviewValue(dialog, "Total cost")).toMatch(/12.090\.00/);
+  expect(reviewValue(dialog, "Sale price")).toBe("20,0% premium");
+  expect(reviewValue(dialog, "Total cost")).toMatch(/12\.090,00/);
   // A configured buyer fee is still shown.
-  expect(reviewValue(dialog, "Taker fee")).toMatch(/CHF 90\.00/);
+  expect(reviewValue(dialog, "Taker fee")).toMatch(/CHF 90,00/);
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
@@ -255,7 +255,7 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
   };
   const api = useInvestorApi(state);
   const dialog = await openBuyDialog();
-  expect(reviewValue(dialog, "Total cost")).toMatch(/10.075\.00/);
+  expect(reviewValue(dialog, "Total cost")).toMatch(/10\.075,00/);
 
   const ack = within(dialog).getByRole("checkbox");
   fireEvent.click(ack);
@@ -267,8 +267,8 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
 
   await within(dialog).findByText("Price changed", {}, { timeout: 5000 });
   expect(within(dialog).getByText(/Review the new price and confirm again\. Nothing was charged\./)).toBeInTheDocument();
-  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11.082\.50/));
-  expect(reviewValue(dialog, "Sale price")).toBe("10.0% premium");
+  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11\.082,50/));
+  expect(reviewValue(dialog, "Sale price")).toBe("10,0% premium");
   // The buyer must accept the terms again for the new price.
   expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
   expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeDisabled();
@@ -323,7 +323,7 @@ test("a price change found when the terms are accepted reloads the price before 
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
 
   await within(dialog).findByText("Price changed", {}, { timeout: 5000 });
-  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11.082\.50/));
+  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11\.082,50/));
   expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
   expect(api.purchases).toHaveLength(0);
 }, 30_000);

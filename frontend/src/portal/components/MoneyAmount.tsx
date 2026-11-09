@@ -1,9 +1,9 @@
 // IP of Webby-Soft SRL.
-// Currency + amount from integer minor units ("EUR 820,00"), formatted by format.ts
-// (format.ts). The currency code is its own element so screens can style it (.currency, small).
+// Currency + amount from integer minor units ("EUR 820,00"), in the investor's number format
+// (U33-DEC-32). The currency code is its own element so screens can style it (.currency, small).
 import type { ElementType } from "react";
 
-import { formatMoneyMinor } from "../../investorPortal/format";
+import { formatMoneyMinor, useNumberFormat } from "../../investorPortal/format";
 
 export function MoneyAmount({
   amountMinor,
@@ -29,6 +29,7 @@ export function MoneyAmount({
   signed?: boolean;
   hideCurrency?: boolean;
 }) {
+  useNumberFormat(); // re-render when the investor changes the format
   const value = formatMoneyMinor(amountMinor, currency, decimals);
   const plus = signed && (amountMinor ?? 0) > 0 ? "+" : "";
   return (

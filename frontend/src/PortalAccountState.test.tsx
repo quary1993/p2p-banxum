@@ -100,8 +100,8 @@ test("the frozen state from the balances API shows a banner, counts frozen money
 
   const banner = await screen.findByText("Financial actions are frozen", {}, { timeout: 5000 });
   const bannerBox = banner.closest(".banner") as HTMLElement;
-  expect(bannerBox).toHaveTextContent("EUR 4'898'036.89 passed the 60-day holding limit");
-  expect(bannerBox).toHaveTextContent("A penalty of 1.0% of this money is taken every day");
+  expect(bannerBox).toHaveTextContent("EUR 4.898.036,89 passed the 60-day holding limit");
+  expect(bannerBox).toHaveTextContent("A penalty of 1,0% of this money is taken every day");
   expect(bannerBox).toHaveTextContent("add a payout IBAN for EUR");
   expect(within(bannerBox).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
   // The nav marks the Account entry; Add funds (account menu) is disabled.
@@ -113,8 +113,8 @@ test("the frozen state from the balances API shows a banner, counts frozen money
 
   // Overview: EUR money not working includes the frozen balance.
   fireEvent.click(await screen.findByRole("tab", { name: "EUR" }));
-  expect(await screen.findByText("of which EUR 4'898'036.89 frozen, with a daily penalty")).toBeInTheDocument();
-  expect(screen.getByText("100.0% of your money, earning nothing")).toBeInTheDocument();
+  expect(await screen.findByText("of which EUR 4.898.036,89 frozen, with a daily penalty")).toBeInTheDocument();
+  expect(screen.getByText("100,0% of your money, earning nothing")).toBeInTheDocument();
 
   // FX: the converter is blocked with the reason before any quote is requested.
   server.use(
@@ -148,8 +148,8 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
   expect(within(eurRow).queryByText("Verified")).not.toBeInTheDocument();
 
   const pending = within(screen.getByRole("list", { name: "Pending withdrawals" }));
-  expect(pending.getByText("CHF 1'500.50")).toBeInTheDocument();
-  expect(pending.getByText("CHF 4'728'199.50")).toBeInTheDocument();
+  expect(pending.getByText("CHF 1.500,50")).toBeInTheDocument();
+  expect(pending.getByText("CHF 4.728.199,50")).toBeInTheDocument();
   expect(pending.getAllByText("Forced return")).toHaveLength(1);
   expect(screen.queryByText("No pending withdrawals")).not.toBeInTheDocument();
 
@@ -164,6 +164,6 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
   // Withdraw maximum (CHF): everything except the "frozen" status lot.
   fireEvent.click(screen.getAllByRole("button", { name: "Withdraw to IBAN" })[0]);
   const dialog = await screen.findByRole("dialog", { name: "Withdraw CHF" });
-  expect(within(dialog).getByText("CHF 12'896.30")).toBeInTheDocument();
+  expect(within(dialog).getByText("CHF 12.896,30")).toBeInTheDocument();
   await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
 }, 30_000);

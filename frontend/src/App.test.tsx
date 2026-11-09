@@ -353,7 +353,7 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   // Header: available balance per currency, EUR first, each a link to the account.
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
   const balances = within(topbar).getByRole("group", { name: "Available balance" });
-  expect(within(balances).getAllByRole("link").map((link) => link.textContent)).toEqual(["EUR 7'420.00", "CHF 24'190.00"]);
+  expect(within(balances).getAllByRole("link").map((link) => link.textContent)).toEqual(["EUR 7.420,00", "CHF 24.190,00"]);
   expect(within(topbar).getByRole("button", { name: "Notifications" })).toBeInTheDocument();
   openAccountMenu();
   expect(within(topbar).getByText("Verified investor")).toBeInTheDocument();
@@ -963,7 +963,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   expect(screen.getByText("available to invest")).toBeInTheDocument();
   // The collateral margin column lives in the List layout, which the page remembers.
   fireEvent.click(screen.getByRole("button", { name: "List" }));
-  expect(screen.getAllByText("58.0%").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("58,0%").length).toBeGreaterThan(0);
   expect(
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
@@ -1158,7 +1158,7 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
   expect(screen.getByRole("heading", { level: 1, name: "Invest" })).toBeInTheDocument();
   const orderPage = screen.getByRole("main");
   expect(within(orderPage).getByText("Review and sign").closest("li")).toHaveAttribute("aria-current", "step");
-  expect(within(orderPage).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
+  expect(within(orderPage).getAllByText(/2\.000,00/).length).toBeGreaterThan(0);
 });
 
 test("marketplace closing countdown uses the platform as-of date", () => {
@@ -1201,7 +1201,7 @@ test("opportunity sheet calculator validates the amount and projects the investo
   fireEvent.click(within(sheet).getByRole("button", { name: /Investment schedule calculator/ }));
   fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "500" } });
   fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
-  expect(within(sheet).getByRole("alert")).toHaveTextContent(/minimum in any one loan is CHF 1.000\.00/);
+  expect(within(sheet).getByRole("alert")).toHaveTextContent(/minimum in any one loan is CHF 1\.000,00/);
   fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "50000" } });
   fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
   // Part of the fixture's CHF balance is past its holding limit, so the eligible part is the limit.
@@ -1222,8 +1222,8 @@ test("opportunity sheet calculator validates the amount and projects the investo
   // and 1'440 x 10% x 70% = 100.80 interest; the boundary installment is excluded,
   // so only the three post-boundary fixture rows remain.
   expect(within(claimSheet).getByText("3 payments")).toBeInTheDocument();
-  expect(within(claimSheet).getAllByText("2'000.00").length).toBeGreaterThan(0);
-  expect(within(claimSheet).getByText("100.80")).toBeInTheDocument();
+  expect(within(claimSheet).getAllByText("2.000,00").length).toBeGreaterThan(0);
+  expect(within(claimSheet).getByText("100,80")).toBeInTheDocument();
   expect(within(claimSheet).getByText(/boundary installment belongs to the Loan Originator/)).toBeInTheDocument();
 });
 
@@ -1355,7 +1355,7 @@ test("originator subscription validates the minimum and stages a par reservation
   const amountInput = within(claimSheet).getByRole("textbox", { name: "Amount to invest" });
   const reviewButton = within(claimSheet).getByRole("button", { name: "Review Order" });
   fireEvent.change(amountInput, { target: { value: "100" } });
-  expect(within(claimSheet).getByText("The minimum in any one loan is CHF 500.00.")).toBeInTheDocument();
+  expect(within(claimSheet).getByText("The minimum in any one loan is CHF 500,00.")).toBeInTheDocument();
   expect(reviewButton).toBeDisabled();
 
   fireEvent.change(amountInput, { target: { value: "1000" } });
@@ -1391,7 +1391,7 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
     target: { value: "1000.00" }
   });
 
-  expect(screen.getAllByText("1 CHF = 1.0262 EUR")).toHaveLength(2);
+  expect(screen.getAllByText("1 CHF = 1,0262 EUR")).toHaveLength(2);
   expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled();
   expect(screen.getByRole("table", { name: "Your conversions" })).toBeInTheDocument();
   expect(screen.getByText(/Every rate below is the rate you received, net of fees/i)).toBeInTheDocument();
@@ -1464,7 +1464,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
   // Key facts strip: borrower, rate, LTV, amount and the like — no tabs, no documents/risk pages.
   expect(screen.getByText("Key facts")).toBeInTheDocument();
   expect(screen.getByText("Loan-to-value")).toBeInTheDocument();
-  expect(screen.getByText("58.0%")).toBeInTheDocument();
+  expect(screen.getByText("58,0%")).toBeInTheDocument();
   expect(screen.getByText("Investor yield")).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Terms & collateral" })).not.toBeInTheDocument();
   expect(screen.queryByText("Loan-originator evidence")).not.toBeInTheDocument();
@@ -1547,7 +1547,7 @@ test("investing from the loan page runs on the invest page: amount, terms, email
   // Amount validation keeps the order from moving on below the minimum.
   const amount = within(page).getByRole("textbox", { name: "Investment amount" });
   fireEvent.change(amount, { target: { value: "500" } });
-  expect(within(page).getByText(/Minimum order is CHF 1.000\.00\./)).toBeInTheDocument();
+  expect(within(page).getByText(/Minimum order is CHF 1\.000,00\./)).toBeInTheDocument();
   expect(within(page).getByRole("button", { name: "Review order" })).toBeDisabled();
   fireEvent.change(amount, { target: { value: "2000" } });
   fireEvent.click(within(page).getByRole("button", { name: "Review order" }));
@@ -1605,7 +1605,7 @@ test("immediate originator claim purchases run on the invest page: quote, terms,
 
     const amount = within(page).getByRole("textbox", { name: "Cash amount to invest" });
     fireEvent.change(amount, { target: { value: "100" } });
-    expect(within(page).getByText(/Minimum investment is CHF 500\.00\./)).toBeInTheDocument();
+    expect(within(page).getByText(/Minimum investment is CHF 500,00\./)).toBeInTheDocument();
     expect(within(page).getByRole("button", { name: "Get executable quote" })).toBeDisabled();
     fireEvent.change(amount, { target: { value: "1000" } });
     fireEvent.click(within(page).getByRole("button", { name: "Get executable quote" }));
@@ -1682,7 +1682,7 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
     const ordersInfo = screen.getByRole("button", { name: "About primary orders" });
     fireEvent.mouseEnter(ordersInfo);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Primary orders awaiting funding close");
-    expect(screen.getByRole("tooltip")).toHaveTextContent("CHF 5'000.00");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("CHF 5.000,00");
     expect(screen.getByText("No loan holdings yet")).toBeInTheDocument();
     expect(screen.getByText(/created only when a published loan is closed/i)).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Exposure" })).not.toBeInTheDocument();
@@ -1768,11 +1768,11 @@ test("secondary market redesign shows for-sale table, explainer band and selling
   expect(screen.getByText("Asking")).toBeInTheDocument();
   expect(screen.getByText("Left to run")).toBeInTheDocument();
   expect(screen.getByText("Buyer cost")).toBeInTheDocument();
-  expect(screen.getByText(/Equipment · 9.4% coupon/)).toBeInTheDocument();
+  expect(screen.getByText(/Equipment · 9,4% coupon/)).toBeInTheDocument();
   expect(screen.getByText("24 mo")).toBeInTheDocument();
-  expect(screen.getByText("2.0% discount")).toBeInTheDocument();
+  expect(screen.getByText("2,0% discount")).toBeInTheDocument();
   // Buyer cost without a buyer fee (owner decision 2026-10-16).
-  expect(screen.getByText("CHF 5'147.00")).toBeInTheDocument();
+  expect(screen.getByText("CHF 5.147,00")).toBeInTheDocument();
   expect(screen.getByText(/non-standard/)).toBeInTheDocument();
 
   // Discount/par explainer band (no premium since 2026-10-16) and the selling caution card.
@@ -1817,8 +1817,8 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByText("Spread of portfolio")).toBeInTheDocument();
   expect(screen.getByText("Collateral spread")).toBeInTheDocument();
   expect(screen.getByText("If a borrower stops paying")).toBeInTheDocument();
-  expect(screen.getByText("12.0%–16.0% p.a.")).toBeInTheDocument();
-  expect(screen.getByText(/CHF 28'110\.50 lent/)).toBeInTheDocument();
+  expect(screen.getByText("12,0%–16,0% p.a.")).toBeInTheDocument();
+  expect(screen.getByText(/CHF 28\.110,50 lent/)).toBeInTheDocument();
   const widgetPairs = document.querySelectorAll(".pf-widget-pair");
   expect(widgetPairs).toHaveLength(2);
   expect(widgetPairs[0].querySelectorAll(".card471")).toHaveLength(2);
@@ -1926,8 +1926,8 @@ test("holding details open on the investment page with factual projections and c
   // LTV uses the principal still owed on the whole loan (audit A-65), not the original amount lent.
   const engadin = portfolioFixture.holdings.find((holding) => holding.id === "H-2310")!.loan;
   const owedMinor = engadin.schedule.reduce((sum, row) => sum + row.outstanding_principal_minor, 0);
-  expect(within(page).getByText(`${formatRateBps(Math.round((owedMinor * 10_000) / engadin.collateral_value_minor))} LTV`)).toBeInTheDocument();
-  expect(within(page).getByText(/current loan principal against/).textContent).toContain(formatMoneyMinor(owedMinor, "CHF"));
+  expect(within(page).getByText(`${formatRateBps(Math.round((owedMinor * 10_000) / engadin.collateral_value_minor), "european")} LTV`)).toBeInTheDocument();
+  expect(within(page).getByText(/current loan principal against/).textContent).toContain(formatMoneyMinor(owedMinor, "CHF", undefined, "european"));
   expect(within(page).getByText(/Historical rows show the borrower payment recorded for the full loan|deterministic projected share/)).toBeInTheDocument();
 
   fireEvent.click(within(page).getByRole("button", { name: /Open timeline/ }));
@@ -1980,7 +1980,7 @@ test("originator claim holdings disclose the retained claim without implying pro
   const page = openHoldingPage("Nord Trans Cargo working capital");
   expect(
     within(page).getByText(
-      /Nord Capital Finance must retain at least 15\.0% of the loan's current outstanding principal/
+      /Nord Capital Finance must retain at least 15,0% of the loan's current outstanding principal/
     )
   ).toBeInTheDocument();
   expect(within(page).queryByText(/loses alongside you/i)).not.toBeInTheDocument();
@@ -2002,7 +2002,7 @@ test("impaired holding details do not estimate default interest from days past d
 
     const page = openHoldingPage("Engadin Alpine refinancing");
     expect(within(page).getByText(/18 days past due/)).toBeInTheDocument();
-    expect(within(page).getByText(/12\.0% annual default-interest rate/)).toBeInTheDocument();
+    expect(within(page).getByText(/12,0% annual default-interest rate/)).toBeInTheDocument();
     expect(within(page).getByText(/does not estimate accrued default interest from days past due/)).toBeInTheDocument();
     expect(within(page).queryByText(/a day at today/i)).not.toBeInTheDocument();
   } finally {
@@ -2692,7 +2692,7 @@ test("an amount just over the remaining capacity names the capacity, not the wal
     const sheet = screen.getByRole("dialog", { name: "Léman BioTech SA" });
     fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
     fireEvent.change(within(sheet).getByLabelText("Amount to invest"), { target: { value: "5001" } });
-    expect(within(sheet).getByText(/This opportunity has only CHF 5.000\.00 left, so that is the most you can invest here\./)).toBeInTheDocument();
+    expect(within(sheet).getByText(/This opportunity has only CHF 5\.000,00 left, so that is the most you can invest here\./)).toBeInTheDocument();
     expect(within(sheet).queryByText(/is not lent/)).not.toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeDisabled();
     fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
@@ -2701,7 +2701,7 @@ test("an amount just over the remaining capacity names the capacity, not the wal
     window.history.pushState({}, "", "/marketplace/GA-2390/invest");
     fireEvent(window, new PopStateEvent("popstate"));
     fireEvent.change(screen.getByLabelText("Investment amount"), { target: { value: "5001" } });
-    expect(screen.getByText(/This opportunity has only CHF 5.000\.00 left/)).toBeInTheDocument();
+    expect(screen.getByText(/This opportunity has only CHF 5\.000,00 left/)).toBeInTheDocument();
   } finally {
     [preview!.remaining_capacity_minor, preview!.fillable_amount_minor, detail!.remaining_capacity_minor, detail!.fillable_amount_minor] = previous;
   }
@@ -2720,7 +2720,7 @@ test("activity labels each withdrawal outcome and shows the cancellation credit"
   const reversalRow = screen.getByText("Returned to balance").closest("tr") as HTMLElement;
   expect(within(reversalRow).getByText("Withdrawal cancelled")).toBeInTheDocument();
   expect(within(reversalRow).getByText("withdrawal reversal")).toBeInTheDocument();
-  expect(within(reversalRow).getByText(/\+2.000\.00/)).toBeInTheDocument();
+  expect(within(reversalRow).getByText(/\+2\.000,00/)).toBeInTheDocument();
 });
 
 test("Account shows the frozen balance apart from the penalty charged on the lots", () => {
@@ -2740,7 +2740,7 @@ test("Account shows the frozen balance apart from the penalty charged on the lot
     const lots = screen.getByRole("heading", { name: "CHF balance lots" }).closest("section") as HTMLElement;
     expect(within(lots).getByText("Penalty charged", { selector: "span" })).toBeInTheDocument();
     expect(within(lots).getByRole("columnheader", { name: "Penalty charged" })).toBeInTheDocument();
-    expect(within(lots).getAllByText(/49\.00/).length).toBeGreaterThanOrEqual(2);
+    expect(within(lots).getAllByText(/49,00/).length).toBeGreaterThanOrEqual(2);
   } finally {
     overdueLot!.penalized_amount_minor = 0;
     chf!.penalty_charged_minor = 0;
@@ -2802,7 +2802,7 @@ test("activity shows penalty charges and labels a forced return as such", () => 
 
     const penaltyRow = screen.getByText("Penalty charged: balance past the 60-day limit").closest("tr") as HTMLElement;
     expect(within(penaltyRow).getByText("penalty")).toBeInTheDocument();
-    expect(within(penaltyRow).getByText(/-50\.00/)).toBeInTheDocument();
+    expect(within(penaltyRow).getByText(/-50,00/)).toBeInTheDocument();
     const forcedRow = screen.getByText("Forced return to your bank account").closest("tr") as HTMLElement;
     expect(within(forcedRow).getByText("forced return")).toBeInTheDocument();
     expect(within(forcedRow).getByText("Pending")).toBeInTheDocument();

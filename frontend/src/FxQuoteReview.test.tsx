@@ -98,8 +98,8 @@ test("FX review: minor-unit amount, one rate, countdown from receipt, refresh, l
   renderLiveApp(App, "/fx");
 
   // Daily limit and quote lock from the API, Swiss formatting.
-  expect(await screen.findByText("CHF 25'000 equivalent", {}, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByText("CHF 1'200.00")).toBeInTheDocument();
+  expect(await screen.findByText("CHF 25.000 equivalent", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByText("CHF 1.200,00")).toBeInTheDocument();
   expect(screen.getByText("2 seconds")).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText("Amount to convert from CHF"), { target: { value: "1234.56" } });
@@ -107,13 +107,13 @@ test("FX review: minor-unit amount, one rate, countdown from receipt, refresh, l
   expect(target).toBe(126_468);
   await waitFor(() => expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled(), { timeout: 5000 });
   const pageRate = screen.getByText(/^1 CHF = .* EUR$/, { selector: ".fx-rate-value" }).textContent;
-  expect(pageRate).toBe("1 CHF = 1.0244 EUR");
+  expect(pageRate).toBe("1 CHF = 1,0244 EUR");
 
   fireEvent.click(screen.getByRole("button", { name: "Convert" }));
   const dialog = await screen.findByRole("dialog", { name: "Confirm currency exchange" }, { timeout: 5000 });
-  expect(within(dialog).getByText("EUR 1'264.68")).toBeInTheDocument();
-  expect(within(dialog).queryByText(/1'264\.6800/)).not.toBeInTheDocument();
-  expect(within(dialog).getByText("1 CHF = 1.0244 EUR")).toBeInTheDocument();
+  expect(within(dialog).getByText("EUR 1.264,68")).toBeInTheDocument();
+  expect(within(dialog).queryByText(/1\.264,6800/)).not.toBeInTheDocument();
+  expect(within(dialog).getByText("1 CHF = 1,0244 EUR")).toBeInTheDocument();
   // The countdown starts at the quote's time to live although expires_at is years in the past.
   expect(within(dialog).getByText(/0:0[12]/)).toBeInTheDocument();
 

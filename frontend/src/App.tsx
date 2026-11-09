@@ -146,10 +146,13 @@ import { SitePages } from "./site/SitePages";
 import { SiteSkin } from "./site/SiteSkin";
 import { captureMagicLinkTokenFromLocation, takePendingMagicLinkToken } from "./magicLinkToken";
 import {
+  formatAmountInput,
   formatDate,
   formatDateTime,
+  formatDecimal,
   formatMoneyMinor,
   formatMoneyLabel,
+  formatPercent,
   formatRateBps,
   formatWholeAmount,
   daysBetweenDateKeys,
@@ -160,6 +163,7 @@ import {
   parseMoneyInputToMinorUnits,
   pluralize,
   safeMetadataCategory,
+  useNumberFormatScope,
   zurichDateKey
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
@@ -2338,6 +2342,8 @@ function InvestorShell({
 }) {
   const queryClient = useQueryClient();
   const t = useT();
+  // U33-DEC-32: the investor's number format applies while the investor area is mounted.
+  useNumberFormatScope();
   const notificationReadActions = useNotificationReadActions();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
   const [payoutIbanOpen, setPayoutIbanOpen] = useState(false);
@@ -2885,7 +2891,7 @@ function Dashboard({
   const sinceLabel = firstAssignment
     ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Europe/Zurich" })
     : null;
-  const idlePct = investedMinor + notWorkingMinor > 0 ? ((notWorkingMinor / (investedMinor + notWorkingMinor)) * 100).toFixed(1) : "0.0";
+  const idlePct = investedMinor + notWorkingMinor > 0 ? formatDecimal(((notWorkingMinor / (investedMinor + notWorkingMinor)) * 100), 1) : formatDecimal(0, 1);
 
   const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
   const deskTickable = deskMatches.filter(isOpenMarketplaceLoan);
@@ -3210,8 +3216,8 @@ function Dashboard({
                 <text x="46" y="303" textAnchor="start" fontSize="11" fill="#6e6e6e">{startLabel}</text>
                 <text x="283" y="303" textAnchor="middle" fontSize="11" fontWeight="600" fill="#b3261e">today</text>
                 <text x="790" y="303" textAnchor="end" fontSize="11" fill="#6e6e6e">{horizonLabel}</text>
-                <text x="800" y={chartY(pctA) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#0a0a0a">+{pctA.toFixed(1)}%</text>
-                <text x="800" y={chartY(pctB) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#1e7a46">+{pctB.toFixed(1)}%</text>
+                <text x="800" y={chartY(pctA) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#0a0a0a">+{formatPercent(pctA, 1)}</text>
+                <text x="800" y={chartY(pctB) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#1e7a46">+{formatPercent(pctB, 1)}</text>
               </svg>
               <div className="dz-chart-note">Marked points are calculated. The path between them is the shape of accrual, not a month-by-month forecast.</div>
             </div>
@@ -3222,21 +3228,21 @@ function Dashboard({
                 <span className="dz-scn-col num">{pfMoneyLabel(ccy, totalBase)}</span>
                 <span className="dz-scn-col num green">{pfMoneyLabel(ccy, scenarioAInterest)}</span>
                 <span className="dz-scn-col wide num">{pfMoneyLabel(ccy, totalBase + scenarioAInterest)}</span>
-                <span className="dz-scn-col sm"><span className="dz-scn-mult num">{totalBase > 0 ? (1 + scenarioAInterest / totalBase).toFixed(2) : "1.00"}×</span><span className="dz-scn-pct num">+{pctA.toFixed(1)}%</span></span>
+                <span className="dz-scn-col sm"><span className="dz-scn-mult num">{totalBase > 0 ? formatDecimal((1 + scenarioAInterest / totalBase), 2) : formatDecimal(1, 2)}×</span><span className="dz-scn-pct num">+{formatPercent(pctA, 1)}</span></span>
               </div>
               <div className="dz-scn-row">
                 <span className="dz-scn-name"><span className="dz-scn-line"><span className="dz-scn-swatch green" /><strong>Everything reinvested</strong></span><span className="dz-scn-desc">{bestOpenBps > 0 ? `Every repayment is lent onward at today’s best open rate of ${formatRateBps(bestOpenBps)} the month it arrives, and the ${pfMoneyLabel(ccy, idleMinor)} is lent too.` : "No open opportunity currently supplies a reinvestment rate, so this scenario adds no assumed reinvestment return."}</span></span>
                 <span className="dz-scn-col num">{pfMoneyLabel(ccy, totalBase)}</span>
                 <span className="dz-scn-col num green">{pfMoneyLabel(ccy, scenarioBInterest)}</span>
                 <span className="dz-scn-col wide num">{pfMoneyLabel(ccy, totalBase + scenarioBInterest)}</span>
-                <span className="dz-scn-col sm"><span className="dz-scn-mult num green">{totalBase > 0 ? (1 + scenarioBInterest / totalBase).toFixed(2) : "1.00"}×</span><span className="dz-scn-pct num">+{pctB.toFixed(1)}%</span></span>
+                <span className="dz-scn-col sm"><span className="dz-scn-mult num green">{totalBase > 0 ? formatDecimal((1 + scenarioBInterest / totalBase), 2) : formatDecimal(1, 2)}×</span><span className="dz-scn-pct num">+{formatPercent(pctB, 1)}</span></span>
               </div>
               <div className="dz-scn-row total">
                 <span style={{ flex: 1, fontWeight: 600 }}>The difference reinvesting makes</span>
                 <span className="dz-scn-col dim">no extra capital</span>
                 <span className="dz-scn-col num green big">{pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))}</span>
                 <span className="dz-scn-col wide num dim">{pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))}</span>
-                <span className="dz-scn-col sm num green">+{Math.max(0, pctB - pctA).toFixed(1)} pts</span>
+                <span className="dz-scn-col sm num green">+{formatDecimal(Math.max(0, pctB - pctA), 1)} pts</span>
               </div>
               <div className="dz-scn-note">Both scenarios hold the same {pfMoneyLabel(ccy, totalBase)} — {pfMoneyLabel(ccy, investedMinor)} lent and {pfMoneyLabel(ccy, idleMinor)} in your wallet — to the last scheduled repayment in {horizonLabel}. {pfMoneyLabel(ccy, realizedInterest)} of the interest is already paid and counted in both. The rest depends on the borrowers paying as agreed{bestOpenBps > 0 ? `, and the green scenario also assumes a loan at today’s best open rate of ${formatRateBps(bestOpenBps)} is available every time you have money to place.` : ". The green scenario currently assumes no additional return because no open reinvestment rate is available."}</div>
             </div>
@@ -4122,7 +4128,7 @@ function MarketplaceScreen({
 
   const tokens: { label: string; clear: () => void }[] = [];
   if (filters.q.trim() !== "") tokens.push({ label: `matching "${filters.q.trim()}"`, clear: () => setFlt("q", "") });
-  if (filters.minRate !== null) tokens.push({ label: `${filters.minRate.toFixed(1)}% and up`, clear: () => setFlt("minRate", null) });
+  if (filters.minRate !== null) tokens.push({ label: `${formatPercent(filters.minRate, 1)} and up`, clear: () => setFlt("minRate", null) });
   if (filters.maxTerm !== null) tokens.push({ label: `up to ${filters.maxTerm} months`, clear: () => setFlt("maxTerm", null) });
   const listToken = (key: MkListKey, value: string, label: string) => {
     tokens.push({ label, clear: () => setFilters((current) => ({ ...current, [key]: current[key].filter((item) => item !== value) })) });
@@ -4314,7 +4320,7 @@ function MarketplaceScreen({
                     Pays at least
                     {filters.minRate !== null ? <button aria-label="Clear minimum rate" className="fs-group-x" onClick={() => setFlt("minRate", null)} type="button">×</button> : null}
                   </span>
-                  <span className="fs-slider-val">{filters.minRate === null ? "any rate" : `${rateValue.toFixed(1)}%`}</span>
+                  <span className="fs-slider-val">{filters.minRate === null ? "any rate" : `${formatPercent(rateValue, 1)}`}</span>
                 </div>
                 <div className="fs-hist">
                   {rateBins.map((bin, index) => (
@@ -4337,7 +4343,7 @@ function MarketplaceScreen({
                   type="range"
                   value={rateValue}
                 />
-                <div className="fs-range-ends"><span>{rateFloor.toFixed(1)}%</span><span>{rateCeil.toFixed(1)}%</span></div>
+                <div className="fs-range-ends"><span>{formatPercent(rateFloor, 1)}</span><span>{formatPercent(rateCeil, 1)}</span></div>
               </div>
               <div>
                 <div className="fs-slider-head">
@@ -4575,7 +4581,7 @@ function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: str
   const rows = [
     { label: "Collateral", value: smartInvestCollateralSummary(filters.col) },
     { label: "Currency", value: mkListSummary(filters.ccy, "Any currency") },
-    { label: "Minimum yield", value: filters.minRate === null ? "No minimum" : `${filters.minRate.toFixed(1)}% p.a.` },
+    { label: "Minimum yield", value: filters.minRate === null ? "No minimum" : `${formatPercent(filters.minRate, 1)} p.a.` },
     { label: "Maximum term", value: filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months` },
     {
       label: "Source",
@@ -4807,7 +4813,7 @@ function SmartInvestWizard({
               <h3>A floor on the rate?</h3>
               <p>A high floor means the rule will often find nothing — and a high rate is not a sign of a better borrower, frequently the opposite.</p>
               <div className="si-wiz-value-row">
-                <span className="si-wiz-value">{filters.minRate === null ? "no floor" : `${filters.minRate.toFixed(1)}%`}</span>
+                <span className="si-wiz-value">{filters.minRate === null ? "no floor" : `${formatPercent(filters.minRate, 1)}`}</span>
                 <span className="si-wiz-value-note">{filters.minRate === null ? "every rate qualifies" : "anything below this is skipped"}</span>
               </div>
               <input aria-label="Minimum Smart-Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
@@ -5068,7 +5074,7 @@ function SmartInvestScreen({
               <div className="si-cond-grid">
                 <div className="si-cond-card">
                   <div className="si-cond-cap">Only if it pays at least</div>
-                  <div className="si-cond-val">{filters.minRate === null ? "any rate" : `${filters.minRate.toFixed(1)}%`}</div>
+                  <div className="si-cond-val">{filters.minRate === null ? "any rate" : `${formatPercent(filters.minRate, 1)}`}</div>
                   <input aria-label="Minimum Smart-Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
                   <div className="si-cond-ends"><span>0% — any</span><span>25%</span></div>
                   <div className="si-cond-note">A high floor means the rule will often find nothing — and a high rate is not a sign of a better borrower, frequently the opposite.</div>
@@ -5331,8 +5337,9 @@ function marketplaceProjection(
 }
 
 /** An amount as a plain input value ("5000.00"), without thousands separators. */
+// An amount written back into an amount field: no grouping, the investor's decimal sign (U33-DEC-32).
 function plainMoneyInput(amountMinor: number, currency: string) {
-  return formatMoneyMinor(amountMinor, currency).replace(/[^\d.]/g, "");
+  return formatAmountInput(amountMinor, currency);
 }
 
 /** How the money comes back, for the sheet's projection line. */
@@ -5727,9 +5734,9 @@ function MarketplaceLoanSheet({
                 <div className="os-wallet-cap">You commit</div>
                 <div className="os-commit-val">{pfMoneyLabel(ccy, amountMinor)}</div>
                 <div className="os-commit-sub">
-                  {availableMinor > 0 ? `${((amountMinor / availableMinor) * 100).toFixed(1)}% of what is available here` : ""}
+                  {availableMinor > 0 ? `${formatPercent(((amountMinor / availableMinor) * 100), 1)} of what is available here` : ""}
                   <br />
-                  {bookMinor > 0 ? `${((amountMinor / (bookMinor + amountMinor)) * 100).toFixed(1)}% of everything you have lent` : "your first loan in this currency"}
+                  {bookMinor > 0 ? `${formatPercent(((amountMinor / (bookMinor + amountMinor)) * 100), 1)} of everything you have lent` : "your first loan in this currency"}
                 </div>
                 <button className="os-confirm" disabled={underMin || overCash || amountMinor <= 0 || !detail} onClick={reviewOrder} type="button">Review Order</button>
                 <button className="os-cancel" onClick={() => { setStepOpen(false); setAmountText(null); }} type="button">Cancel</button>
@@ -7172,7 +7179,7 @@ function fxMoneyLabel(currency: string, amountMinor: number) {
 
 function fxRateLabel(rate: string | number | null | undefined) {
   const value = Number(rate);
-  return Number.isFinite(value) && value > 0 ? value.toFixed(4) : "-";
+  return Number.isFinite(value) && value > 0 ? formatDecimal(value, 4) : "-";
 }
 
 // The quoted rate net of the platform fee, shown the same way on the page, in the rate list and in
@@ -8160,18 +8167,18 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
     {
       label: "Spread across loans",
       score: pfScore(largestShare, 0.25, 0.02),
-      sentence: `Your largest loan is ${largest.loan.borrower_name || largest.loan.loan_title} at ${(largestShare * 100).toFixed(1)}% of your money. Scale: 0 if one loan is over 25%, 100 if none is over 2%.`
+      sentence: `Your largest loan is ${largest.loan.borrower_name || largest.loan.loan_title} at ${formatPercent((largestShare * 100), 1)} of your money. Scale: 0 if one loan is over 25%, 100 if none is over 2%.`
     },
     {
       label: "Spread by purpose",
       score: pfScore(share(topPurposeMinor), 0.6, 0.2),
-      sentence: `${topPurpose} is ${pfMoneyLabel(currency, topPurposeMinor)}, or ${(share(topPurposeMinor) * 100).toFixed(1)}% — your largest purpose. Scale: 0 if one purpose is over 60%, 100 if none is over 20%.`
+      sentence: `${topPurpose} is ${pfMoneyLabel(currency, topPurposeMinor)}, or ${formatPercent((share(topPurposeMinor) * 100), 1)} — your largest purpose. Scale: 0 if one purpose is over 60%, 100 if none is over 20%.`
     },
     {
       label: "Collateral cover",
       score: securedMinor > 0 ? pfScore(coverPct, 90, 40) : 0,
       sentence: securedMinor > 0
-        ? `Weighted across your money, each secured loan sits at ${coverPct.toFixed(1)}% of an independent valuation. Scale: 0 at 90% of valuation, 100 at 40% or less.`
+        ? `Weighted across your money, each secured loan sits at ${formatPercent(coverPct, 1)} of an independent valuation. Scale: 0 at 90% of valuation, 100 at 40% or less.`
         : "No secured loans yet, so there is no valuation cover to measure."
     },
     {
@@ -8182,7 +8189,7 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
     {
       label: "Principal collateral",
       score: pfScore(share(topCollateralMinor), 1, 0.35),
-      sentence: `${humanizeToken(topCollateral)} is ${pfMoneyLabel(currency, topCollateralMinor)}, or ${(share(topCollateralMinor) * 100).toFixed(1)}% of your money — counted by each loan's principal asset. Scale: 0 if one type is everything, 100 if none is over 35%.`
+      sentence: `${humanizeToken(topCollateral)} is ${pfMoneyLabel(currency, topCollateralMinor)}, or ${formatPercent((share(topCollateralMinor) * 100), 1)} of your money — counted by each loan's principal asset. Scale: 0 if one type is everything, 100 if none is over 35%.`
     },
     {
       label: "Current performance",
@@ -8485,7 +8492,7 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
           {sorted.map((holding) => {
             const late = pfIsLate(holding);
             const next = pfNextPayment(holding);
-            const shareLabel = totalMinor > 0 ? `${((holding.current_principal_minor / totalMinor) * 100).toFixed(1)}%` : "-";
+            const shareLabel = totalMinor > 0 ? `${formatPercent(((holding.current_principal_minor / totalMinor) * 100), 1)}` : "-";
             const widthPct = (holding.current_principal_minor / largestMinor) * 100;
             const listing = holding.open_secondary_listing;
             return (
@@ -8610,7 +8617,7 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
                     <span key={segment.label} style={{ alignItems: "center", display: "flex", gap: 8 }}>
                       <span style={{ background: segment.color, flex: "none", height: 9, width: 9 }} />
                       <span style={{ color: segment.bad ? "#b3261e" : "#2a2a2a", flex: 1 }}>{segment.label}</span>
-                      <span className="num" style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                      <span className="num" style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${formatPercent(((segment.amount / totalMinor) * 100), 1)}` : "-"}</span>
                     </span>
                   ))}
                 </span>
@@ -8638,8 +8645,8 @@ function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: stri
                   </span>
                 </span>
                 <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${formatPercent(weightedLtv, 1)}`}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${formatDecimal(Math.min(...securedLtvs), 0)} – ${formatPercent(Math.max(...securedLtvs), 0)}` : "—"}</span></span>
                   <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{pfLoanCount(unsecuredHoldings)} of {pfLoanCount(holdings)}</span></span>
                   <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{pfLoanCount(lateHoldings)} of {pfLoanCount(holdings)}</span></span>
                 </span>
@@ -8938,7 +8945,7 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
                   <span style={{ background: segment.color, flex: "none", height: 11, width: 11 }} />
                   <span style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 500 }}>{segment.label}</span>
                   <span className="leader" style={{ margin: "0 6px 4px" }} />
-                  <span className="num" style={{ color: "#6e6e6e", marginRight: 14 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                  <span className="num" style={{ color: "#6e6e6e", marginRight: 14 }}>{totalMinor > 0 ? `${formatPercent(((segment.amount / totalMinor) * 100), 1)}` : "-"}</span>
                   <span className="num" style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 600 }}>{pfWholeLabel(currency, segment.amount)}</span>
                 </div>
               ))}
@@ -8951,8 +8958,8 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
 }
 
 function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCount, lateMinor, securedLtvs, unsecuredCount, unsecuredMinor, weightedLtv }: { currency: string; defaultInterestBps: number[]; holdingCount: number; lateCount: number; lateMinor: number; securedLtvs: number[]; unsecuredCount: number; unsecuredMinor: number; weightedLtv: number | null }) {
-  const ltvLabel = weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`;
-  const rangeLabel = securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}% of valuation` : "—";
+  const ltvLabel = weightedLtv === null ? "—" : `${formatPercent(weightedLtv, 1)}`;
+  const rangeLabel = securedLtvs.length > 0 ? `${formatDecimal(Math.min(...securedLtvs), 0)} – ${formatPercent(Math.max(...securedLtvs), 0)} of valuation` : "—";
   const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
   return (
     <div className="pf-panel">
@@ -8968,8 +8975,8 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
               <div style={{ background: "#0a0a0a", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
               <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#6e6e6e", fontSize: 11, fontWeight: 600 }}>headroom</span></div>
             </div>
-            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#0a0a0a", fontWeight: 600 }}>Weighted LTV {ltvLabel}</span><span className="grow" /><span style={{ color: "#6e6e6e" }}>{weightedLtv === null ? "" : `${(100 - weightedLtv).toFixed(1)}% valuation headroom`}</span></div>
-            <div style={{ color: "#6e6e6e", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted only across secured holdings with a disclosed LTV. Per-project disclosed LTV ranges from {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "not available"}.</div>
+            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#0a0a0a", fontWeight: 600 }}>Weighted LTV {ltvLabel}</span><span className="grow" /><span style={{ color: "#6e6e6e" }}>{weightedLtv === null ? "" : `${formatPercent((100 - weightedLtv), 1)} valuation headroom`}</span></div>
+            <div style={{ color: "#6e6e6e", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted only across secured holdings with a disclosed LTV. Per-project disclosed LTV ranges from {securedLtvs.length > 0 ? `${formatPercent(Math.min(...securedLtvs), 0)} to ${formatPercent(Math.max(...securedLtvs), 0)}` : "not available"}.</div>
           </div>
           <div style={{ borderLeft: "1px solid #e6e6e6", paddingLeft: 6 }}>
             <div className="pf-risk-cap">The second is the recovery contract</div>
@@ -8993,7 +9000,7 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
         <div className="pf-risk-kvs">
           <div className="kv-row"><span className="k">Configured default interest across your loans</span><span className="leader" /><span className="v">{defaultInterestLabel}</span></div>
           <div className="kv-row"><span className="k">Disclosed LTV range across your loans</span><span className="leader" /><span className="v">{rangeLabel}</span></div>
-          <div className="kv-row"><span className="k">Weighted LTV across disclosed secured holdings</span><span className="leader" /><span className="v">{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}% of valuation`}</span></div>
+          <div className="kv-row"><span className="k">Weighted LTV across disclosed secured holdings</span><span className="leader" /><span className="v">{weightedLtv === null ? "—" : `${formatPercent(weightedLtv, 1)} of valuation`}</span></div>
           <div className="kv-row"><span className="k">Loans with no asset pledged</span><span className="leader" /><span className="v">{unsecuredCount} of {holdingCount}{unsecuredCount > 0 ? ` · ${pfWholeLabel(currency, unsecuredMinor)}` : ""}</span></div>
           <div className="kv-row"><span className="k">Recovery timing</span><span className="leader" /><span className="v">Project-specific; not guaranteed</span></div>
           <div className="kv-row"><span className="k">In arrears right now</span><span className="leader" /><span className="v" style={{ color: lateCount > 0 ? "#b3261e" : undefined }}>{lateCount} of {holdingCount}{lateCount > 0 ? ` · ${pfWholeLabel(currency, lateMinor)}` : ""}</span></div>
@@ -9630,12 +9637,12 @@ function HoldingDetail({
             <div className="inv-fig"><span>Projected still to earn</span><strong><Money amountMinor={projectedInterestMinor} currency={currency} /></strong><small>across {projectedRows.length} remaining payments</small></div>
           </div>
           <div className="inv-fig-group">
-            <div className="inv-fig"><span>Capital returned</span><strong><Money amountMinor={capitalReturnedMinor} currency={currency} /></strong><small>{capitalReturnedPercent.toFixed(1)}% of your original claim</small></div>
+            <div className="inv-fig"><span>Capital returned</span><strong><Money amountMinor={capitalReturnedMinor} currency={currency} /></strong><small>{formatPercent(capitalReturnedPercent, 1)} of your original claim</small></div>
             <div className="inv-fig"><span>Still owed to you</span><strong><Money amountMinor={holding.current_principal_minor} currency={currency} /></strong><small>current outstanding principal</small></div>
           </div>
         </section>
         <div className="inv-lifetime">
-          Of the <strong><Money amountMinor={lifetimeInterestMinor} currency={currency} /></strong> of contractual and recorded recovery interest represented here, <strong>{receivedInterestPercent.toFixed(1)}%</strong> has been received. Future interest is projected, not guaranteed.
+          Of the <strong><Money amountMinor={lifetimeInterestMinor} currency={currency} /></strong> of contractual and recorded recovery interest represented here, <strong>{formatPercent(receivedInterestPercent, 1)}</strong> has been received. Future interest is projected, not guaranteed.
         </div>
         <dl className="inv-facts">
           <div><dt>Purpose</dt><dd>{humanizeToken(loan.purpose)}</dd></div>
@@ -9696,7 +9703,7 @@ function HoldingDetail({
           <span className="inv-link">{timelineOpen ? "Hide timeline" : "Open timeline"}</span>
         </button>
         <div className="inv-progress-body">
-          <div aria-label={`${progressPercent.toFixed(0)}% of scheduled payments recorded`} className="holding-v9-progress-bar" role="img">
+          <div aria-label={`${formatPercent(progressPercent, 0)} of scheduled payments recorded`} className="holding-v9-progress-bar" role="img">
             <span style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }} />
           </div>
           {timelineOpen ? (
@@ -9752,7 +9759,7 @@ function HoldingDetail({
             <p className="holding-v9-collateral-copy">{collateralDescription}</p>
             {ltvPercent !== null && collateralValueMinor > 0 ? (
               <>
-                <div aria-label={`${ltvPercent.toFixed(1)}% loan to value`} className="holding-v9-ltv-bar" role="img"><span style={{ width: `${Math.min(100, Math.max(0, ltvPercent))}%` }} /></div>
+                <div aria-label={`${formatPercent(ltvPercent, 1)} loan to value`} className="holding-v9-ltv-bar" role="img"><span style={{ width: `${Math.min(100, Math.max(0, ltvPercent))}%` }} /></div>
                 <div className="holding-v9-ltv-label"><span><Money amountMinor={loanPrincipalNowMinor} currency={currency} /> current loan principal against <Money amountMinor={collateralValueMinor} currency={currency} /> valuation</span><strong>{formatRateBps(loanLtv ?? 0)} LTV</strong></div>
               </>
             ) : <p className="muted-2">No investor-facing collateral valuation or LTV is available.</p>}

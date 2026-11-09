@@ -1,5 +1,26 @@
 # Claude Design TODO
 
+## 2026-11-09: U33 Investor Shell, Skin Coexistence And Shared Components (Phase 17.1 S1)
+
+- Screen or component: investor shell `frontend/src/portal/shell/` (sidebar INVEST / WALLET / ACCOUNT, header balances, account dropdown, notifications dropdown, phone header and off-canvas menu, footer), `frontend/src/portal/components/`, generated `frontend/src/portal/u33/u33.css` + `u33-overrides.css`, interim `/transactions` and `/reports` screens.
+- Current behavior: the shell is the design's DOM and CSS (purged and scoped to `html.bxu`), wired to today's data and routes. Every old screen body is shown unchanged inside the new shell (`LegacyBody`, old skin `html.bxm`); in Dark the old bodies appear as a light panel because the old skin has no Dark. The account dropdown has Profile & Settings, Help, Language (English, not selectable until Phase 17.8) and Sign out; the design's Personal information / Security / Bank accounts / Preferences entries wait for the settings sub-routes (S5). Transactions and Reports have a U33 page head over today's activity list and today's statements/tax documents (S4 rebuilds them). Notification rows use the neutral style (amber only for failed deliveries) because the API has no category for the design's positive/late tones. The Account entry keeps today's alert marker (money due back, frozen account) in the design's count style. The compact sidebar state is kept per browser.
+- Suggested improvement: S2-S5 replace each `LegacyBody` with the rebuilt screen; add the settings sub-routes and the remaining account-menu entries (S5); give notifications a category (positive, late, default) so rows get the design's tones; the design's attribute selectors on prototype links (`a[href^="#/projects/"]`, `[href$="/invest"]`, `a[href="#/signup"]`) never match app addresses, so the screens that need those styles add a class and an override; Appearance and Number format controls in Profile & Settings -> Preferences (S5; the hooks exist, preview mode has a floating reviewer panel).
+- Priority: blocking polish (until S2-S5 replace the old bodies).
+
+## 2026-11-09: Number Format Preference (U33-DEC-32)
+
+- Screen or component: `frontend/src/investorPortal/format.ts` (`useNumberFormat`, `parseMoneyInputToMinorUnits`), every amount, rate and percentage of the investor area.
+- Current behavior: the investor area shows European `1.234,56` by default and Swiss `1’234.56` as the alternative, independent of the language; the choice is saved in the browser (localStorage). Typed amounts follow the selected format; a value valid only in the other format is accepted when it has one reading, and a value with two readings (e.g. `1,234` with the Swiss format) is refused with an example instead of being guessed. The admin console keeps `1'234.56`; the public site keeps its own format (S6); emails, notifications and generated personal reports are still formatted by the backend in the previous format.
+- Suggested improvement: save the preference in the account and apply it to emails, notifications and new personal reports (Phase 17.8); add the control to Profile & Settings -> Preferences (S5); decide whether the admin console should follow the operator's own preference.
+- Priority: important.
+
+## 2026-11-09: U33 Fonts And Icons (U33-DEC-37)
+
+- Screen or component: `frontend/src/portal/u33/assets/nioicon-u33.woff2` (Nioicon subset, 228 glyphs used by the kept U33 rules), Archivo via `@fontsource-variable/archivo`.
+- Current behavior: the design's embedded Archivo faces (400/500/600) are replaced by Archivo Variable (SIL OFL 1.1); weights outside 400-600 are clamped to what the design renders. Nioicon (DashLite template) is subset from the design's file; `fcicons` is not used.
+- Suggested improvement: confirm the DashLite/Nioicon licence covers this use and distribution (U33-DEC-37) or pick a replacement icon set with the same glyphs.
+- Priority: important.
+
 ## 2026-10-16: Swiss-Borrower Investor Limit On The Invest Page (MKT-DEC-028)
 
 - Screen or component: investor Invest page (`/marketplace/{loan-id}/invest`, primary order and quoted Loan Originator claim), amount step; `frontend/src/investorPortal/SwissInvestorLimitNote.tsx`.

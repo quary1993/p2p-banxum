@@ -116,9 +116,9 @@ test("the invest page shows the API minimum and the places left of a Swiss-borro
 
   const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
   expect(screen.getByText("Swiss borrower: at most 20 investors. 19 places left.")).toBeInTheDocument();
-  expect(screen.getByText(/Between CHF 4.211\.00 and/)).toBeInTheDocument();
+  expect(screen.getByText(/Between CHF 4\.211,00 and/)).toBeInTheDocument();
   fireEvent.change(amountInput, { target: { value: "4000" } });
-  expect(await screen.findByText(/Minimum order is CHF 4.211\.00\./)).toBeInTheDocument();
+  expect(await screen.findByText(/Minimum order is CHF 4\.211,00\./)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
   fireEvent.change(amountInput, { target: { value: "4211" } });
   await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled());
