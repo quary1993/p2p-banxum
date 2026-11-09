@@ -11,6 +11,7 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   PublicLoanRiskNote,
+  PublicProject,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
@@ -82,6 +83,8 @@ export const smartInvestFixture: SmartInvestResponse = {
 };
 
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [];
+
+export const pastProjectsFixture: PublicProject[] = [];
 
 export const portfolioFixture: InvestorPortfolio = {
   as_of: "",

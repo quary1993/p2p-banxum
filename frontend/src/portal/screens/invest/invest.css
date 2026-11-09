@@ -1,0 +1,173 @@
+/* IP of Webby-Soft SRL. */
+/* Area fixes of the U33 investing screens (slice S2). Every rule is under html.bxu and states its
+ * reason. u33.css is generated (never edit it); u33-overrides.css belongs to the shared shell. */
+
+/* Loading, empty and error states of the investing screens: the design has no page for them, so the
+   shared empty state sits in a white panel like the design's cards. */
+html.bxu .u33-invest-state .r75-empty {
+  margin-top: 8px;
+  padding: 48px 24px;
+  border-radius: 24px;
+  background: var(--ui-white, #fff);
+  text-align: center;
+}
+html.bxu[data-theme="dark"] .u33-invest-state .r75-empty {
+  background: #191c20;
+}
+
+/* Line under the amount field (minimum, what is open, the investor's balance for this loan): the
+   design shows these rules only in dialogs; today's API gives them, so they are shown in place. */
+html.bxu .v107-amount-card .u33-invest-amount-hint {
+  margin: 4px 0 0;
+  color: var(--ui-muted, #657180);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Old skin .modal rules squeeze U33 dialogs: temporary, moves to u33-overrides.css at merge. */
+html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
+
+/* Confirmation dialog (design .p73-modal) with today's email code + PIN (ACC-DEC-009): the design has a
+   single code field, so the request link, the help line and the PIN boxes are styled like it. */
+html.bxu .p73-modal .u33-invest-code-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+html.bxu .p73-modal .u33-invest-code-head .p73-code-label {
+  margin: 0;
+}
+html.bxu .p73-modal .u33-invest-code-request {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ui-muted, #657180);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+html.bxu .p73-modal .u33-invest-code-request:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+html.bxu .p73-modal .u33-invest-code-help {
+  margin: 8px 0 18px;
+  color: var(--ui-muted, #657180);
+  font-size: 12px;
+  line-height: 1.5;
+}
+html.bxu .p73-modal .u33-invest-pin {
+  margin-bottom: 14px;
+}
+html.bxu .p73-modal .u33-invest-pin .pin-field-label {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+html.bxu .p73-modal .u33-invest-pin .pin-box {
+  width: 48px;
+  height: 54px;
+  border: 1px solid #c3cbd2;
+  border-radius: 12px;
+  background: #fff;
+  color: #111214;
+  font-size: 22px;
+}
+html.bxu .p73-modal .u33-invest-pin .pin-box:focus {
+  border-color: #111214;
+  outline: 2px solid #111214;
+  outline-offset: 1px;
+}
+html.bxu[data-theme="dark"] .p73-modal .u33-invest-pin .pin-box {
+  border-color: #343a40;
+  background: #191c20;
+  color: #f3f5f4;
+}
+html.bxu[data-theme="dark"] .p73-modal .u33-invest-pin .pin-box:focus {
+  border-color: #f3f5f4;
+  outline-color: #f3f5f4;
+}
+html.bxu[data-theme="dark"] .p73-modal .u33-invest-pin :is(.pin-field-hint, .pin-text-btn) {
+  color: #a9b0b6;
+}
+html.bxu .p73-modal .u33-invest-confirm-error {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+/* Review & sign: the lines the platform adds to the design (where the acceptance is recorded, the
+   Swiss-borrower places of MKT-DEC-028, Add funds next to a shortfall) read as secondary notes. */
+html.bxu .rp-consents .u33-invest-record {
+  margin: 14px 0 0;
+  color: var(--ui-muted, #657180);
+  font-size: 12px;
+  line-height: 1.6;
+}
+html.bxu .rp-summary .u33-invest-places-note {
+  margin: 0 0 14px;
+  color: var(--ui-muted, #657180);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+html.bxu .rp-summary .u33-invest-amount-action {
+  margin: -4px 0 12px;
+}
+html.bxu .rl29-sign-actions .u33-invest-reprice {
+  align-self: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ui-muted, #657180);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+html.bxu .rp-consents .alert {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+/* Overview: the opportunities link of the result counter and the clear-filters link (design has the
+   counter only; the link brings back every open opportunity in one click). */
+html.bxu .bxm-op-result .u33-invest-clear {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Funding card: the Swiss-borrower places and the closing date use the threshold row of the design. */
+html.bxu .bxm-invest-box .pd-threshold + .pd-threshold {
+  margin-top: 6px;
+}
+
+/* Credit file: the borrower story (investorPortal/StoryView, global .story styles) inside a chapter. */
+html.bxu .r100-credit .u33-invest-story .story {
+  max-width: 760px;
+  color: inherit;
+  font-size: 15px;
+}
+html.bxu[data-theme="dark"] .r100-credit .u33-invest-story .story-quote {
+  border-left-color: #f3f5f4;
+  color: #a9b0b6;
+}
+html.bxu .r100-credit .u33-invest-file-error {
+  margin: 12px 0 0;
+  color: var(--ui-red, #b3261e);
+  font-size: 13px;
+}
+html.bxu .r100-credit .u33-invest-files {
+  display: grid;
+  gap: 8px;
+}

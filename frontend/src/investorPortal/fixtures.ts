@@ -13,6 +13,7 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   PublicLoanRiskNote,
+  PublicProject,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
@@ -467,7 +468,11 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     minimum_investment_minor: amount(1000),
     ltv_bps: 4900,
     is_refinancing: false,
-    minimum_subscription_bps: 5000
+    minimum_subscription_bps: 5000,
+    // Swiss borrower: at most 20 investors (MKT-DEC-028, today's rule until U33-DEC-08).
+    max_investors: 20,
+    places_left: 4,
+    is_existing_investor: false
   },
   {
     loan_id: "GA-2402",
@@ -924,9 +929,175 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
   pricing_as_of_date: originatorPricingDate
 };
 
+// Investing screens (slice S2): loans that are no longer open (past opportunities, their pages and
+// credit files) and a legacy originator claim bought through an executable quote. They are reachable
+// from Past opportunities or by address only, so the open marketplace list keeps its preview loans.
+type PastLoanInput = {
+  loan_id: string;
+  title: string;
+  borrower: string;
+  country: string;
+  status: string;
+  currency: string;
+  principal: number;
+  interest_rate_bps: number;
+  term_months: number;
+  collateral_type: string;
+  collateral_value: number;
+  purpose: string;
+  monthsAgo: number;
+};
+
+const pastLoanInputs: PastLoanInput[] = [
+  { loan_id: "GA-2310", title: "Engadin Alpine refinancing", borrower: "Engadin Hospitality AG", country: "CH", status: "active", currency: "CHF", principal: 880_000, interest_rate_bps: 690, term_months: 36, collateral_type: "real_estate", collateral_value: 1_600_000, purpose: "Refinancing of the hotel mortgage and renovation of the spa wing.", monthsAgo: 10 },
+  { loan_id: "GA-2256", title: "Bodensee Immobilien GmbH", borrower: "Bodensee Immobilien GmbH", country: "DE", status: "late", currency: "EUR", principal: 450_000, interest_rate_bps: 780, term_months: 24, collateral_type: "real_estate", collateral_value: 700_000, purpose: "Completion of a residential building with six flats.", monthsAgo: 14 },
+  { loan_id: "GA-2201", title: "Savoie Logistique SAS", borrower: "Savoie Logistique SAS", country: "FR", status: "defaulted", currency: "EUR", principal: 320_000, interest_rate_bps: 840, term_months: 24, collateral_type: "equipment", collateral_value: 410_000, purpose: "Purchase of refrigerated trucks for regional deliveries.", monthsAgo: 18 },
+  { loan_id: "GA-2104", title: "Zürichsee Gastro AG", borrower: "Zürichsee Gastro AG", country: "CH", status: "repaid", currency: "CHF", principal: 240_000, interest_rate_bps: 620, term_months: 12, collateral_type: "corporate_guarantee", collateral_value: 0, purpose: "Working capital for the summer season of two lakeside restaurants.", monthsAgo: 20 }
+];
+
+const pastLoanDetailsFixture: MarketplaceLoanDetail[] = pastLoanInputs.map((input) => {
+  const principal = amount(input.principal);
+  const fundedOn = fixtureIsoDate(-input.monthsAgo, 15);
+  return {
+    loan_id: input.loan_id,
+    product_type: "direct",
+    investment_flow: "primary_order",
+    title: input.title,
+    purpose: "working_capital",
+    collateral_type: input.collateral_type,
+    interest_rate_bps: input.interest_rate_bps,
+    yield_bps: input.interest_rate_bps,
+    underlying_interest_rate_bps: input.interest_rate_bps,
+    term_months: input.term_months,
+    remaining_term_days: null,
+    risk_rating: "B",
+    funding_deadline: fundedOn,
+    maturity_date: fixtureIsoDate(input.term_months - input.monthsAgo, 15),
+    status: input.status,
+    loan_status: input.status,
+    opportunity_status: "closed",
+    currency: input.currency,
+    principal_minor: principal,
+    committed_principal_minor: principal,
+    remaining_capacity_minor: 0,
+    fillable_amount_minor: 0,
+    minimum_investment_minor: amount(1000),
+    ltv_bps: input.collateral_value > 0 ? Math.round((input.principal * 10_000) / input.collateral_value) : null,
+    is_refinancing: input.loan_id === "GA-2310",
+    originator_id: null,
+    originator_name: null,
+    borrower_display_name: input.borrower,
+    minimum_subscription_bps: 5000,
+    default_penalty_interest_bps: 1200,
+    borrower_id: `borrower-${input.loan_id}`,
+    borrower_disclosure: {
+      legal_name: input.borrower,
+      country: input.country,
+      year_founded: 2009,
+      business_classification: input.collateral_type === "equipment" ? "Logistics" : input.collateral_type === "real_estate" ? "Real estate and hospitality" : "Restaurants",
+      financials_currency: input.currency
+    },
+    story: { version: 1, blocks: [] },
+    investor_summary: input.purpose,
+    purpose_description: input.purpose,
+    collateral_value_minor: amount(input.collateral_value),
+    collateral_description: input.collateral_type === "corporate_guarantee" ? "Guarantee of the parent company." : input.collateral_type === "equipment" ? "First-ranking pledge on the financed trucks." : "First-ranking mortgage note on the property.",
+    ltv_warnings: [],
+    original_principal_minor: 0,
+    original_interest_rate_bps: null,
+    original_term_months: null,
+    original_repayment_type: null,
+    original_interest_only_months: null,
+    original_loan_start_date: null,
+    original_loan_schedule: [],
+    repayment_type: "equal_installments",
+    loan_start_date: fundedOn,
+    first_payment_date: fixtureIsoDate(1 - input.monthsAgo, 15),
+    schedule_version: 1,
+    loan_schedule: fixtureAnnuityRows(principal, input.interest_rate_bps, input.term_months, fixtureIsoDate(1 - input.monthsAgo, 15))
+  };
+});
+
+/** Legacy Loan Originator claim (immediate assignment through an executable quote): /marketplace/LO-2402. */
+const legacyClaimDetailFixture: MarketplaceLoanDetail = {
+  ...originatorLoanDetailFixture,
+  loan_id: "LO-2402",
+  investment_flow: "immediate_claim_assignment",
+  distribution_model: "legacy_yield_v1",
+  title: "Alpine dental equipment claim",
+  interest_rate_bps: 820,
+  yield_bps: 820,
+  underlying_interest_rate_bps: 900,
+  funding_deadline: null,
+  remaining_term_days: 300,
+  status: "open",
+  loan_status: "active",
+  opportunity_status: "open",
+  principal_minor: amount(95_000),
+  committed_principal_minor: amount(43_000),
+  remaining_capacity_minor: amount(52_000),
+  fillable_amount_minor: amount(52_000),
+  minimum_investment_minor: amount(1000),
+  entitlement_start_date: null,
+  investor_interest_participation_bps: null,
+  investor_penalty_participation_bps: null,
+  borrower_display_name: "Dental practice in Zürich",
+  purpose_description: "Lease of two treatment units and an X-ray device, financed by the loan originator."
+};
+
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [
   ...directLoanDetailsFixture,
-  originatorLoanDetailFixture
+  originatorLoanDetailFixture,
+  ...pastLoanDetailsFixture,
+  legacyClaimDetailFixture
+];
+
+/** Past opportunities (public projects API) for the investor archive, matching the loan details above. */
+export const pastProjectsFixture: PublicProject[] = [
+  ...pastLoanDetailsFixture.map((loan): PublicProject => ({
+    loan_id: loan.loan_id,
+    title: loan.title,
+    product_type: "direct",
+    is_refinancing: loan.is_refinancing,
+    public_status: loan.status === "defaulted" ? "default" : loan.status === "active" ? "repaying" : (loan.status as PublicProject["public_status"]),
+    currency: loan.currency,
+    principal_minor: loan.principal_minor,
+    committed_principal_minor: loan.principal_minor,
+    remaining_capacity_minor: 0,
+    minimum_investment_minor: null,
+    investors_count: 40 + loan.term_months,
+    max_investors: null,
+    places_left: null,
+    interest_rate_bps: loan.interest_rate_bps,
+    term_months: loan.term_months,
+    repayment_type: loan.repayment_type,
+    risk_rating: "",
+    collateral_type: loan.collateral_type,
+    collateral_description: loan.collateral_description,
+    ltv_bps: loan.ltv_bps,
+    purpose: loan.purpose,
+    purpose_description: loan.purpose_description,
+    investor_summary: loan.investor_summary,
+    borrower_country: String((loan.borrower_disclosure as { country?: string }).country ?? ""),
+    borrower_sector: "",
+    borrower_year_founded: null,
+    originator: null,
+    published_at: loan.funding_deadline,
+    funding_deadline: loan.funding_deadline,
+    funded_at: loan.funding_deadline,
+    record: loan.status === "defaulted" || loan.status === "late"
+      ? {
+          installments_total: loan.term_months,
+          installments_paid: 9,
+          principal_repaid_minor: Math.round(loan.principal_minor * 0.3),
+          interest_paid_minor: Math.round(loan.principal_minor * 0.06),
+          outstanding_principal_minor: Math.round(loan.principal_minor * 0.7),
+          days_past_due: loan.status === "late" ? 21 : 64,
+          defaulted_on: loan.status === "defaulted" ? fixtureIsoDate(-2, 10) : null,
+          public_note: ""
+        }
+      : null
+  }))
 ];
 
 const portfolioSummary: PortfolioSummary = {
