@@ -6,8 +6,6 @@ import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
   CategoryEnum,
-  DocumentKindEnum,
-  InvestorDocumentDownloadRequestOutputFormatEnum,
   getV1InvestorSmartInvestRetrieveQueryKey,
   getV1MarketplaceSecondaryListingsListQueryKey,
   useV1AuthMeRetrieve,
@@ -23,7 +21,6 @@ import {
   useV1FxQuotePreviewRetrieve,
   useV1FxQuotesCreate,
   useV1FxQuotesExecuteCreate,
-  useV1InvestorPortalDocumentsDownloadCreate,
   useV1KycSessionCreate,
   useV1KycStatusRetrieve,
   useV1LedgerPayoutInstructionsCreate,
@@ -61,9 +58,6 @@ import type {
   FxQuotePreview,
   FxQuote,
   Holding,
-  InvestorDocument,
-  InvestorDocumentDownloadResponse,
-  InvestorNotification,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
   OriginatorClaimQuoteResponse,
@@ -85,7 +79,6 @@ import {
   useActivityData,
   useBalancesData,
   useDashboardData,
-  useDocumentsData,
   useFxData,
   useFxFeature,
   useLoanDetailData,
@@ -163,7 +156,6 @@ import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/typ
 import { scheduleStatusTone } from "./investorPortal/scheduleStatus";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
-import { notificationRoute } from "./investorPortal/notifications";
 import { useT } from "./i18n";
 import { PortalNavProvider, type PortalNav } from "./portal/components";
 import { PortalShell } from "./portal/shell/PortalShell";
@@ -172,6 +164,8 @@ import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
 import { AccountScreen } from "./portal/screens/wallet/AccountScreen";
 import { AddFundsDialog } from "./portal/screens/wallet/AddFundsDialog";
+import { DocumentsScreen } from "./portal/screens/wallet/DocumentsScreen";
+import { NotificationsScreen } from "./portal/screens/wallet/NotificationsScreen";
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
@@ -232,7 +226,7 @@ const U33_SCREENS_INVEST: RouteName[] = [];
 const U33_SCREENS_PORTFOLIO: RouteName[] = [];
 
 // S4 account, transactions, reports, documents, notifications (portal/screens/wallet).
-const U33_SCREENS_WALLET: RouteName[] = ["balances", "transactions", "reports"];
+const U33_SCREENS_WALLET: RouteName[] = ["balances", "transactions", "reports", "documents", "notifications"];
 
 // S5 profile and settings, help, verification (portal/screens/account).
 const U33_SCREENS_ACCOUNT: RouteName[] = [];
@@ -243,8 +237,6 @@ const U33_SCREENS = new Set<RouteName>([
   ...U33_SCREENS_WALLET,
   ...U33_SCREENS_ACCOUNT
 ]);
-// The Reports page lists the account statements and annual tax information of Documents.
-const reportDocumentKinds = ["account_statement", "annual_tax_information"];
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
@@ -2590,9 +2582,9 @@ function InvestorShell({
       case "balances":
         return <AccountScreen demoState={demoState} />;
       case "transactions":
-        return <TransactionsScreen><ActivityPanel /></TransactionsScreen>;
+        return <TransactionsScreen />;
       case "reports":
-        return <ReportsScreen><DocumentsScreen embedded kinds={reportDocumentKinds} /></ReportsScreen>;
+        return <ReportsScreen />;
       case "fx":
         if (fxFeature.enabled) return <FxScreen demoState={demoState} />;
         return fxFeature.known
@@ -2601,7 +2593,7 @@ function InvestorShell({
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
-        return <NotificationsScreen setRoute={setRoute} />;
+        return <NotificationsScreen />;
       case "settings":
         return <SettingsScreen setRoute={setRoute} />;
       case "kyc":
@@ -8537,14 +8529,6 @@ function activityCategory(entry: ActivityEntry) {
   return safeMetadataCategory(entry.metadata);
 }
 
-// "email.magic_link_requested" -> "Magic link requested".
-// "3" -> "v3"; generated statements ("reporting-v2") -> "v2".
-function documentVersionLabel(version: string) {
-  if (/^\d+$/.test(version)) return `v${version}`;
-  const suffix = version.match(/-v(\d+)$/);
-  return suffix ? `v${suffix[1]}` : version;
-}
-
 function ActivityAmount({ entry }: { entry: ActivityEntry }) {
   if (entry.amount_minor === 0 || entry.amount_minor === null) {
     return <span className="muted">-</span>;
@@ -8558,26 +8542,6 @@ function ActivityAmount({ entry }: { entry: ActivityEntry }) {
       {sign}
       {formatMoneyMinor(absoluteAmount, entry.currency)}
     </span>
-  );
-}
-
-// Body of the Transactions page until slice S4 rebuilds it: today's activity list.
-function ActivityPanel() {
-  const activityQuery = useActivityData();
-  const activity = activityQuery.data;
-  if (activityQuery.isError && !activity) {
-    return (
-      <DataErrorCard title="Could not load transactions" onRetry={() => void activityQuery.refetch()}>
-        We could not load your account activity.
-      </DataErrorCard>
-    );
-  }
-  if (!activity) return <ScreenLoading title="Transactions" />;
-  // The portfolio page's "Activity" list, in its own page context.
-  return (
-    <div className="content pf-page">
-      <ActivityTable entries={activity.entries} />
-    </div>
   );
 }
 
@@ -10308,210 +10272,6 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
         </div>
       )}
     </Modal>
-  );
-}
-
-// `embedded`: the list without its page frame (the Reports page shows its own U33 head);
-// `kinds`: only these document kinds (account_statement, annual_tax_information, acceptance_evidence).
-function DocumentsScreen({ embedded = false, kinds }: { embedded?: boolean; kinds?: string[] } = {}) {
-  const [type, setType] = useState<string>("All");
-  const [error, setError] = useState("");
-  const documentsQuery = useDocumentsData();
-  const downloadMutation = useV1InvestorPortalDocumentsDownloadCreate();
-  const documents = documentsQuery.data;
-  const Frame = embedded ? "div" : "main";
-  const frameClass = embedded ? "acct-page acct-documents" : "content acct-page acct-documents";
-  if (documentsQuery.isError && !documents) {
-    return (
-      <Frame className={frameClass}>
-        {embedded ? null : <PageHead description="Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
-        <DataErrorCard title="Could not load documents" onRetry={() => void documentsQuery.refetch()}>
-          We could not load your self-service document list.
-        </DataErrorCard>
-      </Frame>
-    );
-  }
-  if (!documents) return <ScreenLoading title={embedded ? "Reports" : "Documents"} />;
-  const listed = kinds ? documents.documents.filter((document) => kinds.includes(document.document_kind)) : documents.documents;
-  const rows = listed.filter((document) => type === "All" || document.document_type === type);
-  const types = ["All", ...Array.from(new Set(listed.map((document) => document.document_type)))];
-  const downloadDocument = (document: InvestorDocument, outputFormat = "pdf") => {
-    setError("");
-    downloadMutation.mutate(
-      {
-        data: {
-          document_kind:
-            document.document_kind === "acceptance_evidence"
-              ? DocumentKindEnum.acceptance_evidence
-              : document.document_kind === "annual_tax_information"
-                ? DocumentKindEnum.annual_tax_information
-                : DocumentKindEnum.account_statement,
-          document_id: document.document_kind === "acceptance_evidence" ? document.id : undefined,
-          output_format:
-            outputFormat === "csv"
-              ? InvestorDocumentDownloadRequestOutputFormatEnum.csv
-              : outputFormat === "zip"
-                ? InvestorDocumentDownloadRequestOutputFormatEnum.zip
-                : InvestorDocumentDownloadRequestOutputFormatEnum.pdf,
-          start_date: document.period_start,
-          end_date: document.period_end
-        }
-      },
-      {
-        onSuccess: (artifact) => downloadPortalArtifact(artifact),
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
-      }
-    );
-  };
-  return (
-    <Frame className={frameClass}>
-      {embedded ? null : <PageHead description="Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
-      <div className="col gap-12 acct-alerts">
-        <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
-        {error ? <Banner tone="bad" title="Download failed">{error}</Banner> : null}
-      </div>
-      <div className="doc-filter-bar">
-        <div aria-label="Document type" className="tabs doc-type-tabs" role="group">
-          {types.map((item) => <button aria-pressed={type === item} className={type === item ? "on" : ""} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
-        </div>
-        <span className="results-count">{pluralize(rows.length, "document")}</span>
-      </div>
-      <section className="card acct-table-card">
-        {rows.length === 0 ? (
-          <div className="portal-table-empty">
-            <Empty icon="doc" title="No documents match this filter">
-              Choose another document type, or return later after accepting terms or generating a statement.
-            </Empty>
-          </div>
-        ) : (
-          <div className="portal-data-surface">
-            <div className="tbl-wrap">
-              <table className="tbl portal-data-table documents-data-table stack-on-phone"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
-              <tbody>{rows.map((document) => (
-                <tr key={document.id}>
-                  <td data-label="Document">
-                    <div className="doc-title-cell">
-                      <Icon className="doc-title-icon" name="doc" size={16} />
-                      <span>
-                        <span className="doc-title">{document.title}</span>
-                        {document.template_title ? <span className="sub">{document.template_title}</span> : null}
-                      </span>
-                    </div>
-                  </td>
-                  <td data-label="Type"><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : "neutral"}>{document.document_type}</Chip></td>
-                  <td className="doc-muted" data-label="Version">{documentVersionLabel(document.version)}</td>
-                  <td className="doc-muted doc-context" data-label="Context">{document.context_label}</td>
-                  <td className="doc-muted doc-date" data-label="Date">{formatDate(document.date)}</td>
-                  <td className="num doc-muted" data-label="Artifact">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
-                  <td className="right doc-downloads-cell">
-                    <div className="doc-downloads">
-                      {document.output_formats.includes("csv") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "csv")}>CSV</Button> : null}
-                      {document.output_formats.includes("zip") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "zip")}>ZIP</Button> : null}
-                      <Button disabled={downloadMutation.isPending} icon="download" size="sm" onClick={() => downloadDocument(document, "pdf")}>PDF</Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}</tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </section>
-    </Frame>
-  );
-}
-
-function downloadPortalArtifact(artifact: InvestorDocumentDownloadResponse) {
-  const bytes =
-    artifact.content_encoding === "base64"
-      ? Uint8Array.from(window.atob(artifact.content), (character) => character.charCodeAt(0))
-      : new TextEncoder().encode(artifact.content);
-  const blob = new Blob([bytes], { type: artifact.content_type });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = artifact.filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
-}
-
-function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const notificationsQuery = useNotificationsData(100);
-  const readActions = useNotificationReadActions();
-  const payload = notificationsQuery.data;
-  if (notificationsQuery.isError && !payload) {
-    return (
-      <ScreenError title="Notifications" onRetry={() => void notificationsQuery.refetch()}>
-        We could not load notification delivery status. Retry once the API connection is restored.
-      </ScreenError>
-    );
-  }
-  if (!payload) return <ScreenLoading title="Notifications" />;
-  const openNotification = (notification: InvestorNotification) => {
-    if (notification.unread) void readActions.markRead(notification.id).catch(() => undefined);
-    const target = notificationRoute(notification);
-    if (target.name !== "notifications") goTo(setRoute, target.name, target.params);
-  };
-  return (
-    <main className="content acct-page acct-notifications">
-      <PageHead
-        actions={
-          <>
-            {payload.unread_count > 0 ? <Chip tone="warn">{payload.unread_count} unread</Chip> : <Chip tone="ok">Up to date</Chip>}
-            <Button disabled={payload.unread_count === 0} icon="check" onClick={() => void readActions.markAllRead().catch(() => undefined)} size="sm">
-              Mark all as read
-            </Button>
-          </>
-        }
-        description="Email delivery status, operational notices, and investor messages. Open a notice to go to the loan, holding or balance it is about."
-        title="Notifications"
-      />
-      <Card>
-        {payload.notifications.length === 0 ? (
-          <Empty icon="bell" title="No notifications yet">
-            Emails, confirmations, balance reminders, and operational notices will appear here.
-          </Empty>
-        ) : (
-          <div className="notice-list">
-            {payload.notifications.map((notification) => {
-              const failed = notification.status === "failed" || notification.status === "dead_letter";
-              const hasTarget = notificationRoute(notification).name !== "notifications";
-              return (
-                <div className={`notice-row${failed ? " is-failed" : ""}${notification.unread ? " is-unread" : ""}`} key={notification.id}>
-                  <span className="notice-icon"><Icon className={failed ? "neg" : "muted"} name="bell" size={17} /></span>
-                  <div className="notice-content">
-                    {hasTarget ? (
-                      <button className="notice-title notice-open" onClick={() => openNotification(notification)} type="button">
-                        {notification.title}
-                        <Icon name="arrowR" size={14} />
-                      </button>
-                    ) : (
-                      <div className="notice-title">{notification.title}</div>
-                    )}
-                    <p className="notice-body">{notification.body}</p>
-                    <div className="notice-meta">
-                      <span>{formatDateTime(notification.created_at)}</span>
-                      <span>{notification.topic_label}</span>
-                    </div>
-                  </div>
-                  <div className="notice-status">
-                    {notification.unread ? <Chip dot tone="info">Unread</Chip> : null}
-                    <Chip status={notification.status} />
-                    {notification.unread ? (
-                      <Button aria-label={`Mark "${notification.title}" as read`} onClick={() => void readActions.markRead(notification.id).catch(() => undefined)} size="sm" variant="ghost">
-                        Mark as read
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </main>
   );
 }
 
