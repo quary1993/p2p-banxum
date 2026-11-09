@@ -249,6 +249,16 @@ html.bxu .u33-pin-dialogs .scrim {
 html.bxu .u33-resale-note {
   margin: 0 0 16px;
 }
+/* The design has no dark colours for .alert-info / .alert-light (used by the resale note). */
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app .alert.u33-resale-note {
+  background: #191c20 !important;
+  border-color: #343a40 !important;
+  color: #e4e8e6 !important;
+}
+/* Cancel listing: space between the reason field and the buttons. */
+html.bxu .s106-modal .s106-body > textarea {
+  margin-bottom: 18px;
+}
 html.bxu .u33-retired-criteria {
   margin: 0 0 16px;
 }
