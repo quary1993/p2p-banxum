@@ -92,12 +92,36 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     remaining_term_months = serializers.SerializerMethodField()
     # True for the viewer's own listing: it is shown without a Buy action.
     is_own_listing = serializers.SerializerMethodField()
+    # Borrower and country of the "For sale now" row (U33 design: "Borrower · Country"). The same
+    # buyer-safe values as on the listing detail.
+    borrower_name = serializers.SerializerMethodField()
+    borrower_country = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_own_listing(self, listing: Any) -> bool:
         if isinstance(listing, dict):
             return bool(listing.get("is_own_listing", False))
         return bool(getattr(listing, "is_own_listing", False))
+
+    @extend_schema_field(serializers.CharField())
+    def get_borrower_name(self, listing: Any) -> str:
+        if isinstance(listing, dict):
+            return str(listing.get("borrower_name") or "")
+        loan = getattr(listing, "loan", None)
+        if str(getattr(loan, "product_type", "direct")) == "originator_claim":
+            profile = getattr(loan, "originator_profile", None)
+            return str(getattr(profile, "borrower_display_name", "") or "")
+        return str(getattr(getattr(loan, "borrower", None), "legal_name", "") or "")
+
+    @extend_schema_field(serializers.CharField())
+    def get_borrower_country(self, listing: Any) -> str:
+        if isinstance(listing, dict):
+            return str(listing.get("borrower_country") or "")
+        loan = getattr(listing, "loan", None)
+        if str(getattr(loan, "product_type", "direct")) == "originator_claim":
+            profile = getattr(loan, "originator_profile", None)
+            return str(getattr(profile, "borrower_country", "") or "")
+        return str(getattr(getattr(loan, "borrower", None), "country", "") or "")
 
     @extend_schema_field(serializers.IntegerField())
     def get_remaining_term_months(self, listing: Any) -> int:

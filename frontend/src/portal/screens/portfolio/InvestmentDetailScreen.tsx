@@ -172,7 +172,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
             <section aria-label={t("Investment summary")} className="r71-finances r79-state-summary r71-three-facts">
               <Fact label={t("Principal in recovery")}><MoneyValue amountMinor={holding.current_principal_minor} currency={currency} /></Fact>
               <Fact className="r71-earned" label={t("Interest received")}><MoneyValue amountMinor={interestReceivedMinor(holding)} currency={currency} /></Fact>
-              <Fact className="r71-fact r79-state-fact" label={t("Days overdue")}>{loan.days_past_due}</Fact>
+              <Fact className="r71-fact r79-state-fact" label={t("Current stage")}>{loan.loan_status === "written_off" ? t("Written off") : t("Recovery in progress")}</Fact>
             </section>
           ) : finished ? (
             <section aria-label={t("Investment summary")} className="r71-finances r79-state-summary r71-three-facts">
@@ -301,14 +301,14 @@ function ReservedView({ order }: { order: PrimaryOrderPortal }) {
         <NiIcon name="clock" />
         {allocated
           ? closes
-            ? t("Reserved from your Banxum balance on {date}. Funding closes on {closes}. If funding closes successfully, your investment starts and repayments follow the payment schedule.", { date: formatDate(reservedOn), closes: formatDate(closes) })
-            : t("Reserved from your Banxum balance on {date}. If funding closes successfully, your investment starts and repayments follow the payment schedule.", { date: formatDate(reservedOn) })
+            ? t("Reserved from your Banxum account on {date}. Funding closes on {closes}. If funding closes successfully, your investment starts and repayments follow the payment schedule.", { date: formatDate(reservedOn), closes: formatDate(closes) })
+            : t("Reserved from your Banxum account on {date}. If funding closes successfully, your investment starts and repayments follow the payment schedule.", { date: formatDate(reservedOn) })
           : t("Your order of {date} is recorded, but no balance is reserved for it yet. Only a reserved amount can become an investment when funding closes.", { date: formatDate(order.created_at) })}
       </div>
       <div className="nk-block">
         <div className="card card-bordered rid-card r31m-reserved r71-body">
           <section aria-label={t("Investment summary")} className="r71-finances r71-three-facts">
-            <Fact label={allocated ? t("Reserved for this investment") : t("Requested amount")}><MoneyValue amountMinor={orderAmountMinor(order)} currency={order.currency} /></Fact>
+            <Fact label={allocated ? t("Reserved for investments") : t("Requested amount")}><MoneyValue amountMinor={orderAmountMinor(order)} currency={order.currency} /></Fact>
             {loan ? <Fact className="r71-fact r71-rate" label={t("Annual interest rate")}>{formatRateBps(investorRateBps(loan))}</Fact> : null}
             {loan ? <Fact className="r71-fact" label={t("Term")}>{monthsText(loan.term_months)}</Fact> : null}
           </section>
@@ -361,6 +361,13 @@ function ReservedView({ order }: { order: PrimaryOrderPortal }) {
                   loanPrincipalMinor={loan.principal_minor}
                   ltvBps={loanLtvBps(loan)}
                 />
+                <PortalLink className="p99v2-access-row p99v2-credit" params={{ loanId: loan.loan_id }} to="loan">
+                  <span className="p99v2-access-copy">
+                    <strong>{t("Credit file")}</strong>
+                    <span>{t("Business, financials and loan documents")}</span>
+                  </span>
+                  <NiIcon name="arrow-right" />
+                </PortalLink>
               </div>
             ) : null}
             <InvestmentDocuments loanTitle={order.loan_title} orderId={order.id} />

@@ -8,7 +8,7 @@ import { useId, useState } from "react";
 import { useT } from "../../../../i18n";
 import { formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
 import { NiIcon, PortalLink } from "../../../components";
-import { securityLabel, tileIcon } from "./labels";
+import { securityLabel, securityValueLabel, tileIcon } from "./labels";
 
 const WIDTH = 482;
 
@@ -72,8 +72,8 @@ export function SecuritySection({
       <div className="r62-collateral-head">
         <NiIcon name={tileIcon(collateralType)} />
         <div className="r62-collateral-copy">
-          <strong>{securityLabel(collateralType)}</strong>
-          {description && variant !== "offer" ? <span>{description}</span> : null}
+          {/* Design: one line naming the concrete security; the type label only when there is no description. */}
+          <strong>{variant !== "offer" && description ? description : securityLabel(collateralType)}</strong>
         </div>
         {comparable ? (
           <button
@@ -99,7 +99,7 @@ export function SecuritySection({
         <div aria-hidden={!open} className={`r62-disclosure${open ? " is-open" : ""}`} id={disclosureId} inert={!open}>
           <div className="r62-clip">
             <figure className="r62-figure">
-              <LtvFigure currency={currency} loanMinor={loanPrincipalMinor} ltvBps={ltvBps} valueLabel={t("Collateral value")} valueMinor={collateralValueMinor} />
+              <LtvFigure currency={currency} loanMinor={loanPrincipalMinor} ltvBps={ltvBps} valueLabel={t(securityValueLabel(collateralType))} valueMinor={collateralValueMinor} />
             </figure>
           </div>
         </div>

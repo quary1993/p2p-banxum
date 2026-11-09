@@ -41,6 +41,7 @@ import {
 import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
+import { securityValueLabel } from "../portfolio/parts/labels";
 
 type ChapterId = "summary" | "business" | "financials" | "security" | "terms" | "documents";
 
@@ -463,18 +464,18 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
         {hasValue && ltv !== null ? (
           <div className="r100-property-grid">
             <div className="r100-security-graph">
-              <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t("Collateral value")} valueMinor={loan.collateral_value_minor} />
+              <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t(securityValueLabel(loan.collateral_type))} valueMinor={loan.collateral_value_minor} />
             </div>
             <div>
               <dl className="r100-security-facts compact">
-                <div><dt>{t("Collateral value")}</dt><dd>{formatMoneyLabel(loan.currency, loan.collateral_value_minor)}</dd></div>
+                <div><dt>{t(securityValueLabel(loan.collateral_type))}</dt><dd>{formatMoneyLabel(loan.currency, loan.collateral_value_minor)}</dd></div>
                 <div><dt>{t("Loan-to-value")}</dt><dd>{formatLtv(ltv)}</dd></div>
               </dl>
             </div>
           </div>
         ) : (
           <dl className="r100-security-facts r100-security-record">
-            <div><dt>{t("Collateral value")}</dt><dd>{t("Not recorded")}</dd></div>
+            <div><dt>{t(securityValueLabel(loan.collateral_type))}</dt><dd>{t("Not recorded")}</dd></div>
           </dl>
         )}
         {(loan.ltv_warnings ?? []).length > 0 ? (

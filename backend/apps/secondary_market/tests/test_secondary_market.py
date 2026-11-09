@@ -3424,6 +3424,10 @@ def test_buyer_listing_payloads_mark_the_viewers_own_listing(
     assert buyer_list[0]["is_own_listing"] is False
     assert buyer_detail["is_own_listing"] is False
     assert "seller_user_id" not in buyer_list[0]
+    # The U33 resale row shows "Borrower · Country": the list carries the detail's values.
+    assert buyer_list[0]["borrower_name"] == buyer_detail["borrower_name"]
+    assert buyer_list[0]["borrower_name"]
+    assert buyer_list[0]["borrower_country"] == buyer_detail["borrower_country"]
 
 
 @pytest.mark.django_db

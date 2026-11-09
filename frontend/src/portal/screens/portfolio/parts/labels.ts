@@ -161,3 +161,17 @@ export function priceAdjustmentText(discountPremiumBps: number) {
   const percent = formatRateBps(Math.abs(discountPremiumBps));
   return discountPremiumBps < 0 ? t("{percent} discount", { percent }) : t("{percent} premium", { percent });
 }
+
+/** The design's label for the value of a security ("Property value", "Equipment value", "Share value"). */
+export function securityValueLabel(collateralType: string | null | undefined) {
+  switch (collateralType) {
+    case "real_estate":
+      return "Property value";
+    case "equipment":
+      return "Equipment value";
+    case "share_pledge":
+      return "Share value";
+    default:
+      return "Collateral value";
+  }
+}

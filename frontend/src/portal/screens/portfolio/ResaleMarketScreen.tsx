@@ -16,7 +16,8 @@ import { ResaleOfferView } from "./ResaleOfferView";
 import { CancelListingDialog, SellInvestmentDialog } from "./SellInvestmentDialog";
 import { isReadonlyView } from "./parts/errors";
 import { sortedCurrencies } from "./parts/investmentModel";
-import { investmentTypeText, monthsText, priceAdjustmentText, securityLabel, tileIcon } from "./parts/labels";
+import { countryName } from "../invest/loanFacts";
+import { monthsText, priceAdjustmentText, securityLabel, tileIcon } from "./parts/labels";
 import { useMoneyText } from "./parts/money";
 import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { usePreviewVariant, useQueryParams } from "./parts/urlState";
@@ -191,7 +192,7 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
                       <strong>{listing.loan_title}</strong>
                     </a>
                     <small className="r67-country">
-                      <span>{listing.originator_name ? `${investmentTypeText(listing.product_type)} · ${listing.originator_name}` : investmentTypeText(listing.product_type)}</span>
+                      <span>{[listing.borrower_name, countryName(listing.borrower_country)].filter(Boolean).join(" · ")}</span>
                     </small>
                     <span className="r67-security">
                       <NiIcon name={tileIcon(listing.collateral_type)} />

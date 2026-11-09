@@ -27,7 +27,10 @@ export function ResaleHelpDialog({ onClose, buyerFeeFree }: { onClose: () => voi
   };
   return (
     <Dialog bodyClassName="p99-help-body" className="p99-help-modal p99-simulator-modal" onClose={onClose} title={t("How resale works")}>
-      <p className="p99-help-intro">{t("Buy an existing investment from another investor. Future loan payments go to your Banxum balance.")}</p>
+      <p className="p99-help-intro">
+        <span className="u104-sentence">{t("Buy an existing investment from another investor.")}</span>{" "}
+        <span className="u104-sentence">{t("Future loan payments go to your Banxum account.")}</span>
+      </p>
       <section aria-label={t("Discount example")} className="p99-simulator">
         <div className="p99-simulator-base">
           <span>

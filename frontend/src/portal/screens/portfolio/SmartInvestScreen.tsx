@@ -15,14 +15,12 @@ import {
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { isFixturePreview, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
-import { formatDecimal, useNumberFormat } from "../../../investorPortal/format";
+import { useNumberFormat } from "../../../investorPortal/format";
 import { Button, Dialog, EmptyState, NiIcon, PageHead } from "../../components";
 import { SmartInvestWizard } from "./SmartInvestWizard";
 import { errorMessage, isReadonlyView } from "./parts/errors";
-import { securityPreferenceText } from "./parts/labels";
 import { OpportunityCard } from "./parts/OpportunityCard";
 import {
-  BANXUM_SOURCE,
   SMART_CURRENCIES,
   preferencesFromRule,
   previewResponse,
@@ -31,6 +29,7 @@ import {
   retiredCriteria,
   type SmartPreferences
 } from "./parts/smartInvestModel";
+import { preferenceSummary } from "./parts/smartSummary";
 import { usePreviewVariant } from "./parts/urlState";
 import { PageError, PageLoading, SelectFilter } from "./parts/ui";
 import "./portfolio.css";
@@ -138,7 +137,7 @@ export function SmartInvestScreen() {
             <div className="si-state-symbol"><NiIcon name="repeat" /></div>
             <div>
               <h2 className="h4">{t("A simpler way to find investments.")}</h2>
-              <p>{t("Choose your preferences. Smart Invest finds matching opportunities and tells you about new matches.")}</p>
+              <p>{t("Choose your preferences. Smart Invest finds matching opportunities and can notify you of new matches.")}</p>
               <div className="si-state-actions">
                 <button className="btn si-state-primary" disabled={readonly} onClick={() => setWizard("setup")} type="button">
                   {t("Set up Smart Invest")} <NiIcon name="arrow-right" />
@@ -152,7 +151,7 @@ export function SmartInvestScreen() {
     );
   }
 
-  const summary = preferenceSummary(preferences, originators, t);
+  const summary = preferenceSummary(preferences, originators);
   const sorted = sortMatches(matches, sort);
   return (
     <main className="si-page si-results-page r65-smart-results">
@@ -180,7 +179,7 @@ export function SmartInvestScreen() {
       <div className="si-results-toolbar">
         <div>
           <strong>{matches.length === 1 ? t("1 opportunity") : t("{count} opportunities", { count: matches.length })}</strong>
-          <span> · {t("{count} open now on Banxum", { count: data.open_opportunity_count })}</span>
+          <span> · {t("{count} open", { count: matches.length })}</span>
         </div>
         <div className="si-results-tools">
           <button className="si-link" onClick={() => setWhyOpen(true)} type="button">
@@ -207,8 +206,8 @@ export function SmartInvestScreen() {
       <div className="bxm-op-results">
         {matches.length === 0 ? (
           <div className="card card-bordered u33-state-card">
-            <EmptyState actions={<Button disabled={readonly} icon="edit" onClick={() => setWizard("edit")}>{t("Edit preferences")}</Button>} icon="search" title={t("No current opportunity matches your preferences")}>
-              {t("Smart Invest stays active and tells you when a new opportunity matches. Investment opportunities stay open to you as well.")}
+            <EmptyState actions={<Button disabled={readonly} icon="edit" onClick={() => setWizard("edit")}>{t("Edit preferences")}</Button>} icon="search" title={t("No matching opportunities yet")}>
+              {t("You can adjust your preferences or wait for new opportunities.")}
             </EmptyState>
           </div>
         ) : (
@@ -252,15 +251,3 @@ export function SmartInvestScreen() {
   );
 }
 
-function preferenceSummary(preferences: SmartPreferences, originators: Array<{ id: string; name: string }>, t: ReturnType<typeof useT>) {
-  const parts: string[] = [];
-  const both = SMART_CURRENCIES.every((code) => preferences.currencies.includes(code));
-  parts.push(both ? t("EUR & CHF") : t("{currency} only", { currency: preferences.currencies.join(", ") }));
-  if (preferences.minRate !== null) parts.push(t("Interest from {rate}%", { rate: formatDecimal(preferences.minRate, 1) }));
-  if (preferences.maxTerm !== null) parts.push(t("Up to {count} months", { count: preferences.maxTerm }));
-  if (preferences.security !== null) parts.push(securityPreferenceText(preferences.security));
-  if (preferences.originators.length > 0) {
-    parts.push(preferences.originators.map((id) => (id === BANXUM_SOURCE ? t("Banxum direct loans") : originators.find((item) => item.id === id)?.name ?? t("Selected originator"))).join(", "));
-  }
-  return parts.length === 1 ? `${parts[0]} · ${t("No other restrictions")}` : parts.join(" · ");
-}

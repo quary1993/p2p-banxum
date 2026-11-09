@@ -504,7 +504,7 @@ test("Smart Invest shows each match as its own opportunity with no bulk selectio
   clickNav("Smart Invest");
 
   expect(screen.getByRole("heading", { level: 1, name: "Smart Invest" })).toBeInTheDocument();
-  expect(screen.getByText("Your preferences").nextElementSibling).toHaveTextContent("EUR & CHF · Interest from 8,5% · Up to 36 months · Any security type");
+  expect(screen.getByText("Your preferences").nextElementSibling).toHaveTextContent("EUR / CHF · 8,5% per year or more · Up to 36 months · Any security type");
   expect(screen.getAllByRole("button", { name: /^Review investment in / })).toHaveLength(smartInvestFixture.matches.length);
   // U33-DEC-19: nothing to tick, approve or confirm in bulk, and nothing is reserved on this page.
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -630,7 +630,7 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
   expect(screen.getByText("No money is invested or reserved when you activate Smart Invest. You confirm each investment.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Activate Smart Invest" }));
 
-  expect(await screen.findByText("CHF only · No other restrictions")).toBeInTheDocument();
+  expect(await screen.findByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Edit preferences" })).toBeInTheDocument();
 });
 
@@ -983,7 +983,7 @@ test("Smart Invest preferences save several security types and an originator", a
 
   expect(await screen.findByText("Your preferences")).toBeInTheDocument();
   expect(screen.getByText("Your preferences").nextElementSibling).toHaveTextContent(
-    "EUR & CHF · Interest from 8,5% · Up to 36 months · Property mortgage, Company guarantee · Banxum direct loans"
+    "EUR / CHF · 8,5% per year or more · Up to 36 months · Property mortgage, Company guarantee · Banxum direct loans"
   );
 });
 
@@ -1426,8 +1426,8 @@ test("reserved orders stay under In funding until funding closes and open their 
     expect(window.location.pathname).toBe(`/portfolio/${order.id}`);
     expect(screen.getByRole("heading", { level: 1, name: order.loan_title })).toBeInTheDocument();
     expect(screen.getByText("Reserved", { selector: ".r71-status" })).toBeInTheDocument();
-    expect(screen.getByText(/Reserved from your Banxum balance on/)).toBeInTheDocument();
-    expect(screen.getByText("Reserved for this investment")).toBeInTheDocument();
+    expect(screen.getByText(/Reserved from your Banxum account on/)).toBeInTheDocument();
+    expect(screen.getByText("Reserved for investments")).toBeInTheDocument();
   } finally {
     portfolioFixture.holdings = originalHoldings;
     primaryOrdersFixture.orders = originalOrders;

@@ -2469,7 +2469,9 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     projected_yield_bps: 959,
     collateral_type: "equipment",
     remaining_term_months: 24,
-    is_own_listing: false
+    is_own_listing: false,
+    borrower_name: "Engadin Hospitality AG",
+    borrower_country: "CH"
   },
   {
     id: "SM-3298",
@@ -2502,7 +2504,9 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     projected_yield_bps: 902,
     collateral_type: "real_estate",
     remaining_term_months: 14,
-    is_own_listing: false
+    is_own_listing: false,
+    borrower_name: "Jura Précision SA",
+    borrower_country: "CH"
   }
 ];
 

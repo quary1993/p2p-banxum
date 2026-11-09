@@ -91,7 +91,7 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
     <div className="card card-bordered rc-payment-update rid-followup r31m-late" id="loan-notes">
       <header className="rc-payment-head">
         <h2>{t("Payment update")}</h2>
-        <p className="r31m-followup-note">{t("Banxum follows up on the overdue payment for all investors. No action is needed from you.")}</p>
+        <p className="r31m-followup-note">{t("Banxum, as collection agent, is following up for all investors.")}</p>
       </header>
       <div className="rc-payment-body">
         <div className="rc-payment-amount">
@@ -110,7 +110,7 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
       </div>
       <details className="rc-further">
         <summary>
-          {t("Payment history & loan terms")}
+          {t("Payment schedule & further steps")}
           <NiIcon name="chevron-down" />
         </summary>
         <div>
@@ -164,15 +164,16 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
       <div className="r75c-recovery-content">
         <div className="r75c-recovery-head">
           <h2>{writtenOff ? t("Loan written off") : t("Recovery in progress")}</h2>
-          <p>{t("Banxum manages the recovery. No action is needed from you.")}</p>
+          <p>{t("Banxum manages recovery. No action is needed from you.")}</p>
         </div>
         <div className="r75c-recovery-grid">
           <section>
-            <span>{t("Current status")}</span>
+            <span>{t("Current stage")}</span>
             <h3>{writtenOff ? t("Written off") : t("Default")}</h3>
             <p>
               {holding.loan.days_past_due > 0 ? t("{days} days since the first unpaid payment.", { days: holding.loan.days_past_due }) : null}{" "}
-              {t("Amounts recovered are credited to your Banxum balance in proportion to your share.")}
+              {/* Design text adapted: recoveries go to the Banxum account, not to the IBAN (U33-DEC-02/12). */}
+              {t("Recovered amounts, after the costs of enforcement, are credited to each investor's Banxum account in proportion to their share.")}
             </p>
           </section>
           <section>

@@ -18,9 +18,11 @@ import {
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { frozenActionReason, useFrozenAccount } from "../../../investorPortal/accountState";
-import { isFixturePreview, useBalancesData, useSecondaryListingDetailData } from "../../../investorPortal/data";
+import { isFixturePreview, useBalancesData, useLoanDetailData, useSecondaryListingDetailData } from "../../../investorPortal/data";
 import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
+import { currentLoanPrincipalMinor, loanLtvBps } from "../../../investorPortal/portfolioCollateral";
 import { Button, ButtonLink, Dialog, EmptyState, NiIcon, PortalLink, StatusTag } from "../../components";
+import { borrowerDisclosure, collateralLabel, countryName } from "../invest/loanFacts";
 import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
@@ -29,6 +31,9 @@ import { investmentTypeText, priceAdjustmentText, repaymentText, tileIcon } from
 import { SecuritySection } from "./parts/SecuritySection";
 import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { InfoButton } from "./parts/ui";
+
+/** Repayment types paid monthly (design: "Remaining monthly payments"). */
+const MONTHLY_REPAYMENTS = new Set(["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"]);
 
 const PAGE_CLASS = "bxm-invest-desktop ip-page l8-opportunity r34-project-entry r36-opportunity r69-page";
 
@@ -79,6 +84,13 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
   const [helpOpen, setHelpOpen] = useState(false);
   const balances = useBalancesData().data;
   const frozenAccount = useFrozenAccount();
+  // The loan's public detail adds what the listing does not carry: sector, project text, security
+  // description and value (design: the offer page shows them like the opportunity page).
+  const loanQuery = useLoanDetailData(detail.loan_id);
+  const loan = loanQuery.data?.loan_id === detail.loan_id ? loanQuery.data : undefined;
+  const disclosure = loan ? borrowerDisclosure(loan) : {};
+  const meta = [detail.borrower_name, countryName(disclosure.country || detail.borrower_country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
+  const story = loan ? loan.purpose_description || loan.investor_summary || collateralLabel(loan.purpose) : "";
   const currency = detail.currency;
   const money = (amount: number) => `${currency} ${formatMoneyMinor(amount, currency)}`;
   const isOwn = detail.is_own_listing;
@@ -104,8 +116,8 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
           <div>
             <h1>{detail.loan_title}</h1>
             <p>
-              {[detail.borrower_name, detail.borrower_country].filter(Boolean).join(" · ")}
-              {detail.borrower_name ? " · " : ""}
+              {meta.join(" · ")}
+              {meta.length > 0 ? " · " : ""}
               <span className="r58-claim"><span className="l8-type">{investmentTypeText(detail.product_type)}</span></span>{" "}
               {late ? (
                 <StatusTag tone="late">{detail.days_past_due > 0 ? t("Late payment · {days} days", { days: detail.days_past_due }) : t("Late payment")}</StatusTag>
@@ -128,6 +140,12 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
               </div>
             </div>
             <p className="l8-repayment">{repaymentText(detail.repayment_type)}</p>
+            {story ? (
+              <div className="l8-project-story">
+                <h2>{t("About this project")}</h2>
+                <p>{story}</p>
+              </div>
+            ) : null}
             {detail.public_disclosure_note ? (
               <div className="alert alert-warning alert-icon u33-offer-disclosure">
                 <NiIcon name="alert-circle" />
@@ -147,12 +165,12 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
             ) : null}
             <SecuritySection
               collateralType={detail.collateral_type}
-              collateralValueMinor={null}
+              collateralValueMinor={loan?.collateral_value_minor ?? null}
               currency={currency}
-              description=""
+              description={loan?.collateral_description ?? ""}
               loanId={detail.loan_id}
-              loanPrincipalMinor={null}
-              ltvBps={detail.ltv_bps}
+              loanPrincipalMinor={loan ? currentLoanPrincipalMinor(loan) ?? loan.principal_minor : null}
+              ltvBps={loan ? loanLtvBps(loan) : detail.ltv_bps}
               variant="offer"
             />
             <div className="r58-project-actions">
@@ -163,7 +181,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
                     <NiIcon name="calendar" />
                     <span className="r36-toggle-copy">
                       <strong>{t("Payment schedule")}</strong>
-                      <small>{t("Remaining payments")}</small>
+                      <small>{MONTHLY_REPAYMENTS.has(detail.repayment_type) ? t("Remaining monthly payments") : t("Remaining payments")}</small>
                     </span>
                     <span className="r36-chevron"><NiIcon name={scheduleOpen ? "chevron-up" : "chevron-down"} /></span>
                   </button>
@@ -245,7 +263,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
                   {shortfall > 0 || blockedReason ? <NiIcon name="lock-alt" /> : null}
                   {t("Buy for {amount}", { amount: money(detail.buyer_total_cost_minor) })}
                 </button>
-                <p className="r69-final">{blockedReason || t("Review the buyer terms and confirm with your email code and PIN.")}</p>
+                <p className="r69-final">{blockedReason || t("Review the agreements and confirm with your email code and PIN.")}</p>
               </div>
             )}
           </aside>

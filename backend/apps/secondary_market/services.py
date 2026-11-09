@@ -3294,7 +3294,13 @@ def list_active_secondary_market_listings(
     _require_investor_financial_access(actor)
     safe_limit = min(max(int(limit), 1), 250)
     listings = list(
-        SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
+        SecondaryMarketListing.objects.select_related(
+            "holding",
+            "loan",
+            "loan__borrower",
+            "loan__originator_profile__originator",
+            "currency",
+        )
         .filter(
             status=SecondaryMarketListingStatus.ACTIVE,
             loan__status=F("loan_status_at_listing"),

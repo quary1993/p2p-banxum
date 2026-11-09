@@ -51,6 +51,7 @@ import {
 import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
+import { securityValueLabel } from "../portfolio/parts/labels";
 
 export function OpportunityScreen({
   loanId,
@@ -246,7 +247,7 @@ function OpportunityPage({
                     <div aria-hidden={!ltvOpen} className={`r62-disclosure${ltvOpen ? " is-open" : ""}`} id={`r62-collateral-${loan.loan_id}`} inert={!ltvOpen}>
                       <div className="r62-clip">
                         <figure className="r62-figure">
-                          <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t("Collateral value")} valueMinor={loan.collateral_value_minor} />
+                          <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t(securityValueLabel(loan.collateral_type))} valueMinor={loan.collateral_value_minor} />
                         </figure>
                       </div>
                     </div>

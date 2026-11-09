@@ -2,7 +2,7 @@
 // My investments (design #/investments, U33 slice S3): interest received and to be received, "In funding"
 // (open primary orders) apart from "Current investments", status filter, sort, the payment-update
 // notice, and the sub-views History (?view=history) and Payment schedule (?view=payments).
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 
 import type { Holding, MarketplaceLoanPreview, PrimaryOrderPortal } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
@@ -33,6 +33,7 @@ import {
   type HoldingSortKey,
   type InvestmentState
 } from "./parts/investmentModel";
+import { ExportInvestmentsButton } from "./parts/ExportInvestments";
 import { monthsText, stateTag } from "./parts/labels";
 import { usePreviewVariant, useQueryParams } from "./parts/urlState";
 import { CurrencyFigure, PageError, PageLoading, ProjectTile, SelectFilter } from "./parts/ui";
@@ -84,8 +85,10 @@ export function MyInvestmentsScreen() {
     />
   ) : null;
 
+  // Design: "Export" on the overview and the history (not on the payment schedule), with every investment.
+  const exportAction = <ExportInvestmentsButton holdings={holdings} loansById={loansById} orders={orders} />;
   if (view === "history") {
-    return <InvestmentHistory activity={activityQuery.data?.entries ?? []} currency={currency} currencySwitch={currencySwitch} holdings={holdings} onBack={() => setParams({ view: null })} />;
+    return <InvestmentHistory activity={activityQuery.data?.entries ?? []} currency={currency} currencySwitch={currencySwitch} exportAction={exportAction} holdings={holdings} onBack={() => setParams({ view: null })} />;
   }
   if (view === "payments") {
     return <PortfolioSchedule asOf={portfolioQuery.data.as_of} currency={currency} currencySwitch={currencySwitch} holdings={holdings} onBack={() => setParams({ view: null })} />;
@@ -111,6 +114,7 @@ export function MyInvestmentsScreen() {
       asOf={portfolioQuery.data.as_of}
       currency={currency}
       currencySwitch={currencySwitch}
+      exportAction={exportAction}
       holdings={holdings}
       loansById={loansById}
       onView={(next) => setParams({ view: next })}
@@ -126,6 +130,7 @@ function InvestmentsOverview({
   loansById,
   currency,
   currencySwitch,
+  exportAction,
   onView
 }: {
   asOf: string;
@@ -134,6 +139,7 @@ function InvestmentsOverview({
   loansById: Map<string, MarketplaceLoanPreview>;
   currency: string | null;
   currencySwitch: ReactNode;
+  exportAction: ReactNode;
   onView: (view: "history" | "payments") => void;
 }) {
   const t = useT();
@@ -172,7 +178,7 @@ function InvestmentsOverview({
 
   return (
     <main aria-label={t("My investments")} className={PAGE_CLASS}>
-      <PageHead actions={currencySwitch ?? undefined} subtitle={subtitle} title={t("My investments")} />
+      <PageHead actions={currencySwitch ? [<Fragment key="currency">{currencySwitch}</Fragment>, <Fragment key="export">{exportAction}</Fragment>] : exportAction} subtitle={subtitle} title={t("My investments")} />
       <div className="mi40-body">
         <div className="mi64-summary-grid r84-portfolio" data-r84="true">
           <section aria-labelledby="mi40-earned-title" className="mi40-earned">

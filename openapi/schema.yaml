@@ -15879,10 +15879,18 @@ components:
         is_own_listing:
           type: boolean
           readOnly: true
+        borrower_name:
+          type: string
+          readOnly: true
+        borrower_country:
+          type: string
+          readOnly: true
       required:
       - accrued_interest_from_date
       - accrued_interest_minor
       - accrued_interest_to_date
+      - borrower_country
+      - borrower_name
       - buyer_total_cost_minor
       - collateral_type
       - currency
@@ -15989,14 +15997,14 @@ components:
         is_own_listing:
           type: boolean
           readOnly: true
-        originator_id:
-          type: string
-          format: uuid
-          nullable: true
         borrower_name:
           type: string
         borrower_country:
           type: string
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
         purpose:
           type: string
         risk_rating:

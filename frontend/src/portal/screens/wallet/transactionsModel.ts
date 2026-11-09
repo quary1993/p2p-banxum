@@ -246,7 +246,7 @@ export function csvAmount(amountMinor: number, currency: string, sign: Sign, for
   return decimals > 0 ? `${minus}${whole}${format === "european" ? "," : "."}${fraction}` : `${minus}${whole}`;
 }
 
-function csvCell(value: string, separator: string) {
+export function csvCell(value: string, separator: string) {
   return /["\n\r]/.test(value) || value.includes(separator) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 

@@ -49,7 +49,7 @@ export function SensitiveFields({
         value={value}
       />
       <p className="wl-code-hint" id="wl-code-hint">
-        {isFixturePreview ? t("Preview: any 6 digits.") : t("We sent a 6-digit code to your email address.")}
+        {isFixturePreview ? t("Preview: any 6 digits work.") : t("We sent a 6-digit code to your email address.")}
       </p>
       <div className="invalid-feedback" id="wl-code-error" role="alert">{message}</div>
       <SensitivePinField onContinue={onContinue} pin={code.pin} />

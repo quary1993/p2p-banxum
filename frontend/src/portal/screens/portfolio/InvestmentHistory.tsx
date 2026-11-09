@@ -33,12 +33,14 @@ export function InvestmentHistory({
   activity,
   currency,
   currencySwitch,
+  exportAction,
   onBack
 }: {
   holdings: Holding[];
   activity: SecondaryMarketActivityEntryPortal[];
   currency: string | null;
   currencySwitch: ReactNode;
+  exportAction: ReactNode;
   /** Back to the overview on the same address (the sub-view is a query parameter). */
   onBack: () => void;
 }) {
@@ -51,12 +53,16 @@ export function InvestmentHistory({
   const finished = holdings.filter((holding) => inCurrency(holding) && ["repaid", "sold"].includes(holdingState(holding)));
   const rows = finished.filter((holding) => filter === "history" || holdingState(holding) === filter);
 
-  const metrics = sortedCurrencies(rows.map((holding) => holding.currency)).map((code) => {
-    const scoped = rows.filter((holding) => holding.currency === code);
+  // Design: the totals of fully repaid investments per currency, whatever the status filter. A sale's
+  // proceeds are never counted as a loan principal repayment. With "All", a currency without a repaid
+  // investment has no totals.
+  const repaid = finished.filter((holding) => holdingState(holding) === "repaid");
+  const metrics = (currency ? [currency] : sortedCurrencies(repaid.map((holding) => holding.currency))).map((code) => {
+    const scoped = repaid.filter((holding) => holding.currency === code);
     return {
       code,
       count: scoped.length,
-      principal: scoped.reduce((sum, holding) => sum + (saleOf(holding, activity)?.principal_minor ?? principalReturnedMinor(holding)), 0),
+      principal: scoped.reduce((sum, holding) => sum + principalReturnedMinor(holding), 0),
       interest: scoped.reduce((sum, holding) => sum + interestReceivedMinor(holding), 0)
     };
   });
@@ -80,7 +86,7 @@ export function InvestmentHistory({
           <h1>{t("Investment history")}</h1>
           <p>{t("Repaid and sold investments")}</p>
         </div>
-        {currencySwitch ? <ul className="nk-block-tools g-3"><li>{currencySwitch}</li></ul> : null}
+        <ul className="nk-block-tools g-3">{currencySwitch ? <li>{currencySwitch}</li> : null}<li>{exportAction}</li></ul>
       </header>
       <section aria-label={t("Completed investments")} className="r75c-surface r75c-history">
         {metrics.length > 0 ? (
@@ -88,7 +94,7 @@ export function InvestmentHistory({
             {metrics.map((metric) => (
               <div className="r75c-metrics" key={metric.code}>
                 <div>
-                  <span>{filter === "sold" ? t("Sold investments · {currency}", { currency: metric.code }) : filter === "repaid" ? t("Repaid investments · {currency}", { currency: metric.code }) : t("Completed investments · {currency}", { currency: metric.code })}</span>
+                  <span>{t("Repaid investments · {currency}", { currency: metric.code })}</span>
                   <strong>{metric.count}</strong>
                 </div>
                 <div>
@@ -130,7 +136,7 @@ export function InvestmentHistory({
                 <th scope="col">{t("Investment")}</th>
                 <th scope="col">{t("Principal returned")}</th>
                 <th scope="col">{t("Interest received")}</th>
-                <th scope="col">{t("Completed on")}</th>
+                <th scope="col">{filter === "repaid" ? t("Repaid on") : filter === "sold" ? t("Sold on") : t("Completed on")}</th>
                 <th scope="col"><span className="visually-hidden">{t("Details")}</span></th>
               </tr>
             </thead>
@@ -175,7 +181,7 @@ export function InvestmentHistory({
                       </small>
                     </td>
                     <td data-mobile-label={t("Interest received")}><span className={`bxm-mi-primary${interest > 0 ? " bxm-mi-earned" : ""}`}>{money(holding.currency, interest)}</span></td>
-                    <td data-mobile-label={t("Completed on")}>{completed ? formatDate(completed) : "—"}</td>
+                    <td data-mobile-label={filter === "repaid" ? t("Repaid on") : filter === "sold" ? t("Sold on") : t("Completed on")}>{completed ? formatDate(completed) : "—"}</td>
                     <td data-mobile-label={t("Details")}>
                       <PortalLink aria-label={t("Open {title}", { title: holding.loan.loan_title })} className="btn btn-sm btn-icon btn-trigger" params={{ holdingId: holding.id }} tabIndex={-1} to="investment">
                         <NiIcon name="chevron-right" />

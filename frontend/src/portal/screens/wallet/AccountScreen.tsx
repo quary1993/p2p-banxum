@@ -143,7 +143,7 @@ function AccountCard({
             <dt>
               {t("Reserved for investments")}{" "}
               <InfoTip label={t("Reserved for investments")} title={t("Reserved for investments")}>
-                {t("Money reserved for investments whose funding has not closed yet. If an investment does not go ahead, the money becomes available again.")}
+                {t("Funds reserved for investments awaiting funding completion. If an investment does not proceed, the funds become available again.")}
               </InfoTip>
             </dt>
             <dd>
@@ -215,7 +215,7 @@ function BalanceDetails({
     <details className="card card-bordered ap-details p73-balance">
       <summary><span><strong>{t("Balance details")}</strong></span><NiIcon name="chevron-down" /></summary>
       <div className="ap-details-body">
-        {empty ? <div className="bxm-empty"><NiIcon name="wallet" /><p>{t("No money on your account yet.")}</p></div> : null}
+        {empty ? <div className="bxm-empty"><NiIcon name="wallet" /><p>{t("No money on your account.")}</p></div> : null}
         {rows.length > 0 ? (
           <table className="p73-balance-table m82-balance-records" data-mobile-table="true">
             <thead>

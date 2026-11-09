@@ -119,7 +119,7 @@ test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no b
   );
   renderLiveApp(App, "/smart-invest");
   const review = await screen.findByRole("button", { name: "Review investment in Audit Direct Loan" }, { timeout: 5000 });
-  expect(screen.getByText("CHF only · No other restrictions")).toBeInTheDocument();
+  expect(screen.getByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
   // Nothing to select, approve or confirm in bulk on the Smart Invest page.
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Review & confirm|Approve|Place \d/ })).not.toBeInTheDocument();

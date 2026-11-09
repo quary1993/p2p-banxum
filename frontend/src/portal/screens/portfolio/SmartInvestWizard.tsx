@@ -9,8 +9,9 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { formatDecimal, useNumberFormat } from "../../../investorPortal/format";
-import { InfoTip, NiIcon } from "../../components";
+import { Dialog, InfoTip, NiIcon } from "../../components";
 import { SECURITY_GROUPS, securityLabel, securityPreferenceText } from "./parts/labels";
+import { preferenceSummary } from "./parts/smartSummary";
 import { BANXUM_SOURCE, SMART_CURRENCIES, hasEffectiveCriterion, isOpenOpportunity, matchesPreferences, type SmartPreferences } from "./parts/smartInvestModel";
 
 type StepKey = "currency" | "rates" | "security" | "review";
@@ -76,8 +77,8 @@ function RangeField({
       <div className="si-range-heading">
         <label htmlFor={inputId} id={titleId}>{label}</label>
         <div aria-labelledby={titleId} className="rc-range-toggle" role="group">
-          <button aria-pressed={!limit} onClick={() => { setLimit(false); setText(null); onChange(null); }} type="button">{t("No preference")}</button>
-          <button aria-controls={editorId} aria-expanded={limit} aria-pressed={limit} onClick={() => setLimit(true)} type="button">{t("Set a limit")}</button>
+          <button aria-pressed={!limit} data-rc-range-mode="any" onClick={() => { setLimit(false); setText(null); onChange(null); }} type="button">{t("No preference")}</button>
+          <button aria-controls={editorId} aria-expanded={limit} aria-pressed={limit} data-rc-range-mode="limit" onClick={() => setLimit(true)} type="button">{t("Set a limit")}</button>
         </div>
       </div>
       {context ? <p className="si94f-range-context">{context}</p> : null}
@@ -165,6 +166,7 @@ export function SmartInvestWizard({
   const [preferences, setPreferences] = useState<SmartPreferences>(initial);
   const [currencyError, setCurrencyError] = useState(false);
   const [criterionError, setCriterionError] = useState(false);
+  const [matchesOpen, setMatchesOpen] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
   const step = STEPS[stepIndex];
@@ -231,7 +233,7 @@ export function SmartInvestWizard({
     currency: (
       <>
         <h4 id="si-step-heading" ref={headingRef} tabIndex={-1}>{t("Choose your currencies")}</h4>
-        <p className="si-setup-intro">{t("Choose one or both currencies for your investments. EUR and CHF stay separate; nothing is converted.")}</p>
+        <p className="si-setup-intro">{t("Choose one or both currencies for your investments.")}</p>
         <fieldset className="si-guided-currencies si-setup-field">
           <legend className="visually-hidden">{t("Currencies")}</legend>
           <div>
@@ -425,7 +427,7 @@ export function SmartInvestWizard({
   };
 
   return (
-    <main className="si-page si-guided-page">
+    <main className="si-page si-guided-page r31-range-simple">
       <div className="nk-block-head nk-block-head-sm">
         <div className="nk-block-between g-3">
           <div className="nk-block-head-content">
@@ -469,8 +471,12 @@ export function SmartInvestWizard({
             <div aria-atomic="true" aria-live="polite" className="si94-match-count" role="status">
               <div className="si94f-count-title">
                 <strong>{matching.length === 1 ? t("1 matching opportunity") : t("{count} matching opportunities", { count: matching.length })}</strong>
+                <button className="si94f-text-link" onClick={() => setMatchesOpen(true)} type="button">
+                  {t("View matches")} <NiIcon name="arrow-right" />
+                </button>
               </div>
-              <span>{t("{count} open now", { count: open.length })}</span>
+              {/* Design: "{open} open · {soon} coming soon"; Coming soon projects come with U33-DEC-17. */}
+              <span>{t("{count} open", { count: matching.length })}</span>
             </div>
             {step.key === "review" ? <p className="si-setup-final-note">{t("No money is invested or reserved when you activate Smart Invest. You confirm each investment.")}</p> : null}
             <div className="si-setup-actions">
@@ -485,7 +491,57 @@ export function SmartInvestWizard({
           </div>
           {error ? <p className="si-validation u33-save-error" role="alert">{error}</p> : null}
         </form>
+        {matchesOpen ? (
+          <MatchesDialog
+            editing={mode === "edit"}
+            matching={matching}
+            onClose={() => setMatchesOpen(false)}
+            summary={preferenceSummary(preferences, originators)}
+          />
+        ) : null}
       </div>
     </main>
+  );
+}
+
+/** "View matches" (design .si94f-modal): the opportunities that match the preferences being edited. */
+function MatchesDialog({ matching, summary, editing, onClose }: { matching: MarketplaceLoanPreview[]; summary: string; editing: boolean; onClose: () => void }) {
+  const t = useT();
+  return (
+    <Dialog bodyClassName="si94f-dialog" className="si94f-modal" onClose={onClose} size="lg" title={t("Matching opportunities")}>
+      <header>
+        <div>
+          <p>
+            <span>{matching.length === 1 ? t("1 opportunity") : t("{count} opportunities", { count: matching.length })}</span> · <span>{t("{count} open", { count: matching.length })}</span>
+          </p>
+        </div>
+      </header>
+      <div className="si94f-filter-summary">
+        {summary.split(" · ").flatMap((part, index) => (index === 0 ? [<span key={index}>{part}</span>] : [" · ", <span key={index}>{part}</span>]))}
+      </div>
+      <div className="si94f-results">
+        <div className="si94f-result-head">
+          <span>{t("Opportunity")}</span>
+          <span>{t("Annual interest")}</span>
+          <span>{t("Term")}</span>
+        </div>
+        {matching.map((loan) => (
+          <div className="si94f-result" key={loan.loan_id}>
+            <div>
+              <strong>{loan.title}</strong>
+              <span>{loan.currency}</span>
+            </div>
+            <b>{formatDecimal((loan.yield_bps || loan.interest_rate_bps) / 100, 1)}%</b>
+            <div className="si94f-result-term">{loan.term_months}<span>{t("months")}</span></div>
+          </div>
+        ))}
+      </div>
+      <footer>
+        <span>{editing ? t("These changes are not saved.") : t("Your preferences are not activated.")}</span>
+        <button className="btn si94f-button" onClick={onClose} type="button">
+          {t("Back to preferences")} <NiIcon name="arrow-right" />
+        </button>
+      </footer>
+    </Dialog>
   );
 }

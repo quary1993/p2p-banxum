@@ -78,7 +78,7 @@ function Breakdown({ pricing, currency, t }: { pricing: Pricing | null; currency
       <dl className="s106-breakdown">
         <div>
           <dt>
-            {t("Accrued interest")} <span>· {t("No fees")}</span>
+            {t("Accrued interest")}
             <InfoDetails label={t("About accrued interest")} paragraphs={[t("Interest earned since the last payment. Paid separately by the buyer, on top of the selling price. No fee is charged on it.")]} />
           </dt>
           <dd className="s106-interest">{pricing ? `+ ${money(pricing.accrued_interest_minor)}` : "…"}</dd>
@@ -397,7 +397,7 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
           <DiscountWarning holding={holding} priceBps={priceBps} t={t} />
         </section>
         <Breakdown currency={currency} pricing={pricing} t={t} />
-        <p className="s106-note">{t("A buyer must purchase your investment for the sale to complete. Figures for a sale today; accrued interest grows until the sale day.")}</p>
+        <p className="s106-note">{t("A buyer must purchase your investment for the sale to complete.")}</p>
         <div className="s106-actions">
           <button className="s106-secondary" onClick={onClose} type="button">{t("Cancel")}</button>
           <button className="s106-primary" disabled={!pricing || Boolean(priceError) || termsMissing} type="submit">
