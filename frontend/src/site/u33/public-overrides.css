@@ -1,0 +1,156 @@
+/* IP of Webby-Soft SRL. */
+/* Hand-made fixes and additions for the U33 public site, all under html.bxp. public.css is
+ * generated from the design (do not edit it); put every fix here, with the reason.
+ *
+ * Load order: main.tsx imports this file after styles.css and public.css, so a rule here wins a
+ * tie of specificity against both.
+ */
+
+/* ---------------------------------------------------------------------------------------------
+ * 1. Leaks of the app's global styles.css (unscoped rules written for the investor area). The
+ *    design has no such rules, so where the design CSS sets nothing these values would reach the
+ *    public pages. :where() keeps these at (0,1,1): above the app rules, below every design rule
+ *    (each design rule is html.bxp + its own selector).
+ */
+
+/* :root / html / body: paper background, ink, Instrument Sans, 14px, line-height 1.45,
+   min-height 100vh, optimizeLegibility. The design sets html's background and body's margin,
+   colour, font family and smoothing itself. */
+html.bxp {
+  color: revert;
+  font-family: revert;
+  font-size: revert;
+  line-height: revert;
+  min-height: revert;
+  text-rendering: auto;
+}
+
+html.bxp :where(body) {
+  background: none;
+  padding: revert;
+  font-size: revert;
+  line-height: revert;
+  min-height: revert;
+}
+
+/* button, input, select, textarea { font: inherit }; button { color: inherit } */
+html.bxp :where(button, input, select, textarea) {
+  font: revert;
+}
+
+html.bxp :where(button) {
+  color: revert;
+}
+
+/* a { color: accent; cursor: pointer } and a:hover { text-decoration: underline } */
+html.bxp :where(a) {
+  cursor: revert;
+}
+
+html.bxp :where(a:hover) {
+  text-decoration: none;
+}
+
+/* h1-h4, p { margin: 0 }; h1-h4 { colour, weight 600, letter-spacing 0 } */
+html.bxp :where(h1, h2, h3, h4, p) {
+  margin: revert;
+}
+
+html.bxp :where(h1, h2, h3, h4) {
+  color: revert;
+  font-weight: revert;
+  letter-spacing: revert;
+}
+
+/* :focus-visible { green outline }, ::selection { green tint } */
+html.bxp :where(:focus-visible) {
+  outline: revert;
+  outline-offset: revert;
+  border-radius: revert;
+}
+
+html.bxp ::selection {
+  background: revert;
+}
+
+/* Global classes of styles.css with the same names as design classes: give the properties the
+   design does not set back their initial values. */
+html.bxp :where(.muted) {
+  color: revert;
+}
+
+html.bxp :where(.brand) {
+  align-items: normal;
+  display: revert;
+  gap: normal;
+  padding: 0;
+}
+
+html.bxp :where(.eyebrow) {
+  color: revert;
+  font-size: revert;
+  font-weight: revert;
+  letter-spacing: revert;
+  text-transform: none;
+}
+
+html.bxp :where(.field) {
+  display: revert;
+  flex-direction: revert;
+  gap: normal;
+}
+
+html.bxp :where(.field > label) {
+  color: revert;
+  font-size: revert;
+  font-weight: revert;
+}
+
+html.bxp :where(.faq-intro) {
+  align-items: normal;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  display: revert;
+  gap: normal;
+  grid-template-columns: none;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+html.bxp :where(.faq-intro h2) {
+  font-size: revert;
+}
+
+html.bxp :where(.faq-intro p) {
+  color: revert;
+  max-width: none;
+}
+
+html.bxp :where(.steps) {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  display: revert;
+  gap: normal;
+  grid-template-columns: none;
+  margin-top: 0;
+  overflow: visible;
+}
+
+html.bxp :where(.step) {
+  background: none;
+  padding: 0;
+}
+
+html.bxp :where(.step h3) {
+  font-size: revert;
+  font-weight: revert;
+  margin-bottom: revert;
+}
+
+html.bxp :where(.step p) {
+  color: revert;
+  font-size: revert;
+  line-height: revert;
+}
