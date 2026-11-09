@@ -301,5 +301,14 @@ html.bxu .u33-lot-date {
   }
 }
 
+/* Investment history: the design right-aligns "Principal returned" and "Interest received" with
+   ".bxm-mi-table :is(th, td):is(:nth-child(2), :nth-child(3))" at 1200 px and wider; that rule is not in
+   the generated u33.css. */
+@media (min-width: 1200px) {
+  html.bxu[data-edition="refined"] body.bxm-app .r75c-table :is(th, td):is(:nth-child(2), :nth-child(3)) {
+    text-align: right;
+  }
+}
+
 /* temporary, moves to u33-overrides.css at merge */
 html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
