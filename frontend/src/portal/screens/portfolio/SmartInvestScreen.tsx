@@ -217,6 +217,14 @@ export function SmartInvestScreen() {
           </div>
         )}
       </div>
+      {/* Today new matches are emailed (smart_invest notify_smart_invest_matches_for_published_loan); the
+          design's "Notification settings" waits for the per-channel controls (U33-DEC-30). */}
+      <div className="si-notifications">
+        <div>
+          <NiIcon name="bell" />
+          <span>{t("New matching opportunities are sent to you by email.")}</span>
+        </div>
+      </div>
       {whyOpen ? (
         <Dialog bodyClassName="u104-explanation" onClose={() => setWhyOpen(false)} size="sm" title={t("Why these matches?")}>
           <p>{t("These opportunities are open now and meet every preference you set: {summary}.", { summary })}</p>

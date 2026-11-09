@@ -123,7 +123,7 @@ export function InvestmentHistory({
             {finished.length === 0 ? t("Investments appear here when they are repaid or sold.") : null}
           </EmptyState>
         ) : (
-          <table className="bxm-mi-table r75c-table">
+          <table className="bxm-mi-table r75c-table mobile-records" data-mobile-table="true">
             <caption className="visually-hidden">{t("Your investments. Open an investment for its payment schedule, documents and available actions.")}</caption>
             <thead>
               <tr>
@@ -150,7 +150,7 @@ export function InvestmentHistory({
                       nav.go("investment", { holdingId: holding.id });
                     }}
                   >
-                    <td>
+                    <td data-mobile-label={t("Investment")}>
                       <PortalLink className="bxm-mi-investment-link" params={{ holdingId: holding.id }} to="investment">
                         <ProjectTile collateralType={holding.loan.collateral_type} />
                         <div className="bxm-mi-identity">
@@ -166,7 +166,7 @@ export function InvestmentHistory({
                         </div>
                       </PortalLink>
                     </td>
-                    <td>
+                    <td data-mobile-label={t("Principal returned")}>
                       <strong>{money(holding.currency, sale ? sale.principal_minor : principalReturnedMinor(holding))}</strong>
                       <small>
                         {sale
@@ -174,9 +174,9 @@ export function InvestmentHistory({
                           : t("Initial investment {amount}", { amount: money(holding.currency, holding.original_principal_minor) })}
                       </small>
                     </td>
-                    <td><span className={`bxm-mi-primary${interest > 0 ? " bxm-mi-earned" : ""}`}>{money(holding.currency, interest)}</span></td>
-                    <td>{completed ? formatDate(completed) : "—"}</td>
-                    <td>
+                    <td data-mobile-label={t("Interest received")}><span className={`bxm-mi-primary${interest > 0 ? " bxm-mi-earned" : ""}`}>{money(holding.currency, interest)}</span></td>
+                    <td data-mobile-label={t("Completed on")}>{completed ? formatDate(completed) : "—"}</td>
+                    <td data-mobile-label={t("Details")}>
                       <PortalLink aria-label={t("Open {title}", { title: holding.loan.loan_title })} className="btn btn-sm btn-icon btn-trigger" params={{ holdingId: holding.id }} tabIndex={-1} to="investment">
                         <NiIcon name="chevron-right" />
                       </PortalLink>

@@ -22,7 +22,7 @@ import {
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { isFixturePreview } from "../../../investorPortal/data";
-import { formatAmountInput, formatMoneyMinor, formatRateBps, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
+import { formatMoneyMinor, formatRateBps, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
 import { Button, Dialog, NiIcon } from "../../components";
 import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
@@ -138,7 +138,7 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
   const initialBps = Math.min(MAX_PRICE_BPS, listing?.price_bps ?? MAX_PRICE_BPS);
   const [step, setStep] = useState<"price" | "review" | "done">("price");
   const [priceBps, setPriceBps] = useState(initialBps);
-  const [priceText, setPriceText] = useState(() => formatAmountInput(Math.round((principal * initialBps) / 10_000), currency));
+  const [priceText, setPriceText] = useState(() => formatMoneyMinor(Math.round((principal * initialBps) / 10_000), currency));
   const [priceError, setPriceError] = useState("");
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
@@ -157,7 +157,7 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
 
   // The amount field follows the server's price for the chosen basis points, unless it is being typed.
   useEffect(() => {
-    if (!editingText.current && pricing) setPriceText(formatAmountInput(pricing.transfer_price_minor, currency));
+    if (!editingText.current && pricing) setPriceText(formatMoneyMinor(pricing.transfer_price_minor, currency));
   }, [currency, pricing]);
   // One email code for the confirmation step, sent when the seller reaches it.
   const requested = useRef(false);

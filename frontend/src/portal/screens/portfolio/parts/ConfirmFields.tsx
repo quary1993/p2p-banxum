@@ -5,7 +5,7 @@
 // a 60-second resend cooldown, the PIN boxes with the wrong-PIN, lock and "Forgot PIN?" handling.
 // The create/forgot PIN dialogs are the existing old-skin dialogs, shown in a LegacyBody above the
 // U33 dialog (slice S5 rebuilds them).
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useT } from "../../../../i18n";
@@ -34,7 +34,8 @@ export function ConfirmFields({
   requestDisabled?: boolean;
 }) {
   const t = useT();
-  const codeId = useId();
+  // The design styles the code field by its id (.s106-modal #bxm-code); one confirmation is open at a time.
+  const codeId = "bxm-code";
   const { pin } = confirmation;
   const continueRef = useRef(onContinue);
   useLayoutEffect(() => {
@@ -72,7 +73,7 @@ export function ConfirmFields({
         <input
           aria-label={t("Email confirmation code")}
           autoComplete="one-time-code"
-          className="form-control form-control-lg bxm-otp s106-code"
+          className="form-control form-control-lg bxm-otp p73-code s106-code"
           id={codeId}
           inputMode="numeric"
           maxLength={6}

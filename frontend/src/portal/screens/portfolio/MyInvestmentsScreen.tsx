@@ -383,7 +383,7 @@ function CurrentInvestments({
                   <button className="link" onClick={() => setStatus("current")} type="button">{t("Show all current investments")}</button>
                 </EmptyState>
               ) : (
-                <table className="bxm-mi-table mi64-table">
+                <table className="bxm-mi-table mi64-table mobile-records" data-mobile-table="true">
                   <caption className="visually-hidden">{t("Your investments. Open an investment for its payment schedule, documents and available actions.")}</caption>
                   <thead>
                     <tr>
@@ -435,13 +435,13 @@ function InvestmentRow({ holding, state, multipleLots, onOpen }: { holding: Hold
         onOpen();
       }}
     >
-      <td className="mi64-status-cell" data-status={state}>
+      <td className="mi64-status-cell" data-mobile-label={t("Status")} data-status={state}>
         <div className="bxm-mi-status">
           <StatusTag tone={tag.tone}>{tag.label}</StatusTag>
           {listed ? <StatusTag status="listed" /> : null}
         </div>
       </td>
-      <td>
+      <td data-mobile-label={t("Investment")}>
         <PortalLink className="bxm-mi-investment-link" params={{ holdingId: holding.id }} to="investment">
           <ProjectTile collateralType={holding.loan.collateral_type} />
           <div className="bxm-mi-identity">
@@ -460,14 +460,14 @@ function InvestmentRow({ holding, state, multipleLots, onOpen }: { holding: Hold
           </div>
         </PortalLink>
       </td>
-      <td><span className="bxm-mi-primary">{money(holding.currency, holding.current_principal_minor)}</span></td>
-      <td>
+      <td data-mobile-label={t("Outstanding principal")}><span className="bxm-mi-primary">{money(holding.currency, holding.current_principal_minor)}</span></td>
+      <td data-mobile-label={t("Interest received")}>
         <span className={`bxm-mi-primary${receivedMinor > 0 ? " bxm-mi-earned" : ""}`}>{money(holding.currency, receivedMinor)}</span>
         <span className="bxm-mi-secondary mi64-projection">
           {lifetime === null ? t("Projection unavailable") : t("out of {amount} projected", { amount: money(holding.currency, lifetime) })}
         </span>
       </td>
-      <td>
+      <td data-mobile-label={t("Next payment")}>
         {inRecovery ? (
           <span>{t("Recovery in progress")}</span>
         ) : overdue.length > 0 ? (
@@ -484,7 +484,7 @@ function InvestmentRow({ holding, state, multipleLots, onOpen }: { holding: Hold
           <span className="bxm-mi-secondary">{t("No scheduled payment")}</span>
         )}
       </td>
-      <td>
+      <td data-mobile-label={t("Details")}>
         <PortalLink aria-label={t("Open {title}", { title: holding.loan.loan_title })} className="btn btn-sm btn-icon btn-trigger" params={{ holdingId: holding.id }} tabIndex={-1} to="investment">
           <NiIcon name="chevron-right" />
         </PortalLink>

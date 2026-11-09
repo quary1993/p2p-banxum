@@ -118,8 +118,16 @@ export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf, on
   );
 }
 
+function groupTotals(group: Group) {
+  const totals = new Map<string, number>();
+  for (const payment of group.payments) addTo(totals, payment.holding.currency, payment.row.projected_total_minor);
+  return totals;
+}
+
 function ScheduleTable({ payments, nextKeys, earliestNext }: { payments: PortfolioPayment[]; nextKeys: Set<string>; earliestNext?: string }) {
   const t = useT();
+  const groups = groupPayments(payments);
+  const isNext = (payment: PortfolioPayment) => !payment.overdue && nextKeys.has(payment.key) && payment.row.due_date === earliestNext;
   return (
     <div id="bxm-payment-list">
       <div className="ps93-table-frame">
@@ -141,9 +149,8 @@ function ScheduleTable({ payments, nextKeys, earliestNext }: { payments: Portfol
               <th className="ps93-number" scope="col">{t("Total")}</th>
             </tr>
           </thead>
-          {groupPayments(payments).map((group) => {
-            const totals = new Map<string, number>();
-            for (const payment of group.payments) addTo(totals, payment.holding.currency, payment.row.projected_total_minor);
+          {groups.map((group) => {
+            const totals = groupTotals(group);
             const count = group.payments.length;
             return (
               <tbody className={`ps93-month${group.late ? " ps93-late-group" : ""}`} key={group.key}>
@@ -163,14 +170,14 @@ function ScheduleTable({ payments, nextKeys, earliestNext }: { payments: Portfol
                 </tr>
                 {group.payments.map((payment) => {
                   const { row, holding } = payment;
-                  const isNext = !payment.overdue && nextKeys.has(payment.key) && row.due_date === earliestNext;
+                  const next = isNext(payment);
                   return (
-                    <tr className={`ps93-payment${payment.overdue ? " ps93-payment-late" : ""}${isNext ? " ps93-payment-next" : ""}`} data-payment-status={payment.overdue ? "late" : "scheduled"} key={payment.key}>
+                    <tr className={`ps93-payment${payment.overdue ? " ps93-payment-late" : ""}${next ? " ps93-payment-next" : ""}`} data-payment-status={payment.overdue ? "late" : "scheduled"} key={payment.key}>
                       <td className="ps93-date">
                         <time dateTime={row.due_date}>{payment.overdue ? formatDate(row.due_date) : dayMonth(row.due_date)}</time>
                         {payment.overdue ? (
                           <small className="ps93-overdue">{row.days_past_due === 1 ? t("1 day overdue") : t("{days} days overdue", { days: row.days_past_due })}</small>
-                        ) : isNext ? (
+                        ) : next ? (
                           <small className="ps93-next">{t("Next payment")}</small>
                         ) : null}
                       </td>
@@ -187,6 +194,54 @@ function ScheduleTable({ payments, nextKeys, earliestNext }: { payments: Portfol
             );
           })}
         </table>
+      </div>
+      {/* The design's mobile edition: payments by month, each opening its principal and interest. */}
+      <div className="ps32-groups">
+        {groups.map((group) => (
+          <section className={`ps32-month${group.late ? " ps32-late" : ""}`} key={group.key}>
+            <header>
+              <h2>{group.late ? t("Late payments") : group.label}</h2>
+              <div className="ps32-month-totals">
+                {totalsList(groupTotals(group)).map(([code, amount]) => <Money amountMinor={amount} currency={code} key={code} />)}
+              </div>
+            </header>
+            {group.payments.map((payment) => {
+              const { row, holding } = payment;
+              return (
+                <details className="ps32-payment" key={payment.key}>
+                  <summary>
+                    <div className="ps32-payment-top">
+                      <time dateTime={row.due_date}>{formatDate(row.due_date)}</time>
+                      <Money amountMinor={row.projected_total_minor} currency={holding.currency} />
+                      <NiIcon name="plus" />
+                    </div>
+                    <span className="ps32-project">{holding.loan.loan_title}</span>
+                    {payment.overdue ? (
+                      <small className="ps32-status">{row.days_past_due === 1 ? t("1 day overdue") : t("{days} days overdue", { days: row.days_past_due })}</small>
+                    ) : isNext(payment) ? (
+                      <small className="ps32-next">{t("Next payment")}</small>
+                    ) : null}
+                  </summary>
+                  <div className="ps32-breakdown">
+                    <dl aria-label={t("Payment breakdown")}>
+                      <div>
+                        <dt>{t("Principal")}</dt>
+                        <dd><Money amountMinor={row.projected_principal_minor} currency={holding.currency} /></dd>
+                      </div>
+                      <div>
+                        <dt>{t("Interest")}</dt>
+                        <dd className="ps32-interest"><Money amountMinor={row.projected_interest_minor} currency={holding.currency} /></dd>
+                      </div>
+                    </dl>
+                    <PortalLink params={{ holdingId: holding.id }} to="investment">
+                      {t("View investment")} <NiIcon name="arrow-right" />
+                    </PortalLink>
+                  </div>
+                </details>
+              );
+            })}
+          </section>
+        ))}
       </div>
     </div>
   );

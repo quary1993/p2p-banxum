@@ -62,7 +62,7 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
         <p className="ps-notice">{t("This loan is in default. The original payment dates no longer apply; see the recovery updates above.")}</p>
       ) : null}
       <div aria-label={t("All payments for this investment, {currency}", { currency })} className="ps-content" role="region" tabIndex={0}>
-        <table className="ps-table">
+        <table className="ps-table m82-owned-schedule" data-mobile-table="true">
           <caption className="visually-hidden">{t("All payments for your investment, {currency}.", { currency })}</caption>
           <thead>
             <tr>
@@ -81,9 +81,9 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
                   {t("Received to date")}
                   {counts.received > 0 ? <small>{counts.received === 1 ? t("1 payment") : t("{count} payments", { count: counts.received })}</small> : null}
                 </td>
-                <td>{formatMoneyMinor(receivedPrincipal, currency)}</td>
-                <td>{formatMoneyMinor(receivedInterest, currency)}</td>
-                <td><strong>{formatMoneyMinor(receivedPrincipal + receivedInterest, currency)}</strong></td>
+                <td data-m82-label={t("Principal")}>{formatMoneyMinor(receivedPrincipal, currency)}</td>
+                <td data-m82-label={t("Interest")}>{formatMoneyMinor(receivedInterest, currency)}</td>
+                <td data-m82-label={t("Total")}><strong>{formatMoneyMinor(receivedPrincipal + receivedInterest, currency)}</strong></td>
                 <td><span className="ps-paid"><NiIcon name="check" />{t("Paid")}</span></td>
                 <td />
               </tr>
@@ -98,9 +98,9 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
                         {formatDate(row.due_date)}
                         {isNext ? <small>{t("Next payment")}</small> : null}
                       </td>
-                      <td>{formatMoneyMinor(row.projected_principal_minor, currency)}</td>
-                      <td>{formatMoneyMinor(row.projected_interest_minor, currency)}</td>
-                      <td><strong>{formatMoneyMinor(row.projected_total_minor, currency)}</strong></td>
+                      <td data-m82-label={t("Principal")}>{formatMoneyMinor(row.projected_principal_minor, currency)}</td>
+                      <td data-m82-label={t("Interest")}>{formatMoneyMinor(row.projected_interest_minor, currency)}</td>
+                      <td data-m82-label={t("Total")}><strong>{formatMoneyMinor(row.projected_total_minor, currency)}</strong></td>
                       <td>
                         {overdue ? (
                           <span className="ps-overdue">{row.days_past_due === 1 ? t("Overdue · 1 day") : t("Overdue · {days} days", { days: row.days_past_due })}</span>

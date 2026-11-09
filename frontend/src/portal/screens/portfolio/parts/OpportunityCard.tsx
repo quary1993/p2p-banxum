@@ -2,6 +2,7 @@
 // A Smart Invest match as the design's opportunity card (.bxm-project.r35-card), from the match data of
 // the Smart Invest API. No risk rating (U33-DEC-16) and no "Banxum co-investment" claim (U33-DEC-15).
 // "Review investment" opens the opportunity page; nothing is reserved or confirmed here (U33-DEC-19).
+// As in the design's Smart Invest page, the badge, funded amount and availability are .r31-discovery-hidden.
 // Slice S2 builds the same card for Investment opportunities; the main session merges the two.
 import type { SmartInvestOpportunity } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
@@ -44,7 +45,7 @@ export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity
             <div className="r35-location">
               <span className="r35-location-text" />
               <span className="r35-location-badges">
-                <span className="bxm-tag si-match-label" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span>
+                <span className="bxm-tag si-match-label r31-discovery-hidden" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span>
               </span>
             </div>
             <div className="bxm-project-tags">
@@ -79,14 +80,14 @@ export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity
             </section>
             <div className="bxm-project-progress r31-lean-funding">
               <div className="bxm-project-row">
-                <span><strong>{money(match.committed_principal_minor)}</strong> {t("funded")}</span>
+                <span className="r31-discovery-hidden"><strong>{money(match.committed_principal_minor)}</strong> {t("funded")}</span>
                 <strong>{Math.round(funded)}% <span className="r31-funded-label">{t("of loan funded")}</span></strong>
               </div>
               <div aria-label={t("{percent}% of the loan funded", { percent: Math.round(funded) })} aria-valuemax={100} aria-valuemin={0} aria-valuenow={Math.round(funded)} className="bxm-progress" role="progressbar">
                 <span style={{ width: `${funded}%` }} />
               </div>
               <div className="bxm-project-row">
-                <span>{t("{amount} available", { amount: money(match.fillable_amount_minor) })}</span>
+                <span className="r31-discovery-hidden">{t("{amount} available", { amount: money(match.fillable_amount_minor) })}</span>
                 <span className="r31-minimum">{t("Min. {amount}", { amount: money(match.minimum_investment_minor) })}</span>
               </div>
             </div>

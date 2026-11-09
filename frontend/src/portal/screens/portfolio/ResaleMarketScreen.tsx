@@ -154,7 +154,7 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
   const money = useMoneyText();
   useNumberFormat();
   return (
-    <table className="rs-table r31m-resale-table r67-table">
+    <table className="rs-table r31m-resale-table r67-table mobile-records" data-mobile-table="true">
       <caption className="visually-hidden">{t("Investments offered by other investors. Open an offer for its details and the purchase.")}</caption>
       <thead>
         <tr>
@@ -183,7 +183,7 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
           };
           return (
             <tr data-offer-id={listing.id} key={listing.id}>
-              <td>
+              <td data-mobile-label={t("Investment")}>
                 <div className="rs-investment">
                   <ProjectTile as="span" collateralType={listing.collateral_type} />
                   <div>
@@ -201,14 +201,14 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
                   </div>
                 </div>
               </td>
-              <td><span className="rs-capital">{money(listing.currency, listing.current_principal_minor)}</span></td>
-              <td>
+              <td data-mobile-label={t("Outstanding principal")}><span className="rs-capital">{money(listing.currency, listing.current_principal_minor)}</span></td>
+              <td data-mobile-label={t("Total price")}>
                 <strong className="rs-total">{money(listing.currency, listing.buyer_total_cost_minor)}</strong>
                 <small className={`r31m-price-adjustment${listing.discount_premium_bps < 0 ? " is-discount" : ""}`}>{priceAdjustmentText(listing.discount_premium_bps)}</small>
               </td>
-              <td><span className="rs-return">{listing.projected_yield_bps === null ? "—" : formatRateBps(listing.projected_yield_bps)}</span></td>
-              <td><span className="rs-time">{monthsText(listing.remaining_term_months)}</span></td>
-              <td>
+              <td data-mobile-label={t("Projected annual return")}><span className="rs-return">{listing.projected_yield_bps === null ? "—" : formatRateBps(listing.projected_yield_bps)}</span></td>
+              <td data-mobile-label={t("Remaining term")}><span className="rs-time">{monthsText(listing.remaining_term_months)}</span></td>
+              <td data-mobile-label={t("Offer")}>
                 <button className="btn btn-sm btn-primary r67-view" onClick={() => onOffer(listing.id)} type="button">
                   {t("View offer")} <NiIcon name="arrow-right" />
                   <span className="visually-hidden"> {listing.loan_title}</span>
@@ -241,7 +241,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
           </div>
         </div>
       ) : (
-        <table className="rs-table r31m-resale-table u33-own-table">
+        <table className="rs-table r31m-resale-table u33-own-table mobile-records" data-mobile-table="true">
           <caption className="visually-hidden">{t("Your investments listed on the resale market.")}</caption>
           <thead>
             <tr>
@@ -259,7 +259,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
               const pending = listing.status !== "active";
               return (
                 <tr key={listing.id}>
-                  <td>
+                  <td data-mobile-label={t("Investment")}>
                     <div className="rs-investment">
                       <ProjectTile as="span" collateralType={holding.loan.collateral_type} />
                       <div>
@@ -269,14 +269,14 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
                       </div>
                     </div>
                   </td>
-                  <td><span className="rs-capital">{money(holding.currency, holding.current_principal_minor)}</span></td>
-                  <td>
+                  <td data-mobile-label={t("Outstanding principal")}><span className="rs-capital">{money(holding.currency, holding.current_principal_minor)}</span></td>
+                  <td data-mobile-label={t("Selling price")}>
                     <strong className="rs-total">{money(holding.currency, listing.transfer_price_minor)}</strong>
                     <small className={`r31m-price-adjustment${listing.price_bps < 10_000 ? " is-discount" : ""}`}>{priceAdjustmentText(listing.price_bps - 10_000)}</small>
                   </td>
-                  <td><span className="rs-capital">{money(holding.currency, listing.seller_net_proceeds_minor)}</span></td>
-                  <td><span className="rs-time">{listing.listed_at ? formatDate(listing.listed_at) : "—"}</span></td>
-                  <td>
+                  <td data-mobile-label={t("You receive if sold")}><span className="rs-capital">{money(holding.currency, listing.seller_net_proceeds_minor)}</span></td>
+                  <td data-mobile-label={t("Listed on")}><span className="rs-time">{listing.listed_at ? formatDate(listing.listed_at) : "—"}</span></td>
+                  <td data-mobile-label={t("Actions")}>
                     <div className="u33-row-actions">
                       <Button disabled={Boolean(blockedReason)} onClick={() => setDialog({ kind: "edit", holding, listing })} size="sm" title={blockedReason || undefined}>{t("Edit")}</Button>
                       <Button disabled={Boolean(blockedReason)} onClick={() => setDialog({ kind: "cancel", holding, listing })} size="sm" title={blockedReason || undefined}>{t("Cancel listing")}</Button>
@@ -292,7 +292,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
       {completed.length > 0 ? (
         <section aria-labelledby="rs-completed-title" className="u33-resale-activity">
           <h2 id="rs-completed-title">{t("Completed sales and purchases")}</h2>
-          <table className="rs-table r31m-resale-table">
+          <table className="rs-table r31m-resale-table mobile-records" data-mobile-table="true">
             <thead>
               <tr>
                 <th scope="col">{t("Date")}</th>
@@ -305,11 +305,11 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
             <tbody>
               {completed.map((entry) => (
                 <tr key={entry.id}>
-                  <td><span className="rs-time">{formatDate(entry.occurred_at)}</span></td>
-                  <td><strong>{entry.loan_title}</strong></td>
-                  <td>{entry.action === "sale" ? t("Sale") : t("Purchase")}</td>
-                  <td><span className="rs-capital">{money(entry.currency, entry.principal_minor)}</span></td>
-                  <td><strong className="rs-total">{money(entry.currency, entry.cash_amount_minor)}</strong></td>
+                  <td data-mobile-label={t("Date")}><span className="rs-time">{formatDate(entry.occurred_at)}</span></td>
+                  <td data-mobile-label={t("Investment")}><strong>{entry.loan_title}</strong></td>
+                  <td data-mobile-label={t("Type")}>{entry.action === "sale" ? t("Sale") : t("Purchase")}</td>
+                  <td data-mobile-label={t("Principal")}><span className="rs-capital">{money(entry.currency, entry.principal_minor)}</span></td>
+                  <td data-mobile-label={t("Amount")}><strong className="rs-total">{money(entry.currency, entry.cash_amount_minor)}</strong></td>
                 </tr>
               ))}
             </tbody>
