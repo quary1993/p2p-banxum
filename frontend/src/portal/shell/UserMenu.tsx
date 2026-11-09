@@ -1,11 +1,20 @@
 // IP of Webby-Soft SRL.
 // Account dropdown of the U33 header (design: #bxm-user-dropdown): user card, available balances with
-// "Add funds", Profile & Settings, Help, Language (English only until Phase 17.8), Sign out.
+// "Add funds", the Profile & Settings pages (Personal information, Security, Bank accounts,
+// Preferences), Language (English only until Phase 17.8), Sign out. Help is in the sidebar footer.
 import { useT } from "../../i18n";
 import { Dropdown, MoneyAmount, NiIcon, PortalLink } from "../components";
 import { brandDisplayName } from "../brand";
 
 export type ShellBalance = { currency: string; availableMinor: number };
+
+// The design's account-menu entries: Profile & Settings tabs (/settings/<tab>), with its icons.
+const SETTINGS_ENTRIES: Array<[string, string, string]> = [
+  ["personal", "user-alt", "Personal information"],
+  ["security", "lock-alt", "Security"],
+  ["bank-accounts", "building", "Bank accounts"],
+  ["preferences", "setting", "Preferences"]
+];
 export type ShellProfile = { initials: string; name: string; email: string };
 
 export function UserMenu({
@@ -82,8 +91,9 @@ export function UserMenu({
           ) : null}
           <div className="dropdown-inner">
             <ul className="link-list">
-              <li><PortalLink onNavigate={close} to="settings"><NiIcon name="user-alt" /><span>{t("Profile & Settings")}</span></PortalLink></li>
-              <li><PortalLink onNavigate={close} to="faq"><NiIcon name="help-alt" /><span>{t("Help")}</span></PortalLink></li>
+              {SETTINGS_ENTRIES.map(([tab, icon, label]) => (
+                <li key={tab}><PortalLink onNavigate={close} params={{ tab }} to="settings"><NiIcon name={icon} /><span>{t(label)}</span></PortalLink></li>
+              ))}
               <li className="p30-language">
                 {/* One language until Phase 17.8 adds de-CH: shown, not selectable. */}
                 <button aria-disabled="true" className="p30-language-toggle" disabled type="button">

@@ -26,7 +26,7 @@ export function ContactSupportDialog({ onClose, topic: initialTopic, reference }
         </div>
       ) : (
         <>
-          <p className="hp-modal-intro">{t("Tell us what you need help with. We prepare an email to {email} that you send from your email app.", { email: supportEmail })}</p>
+          <p className="hp-modal-intro">{t("Tell us what you need help with.")}</p>
           <form onSubmit={(event) => event.preventDefault()}>
             <div className="form-group">
               <label className="form-label" htmlFor="msg-topic">{t("Topic")}</label>
@@ -37,7 +37,9 @@ export function ContactSupportDialog({ onClose, topic: initialTopic, reference }
             <div className="form-group">
               <label className="form-label" htmlFor="msg-text">{t("Message")}</label>
               <textarea aria-describedby="hp-message-note" className="form-control" id="msg-text" onChange={(event) => setMessage(event.target.value)} rows={5} value={message} />
-              <p className="hp-message-note" id="hp-message-note">{t("Do not include your PIN or any confirmation code.")}</p>
+              <p className="hp-message-note" id="hp-message-note">
+                {t("Write email opens your email app with this message to {email}; you send it from there. Do not include your PIN or any confirmation code.", { email: supportEmail })}
+              </p>
             </div>
             <div className="hp-modal-actions">
               <button className="btn btn-outline-light" onClick={onClose} type="button">{t("Cancel")}</button>
