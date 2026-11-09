@@ -3118,6 +3118,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
           description: ''
+  /api/v1/ledger/payout-instructions/{instruction_id}/default/:
+    post:
+      operationId: v1_ledger_payout_instructions_default_create
+      description: 'U33-DEC-05: make a verified bank account the default return account
+        (code + PIN).'
+      parameters:
+      - in: path
+        name: instruction_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorDefaultReturnAccountRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorDefaultReturnAccountRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorDefaultReturnAccountRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
+          description: ''
   /api/v1/ledger/withdrawal-requests/:
     post:
       operationId: v1_ledger_withdrawal_requests_create
@@ -5665,6 +5700,8 @@ components:
           type: string
         state:
           $ref: '#/components/schemas/StateEnum'
+        is_default_return:
+          type: boolean
         origin:
           allOf:
           - $ref: '#/components/schemas/OriginEnum'
@@ -5712,6 +5749,7 @@ components:
       - investor_name
       - investor_reference
       - investor_user_id
+      - is_default_return
       - open_withdrawal_count
       - origin
       - other_investor_count
@@ -9079,6 +9117,23 @@ components:
       - pending_actions
       - portfolio_summary
       - recent_activity
+    InvestorDefaultReturnAccountRequest:
+      type: object
+      properties:
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+        pin:
+          type: string
+          writeOnly: true
+          pattern: ^\d{6}$
+      required:
+      - pin
+      - sensitive_action_code
+      - sensitive_action_code_id
     InvestorDepositInstructions:
       type: object
       properties:
@@ -9368,6 +9423,10 @@ components:
           type: string
         is_verified_usable:
           type: boolean
+        is_default_return:
+          type: boolean
+          description: 'U33-DEC-05: the account money going back to the investor''s
+            bank is sent to.'
         verified_by_admin_id:
           type: string
           format: uuid
@@ -9396,6 +9455,7 @@ components:
       - destination_iban
       - id
       - investor_user_id
+      - is_default_return
       - is_verified_usable
       - metadata
       - notes
@@ -10380,6 +10440,12 @@ components:
           default: false
           description: Set only after a duplicate-deposit rejection, when the investor
             really sent a second identical transfer.
+        payer_is_account_holder:
+          type: boolean
+          description: 'U33-DEC-05: the admin checked by hand that the paying account
+            is in the investor''s own name. Only then does the source IBAN become
+            a verified return account. A reference, name or email match alone is not
+            enough.'
         idempotency_key:
           type: string
           maxLength: 160
@@ -10390,6 +10456,7 @@ components:
       - idempotency_key
       - investor_user_id
       - payer_account_identifier
+      - payer_is_account_holder
       - value_date
     LenderDepositDeclareResponse:
       type: object
@@ -13545,6 +13612,18 @@ components:
           type: string
         is_verified_usable:
           type: boolean
+        verification_status:
+          allOf:
+          - $ref: '#/components/schemas/VerificationStatusEnum'
+          description: |-
+            U33-DEC-05: a pending account cannot be used until the team verifies it.
+
+            * `verified` - Verified
+            * `pending` - Pending verification
+        is_default_return:
+          type: boolean
+          description: 'U33-DEC-05: the account money going back to the investor''s
+            bank is sent to; one per currency, always a verified account.'
         verified_at:
           type: string
           format: date-time
@@ -13558,8 +13637,10 @@ components:
       - destination_account_name
       - destination_iban
       - id
+      - is_default_return
       - is_verified_usable
       - status
+      - verification_status
       - verified_at
     PendingAction:
       type: object
@@ -17325,6 +17406,14 @@ components:
       - pin_locked_until
       - pin_set
       - status
+    VerificationStatusEnum:
+      enum:
+      - verified
+      - pending
+      type: string
+      description: |-
+        * `verified` - Verified
+        * `pending` - Pending verification
     VisibilityEnum:
       enum:
       - internal

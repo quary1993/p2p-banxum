@@ -454,3 +454,47 @@ def notify_payout_instruction_revoked(
         status_label="Not usable",
         status_tone="warning",
     )
+
+
+def notify_default_return_account_changed(instruction: InvestorPayoutInstruction) -> None:
+    """U33-DEC-05: the investor chose another default return account (change notification).
+
+    One notice per change: the key counts the earlier changes in the same currency, so
+    switching back to an account the investor used before is announced again.
+    """
+    currency = str(instruction.currency_id)
+    destination = masked_iban(instruction.destination_iban)
+    sequence = OutboxMessage.objects.filter(
+        topic=PAYOUT_ACCOUNT_TOPIC,
+        payload__metadata__payout_event="default_changed",
+        payload__metadata__investor_user_id=str(instruction.investor_user_id),
+        payload__metadata__currency=currency,
+    ).count()
+    enqueue_investor_notice(
+        InvestorNotice(
+            investor_user_id=str(instruction.investor_user_id),
+            topic=PAYOUT_ACCOUNT_TOPIC,
+            idempotency_key=(
+                f"payout-default:{instruction.investor_user_id}:{currency}:{sequence}"
+            ),
+            subject="Default return account changed",
+            headline="Your default return account has changed",
+            body_text=(
+                f"When we send {currency} back to your bank, we now use your bank account "
+                f"({destination}). If you did not make this change, contact support at once."
+            ),
+            template_key="ledger.payout_iban_default_changed.v1",
+            notice_label="Account notice",
+            status_label="Changed",
+            status_tone="info",
+            data_rows=(("Bank account", destination), ("Currency", currency)),
+            navigation_target=BALANCE_TARGET,
+            action_label="Open payout IBANs",
+            metadata={
+                "payout_instruction_id": str(instruction.id),
+                "payout_event": "default_changed",
+                "investor_user_id": str(instruction.investor_user_id),
+                "currency": currency,
+            },
+        )
+    )

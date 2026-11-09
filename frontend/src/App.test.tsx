@@ -2121,6 +2121,12 @@ test("profile and settings keep every section reachable from its tabs and the ac
   // No 48-hour pause (U33-DEC-05) and repayments go to the Banxum balance (U33-DEC-02).
   expect(screen.queryByText(/48 hours/)).not.toBeInTheDocument();
   expect(screen.getByText(/Repayments are credited to your Banxum balance/)).toBeInTheDocument();
+  // One default return account per currency (U33-DEC-05); "Change" adds a new account in it.
+  expect(screen.getByText("Money that goes back to your bank in CHF is sent to this account.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Use for returns" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Change" }));
+  expect(screen.getByRole("dialog", { name: "New CHF bank account" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   fireEvent.click(screen.getByRole("button", { name: "Add a bank account" }));
   expect(screen.getByRole("dialog", { name: "Add a bank account" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

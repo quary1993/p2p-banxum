@@ -360,14 +360,18 @@ def test_rejecting_a_pending_request_closes_its_task(
 
 
 @pytest.mark.django_db
-def test_forced_return_goes_to_the_deposit_proven_iban_not_the_newest_verified(
+def test_forced_return_goes_to_the_default_account_not_the_newest_verified(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    # Verified later than the deposit IBAN, so the old "newest verified" rule picked it.
-    _register_verified_iban(admin_user, investor, iban=SECOND_IBAN, account_name="Newer")
+    # U33-DEC-05: the deposit-proven IBAN became the default return account; an account
+    # verified later does not replace it unless the investor chooses it.
+    assert deposit.payout_instruction is not None
+    assert deposit.payout_instruction.is_default_return is True
+    newer = _register_verified_iban(admin_user, investor, iban=SECOND_IBAN, account_name="Newer")
+    assert newer.is_default_return is False
 
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 3)))
@@ -375,11 +379,11 @@ def test_forced_return_goes_to_the_deposit_proven_iban_not_the_newest_verified(
 
     forced = result.forced_withdrawal_requests[0]
     assert forced.destination_iban == DEPOSIT_IBAN
-    assert forced.metadata["destination_selection"]["rule"] == "deposit_proven"
-    assert forced.metadata["destination_selection"]["deposit_bank_operation_id"] == str(
-        deposit.bank_operation.pk
+    assert forced.metadata["destination_selection"]["rule"] == "default_return_account"
+    assert forced.metadata["destination_selection"]["payout_instruction_id"] == str(
+        deposit.payout_instruction.pk
     )
-    assert result.forced_withdrawal_candidates[0].destination_rule == "deposit_proven"
+    assert result.forced_withdrawal_candidates[0].destination_rule == "default_return_account"
 
 
 @pytest.mark.django_db
@@ -419,12 +423,15 @@ def test_forced_return_after_revocation_uses_the_latest_admin_verified_iban(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 4)))
     )
 
+    # The revoked default is replaced by the platform's pick: the latest admin-verified IBAN.
     second_forced = next_scan.forced_withdrawal_requests[0]
     assert second_forced.destination_iban == THIRD_IBAN
     assert second_forced.destination_account_name == "Third"
     selection = second_forced.metadata["destination_selection"]
-    assert selection["rule"] == "admin_verified"
+    assert selection["rule"] == "default_return_account"
     assert selection["payout_instruction_id"] == str(latest.pk)
+    latest.refresh_from_db()
+    assert latest.is_default_return is True
 
 
 # --- A-19: penalty mode blocks investing --------------------------------------------------

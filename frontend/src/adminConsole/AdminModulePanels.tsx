@@ -1969,16 +1969,22 @@ export function DepositForm() {
   const [payerName, setPayerName] = useState("");
   const [sourceIban, setSourceIban] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  // U33-DEC-05: ticked only after a hand check that the paying account is the investor's own.
+  const [payerIsHolder, setPayerIsHolder] = useState(false);
   const [duplicateMovementKey, setDuplicateMovementKey] = useState<string | null>(null);
   const [confirmRepeat, setConfirmRepeat] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminLenderDepositsCreate({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (_result, variables) => {
         setDuplicateMovementKey(null);
         setConfirmRepeat(false);
-        setSuccess("Deposit was ledgered and its source IBAN was added as a verified payout account.");
+        setSuccess(
+          variables.data.payer_is_account_holder
+            ? "Deposit was ledgered and its source IBAN was added as a verified payout account."
+            : "Deposit was ledgered. Its source IBAN was not added as a payout account, because the paying account is not confirmed as the investor's own."
+        );
       },
       onError: (error, variables) => {
         setConfirmRepeat(false);
@@ -2026,6 +2032,7 @@ export function DepositForm() {
       payer_name: payerName || undefined,
       payer_account_identifier: sourceIban,
       payment_reference: paymentReference || undefined,
+      payer_is_account_holder: payerIsHolder,
       confirm_repeat_deposit: duplicatePending && confirmRepeat ? true : undefined
     });
     if (isFixturePreview) {
@@ -2038,7 +2045,7 @@ export function DepositForm() {
   return (
     <Card padded>
       <h2>Lender deposit</h2>
-      <p>Declare a matched incoming transfer. Its valid source IBAN becomes a verified payout account for this investor.</p>
+      <p>Declare only a transfer you have matched to the investor. Unidentified or unclear transfers stay out of the investor's balance until you have checked them by hand. The source IBAN becomes a verified payout account only when you confirm below that the paying account is in the investor's own name.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <InvestorLookupInput
@@ -2067,6 +2074,10 @@ export function DepositForm() {
           />
           <TextInput label="Payment reference" onChange={updatePaymentReference} value={paymentReference} />
         </FieldGrid>
+        <label className="check-row">
+          <input checked={payerIsHolder} onChange={(event) => setPayerIsHolder(event.target.checked)} type="checkbox" />
+          I checked by hand that the paying account is in the investor's own name. The payment reference, name or email alone is not enough.
+        </label>
         {duplicatePending ? (
           <Banner tone="warn" title="Possible duplicate deposit">
             {errorMessage(mutation.error)}

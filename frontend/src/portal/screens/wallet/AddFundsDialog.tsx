@@ -97,8 +97,11 @@ export function AddFundsDialog({ currency: initialCurrency, onClose }: { currenc
   const instructionsQuery = useDepositInstructionsData();
   const balances = useBalancesData().data;
   const returnDays = autoReturnDays(balances?.auto_return_after_days);
-  const verifiedIbanFor = (currency: string) =>
-    balances?.payout_instructions.find((item) => item.currency === currency && item.is_verified_usable)?.destination_iban;
+  // The default return account of the currency (U33-DEC-05), else another verified account.
+  const verifiedIbanFor = (currency: string) => {
+    const verified = (balances?.payout_instructions ?? []).filter((item) => item.currency === currency && item.is_verified_usable);
+    return (verified.find((item) => item.is_default_return) ?? verified[0])?.destination_iban;
+  };
   const [chosen, setChosen] = useState(initialCurrency);
   const payload = instructionsQuery.data;
   const instructions = [...(payload?.instructions ?? [])].sort((a, b) => currencyRank(a.currency) - currencyRank(b.currency));

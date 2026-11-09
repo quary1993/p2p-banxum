@@ -342,6 +342,9 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
             "destination_iban": str(instruction.destination_iban),
             "destination_account_name": str(instruction.destination_account_name),
             "is_verified_usable": bool(instruction.is_verified_usable),
+            # U33-DEC-05: "Verified" and "Pending verification" are shown separately.
+            "verification_status": "verified" if instruction.is_verified_usable else "pending",
+            "is_default_return": bool(instruction.is_default_return),
             "verified_at": instruction.verified_at,
             "created_at": instruction.created_at,
         }

@@ -641,6 +641,7 @@ def test_lender_deposit_refuses_future_value_and_booking_dates(
                 "collection_account_identifier": "CH00GARANTALEDGER",
                 "payer_name": "Ageing Investor",
                 "payer_account_identifier": "CH9300762011623852957",
+                "payer_is_account_holder": True,
                 "idempotency_key": "deposit-future-api",
             },
             content_type="application/json",

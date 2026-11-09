@@ -103,6 +103,8 @@ html.bxu[data-theme="dark"] .acc-agreement-list small { color: #a9b0b6; }
 /* Bank accounts: the add button next to the notice under the grid. */
 html.bxu .acc-bank-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
 html.bxu .acc-bank-actions .ps-bank-notice { margin: 0; flex: 1 1 320px; }
+/* U33-DEC-05: "Use for returns" next to the design's "Change". */
+html.bxu .acc-bank-buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 html.bxu .acc-bank-empty .ps-panel-note { margin-top: 0; padding-top: 0; border-top: 0; }
 
 /* Account closure dialog: the three facts of U33-DEC-28 as a short list. */

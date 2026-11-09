@@ -897,6 +897,7 @@ def test_lender_deposit_admin_api_reports_duplicate_and_accepts_confirmation(
         "collection_account_identifier": "QA-EUR-COLLECTION",
         "payer_name": "Ledger Investor",
         "payer_account_identifier": "DE89 3704 0044 0532 0130 00",
+        "payer_is_account_holder": True,
         "payment_reference": "BX-EUR-LFFJWK27G",
     }
 
@@ -2832,6 +2833,7 @@ def test_lender_deposit_admin_api_and_balance_summary(
             "collection_account_identifier": "CH00GARANTALEDGER",
             "payer_name": "Ledger Investor",
             "payer_account_identifier": "CH9300762011623852957",
+            "payer_is_account_holder": True,
             "bank_reference": "BANK-API",
             "payment_reference": f"INV-{investor.pk}",
             "evidence_reference": "statement:api",

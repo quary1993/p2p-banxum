@@ -249,6 +249,11 @@ class DeclareLenderDepositCommand:
     # identical to one already credited (same bank-movement key, see
     # _matching_lender_deposits). Without it such a deposit is rejected.
     confirm_repeat_deposit: bool = False
+    # U33-DEC-05: the admin checked by hand that the paying account is in the investor's own
+    # name (a reference, name or email match alone is not enough). Only then does the source
+    # IBAN become a verified return account; otherwise the money is credited but the IBAN is
+    # not used to send money back.
+    payer_is_account_holder: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +316,19 @@ class RegisterInvestorSelfServicePayoutInstructionCommand:
     sensitive_action_code: str = ""
     pin: str = dataclass_field(default="", repr=False)
     notes: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SetInvestorDefaultReturnAccountCommand:
+    """U33-DEC-05: the investor picks the verified account money goes back to (PIN)."""
+
+    actor: Model
+    instruction_id: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -1314,6 +1332,8 @@ def _deposit_request_fingerprint(
             "evidence_reference": command.evidence_reference.strip(),
             "notes": command.notes.strip(),
             "idempotency_key": idempotency_key,
+            # Only when not the default, so replays of earlier requests keep their fingerprint.
+            **({} if command.payer_is_account_holder else {"payer_is_account_holder": False}),
         }
     )
 
@@ -1916,9 +1936,13 @@ def _create_investor_payout_instruction(
         instruction.is_verified_usable = is_verified_usable
         instruction.verified_by_admin_id = actor.pk if is_verified_usable else None
         instruction.verified_at = operation_at if is_verified_usable else None
+        if reactivated:
+            # A re-added IBAN is not the default return account until chosen again.
+            instruction.is_default_return = False
         instruction.save(
             update_fields=[
                 "status",
+                "is_default_return",
                 "destination_account_name",
                 "notes",
                 "metadata",
@@ -1928,6 +1952,10 @@ def _create_investor_payout_instruction(
                 "updated_at",
             ]
         )
+
+    if instruction.is_verified_usable:
+        _ensure_default_return_account(investor_user_id=str(investor.pk), currency=currency)
+        instruction.refresh_from_db(fields=["is_default_return"])
 
     actor_ref = actor_ref_for_user(actor)
     event_metadata = {
@@ -1972,6 +2000,134 @@ def _create_investor_payout_instruction(
     investor_notices.notify_payout_instruction_saved(
         instruction, created=created or reactivated, previously_verified=previously_verified
     )
+    return instruction
+
+
+def _ensure_default_return_account(*, investor_user_id: str, currency: Currency) -> None:
+    """Keep one default return account per currency while a verified account exists.
+
+    When the investor has none (first verified account, or the default was revoked), the
+    platform's pick becomes the default (PAY-DEC-022 ordering). The investor can change it.
+    """
+    locked = list(
+        InvestorPayoutInstruction.objects.select_for_update()
+        .filter(investor_user_id=investor_user_id, currency=currency)
+        .order_by("id")
+    )
+    if any(
+        item.is_default_return
+        and item.is_verified_usable
+        and item.status == InvestorPayoutInstructionStatus.ACTIVE
+        for item in locked
+    ):
+        return
+    stale_ids = [item.pk for item in locked if item.is_default_return]
+    if stale_ids:
+        InvestorPayoutInstruction.objects.filter(pk__in=stale_ids).update(
+            is_default_return=False, updated_at=now_utc()
+        )
+    choice = _platform_return_choice(investor_user_id=investor_user_id, currency=currency)
+    if choice is None:
+        return
+    instruction, _details = choice
+    InvestorPayoutInstruction.objects.filter(pk=instruction.pk).update(
+        is_default_return=True, updated_at=now_utc()
+    )
+
+
+def set_investor_default_return_account(
+    command: SetInvestorDefaultReturnAccountCommand,
+) -> InvestorPayoutInstruction:
+    """U33-DEC-05: the investor chooses the verified account that money goes back to.
+
+    Confirmed like adding an account: the bank-account email code and the PIN.
+    """
+    if not is_lender_actor(command.actor):
+        raise LedgerAuthorizationError("Only an active lender can choose a return account.")
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=BANK_ACCOUNT_CHANGE_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                pin=command.pin,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionPinError:
+        raise
+    except SensitiveActionVerificationError as exc:
+        raise LedgerValidationError(str(exc)) from exc
+    return _set_investor_default_return_account_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _set_investor_default_return_account_after_sensitive_code(
+    command: SetInvestorDefaultReturnAccountCommand,
+) -> InvestorPayoutInstruction:
+    instruction = (
+        InvestorPayoutInstruction.objects.select_for_update()
+        .select_related("currency")
+        .filter(id=command.instruction_id, investor_user_id=command.actor.pk)
+        .first()
+    )
+    if instruction is None:
+        raise LedgerValidationError("This bank account does not exist.")
+    if (
+        instruction.status != InvestorPayoutInstructionStatus.ACTIVE
+        or not instruction.is_verified_usable
+    ):
+        raise LedgerConflictError(
+            "Only a verified bank account can receive the money that goes back to your bank.",
+            code="payout_iban_not_verified",
+        )
+    if instruction.is_default_return:
+        return instruction
+    changed_at = now_utc()
+    previous = list(
+        InvestorPayoutInstruction.objects.select_for_update()
+        .filter(
+            investor_user_id=instruction.investor_user_id,
+            currency=instruction.currency,
+            is_default_return=True,
+        )
+        .exclude(pk=instruction.pk)
+    )
+    for item in previous:
+        item.is_default_return = False
+        item.save(update_fields=["is_default_return", "updated_at"])
+    instruction.is_default_return = True
+    instruction.save(update_fields=["is_default_return", "updated_at"])
+    event_metadata = {
+        "investor_user_id": str(instruction.investor_user_id),
+        "currency": instruction.currency_id,
+        "instruction_id": str(instruction.id),
+        "previous_instruction_ids": [str(item.id) for item in previous],
+        "changed_at": changed_at.isoformat(),
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.investor_default_return_account_changed",
+            target_type="InvestorPayoutInstruction",
+            target_id=str(instruction.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorDefaultReturnAccountChanged",
+            aggregate_type="InvestorPayoutInstruction",
+            aggregate_id=str(instruction.id),
+            payload=event_metadata,
+            idempotency_key=(
+                f"payout-instruction:{instruction.id}:default:{changed_at.isoformat()}"
+            ),
+        )
+    )
+    investor_notices.notify_default_return_account_changed(instruction)
     return instruction
 
 
@@ -2127,6 +2283,10 @@ def verify_investor_payout_instruction(
             "updated_at",
         ]
     )
+    _ensure_default_return_account(
+        investor_user_id=str(instruction.investor_user_id), currency=instruction.currency
+    )
+    instruction.refresh_from_db(fields=["is_default_return"])
     event_metadata = {
         "investor_user_id": str(instruction.investor_user_id),
         "currency": instruction.currency_id,
@@ -2244,10 +2404,25 @@ def revoke_investor_payout_instruction(
         "was_verified": was_verified,
         "verified_at": instruction.verified_at.isoformat() if instruction.verified_at else "",
     }
+    was_default = bool(instruction.is_default_return)
+    revocation["was_default_return"] = was_default
     instruction.status = InvestorPayoutInstructionStatus.DISABLED
     instruction.is_verified_usable = False
+    instruction.is_default_return = False
     instruction.metadata = {**cast(dict[str, Any], instruction.metadata), "revocation": revocation}
-    instruction.save(update_fields=["status", "is_verified_usable", "metadata", "updated_at"])
+    instruction.save(
+        update_fields=[
+            "status",
+            "is_verified_usable",
+            "is_default_return",
+            "metadata",
+            "updated_at",
+        ]
+    )
+    # Another verified account in the currency, if any, becomes the default return account.
+    _ensure_default_return_account(
+        investor_user_id=str(instruction.investor_user_id), currency=instruction.currency
+    )
 
     flagged_ids: list[str] = []
     open_withdrawals = InvestorWithdrawalRequest.objects.select_for_update().filter(
@@ -2571,6 +2746,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         bank_operation_metadata["confirmed_repeat_of_bank_operation_ids"] = (
             repeat_of_bank_operation_ids
         )
+    bank_operation_metadata["payer_is_account_holder"] = bool(command.payer_is_account_holder)
     try:
         with transaction.atomic():
             bank_operation = BankOperation.objects.create(
@@ -2667,28 +2843,31 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         available_amount_minor=amount_minor,
         lineage=[{"source_type": "bank_operation", "source_id": str(bank_operation.id)}],
     )
-    payout_instruction = _create_investor_payout_instruction(
-        actor=command.actor,
-        investor=investor,
-        currency=currency,
-        destination_iban=source_iban,
-        destination_account_name=(
-            command.payer_name.strip()
-            or str(getattr(investor, "full_name", "")).strip()
-            or str(getattr(investor, "email", "")).strip()
-        ),
-        is_verified_usable=True,
-        notes="Verified from a matched incoming lender deposit.",
-        metadata={
-            "source": "lender_deposit",
-            "deposit_bank_operation_id": str(bank_operation.id),
-        },
-    )
-    _resolve_payout_instruction_verification_task(
-        actor=command.actor,
-        instruction=payout_instruction,
-        completion_note="IBAN was verified from a matched incoming lender deposit.",
-    )
+    payout_instruction: InvestorPayoutInstruction | None = None
+    if command.payer_is_account_holder:
+        payout_instruction = _create_investor_payout_instruction(
+            actor=command.actor,
+            investor=investor,
+            currency=currency,
+            destination_iban=source_iban,
+            destination_account_name=(
+                command.payer_name.strip()
+                or str(getattr(investor, "full_name", "")).strip()
+                or str(getattr(investor, "email", "")).strip()
+            ),
+            is_verified_usable=True,
+            notes="Verified from a matched incoming lender deposit.",
+            metadata={
+                "source": "lender_deposit",
+                "deposit_bank_operation_id": str(bank_operation.id),
+            },
+        )
+        _resolve_payout_instruction_verification_task(
+            actor=command.actor,
+            instruction=payout_instruction,
+            completion_note="IBAN was verified from a matched incoming lender deposit.",
+        )
+    verified_payout_instruction_id = str(payout_instruction.id) if payout_instruction else ""
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
         AuditCommand(
@@ -2701,7 +2880,8 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "currency": currency.code,
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
-                "verified_payout_instruction_id": str(payout_instruction.id),
+                "verified_payout_instruction_id": verified_payout_instruction_id,
+                "payer_is_account_holder": bool(command.payer_is_account_holder),
                 "confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids,
             },
         )
@@ -2717,7 +2897,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
                 "journal_entry_id": str(journal_entry.id),
-                "verified_payout_instruction_id": str(payout_instruction.id),
+                "verified_payout_instruction_id": verified_payout_instruction_id,
             },
             idempotency_key=f"bank-operation:{bank_operation.id}:lender-deposit-declared",
         )
@@ -4594,6 +4774,7 @@ def cancel_investor_withdrawal(
     return InvestorWithdrawalCancelResult(withdrawal_request, journal_entry)
 
 
+FORCED_RETURN_RULE_DEFAULT_ACCOUNT = "default_return_account"
 FORCED_RETURN_RULE_DEPOSIT_PROVEN = "deposit_proven"
 FORCED_RETURN_RULE_ADMIN_VERIFIED = "admin_verified"
 
@@ -4604,6 +4785,38 @@ def _forced_return_payout_instruction(
     currency: Currency,
 ) -> tuple[InvestorPayoutInstruction, dict[str, Any]] | None:
     """Choose where a forced return goes, and why.
+
+    The investor's default return account in the currency (U33-DEC-05). The platform keeps
+    one for every currency with a verified account, so the rules below only apply to data
+    that lost its default.
+    """
+    default = (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=investor_user_id,
+            currency=currency,
+            status=InvestorPayoutInstructionStatus.ACTIVE,
+            is_verified_usable=True,
+            is_default_return=True,
+        )
+        .order_by("-verified_at", "-id")
+        .first()
+    )
+    if default is not None:
+        return default, {
+            "rule": FORCED_RETURN_RULE_DEFAULT_ACCOUNT,
+            "payout_instruction_id": str(default.id),
+            "destination_iban": default.destination_iban,
+            "reason": "Default return account of the investor in this currency.",
+        }
+    return _platform_return_choice(investor_user_id=investor_user_id, currency=currency)
+
+
+def _platform_return_choice(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+) -> tuple[InvestorPayoutInstruction, dict[str, Any]] | None:
+    """The platform's pick when the investor has no default return account (PAY-DEC-022).
 
     1. The verified IBAN of this investor that most recently sent an incoming deposit
        (the transfer proves the investor controls the account).

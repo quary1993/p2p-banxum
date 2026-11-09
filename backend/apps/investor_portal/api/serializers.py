@@ -109,6 +109,16 @@ class PayoutInstructionSerializer(serializers.Serializer[Any]):
     destination_iban = serializers.CharField()
     destination_account_name = serializers.CharField()
     is_verified_usable = serializers.BooleanField()
+    verification_status = serializers.ChoiceField(
+        choices=[("verified", "Verified"), ("pending", "Pending verification")],
+        help_text="U33-DEC-05: a pending account cannot be used until the team verifies it.",
+    )
+    is_default_return = serializers.BooleanField(
+        help_text=(
+            "U33-DEC-05: the account money going back to the investor's bank is sent to; "
+            "one per currency, always a verified account."
+        ),
+    )
     verified_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
 

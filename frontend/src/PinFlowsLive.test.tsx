@@ -355,3 +355,37 @@ test("Settings: Change PIN needs the current PIN, an email code and the new PIN 
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(await screen.findByText("Your PIN was changed.")).toBeInTheDocument();
 }, 30_000);
+
+test("a verified bank account becomes the return account with the email code and the PIN (U33-DEC-05)", async () => {
+  calls.defaults = [];
+  const current = { ...verifiedIban, verification_status: "verified", is_default_return: true };
+  const other = { ...verifiedIban, id: "pi2", destination_iban: "CH5604835012345678009", verification_status: "verified", is_default_return: false };
+  const pending = { ...verifiedIban, id: "pi3", destination_iban: "DE89370400440532013000", is_verified_usable: false, verification_status: "pending", is_default_return: false, verified_at: null };
+  server.use(
+    ...investorShellHandlers(calls, { balances: () => balancesPayload([{ currency: "CHF", investableMinor: 500_000 }], [current, other, pending]) }),
+    ...pinHandlers(),
+    http.post("*/api/v1/ledger/payout-instructions/:instructionId/default/", async ({ request, params }) => {
+      calls.defaults.push({ instructionId: params.instructionId, ...((await request.json()) as Record<string, unknown>) });
+      return HttpResponse.json({ payout_instruction: { ...other, is_default_return: true } });
+    })
+  );
+  renderLiveApp(App, "/settings/bank-accounts");
+
+  expect(await screen.findByText("Money that goes back to your bank in CHF is sent to this account.", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByText("Pending verification")).toBeInTheDocument();
+  // Only the verified account that is not the return account offers the change.
+  const buttons = screen.getAllByRole("button", { name: "Use for returns" });
+  expect(buttons).toHaveLength(1);
+  fireEvent.click(buttons[0]);
+  const dialog = await screen.findByRole("dialog", { name: "Use for CHF returns" });
+  expect(within(dialog).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
+  fireEvent.change(await within(dialog).findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin(TEST_PIN, "PIN", dialog);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+  expect(await screen.findByText("Return account changed", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(calls.defaults).toEqual([
+    { instructionId: "pi2", sensitive_action_code_id: "22222222-2222-4222-8222-222222222222", sensitive_action_code: "123456", pin: TEST_PIN }
+  ]);
+  expect(calls.codes).toEqual([{ action: "bank_account_change" }]);
+}, 30_000);

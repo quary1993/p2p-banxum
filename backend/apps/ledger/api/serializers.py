@@ -150,6 +150,9 @@ class InvestorPayoutInstructionSerializer(serializers.Serializer[Any]):
     destination_iban = serializers.CharField()
     destination_account_name = serializers.CharField()
     is_verified_usable = serializers.BooleanField()
+    is_default_return = serializers.BooleanField(
+        help_text="U33-DEC-05: the account money going back to the investor's bank is sent to."
+    )
     verified_by_admin_id = serializers.UUIDField(allow_null=True)
     verified_at = serializers.DateTimeField(allow_null=True)
     created_by_admin_id = serializers.UUIDField()
@@ -191,6 +194,13 @@ class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
         help_text=(
             "Set only after a duplicate-deposit rejection, when the investor really sent "
             "a second identical transfer."
+        ),
+    )
+    payer_is_account_holder = serializers.BooleanField(
+        help_text=(
+            "U33-DEC-05: the admin checked by hand that the paying account is in the "
+            "investor's own name. Only then does the source IBAN become a verified return "
+            "account. A reference, name or email match alone is not enough."
         ),
     )
     idempotency_key = serializers.CharField(max_length=160)
@@ -281,6 +291,7 @@ class AdminPayoutInstructionRowSerializer(serializers.Serializer[Any]):
     destination_iban = serializers.CharField()
     destination_account_name = serializers.CharField(allow_blank=True)
     state = serializers.ChoiceField(choices=PAYOUT_INSTRUCTION_STATE_CHOICES)
+    is_default_return = serializers.BooleanField()
     origin = serializers.ChoiceField(
         choices=[
             ("investor_request", "Investor request"),
@@ -316,6 +327,12 @@ class CollectionAccountSerializer(serializers.Serializer[Any]):
     qr_iban = serializers.CharField(allow_blank=True)
     account_holder_name = serializers.CharField(allow_blank=True)
     bank_name = serializers.CharField(allow_blank=True)
+
+
+class InvestorDefaultReturnAccountRequestSerializer(serializers.Serializer[Any]):
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    pin = sensitive_action_pin_field()
 
 
 class InvestorSelfServicePayoutInstructionRegisterRequestSerializer(

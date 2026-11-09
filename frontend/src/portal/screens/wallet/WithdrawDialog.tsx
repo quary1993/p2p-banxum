@@ -56,7 +56,8 @@ export function WithdrawDialog({
   const accounts = balances.payout_instructions.filter((instruction) => instruction.currency === currency);
   const verified = accounts.filter((instruction) => instruction.is_verified_usable);
   const [accountId, setAccountId] = useState("");
-  const account = verified.find((instruction) => instruction.id === accountId) ?? verified[0];
+  // The default return account first (U33-DEC-05), then the other verified accounts.
+  const account = verified.find((instruction) => instruction.id === accountId) ?? verified.find((instruction) => instruction.is_default_return) ?? verified[0];
   const parsed = parseMoneyInputToMinorUnits(amount, currency);
   const amountMinor = parsed.amountMinor;
   const amountError = parsed.error

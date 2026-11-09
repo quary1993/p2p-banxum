@@ -339,6 +339,10 @@ class InvestorPayoutInstruction(TimestampedModel):
     destination_iban = models.CharField(max_length=128)
     destination_account_name = models.CharField(max_length=255)
     is_verified_usable = models.BooleanField(default=False)
+    # U33-DEC-05: the account that money going back to the investor's bank is sent to. One per
+    # investor and currency, always an active verified account (set by the investor with the
+    # PIN, or the platform's pick when none is chosen).
+    is_default_return = models.BooleanField(default=False)
     verified_by_admin_id = models.UUIDField(null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
     created_by_admin_id = models.UUIDField()
@@ -352,6 +356,11 @@ class InvestorPayoutInstruction(TimestampedModel):
                 fields=["investor_user_id", "currency", "destination_iban"],
                 condition=Q(status=InvestorPayoutInstructionStatus.ACTIVE),
                 name="ledger_unique_active_payout_iban_per_currency",
+            ),
+            models.UniqueConstraint(
+                fields=["investor_user_id", "currency"],
+                condition=Q(is_default_return=True, status=InvestorPayoutInstructionStatus.ACTIVE),
+                name="ledger_one_default_return_account_per_currency",
             ),
         ]
         indexes = [

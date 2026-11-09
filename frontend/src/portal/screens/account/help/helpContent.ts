@@ -142,7 +142,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       id: "unused",
       topic: "money",
       question: t("What happens to money I do not invest?"),
-      answer: t("Money in your {brand} account earns no interest. Money you do not invest goes back to your bank automatically after {days} days, to your verified bank account in the same currency. Account shows the date for each amount.", { brand, days }),
+      answer: t("Money in your {brand} account earns no interest. Money you do not invest goes back to your bank automatically after {days} days, to your return account in the same currency (a verified bank account; you choose it in Bank accounts). Account shows the date for each amount.", { brand, days }),
       more: {
         title: t("After {days} days", { days }),
         text: t("Day {days} is the last day: you can still withdraw the money until the end of that day (Europe/Zurich), but you can no longer invest it. The next day we send it back automatically to your verified bank account. Without a verified bank account the money stays in your account and we ask you to add one. Money may not stay longer than 60 days, the legal limit: after day 60 it enters penalty mode and money-moving actions are blocked until a verified bank account is on file.", { days })
@@ -188,7 +188,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       id: "bank",
       topic: "security",
       question: t("How do I change my bank account?"),
-      answer: t("Open Bank accounts in Profile & Settings and choose Add a bank account. The account must be in your name. You confirm with an email code and your PIN. Our team checks the new account: it shows Pending verification until then and cannot be used for withdrawals before. Your verified accounts stay usable meanwhile."),
+      answer: t("Open Bank accounts in Profile & Settings and choose Add a bank account. The account must be in your name. You confirm with an email code and your PIN. Our team checks the new account: it shows Pending verification until then and cannot be used for withdrawals before. Your verified accounts stay usable meanwhile. Once it is verified, choose Use for returns if money that goes back to your bank should go to it."),
       links: [{ label: t("Bank accounts"), to: "settings", params: { tab: "bank-accounts" } }]
     },
     {

@@ -482,6 +482,8 @@ export const balancesFixture: InvestorBalancePortal = {
       destination_iban: "CH93 0076 2011 6238 5295 7",
       destination_account_name: "Lukas Brunner",
       is_verified_usable: true,
+      verification_status: "verified",
+      is_default_return: true,
       verified_at: "2026-05-18T12:00:00+02:00",
       created_at: "2026-05-18T11:50:00+02:00"
     }

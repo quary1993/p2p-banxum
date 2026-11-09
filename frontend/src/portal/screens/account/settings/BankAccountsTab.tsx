@@ -1,9 +1,10 @@
 // IP of Webby-Soft SRL.
 // Profile & Settings -> Bank accounts (design: .ps-bank-grid, one .ps-panel.ps-bank per account).
-// Today's payout IBANs per currency with "Verified" / "Pending verification" (U33-DEC-05). Adding an
-// account uses today's email code + PIN flow; a new IBAN never replaces a verified one by itself.
-// Repayments are credited to the Banxum balance, not to these accounts (U33-DEC-02). No default
-// return account and no 48-hour pause (Phase 17.2, U33-DEC-05).
+// U33-DEC-05: several accounts in the investor's name, "Verified" / "Pending verification" shown
+// separately, and one default return account per currency (the account money going back to the
+// bank is sent to). Adding an account ("Change" in the design) and choosing the return account
+// use the email code + PIN; a new IBAN never replaces a verified one by itself. Repayments are
+// credited to the Banxum balance, not to these accounts (U33-DEC-02). No 48-hour pause.
 import { useState } from "react";
 
 import type { PayoutInstruction } from "../../../../api/generated/banxumApi";
@@ -13,14 +14,16 @@ import { formatDate } from "../../../../investorPortal/format";
 import { brandDisplayName } from "../../../brand";
 import { Button, NiIcon, PortalLink } from "../../../components";
 import { BankAccountDialog } from "../parts/BankAccountDialog";
+import { DefaultReturnAccountDialog } from "../parts/DefaultReturnAccountDialog";
 import { formatIban } from "../parts/format";
 import { Notice, PsPanel, PsStatus } from "../parts/ui";
 import type { AccountData } from "./useAccountData";
 
 const CURRENCIES = ["CHF", "EUR"];
 
-function BankPanel({ instruction }: { instruction: PayoutInstruction }) {
+function BankPanel({ instruction, readonly, onChange, onUseForReturns }: { instruction: PayoutInstruction; readonly: boolean; onChange: () => void; onUseForReturns: () => void }) {
   const t = useT();
+  const verified = instruction.verification_status === "verified";
   return (
     <PsPanel className="ps-bank" title={t("{currency} account", { currency: instruction.currency })}>
       <div className="ps-panel-body">
@@ -35,12 +38,21 @@ function BankPanel({ instruction }: { instruction: PayoutInstruction }) {
             <dd>{instruction.destination_account_name}</dd>
           </div>
         </dl>
+        {instruction.is_default_return ? (
+          <p className="ps-panel-note">{t("Money that goes back to your bank in {currency} is sent to this account.", { currency: instruction.currency })}</p>
+        ) : null}
         <div className="ps-bank-footer">
-          {instruction.is_verified_usable ? (
+          {verified ? (
             <PsStatus>{instruction.verified_at ? t("Verified · {date}", { date: formatDate(instruction.verified_at) }) : t("Verified")}</PsStatus>
           ) : (
             <PsStatus muted>{t("Pending verification")}</PsStatus>
           )}
+          <span className="acc-bank-buttons">
+            {verified && !instruction.is_default_return ? (
+              <Button disabled={readonly} onClick={onUseForReturns} size="sm">{t("Use for returns")}</Button>
+            ) : null}
+            <Button disabled={readonly} onClick={onChange} size="sm">{t("Change")}</Button>
+          </span>
         </div>
       </div>
     </PsPanel>
@@ -66,6 +78,7 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
   const t = useT();
   const balances = useBalancesData();
   const [dialog, setDialog] = useState<{ currency?: string } | null>(null);
+  const [returnAccount, setReturnAccount] = useState<PayoutInstruction | null>(null);
   const instructions = [...(balances.data?.payout_instructions ?? [])].sort(
     (a, b) => CURRENCIES.indexOf(a.currency) - CURRENCIES.indexOf(b.currency) || a.created_at.localeCompare(b.created_at)
   );
@@ -89,7 +102,15 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
         <p className="ps-intro" role="status">{t("Loading your bank accounts...")}</p>
       ) : (
         <div className="ps-bank-grid">
-          {instructions.map((instruction) => <BankPanel instruction={instruction} key={instruction.id} />)}
+          {instructions.map((instruction) => (
+            <BankPanel
+              instruction={instruction}
+              key={instruction.id}
+              onChange={() => setDialog({ currency: instruction.currency })}
+              onUseForReturns={() => setReturnAccount(instruction)}
+              readonly={account.readonly}
+            />
+          ))}
           {missing.map((currency) => (
             <EmptyBankPanel currency={currency} disabled={account.readonly} key={currency} onAdd={() => setDialog({ currency })} />
           ))}
@@ -98,11 +119,12 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
       <div className="acc-bank-actions">
         <p className="ps-bank-notice">
           <NiIcon name="info" />
-          <span>{t("A new bank account shows Pending verification until our team has verified it; you cannot use it for withdrawals before. Your verified accounts stay usable meanwhile.")}</span>
+          <span>{t("A new bank account shows Pending verification until our team has verified it; you cannot use it for withdrawals before. Your verified accounts stay usable meanwhile. Money that goes back to your bank is sent to your return account in that currency.")}</span>
         </p>
         <Button disabled={account.readonly} icon="plus" onClick={() => setDialog({})}>{t("Add a bank account")}</Button>
       </div>
       {dialog ? <BankAccountDialog currency={dialog.currency} holderName={account.name} onClose={() => setDialog(null)} /> : null}
+      {returnAccount ? <DefaultReturnAccountDialog instruction={returnAccount} onClose={() => setReturnAccount(null)} /> : null}
     </>
   );
 }

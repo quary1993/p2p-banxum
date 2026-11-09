@@ -21,6 +21,7 @@ from backend.apps.ledger.api.serializers import (
     CollectionAccountSerializer,
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
+    InvestorDefaultReturnAccountRequestSerializer,
     InvestorPayoutInstructionRegisterRequestSerializer,
     InvestorPayoutInstructionRegisterResponseSerializer,
     InvestorPayoutInstructionRevokeRequestSerializer,
@@ -69,6 +70,7 @@ from backend.apps.ledger.services import (
     RequestInvestorWithdrawalCommand,
     RevokeInvestorPayoutInstructionCommand,
     RunBalanceAgeingScanCommand,
+    SetInvestorDefaultReturnAccountCommand,
     VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
@@ -80,6 +82,7 @@ from backend.apps.ledger.services import (
     request_investor_withdrawal,
     revoke_investor_payout_instruction,
     run_balance_ageing_scan,
+    set_investor_default_return_account,
     summarize_investor_balance,
     verify_investor_payout_instruction,
 )
@@ -136,6 +139,7 @@ class LenderDepositDeclareView(APIView):
                     notes=data.get("notes", ""),
                     idempotency_key=data["idempotency_key"],
                     confirm_repeat_deposit=data["confirm_repeat_deposit"],
+                    payer_is_account_holder=data["payer_is_account_holder"],
                 )
             )
         except LedgerAuthorizationError as exc:
@@ -380,6 +384,45 @@ class InvestorSelfServicePayoutInstructionRegisterView(APIView):
         return Response(
             {"payout_instruction": serialize_payout_instruction(payout_instruction)},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class InvestorDefaultReturnAccountView(APIView):
+    """U33-DEC-05: make a verified bank account the default return account (code + PIN)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorDefaultReturnAccountRequestSerializer,
+        responses={200: InvestorPayoutInstructionRegisterResponseSerializer},
+    )
+    def post(self, request: Request, instruction_id: str) -> Response:
+        serializer = InvestorDefaultReturnAccountRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payout_instruction = set_investor_default_return_account(
+                SetInvestorDefaultReturnAccountCommand(
+                    actor=cast(Model, request.user),
+                    instruction_id=str(instruction_id),
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    pin=data["pin"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except SensitiveActionPinError as exc:
+            return sensitive_action_pin_error_response(exc)
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerConflictError as exc:
+            return _conflict_response(exc)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"payout_instruction": serialize_payout_instruction(payout_instruction)},
+            status=status.HTTP_200_OK,
         )
 
 

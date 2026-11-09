@@ -166,7 +166,7 @@ test("account notices put money that cannot go back first", () => {
     summaries: [summary("CHF", { withdraw_only_minor: 10_000 }), summary("EUR", { overdue_minor: 50_000 })],
     lots: [lot({ id: "a", currency: "CHF", bucket: "withdraw_only", available_amount_minor: 10_000, return_date: "2026-12-11" })],
     payout_instructions: [
-      { id: "p1", currency: "CHF", status: "active", destination_iban: "CH56", destination_account_name: "U", is_verified_usable: true, verified_at: null, created_at: "" }
+      { id: "p1", currency: "CHF", status: "active", destination_iban: "CH56", destination_account_name: "U", is_verified_usable: true, verification_status: "verified", is_default_return: true, verified_at: null, created_at: "" }
     ]
   });
   expect(notices).toEqual([

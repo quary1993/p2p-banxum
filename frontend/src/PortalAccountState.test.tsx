@@ -57,6 +57,8 @@ const frozenBalances = () =>
         destination_iban: "CH5604835012345678009",
         destination_account_name: "Una Investor",
         is_verified_usable: true,
+        verification_status: "verified",
+        is_default_return: true,
         verified_at: "2026-10-09T12:00:00Z",
         created_at: "2026-10-09T11:00:00Z"
       },
@@ -67,6 +69,8 @@ const frozenBalances = () =>
         destination_iban: "DE89370400440532013000",
         destination_account_name: "Una Investor",
         is_verified_usable: false,
+        verification_status: "pending",
+        is_default_return: false,
         verified_at: null,
         created_at: "2026-10-09T11:00:00Z"
       }
