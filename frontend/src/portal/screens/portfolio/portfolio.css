@@ -71,8 +71,26 @@ html.bxu .u33-resale-activity h2 {
   letter-spacing: -0.3px;
   line-height: 1.3;
 }
-html.bxu .u33-resale-activity .rs-table :is(th, td):nth-child(-n + 3) {
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(-n + 3) {
   text-align: left;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(n + 4) {
+  text-align: right;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):first-child {
+  width: 18%;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(2) {
+  width: 34%;
+}
+html.bxu .bxm-resale .u33-own-table td:nth-child(5),
+html.bxu .bxm-resale .u33-own-table .rs-time {
+  white-space: nowrap;
+}
+/* The offers table is table-layout: fixed; the listed-investments table needs room for two buttons. */
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .rs-table.u33-own-table :is(th, td):last-child {
+  width: 224px;
+  white-space: nowrap;
 }
 html.bxu .u33-blocked-note {
   margin-top: 12px;
