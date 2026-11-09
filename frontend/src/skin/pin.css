@@ -162,15 +162,6 @@
   min-width: 0;
 }
 
-@media (min-width: 720px) {
-  .bxm .pin-create-split .pin-create-body {
-    align-items: start;
-    display: grid;
-    gap: 32px;
-    grid-template-columns: minmax(0, 1fr) 260px;
-  }
-}
-
 .bxm .pin-create-actions {
   align-items: center;
   display: flex;
@@ -244,15 +235,6 @@
   border-color: var(--ink);
 }
 
-/* Post-login "Create your PIN" screen in the split sign-in layout. */
-.bxm .auth-split .pin-create .pin-rules {
-  max-width: 336px;
-}
-
-.bxm .auth-split .pin-create-actions .btn {
-  width: 100%;
-}
-
 /* ==========================================================================
    Sensitive actions, dialogs and Settings
    ========================================================================== */
@@ -273,11 +255,6 @@
 .bxm .pin-dialog-intro b {
   color: var(--ink);
   font-weight: 600;
-}
-
-.bxm .pin-settings-actions {
-  gap: 12px;
-  justify-content: flex-start;
 }
 
 .bxm .sensitive-confirm {

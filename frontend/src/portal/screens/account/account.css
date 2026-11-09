@@ -162,3 +162,12 @@ html.bxu .u04-account .acc-ca-label-row .ca-text-button { padding: 0 0 7px; }
 html.bxu .u04-account .acc-email-code { margin: 0 0 18px; }
 /* The inline phone editor of the SMS step ("Change" next to the number). */
 html.bxu .u04-account .acc-phone-edit { margin: 0 0 22px; }
+
+/* ---- Verification and account access (portal pages in the Profile & Settings style) ---------- */
+
+/* The status message above the check history and the actions under it (no design rule: the design
+   shows verification only inside Personal details). */
+html.bxu .acc-kyc-message { margin: 0 0 22px; font-size: 14px; line-height: 1.65; color: #34414c; }
+html.bxu[data-theme="dark"] .acc-kyc-message { color: #e4e8e6; }
+html.bxu .acc-kyc-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+html.bxu .acc-blocked-panel { margin-top: 8px; }
