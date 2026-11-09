@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 
 import { server } from "../api/mocks/server";
+import { resetAppearanceForTests } from "../portal/appearance";
 
 beforeAll(() => {
   Object.defineProperty(window, "scrollTo", {
@@ -18,6 +19,8 @@ beforeAll(() => {
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  // Preferences cached by the investor area (U33): each test starts from the defaults.
+  resetAppearanceForTests();
 });
 
 afterEach(() => {

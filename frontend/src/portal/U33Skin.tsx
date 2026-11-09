@@ -4,7 +4,7 @@
  * - class "bxu": portal/u33/u33.css and u33-overrides.css are scoped to html.bxu;
  * - the design's root attributes that its CSS selects on: data-edition="refined",
  *   data-responsive, data-visual-study="ars", data-language (from the i18n locale) and
- *   data-theme;
+ *   data-theme ("light" | "dark", from useAppearance);
  * and <body> gets the design's body classes (nk-body bg-white has-sidebar bxm-app).
  * Everything is removed on unmount, so the public site (html.bxs) and the admin console keep their
  * look. During the migration UserSkin (html.bxm, the old skin) stays mounted as well; old screen
@@ -14,6 +14,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { getLocale, useT } from "../i18n";
+import { useAppearance } from "./appearance";
 
 const ROOT_ATTRIBUTES: Record<string, string> = {
   "data-edition": "refined",
@@ -25,8 +26,7 @@ const BODY_CLASSES = ["nk-body", "bg-white", "has-sidebar", "bxm-app"];
 let u33SkinMounts = 0;
 
 export function U33Skin({ children }: { children: ReactNode }) {
-  // Light only for now; the appearance preference follows.
-  const appearance = "light";
+  const { appearance } = useAppearance();
   useT(); // re-render on a language change so data-language follows
   const locale = getLocale();
   const firstTheme = useRef(true);
