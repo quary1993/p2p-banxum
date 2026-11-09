@@ -1,6 +1,6 @@
 // Real-API holding page checks (audit SERVICING-17): a repaid holding must stay reachable from
-// My investments, an LO holding must not show a "1 months" term or count each payment twice,
-// and a defaulted holding must not open on an "Upcoming" payment.
+// My investments (its history), an LO holding must not show a "1 months" term or count each payment
+// twice, and a defaulted holding must not open on an upcoming payment.
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -215,31 +215,34 @@ function renderAt(path: string) {
   );
 }
 
-test("a repaid holding is listed under Completed and opens its holding page", async () => {
+test("a repaid holding is listed in the investment history and opens its holding page", async () => {
   useInvestorApi();
   renderAt("/portfolio");
 
-  fireEvent.click(await screen.findByRole("tab", { name: "Completed" }, { timeout: 5000 }));
-  const table = await screen.findByRole("table");
+  fireEvent.click(await screen.findByRole("link", { name: /View history/ }, { timeout: 5000 }));
+  const history = await screen.findByRole("region", { name: "Completed investments" });
+  const table = within(history).getByRole("table");
   expect(within(table).getByText("Completed LO claim")).toBeInTheDocument();
   expect(within(table).getByText("Repaid")).toBeInTheDocument();
   expect(within(table).queryByText("Defaulted direct loan")).not.toBeInTheDocument();
 
-  fireEvent.click(within(table).getByRole("button", { name: "Open Completed LO claim" }));
-  expect(await screen.findByRole("heading", { name: "Completed LO claim" }, { timeout: 5000 })).toBeInTheDocument();
+  fireEvent.click(within(table).getByRole("link", { name: "Open Completed LO claim" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Completed LO claim" }, { timeout: 5000 })).toBeInTheDocument();
   // Three installments, not six rows; the maturity date instead of "1 months".
-  expect(screen.getByText(/scheduled borrower payments recorded/).textContent).toContain("3 of 3");
+  expect(screen.getByText(/payments received/).textContent).toContain("3 of 3");
   expect(screen.getByText("Matures")).toBeInTheDocument();
   expect(screen.queryByText("1 months")).not.toBeInTheDocument();
 }, 30_000);
 
-test("a defaulted holding opens on the overdue payment, not an upcoming one", async () => {
+test("a defaulted holding opens on the recovery, not on an upcoming payment", async () => {
   useInvestorApi();
   renderAt("/portfolio/defaulted-direct");
 
-  expect(await screen.findByRole("heading", { name: "Defaulted direct loan" }, { timeout: 5000 })).toBeInTheDocument();
-  const payment = screen.getByRole("heading", { name: "Selected payment" }).closest(".inv-payment") as HTMLElement;
-  expect(within(payment).getByText("11 Nov 2026")).toBeInTheDocument();
-  expect(within(payment).getByText("Overdue")).toBeInTheDocument();
-  expect(within(payment).queryByText("Upcoming")).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "Defaulted direct loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Recovery in progress" })).toBeInTheDocument();
+  expect(screen.getByText(/16 days since the first unpaid payment/)).toBeInTheDocument();
+  expect(screen.getByText("No scheduled payments. This loan is in default.")).toBeInTheDocument();
+  expect(screen.queryByText("Next payment")).not.toBeInTheDocument();
+  expect(screen.queryByText("Scheduled")).not.toBeInTheDocument();
+  expect(screen.queryByText("Upcoming")).not.toBeInTheDocument();
 }, 30_000);

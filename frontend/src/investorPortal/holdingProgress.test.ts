@@ -1,13 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import type { Holding, PortfolioInstallment } from "../api/generated/banxumApi";
-import {
-  completedHoldingLabel,
-  completedHoldings,
-  defaultSelectedPaymentKey,
-  installmentProgress,
-  scheduleRowStatus
-} from "./holdingProgress";
+import type { PortfolioInstallment } from "../api/generated/banxumApi";
+import { installmentProgress } from "./holdingProgress";
 
 function row(overrides: Partial<PortfolioInstallment>): PortfolioInstallment {
   return {
@@ -55,46 +49,5 @@ describe("installment progress", () => {
       row({ id: "i2", installment_number: 2 })
     ];
     expect(installmentProgress(rows)).toEqual({ paid: 0, total: 2 });
-  });
-});
-
-describe("selected payment of a defaulted loan", () => {
-  const schedule = [
-    row({ id: "i1", installment_number: 1, due_date: "2026-11-11", status: "overdue" }),
-    row({ id: "i2", installment_number: 2, due_date: "2026-12-11", status: "upcoming" }),
-    row({ id: "i3", installment_number: 3, due_date: "2027-01-11", status: "upcoming" })
-  ];
-
-  test("opens on the overdue payment, not an upcoming one", () => {
-    expect(defaultSelectedPaymentKey({ loan_status: "defaulted" }, schedule, null)).toBe("loan:i1");
-    expect(defaultSelectedPaymentKey({ loan_status: "defaulted" }, schedule, "proj-2")).toBe("loan:i1");
-  });
-
-  test("a performing loan still opens on its next projected payment", () => {
-    expect(defaultSelectedPaymentKey({ loan_status: "active" }, schedule, "proj-2")).toBe("projection:proj-2");
-  });
-
-  test("future rows of a loan in default are not expected", () => {
-    expect(scheduleRowStatus({ status: "upcoming" }, { loan_status: "defaulted" })).toBe("not_expected");
-    expect(scheduleRowStatus({ status: "overdue" }, { loan_status: "defaulted" })).toBe("overdue");
-    expect(scheduleRowStatus({ status: "upcoming" }, { loan_status: "active" })).toBe("upcoming");
-  });
-
-  test("a repaid loan opens on its last payment", () => {
-    expect(defaultSelectedPaymentKey({ loan_status: "repaid" }, repaidLoanSchedule, null)).toBe("loan:s3");
-  });
-});
-
-describe("completed holdings", () => {
-  const base = { current_principal_minor: 0, loan: { loan_status: "repaid" } };
-  const holdings = [
-    { ...base, id: "open", status: "active", current_principal_minor: 100 },
-    { ...base, id: "repaid", status: "closed" },
-    { ...base, id: "sold", status: "transferred", loan: { loan_status: "active" } }
-  ] as unknown as Holding[];
-
-  test("lists repaid and sold holdings only", () => {
-    expect(completedHoldings(holdings).map((holding) => holding.id)).toEqual(["repaid", "sold"]);
-    expect(completedHoldings(holdings).map(completedHoldingLabel)).toEqual(["Repaid", "Sold"]);
   });
 });

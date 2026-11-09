@@ -1,4 +1,4 @@
-// Collateral figures of the My investments widgets ("Collateral spread", "Weighted LTV", "Nothing pledged").
+// The one "unsecured" and LTV rule of every screen (marketplace, Smart Invest, investment page).
 // A loan counts as secured only when a collateral value is actually pledged: the recorded collateral type
 // alone (for example "real_estate" with a value of 0) does not secure anything.
 
@@ -12,11 +12,6 @@ type CollateralLoan = {
   schedule?: Array<{ outstanding_principal_minor: number }>;
 };
 
-type CollateralHolding = {
-  current_principal_minor: number;
-  loan: CollateralLoan;
-};
-
 /**
  * The one "unsecured" rule for every screen (marketplace, Smart-Invest, loan sheet, portfolio):
  * an unsecured type, no pledged collateral value, or no LTV because there is no value.
@@ -25,10 +20,6 @@ export function isUnsecuredLoan(loan: CollateralLoan) {
   if (/unsecured/i.test(loan.collateral_type)) return true;
   if (loan.collateral_value_minor !== undefined) return !(loan.collateral_value_minor > 0);
   return loan.ltv_bps === null;
-}
-
-export function isUnsecuredHolding(holding: CollateralHolding) {
-  return isUnsecuredLoan(holding.loan);
 }
 
 /**
@@ -55,38 +46,4 @@ export function loanLtvBps(loan: CollateralLoan) {
     return Math.round((principal * 10_000) / valuation);
   }
   return loan.ltv_bps;
-}
-
-/** Principal per collateral group (largest first) for secured holdings, and the unsecured remainder. */
-export function collateralBreakdown<T extends CollateralHolding>(holdings: T[], groupFor: (holding: T) => string) {
-  const byGroup = new Map<string, number>();
-  let unsecuredMinor = 0;
-  let unsecuredCount = 0;
-  for (const holding of holdings) {
-    if (isUnsecuredHolding(holding)) {
-      unsecuredMinor += holding.current_principal_minor;
-      unsecuredCount += 1;
-      continue;
-    }
-    const key = groupFor(holding);
-    byGroup.set(key, (byGroup.get(key) ?? 0) + holding.current_principal_minor);
-  }
-  return {
-    secured: Array.from(byGroup.entries()).sort((left, right) => right[1] - left[1]),
-    unsecuredMinor,
-    unsecuredCount
-  };
-}
-
-/** Secured holdings that carry a loan-to-value figure. */
-export function valuedSecuredHoldings<T extends CollateralHolding>(holdings: T[]) {
-  return holdings.filter((holding) => !isUnsecuredHolding(holding) && loanLtvBps(holding.loan) !== null);
-}
-
-/** Principal-weighted LTV in percent across valued secured holdings, or null when none is valued. */
-export function weightedLtvPercent(holdings: CollateralHolding[]) {
-  const valued = valuedSecuredHoldings(holdings);
-  const principal = valued.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  if (principal <= 0) return null;
-  return valued.reduce((sum, holding) => sum + ((loanLtvBps(holding.loan) ?? 0) / 100) * holding.current_principal_minor, 0) / principal;
 }

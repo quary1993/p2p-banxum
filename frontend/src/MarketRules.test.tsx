@@ -2,9 +2,9 @@
 // - A-44: the public site reads only the anonymous public endpoints (since 2026-10-15 the public
 //   site API contract: loan title, never the borrower's name) and never the investor list.
 // - A-32: late or defaulted holdings cannot be listed; there is no "Request listing" and no
-//   "Approval pending" in the investor UI.
+//   "Approval pending" in the investor UI (U33: "Sell investment" only on a performing holding).
 // - SECONDARY-11: two lots of one loan count as one loan and say when each was invested or bought.
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
@@ -199,35 +199,28 @@ function useInvestorApi(holdings: Holding[]) {
   return calls;
 }
 
-test("the Sell tab offers no listing request for late or defaulted holdings", async () => {
+test("only a performing holding offers Sell investment; late or defaulted holdings have no listing request", async () => {
   const base = portfolioFixture.holdings[0];
   const calls = useInvestorApi([
-    holdingWith(base, { id: "h-active" }, { loan_id: "loan-active", loan_title: "Performing loan", loan_status: "active" }),
-    holdingWith(base, { id: "h-late" }, { loan_id: "loan-late", loan_title: "Late direct loan", loan_status: "late", product_type: "direct" }),
-    holdingWith(base, { id: "h-default" }, { loan_id: "loan-default", loan_title: "Defaulted LO claim", loan_status: "defaulted", product_type: "originator_claim" })
+    holdingWith(base, { id: "h-active" }, { loan_id: "loan-active", loan_title: "Performing loan", loan_status: "active", days_past_due: 0 }),
+    holdingWith(base, { id: "h-late" }, { loan_id: "loan-late", loan_title: "Late direct loan", loan_status: "late", product_type: "direct", days_past_due: 12 }),
+    holdingWith(base, { id: "h-default" }, { loan_id: "loan-default", loan_title: "Defaulted LO claim", loan_status: "defaulted", product_type: "originator_claim", days_past_due: 95 })
   ]);
-  renderAt("/secondary-market");
-  // The "Selling your own" note counts the holdings that cannot be listed.
-  expect(
-    await screen.findByText(/2 holdings are late or in default and cannot be listed\./, {}, { timeout: 5000 })
-  ).toBeInTheDocument();
-  expect(screen.queryByText(/submitted for Garanta approval/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
+  renderAt("/portfolio/h-active");
+  expect(await screen.findByRole("heading", { level: 1, name: "Performing loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sell investment" })).toBeEnabled();
+  cleanup();
 
-  const lateCell = await screen.findByText("Late direct loan", {}, { timeout: 5000 });
-  const table = lateCell.closest("table") as HTMLElement;
-  const row = (title: string) => within(table).getByText(title).closest("tr") as HTMLElement;
-
-  expect(within(row("Performing loan")).getByRole("button", { name: "List" })).toBeEnabled();
-  for (const title of ["Late direct loan", "Defaulted LO claim"]) {
-    const listButton = within(row(title)).getByRole("button", { name: "List" });
-    expect(listButton).toBeDisabled();
-    expect(within(row(title)).getByText("Late or in default: cannot be listed")).toBeInTheDocument();
+  for (const [id, title] of [["h-late", "Late direct loan"], ["h-default", "Defaulted LO claim"]]) {
+    renderAt(`/portfolio/${id}`);
+    expect(await screen.findByRole("heading", { level: 1, name: title }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sell investment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Request listing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Approval pending/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Garanta approval/)).not.toBeInTheDocument();
+    cleanup();
   }
-  expect(screen.queryByRole("button", { name: /Request listing/ })).not.toBeInTheDocument();
-  expect(screen.queryByText(/Approval pending/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Garanta approval/)).not.toBeInTheDocument();
-  await waitFor(() => expect(calls.investorList).toBeGreaterThan(0));
+  // Investor pages never read the public project list.
   expect(calls.publicList).toBe(0);
 }, 30_000);
 
@@ -252,11 +245,13 @@ test("two lots of one loan count as one loan and say when each was invested or b
   ]);
   renderAt("/portfolio");
 
-  await screen.findAllByText("Alpine AG", {}, { timeout: 5000 });
-  // Page header ("2 loans · CHF … lent") and table footer count loans, not lots.
-  expect(screen.getAllByText(/^2 loans · /)).toHaveLength(2);
-  expect(screen.getByText("2 loans · 3 lots")).toBeInTheDocument();
-  expect(screen.getByText(/invested on 10 Oct 2026/)).toBeInTheDocument();
-  expect(screen.getByText(/bought on 14 Oct 2026/)).toBeInTheDocument();
-  expect(screen.queryByText(/^3 loans/)).not.toBeInTheDocument();
+  await screen.findAllByText("QA Alpine Equipment", {}, { timeout: 5000 });
+  // The page header counts loans, not lots: "2 investments in 2 companies."
+  expect(screen.getByText("2 investments in 2 companies.")).toBeInTheDocument();
+  expect(screen.queryByText(/^3 investments/)).not.toBeInTheDocument();
+  const current = screen.getByRole("region", { name: /Current investments/ });
+  expect(within(current).getByRole("heading", { name: /Current investments/ })).toHaveTextContent("Current investments 2");
+  // Each lot of the same loan says when it was invested or bought.
+  expect(within(current).getByText("Invested on 10 Oct 2026")).toBeInTheDocument();
+  expect(within(current).getByText("Bought on 14 Oct 2026")).toBeInTheDocument();
 }, 30_000);
