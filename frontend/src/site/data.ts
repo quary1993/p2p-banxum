@@ -138,40 +138,35 @@ export interface NewsletterTokenBody {
 
 export type EnquiryKind = "company" | "originator" | "contact";
 
-/** Field names per kind (contract section 5). All values are trimmed strings. */
+/** Field names per kind (the U33 forms). All values are trimmed strings. */
 export interface CompanyEnquiryFields {
   company_name: string;
   country: string;
-  company_number: string;
+  /** "EUR" or "CHF". */
+  currency: string;
   amount: string;
-  term: string;
   purpose: string;
-  security: string;
-  revenue?: string;
-  founded: string;
-  about?: string;
+  collateral: string;
   contact_name: string;
-  role: string;
   email: string;
-  phone: string;
 }
 
 export interface OriginatorEnquiryFields {
   company_name: string;
   country: string;
-  licence: string;
-  product: string;
-  loan_book: string;
-  about?: string;
   contact_name: string;
   email: string;
+  /** "New loans", "Refinancing of existing loans" or "Both new and existing loans". */
+  proposal: string;
+  about?: string;
 }
 
 export interface ContactEnquiryFields {
   name: string;
   email: string;
-  topic: string;
-  message: string;
+  /** "How investing works", "An opportunity", "Another question" or left out. */
+  topic?: string;
+  message?: string;
 }
 
 export type EnquiryBody =
@@ -313,7 +308,7 @@ const previewReferences: Record<EnquiryKind, string> = {
   contact: "MSG-2026-0412"
 };
 
-/** The three public forms (For companies, For loan originators, Contact). */
+/** The three public forms (For borrowers, For loan originators, Contact). */
 export function useEnquirySubmit() {
   return useMutation<EnquiryResponse, unknown, EnquiryBody>({
     mutationFn: (body) =>

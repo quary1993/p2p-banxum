@@ -4,7 +4,8 @@
  * navigate() function (history + App route state).
  *
  * Two editions live side by side (U33-DEC-39):
- * - U33 pages (u33/): home, About, project pages and the legal pages, in the U33 shell and skin (html.bxp, u33/public.css). A route's
+ * - U33 pages (u33/): home, About, project pages, For borrowers, For loan originators, Contact
+ *   and the legal pages, in the U33 shell and skin (html.bxp, u33/public.css). A route's
  *   "u33" names its page bundle (the design's page type).
  * - October pages (pages/): the full project list, How it works, Statistics, Help, Guides,
  *   newsletter confirmation and the 404, in the October shell and skin (html.bxs, site.css),
@@ -22,18 +23,17 @@ import { SiteSkin } from "./SiteSkin";
 import { Guide } from "./pages/Guide";
 import { Guides } from "./pages/Guides";
 import { Help } from "./pages/Help";
-import { Companies } from "./pages/Companies";
-import { Contact } from "./pages/Contact";
 import { HowItWorks } from "./pages/HowItWorks";
 import { NewsletterConfirm } from "./pages/NewsletterConfirm";
 import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe";
 import { NotFound } from "./pages/NotFound";
-import { Originators } from "./pages/Originators";
 import { Projects } from "./pages/Projects";
 import { Statistics } from "./pages/Statistics";
 import { PublicShell } from "./u33/PublicShell";
 import { PublicSkin, type PublicBundle } from "./u33/PublicSkin";
 import { About } from "./u33/pages/About";
+import { Companies, Originators } from "./u33/pages/Business";
+import { Contact } from "./u33/pages/Contact";
 import { Home } from "./u33/pages/Home";
 import { isPublicLegalDocument } from "./u33/legalRoutes";
 import { Legal } from "./u33/pages/Legal";
@@ -59,8 +59,8 @@ const SITE_ROUTES: SiteRoute[] = [
   { pattern: "/projects/:id", page: Project, title: "Project", u33: { bundle: "project" } },
   { pattern: "/how-it-works", page: HowItWorks, title: "How it works" },
   { pattern: "/statistics", page: Statistics, title: "Statistics" },
-  { pattern: "/companies", page: Companies, title: "For companies" },
-  { pattern: "/originators", page: Originators, title: "For loan originators" },
+  { pattern: "/companies", page: Companies, title: "For borrowers", u33: { bundle: "business", mainClassName: "business-content" } },
+  { pattern: "/originators", page: Originators, title: "For loan originators", u33: { bundle: "business", mainClassName: "business-content" } },
   { pattern: "/about", page: About, title: "About Banxum", u33: { bundle: "about", mainClassName: "about-content" } },
   { pattern: "/help", page: Help, title: "Help" },
   { pattern: "/guides", page: Guides, title: "Guides" },
@@ -71,7 +71,7 @@ const SITE_ROUTES: SiteRoute[] = [
     title: "Legal",
     u33: (params) => (isPublicLegalDocument(params.doc ?? "") ? { bundle: "legal" } : null)
   },
-  { pattern: "/contact", page: Contact, title: "Contact" },
+  { pattern: "/contact", page: Contact, title: "Contact", u33: { bundle: "contact" } },
   { pattern: "/newsletter/confirm", page: NewsletterConfirm, title: "New projects by email" },
   { pattern: "/newsletter/unsubscribe", page: NewsletterUnsubscribe, title: "New projects by email" }
 ];

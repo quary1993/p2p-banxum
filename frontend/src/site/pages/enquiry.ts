@@ -1,14 +1,14 @@
 // IP of Webby-Soft SRL.
 /*
- * The three public forms (For companies, For loan originators, Contact): field specs, the
- * design's check (shell.js checkForm), the request body of POST /api/v1/public/enquiries/ and
- * the reading of its errors, and the form state hook. The markup is in EnquiryForm.tsx and the
+ * The three public forms (For borrowers, For loan originators, Contact; U33 field sets): field
+ * specs, the check before sending, the request body of POST /api/v1/public/enquiries/ and the
+ * reading of its errors, and the form state hook. The markup is in u33/forms.tsx and the U33
  * pages; this file holds no components (React Fast Refresh).
  *
  * Abuse guards on the client side (the server decides): a honeypot field "website" that people
  * never see or reach, and "elapsed_ms", the time from showing the form to sending it.
  */
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
   errorDetail,
@@ -24,7 +24,7 @@ import {
 import { ApiClientError } from "../../api/client/httpClient";
 import { cleanAmountInput, num, parseAmount } from "../format";
 
-/** The design's email check (shell.js checkForm). */
+/** The email check before sending (the server checks again). */
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Shown when the server gives no message (for a 429 it always gives one). */
@@ -38,14 +38,16 @@ type FieldNames = {
 };
 
 export type EnquiryFieldSpec<K extends EnquiryKind> = {
-  /** The design's element id (co-name, or-book, ct-msg...). */
+  /** The design's element id (company-name, originator-loan-type, contact-message...). */
   id: string;
   /** The contract's field name. */
   name: FieldNames[K];
   required: boolean;
   email?: boolean;
-  /** Amount field (design class bxm-amount): filtered while typing, formatted on blur. */
+  /** Amount field: filtered while typing, formatted on blur (1,234.56). */
   amount?: boolean;
+  /** Value of a new form ("EUR" for the currency select). */
+  initial?: string;
 };
 
 export type EnquiryFormSpec<K extends EnquiryKind> = {
@@ -59,62 +61,55 @@ export type EnquiryFormSpec<K extends EnquiryKind> = {
 export const COMPANY_FORM: EnquiryFormSpec<"company"> = {
   kind: "company",
   fields: [
-    { id: "co-name", name: "company_name", required: true },
-    { id: "co-country", name: "country", required: true },
-    { id: "co-reg", name: "company_number", required: true },
-    { id: "co-amount", name: "amount", required: true, amount: true },
-    { id: "co-term", name: "term", required: true },
-    { id: "co-purpose", name: "purpose", required: true },
-    { id: "co-security", name: "security", required: true },
-    { id: "co-revenue", name: "revenue", required: false, amount: true },
-    { id: "co-founded", name: "founded", required: true },
-    { id: "co-about", name: "about", required: false },
-    { id: "co-contact", name: "contact_name", required: true },
-    { id: "co-role", name: "role", required: true },
-    { id: "co-email", name: "email", required: true, email: true },
-    { id: "co-phone", name: "phone", required: true }
+    { id: "company-name", name: "company_name", required: true },
+    { id: "company-country", name: "country", required: true },
+    { id: "company-currency", name: "currency", required: true, initial: "EUR" },
+    { id: "company-amount", name: "amount", required: true, amount: true },
+    { id: "company-purpose", name: "purpose", required: true },
+    { id: "company-collateral", name: "collateral", required: true },
+    { id: "company-contact-name", name: "contact_name", required: true },
+    { id: "company-email", name: "email", required: true, email: true }
   ],
-  consentId: "co-consent"
+  consentId: "company-consent"
 };
 
 export const ORIGINATOR_FORM: EnquiryFormSpec<"originator"> = {
   kind: "originator",
   fields: [
-    { id: "or-name", name: "company_name", required: true },
-    { id: "or-country", name: "country", required: true },
-    { id: "or-licence", name: "licence", required: true },
-    { id: "or-product", name: "product", required: true },
-    { id: "or-book", name: "loan_book", required: true, amount: true },
-    { id: "or-about", name: "about", required: false },
-    { id: "or-contact", name: "contact_name", required: true },
-    { id: "or-email", name: "email", required: true, email: true }
+    { id: "originator-company", name: "company_name", required: true },
+    { id: "originator-country", name: "country", required: true },
+    { id: "originator-name", name: "contact_name", required: true },
+    { id: "originator-email", name: "email", required: true, email: true },
+    { id: "originator-loan-type", name: "proposal", required: true },
+    { id: "originator-message", name: "about", required: false }
   ],
-  consentId: "or-consent"
+  consentId: "originator-consent"
 };
 
 export const CONTACT_FORM: EnquiryFormSpec<"contact"> = {
   kind: "contact",
   fields: [
-    { id: "ct-name", name: "name", required: true },
-    { id: "ct-email", name: "email", required: true, email: true },
-    { id: "ct-topic", name: "topic", required: true },
-    { id: "ct-msg", name: "message", required: true }
+    { id: "contact-name", name: "name", required: true },
+    { id: "contact-email", name: "email", required: true, email: true },
+    { id: "contact-topic", name: "topic", required: false },
+    { id: "contact-message", name: "message", required: false }
   ],
-  consentId: "ct-consent"
+  consentId: "contact-consent"
 };
 
-/** The country options of the company and loan originator forms. */
-export const ENQUIRY_COUNTRIES = ["Switzerland", "Germany", "Austria", "Italy", "Romania", "France", "Other EU country"];
+/** The loan currencies of the For borrowers form. */
+export const ENQUIRY_CURRENCIES = ["EUR", "CHF"];
 
-/** "Apply now" / "Talk to us": smooth scroll to the form section (design site-scroll). */
-export function scrollToSection(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
+/** The proposal types of the For loan originators form (value = label, as the server lists them). */
+export const ORIGINATOR_PROPOSALS = ["New loans", "Refinancing of existing loans", "Both new and existing loans"];
+
+/** The topics of the Contact form (optional). */
+export const CONTACT_TOPICS = ["How investing works", "An opportunity", "Another question"];
 
 export type EnquiryValues = Record<string, string>;
 
 /**
- * The design's checkForm: every required field filled (the consent ticked), emails in a valid
+ * The check before sending: every required field filled (the consent ticked), emails in a valid
  * format. Returns the ids of the invalid fields, in the order of the form.
  */
 export function checkEnquiry<K extends EnquiryKind>(spec: EnquiryFormSpec<K>, values: EnquiryValues, consent: boolean) {
@@ -192,12 +187,14 @@ function topLevelMessage(error: unknown, key: string): string | null {
 export type EnquirySent = { reference: string; email: string };
 
 /**
- * State of one form: values, the design's invalid marks (true: the design's message; a string:
- * the server's message), the alert, the honeypot, and submit. onSent gets the API reference.
+ * State of one form: values, the invalid marks (true: the form's own message; a string: the
+ * server's message), the alert, the honeypot, and submit. onSent gets the API reference.
  */
 export function useEnquiryForm<K extends EnquiryKind>(spec: EnquiryFormSpec<K>, onSent: (sent: EnquirySent) => void) {
   const submit = useEnquirySubmit();
-  const [values, setValues] = useState<EnquiryValues>(() => Object.fromEntries(spec.fields.map((field) => [field.id, ""])));
+  const [values, setValues] = useState<EnquiryValues>(() =>
+    Object.fromEntries(spec.fields.map((field) => [field.id, field.initial ?? ""]))
+  );
   const [consent, setConsentState] = useState(false);
   const [website, setWebsite] = useState("");
   const [invalid, setInvalid] = useState<Record<string, true | string>>({});
@@ -208,19 +205,30 @@ export function useEnquiryForm<K extends EnquiryKind>(spec: EnquiryFormSpec<K>, 
     shownAt.current = Date.now();
   }, []);
 
-  const clearInvalid = (id: string) =>
-    setInvalid((current) => {
-      if (!(id in current)) return current;
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
+  const clearInvalid = useCallback(
+    (id: string) =>
+      setInvalid((current) => {
+        if (!(id in current)) return current;
+        const next = { ...current };
+        delete next[id];
+        return next;
+      }),
+    []
+  );
 
   const focus = (id: string | undefined) => {
     if (id) document.getElementById(id)?.focus();
   };
 
-  const amountIds = new Set(spec.fields.filter((field) => field.amount).map((field) => field.id));
+  const amountIds = useMemo(() => new Set(spec.fields.filter((field) => field.amount).map((field) => field.id)), [spec]);
+  /** An edit clears the field's invalid mark (stable, for prefills from outside the form). */
+  const setValue = useCallback(
+    (id: string, value: string) => {
+      setValues((current) => ({ ...current, [id]: amountIds.has(id) ? cleanAmountInput(value) : value }));
+      clearInvalid(id);
+    },
+    [amountIds, clearInvalid]
+  );
 
   return {
     values,
@@ -229,12 +237,8 @@ export function useEnquiryForm<K extends EnquiryKind>(spec: EnquiryFormSpec<K>, 
     invalid,
     alert,
     pending: submit.isPending,
-    /** The design's input handler: an edit clears the field's invalid mark. */
-    setValue(id: string, value: string) {
-      setValues((current) => ({ ...current, [id]: amountIds.has(id) ? cleanAmountInput(value) : value }));
-      clearInvalid(id);
-    },
-    /** Amount fields show 1,234.56 once the visitor leaves them (core.js focusout). */
+    setValue,
+    /** Amount fields show 1,234.56 once the visitor leaves them. */
     formatAmount(id: string) {
       const parsed = parseAmount(values[id]);
       if (!Number.isNaN(parsed)) setValues((current) => ({ ...current, [id]: num(parsed) }));

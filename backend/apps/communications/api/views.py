@@ -145,7 +145,7 @@ PUBLIC_ENQUIRY_REQUEST = PolymorphicProxySerializer(
 
 
 class PublicEnquiryView(PublicWriteView):
-    """The For companies, For loan originators and Contact forms: one email to BANXUM."""
+    """The For borrowers, For loan originators and Contact forms: one email to BANXUM."""
 
     parser_classes = [JSONParser]
     throttled_detail = ENQUIRY_THROTTLED_DETAIL
