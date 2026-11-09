@@ -26,6 +26,7 @@ export { Dropdown } from "./Dropdown";
 export { useDismissable } from "./useDismissable";
 export { EmptyState } from "./EmptyState";
 export { NiIcon } from "./Icon";
+export { clickOnSpace } from "./keyboard";
 export { KeyValueList, type KeyValueItem } from "./KeyValueList";
 export { MoneyAmount } from "./MoneyAmount";
 export { PortalLink, PortalNavProvider } from "./navigation";

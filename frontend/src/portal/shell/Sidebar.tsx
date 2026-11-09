@@ -8,6 +8,7 @@ import type { RouteName } from "../../investorPortal/types";
 import { NiIcon, PortalLink } from "../components";
 import { brandDisplayName, isBanxumBrand, operatorName } from "../brand";
 import { HELP_NAV_ITEM, NAV_GROUPS, type NavCount, type NavItem } from "./nav";
+import { clickOnSpace } from "../components/keyboard";
 
 /** A marker on a menu entry that needs attention (text shown, label read by screen readers). */
 export type NavMarker = { text: string; label: string };
@@ -76,6 +77,7 @@ export const Sidebar = forwardRef<HTMLDivElement, SidebarProps>(function Sidebar
               event.preventDefault();
               onToggleCompact();
             }}
+            onKeyDown={clickOnSpace}
             role="button"
             title={compact ? t("Expand the menu") : t("Collapse the menu")}
           >

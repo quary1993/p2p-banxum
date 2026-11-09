@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useDismissable } from "./useDismissable";
+import { clickOnSpace } from "./keyboard";
 
 export function Dropdown({
   toggle,
@@ -66,6 +67,7 @@ export function Dropdown({
           setOpen((value) => !value);
         }}
         ref={toggleRef}
+        onKeyDown={clickOnSpace}
         role="button"
       >
         {toggle}

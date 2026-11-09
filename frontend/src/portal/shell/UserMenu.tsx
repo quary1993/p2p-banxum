@@ -5,6 +5,7 @@
 import { useT } from "../../i18n";
 import { Dropdown, MoneyAmount, NiIcon, PortalLink } from "../components";
 import { brandDisplayName } from "../brand";
+import { clickOnSpace } from "../components/keyboard";
 
 export type ShellBalance = { currency: string; availableMinor: number };
 
@@ -83,6 +84,7 @@ export function UserMenu({
                   close();
                   onAddFunds();
                 }}
+                onKeyDown={clickOnSpace}
                 role="button"
               >
                 <span>{t("Add funds")}</span> <NiIcon name="wallet-in" />
@@ -116,6 +118,7 @@ export function UserMenu({
                     close();
                     onSignOut();
                   }}
+                  onKeyDown={clickOnSpace}
                   role="button"
                 >
                   <NiIcon name="signout" />

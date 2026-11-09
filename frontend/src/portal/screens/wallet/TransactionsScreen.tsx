@@ -30,6 +30,7 @@ import {
   type TransactionRow
 } from "./transactionsModel";
 import "./wallet.css";
+import { clickOnSpace } from "../../components/keyboard";
 
 /** The API's maximum page of activity entries. */
 const ACTIVITY_LIMIT = 250;
@@ -255,6 +256,7 @@ export function TransactionsScreen() {
                 setCurrency(value);
                 resetPaging();
               }}
+              onKeyDown={clickOnSpace}
               role="button"
             >
               {value || t("All")}

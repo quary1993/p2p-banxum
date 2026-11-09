@@ -17,6 +17,7 @@ import { notificationRoute } from "../../../investorPortal/notifications";
 import type { AppRoute } from "../../../investorPortal/types";
 import { EmptyState, isPlainLeftClick, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import "./wallet.css";
+import { clickOnSpace } from "../../components/keyboard";
 
 function isFailed(item: InvestorNotification) {
   return item.status === "failed" || item.status === "dead_letter";
@@ -131,6 +132,7 @@ export function NotificationsScreen() {
         event.preventDefault();
         setUnreadOnly(value);
       }}
+      onKeyDown={clickOnSpace}
       role="button"
     >
       {label}<span>{count}</span>
@@ -180,6 +182,7 @@ export function NotificationsScreen() {
                       event.preventDefault();
                       setUnreadOnly(false);
                     }}
+                    onKeyDown={clickOnSpace}
                     role="button"
                   >
                     {t("View all notifications")} <NiIcon name="arrow-right" />

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import type { RouteName } from "../../investorPortal/types";
 import { PortalLink } from "./navigation";
+import { clickOnSpace } from "./keyboard";
 
 export type TabItem<V extends string> = {
   value: V;
@@ -47,6 +48,7 @@ export function Tabs<V extends string>({
               event.preventDefault();
               onChange?.(item.value);
             }}
+            onKeyDown={clickOnSpace}
             role="button"
           >
             {item.label}
