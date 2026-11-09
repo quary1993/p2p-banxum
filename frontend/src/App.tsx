@@ -168,6 +168,8 @@ import { scheduleStatusTone } from "./investorPortal/scheduleStatus";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
 import { notificationRoute } from "./investorPortal/notifications";
+import { LegacyBody } from "./portal/shell/LegacyBody";
+import { U33Skin } from "./portal/U33Skin";
 import { LoanDocumentList } from "./investorPortal/LoanDocumentList";
 import {
   completedHoldingLabel,
@@ -2703,8 +2705,12 @@ function InvestorShell({
     );
   }
 
+  // U33 skin (html.bxu) next to the old one; the old shell and screens stay in LegacyBody until
+  // the U33 shell replaces them.
   return (
     <UserSkin>
+    <U33Skin>
+    <LegacyBody>
     <div className="app">
       <a
         className="portal-skip"
@@ -2918,6 +2924,8 @@ function InvestorShell({
       ) : null}
       {payoutIbanOpen ? <PayoutIbanModal onClose={() => setPayoutIbanOpen(false)} /> : null}
     </div>
+    </LegacyBody>
+    </U33Skin>
     </UserSkin>
   );
 }
