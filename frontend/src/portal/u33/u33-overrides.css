@@ -1,0 +1,224 @@
+/* IP of Webby-Soft SRL. */
+/* Hand-made fixes for the U33 investor area, all under html.bxu. u33.css is generated from the design
+ * (do not edit it; rebuild it with the S1 tool); put every fix here, with the reason.
+ * Generated rules have the specificity of the design selector + one class (:where(html).bxu ...),
+ * so a fix written as "html.bxu <same selector>" wins without !important.
+ *
+ * MIGRATION (Phase 17.1, slices S2-S5). Both skins are mounted in the investor area:
+ * - html.bxm (UserSkin): the old skin (styles.css, banxumSkin.css, skin/*.css) for old screen bodies;
+ * - html.bxu (U33Skin): this layer, for the shell and the rebuilt screens.
+ * Old bodies are wrapped in <LegacyBody> (div.bxu-legacy.app). Every generated rule that could match
+ * an old element carries :where(:not(.bxu-legacy *)), so U33 never restyles an old body, and the
+ * ".app" class gives the old CSS the context it was written for. Section 1 below undoes what still
+ * reaches the old bodies (inherited text styles, the .app layout box).
+ *
+ * How the final slice removes the old skin (after the last <LegacyBody> is gone):
+ * 1. Delete portal/shell/LegacyBody.tsx and section 1 below; rebuild u33.css with
+ *    "build-u33-css.mjs --no-legacy-guard" (drops the :where(:not(.bxu-legacy *)) guards).
+ * 2. Remove UserSkin from InvestorShell and the sign-in screens (S5 moves them to U33Skin), then delete
+ *    banxumSkin.css, skin/*.css and the html.bxm-only rules; keep the styles.css rules the admin
+ *    console still uses (it never mounts either skin), or move them to the admin console.
+ * 3. Remove the old components of investorPortal/ui.tsx that no screen imports any more.
+ * 4. Re-check section 2 (old global rules reaching the shell) and delete what no longer applies.
+ */
+
+/* 1. Old screen bodies inside the U33 shell ------------------------------------------------------- */
+
+/* The old .app box was the page (flex row, full height, paper background); here it only gives the
+   old CSS its ".app" context. */
+html.bxu .bxu-legacy.app {
+  display: block;
+  min-height: 0;
+  background: transparent;
+  /* Text styles the old body inherited from html.bxm body (banxumSkin.css), not from the U33 body. */
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  letter-spacing: normal;
+  text-align: start;
+  /* The old skin's tokens, which U33 redefines on <html> (found with tools/vars.js). */
+  --bxm-ink: #0a0a0a;
+  --bxm-graphite: #2a2a2a;
+  --bxm-steel: #6e6e6e;
+  --bxm-steel-on-ink: #8a8a8a;
+  --bxm-line: #e6e6e6;
+  --bxm-line-on-ink: #262626;
+  --bxm-paper: #f5f5f5;
+  --bxm-signal: #b3261e;
+  --bxm-signal-on-ink: #ff7a6e;
+  --bxm-success: #1e7a46;
+  --bxm-success-on-ink: #5fd08a;
+}
+
+/* The old skin has no Dark appearance: in Dark, an old body is shown as a light panel inside the dark
+   shell (readable, unchanged) until its slice rebuilds it. */
+html.bxu[data-theme="dark"] .bxu-legacy.app {
+  padding: 24px;
+  border-radius: 24px;
+  background: #fff;
+  color-scheme: light;
+}
+html.bxu[data-theme="dark"] .u33-shell-notices > .bxu-legacy.app {
+  padding: 12px;
+}
+
+/* The old screens are laid out for the old shell's content column: no second page padding inside
+   the U33 content area (.nk-content already has the design's gutter). */
+html.bxu .bxu-legacy.app > .content,
+html.bxu .bxu-legacy.app > main.content {
+  max-width: none;
+  padding: 0 0 48px;
+}
+
+/* Banners above the screen (sign-out error, preview data, read-only view, frozen account). */
+html.bxu .u33-shell-notices {
+  margin-bottom: 24px;
+}
+
+/* 2. Old global rules reaching the U33 shell ----------------------------------------------------- */
+/* Found with tools/leaks.js (computed styles of the shell with and without the old stylesheets).
+   :where() keeps these at (0,1,1): above the old global rules, below every generated U33 rule. */
+
+/* styles.css :root paints <html> white; the design leaves it transparent, so the page canvas takes the
+   body colour (Light #f5f6f7 / Dark #101214) below short pages. */
+html.bxu {
+  background: none;
+}
+
+/* styles.css .nav / .nav-link (old sidebar, still global): the footer links are a row as in the design. */
+html.bxu :where(.nk-footer .nav) {
+  flex-direction: row;
+}
+html.bxu :where(.nk-footer .nav-link) {
+  gap: normal;
+  text-align: inherit;
+}
+
+/* 3. Shared U33 components without a single design class ------------------------------------------ */
+
+/* LinkArrow: the design's "View account ->" link of the Overview cards (.ov-card-footer a). */
+html.bxu .u33-link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a0a0a;
+  font: 500 13px/1.5 "Archivo Variable", "Archivo", sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+html.bxu .u33-link-arrow:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+html.bxu .u33-link-arrow .icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #f3f4f5;
+  color: #0a0a0a;
+  font-size: 13px;
+}
+html.bxu[data-theme="dark"] .u33-link-arrow,
+html.bxu[data-theme="dark"] .u33-link-arrow .icon {
+  color: #f3f5f4;
+}
+html.bxu[data-theme="dark"] .u33-link-arrow .icon {
+  background: #23272c;
+}
+html.bxu .u33-card-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #eee;
+}
+html.bxu[data-theme="dark"] .u33-card-footer {
+  border-top-color: #343a40;
+}
+
+/* Alert marker on the Account menu entry (money due back, frozen account): the design's count badge,
+   in the design's amber/red. */
+html.bxu .nk-menu-badge.u33-menu-alert {
+  color: #94600c;
+  font-weight: 600;
+}
+html.bxu[data-theme="dark"] .nk-menu-badge.u33-menu-alert {
+  color: #e5b66c;
+}
+
+/* Skip link: hidden until focused. */
+html.bxu .u33-skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 2000;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #111214;
+  color: #fff;
+  font-weight: 500;
+}
+html.bxu .u33-skip-link:focus {
+  top: 12px;
+}
+
+/* Notifications dropdown without items. */
+html.bxu .nd-dropdown .nd-empty {
+  margin: 0;
+  padding: 24px 20px;
+  color: #59636d;
+  font-size: 14px;
+}
+
+/* Language row of the account menu: one language until Phase 17.8, shown but not selectable. */
+html.bxu .p30-language-toggle:disabled {
+  color: inherit;
+  cursor: default;
+  opacity: 1;
+}
+
+/* 4. Preview mode only (fixture data): the reviewers' floating controls ------------------------- */
+html.bxu .u33-preview-controls {
+  position: fixed;
+  right: 16px;
+  bottom: 64px;
+  z-index: 1060;
+  font: 500 12px/1.4 "Archivo Variable", "Archivo", sans-serif;
+}
+html.bxu .u33-preview-toggle {
+  padding: 6px 12px;
+  border: 1px dashed #8a8a8a;
+  border-radius: 999px;
+  background: #fff;
+  color: #111214;
+}
+html.bxu .u33-preview-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(17, 18, 20, 0.12);
+}
+html.bxu .u33-preview-panel label {
+  display: grid;
+  gap: 4px;
+  color: #59636d;
+}
+html.bxu .u33-preview-panel select {
+  min-width: 190px;
+  padding: 4px 6px;
+  color: #111214;
+}
+html.bxu[data-theme="dark"] .u33-preview-toggle,
+html.bxu[data-theme="dark"] .u33-preview-panel {
+  background: #191c20;
+  border-color: #343a40;
+  color: #f3f5f4;
+}

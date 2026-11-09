@@ -25,6 +25,10 @@ import "./skin/help.css";
 // The public site: the design's CSS scoped to html.bxs (SiteSkin), then the hand-made fixes.
 import "./site/site.css";
 import "./site/site-overrides.css";
+// The U33 investor area (Phase 17.1): the design's CSS scoped to html.bxu (U33Skin), then the fixes.
+// After the old skins so U33 wins where both apply; old screen bodies are shielded (LegacyBody).
+import "./portal/u33/u33.css";
+import "./portal/u33/u33-overrides.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
