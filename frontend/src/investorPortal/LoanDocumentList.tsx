@@ -1,8 +1,11 @@
+// IP of Webby-Soft SRL.
+// Borrower documents of a loan (U33 credit file, Documents chapter: .r100-file rows). Each one
+// downloads through the investor document endpoint (FRONTCODE-27).
 import { useState } from "react";
 
 import { ApiClientError } from "../api/client/httpClient";
 import { v1MarketplacePrimaryLoansDocumentsRetrieve } from "../api/generated/banxumApi";
-import { Button, Icon } from "./ui";
+import { useT } from "../i18n";
 
 export type LoanDocumentItem = {
   id?: string;
@@ -29,12 +32,12 @@ function saveDownloadedFile(file: DownloadableFile) {
   window.URL.revokeObjectURL(url);
 }
 
-function errorText(error: unknown) {
+function errorText(error: unknown, fallback: string) {
   if (error instanceof ApiClientError && error.message) return error.message;
-  return "The document could not be downloaded. Try again later.";
+  return fallback;
 }
 
-/** Borrower documents of a loan page. Each one opens as a file download. */
+/** Borrower documents of a loan. Each one opens as a file download. */
 export function LoanDocumentList({
   loanId,
   documents,
@@ -46,6 +49,7 @@ export function LoanDocumentList({
   humanize: (token: string) => string;
   disabled?: boolean;
 }) {
+  const t = useT();
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   const download = async (documentId: string) => {
@@ -54,43 +58,41 @@ export function LoanDocumentList({
     try {
       saveDownloadedFile(await v1MarketplacePrimaryLoansDocumentsRetrieve(loanId, documentId));
     } catch (downloadError) {
-      setError(errorText(downloadError));
+      setError(errorText(downloadError, t("The document could not be downloaded. Try again later.")));
     } finally {
       setBusyId("");
     }
   };
   return (
     <>
-      <ul className="lp-docs">
+      <div className="u33-invest-files">
         {documents.map((document, index) => {
-          const name = document.display_name || "Borrower document";
+          const name = document.display_name || t("Borrower document");
+          const meta = [document.document_type ? humanize(document.document_type) : "", document.description ?? ""].filter(Boolean).join(" · ");
           return (
-            <li className="lp-doc" key={document.id ?? index}>
-              <Icon className="lp-doc-icon" name="doc" size={16} />
-              <div className="lp-doc-main">
-                <div className="lp-doc-name">
-                  <strong>{name}</strong>
-                  {document.document_type ? <span className="tag">{humanize(document.document_type)}</span> : null}
-                </div>
-                {document.description ? <div className="lp-doc-desc">{document.description}</div> : null}
-              </div>
-              {document.id ? (
-                <Button
-                  aria-label={`Download ${name}`}
-                  disabled={disabled || busyId !== ""}
-                  icon="download"
-                  onClick={() => void download(document.id as string)}
-                  size="sm"
-                >
-                  {busyId === document.id ? "Downloading..." : "Download"}
-                </Button>
-              ) : null}
-            </li>
+            <button
+              aria-label={t("Download {name}", { name })}
+              className="r100-file"
+              disabled={!document.id || disabled || busyId !== ""}
+              key={document.id ?? index}
+              onClick={() => document.id && void download(document.id)}
+              type="button"
+            >
+              <span className="r100-file-icon"><em aria-hidden="true" className="icon ni ni-file-text" /></span>
+              <span className="r100-file-name">
+                <strong>{name}</strong>
+                {meta ? <small>{meta}</small> : null}
+              </span>
+              <span className="r100-file-action">
+                <span>{busyId === document.id ? t("Downloading...") : t("Download")}</span>
+                <em aria-hidden="true" className="icon ni ni-download" />
+              </span>
+            </button>
           );
         })}
-      </ul>
+      </div>
       {error ? (
-        <p className="lp-doc-error" role="alert">
+        <p className="u33-invest-file-error" role="alert">
           {error}
         </p>
       ) : null}

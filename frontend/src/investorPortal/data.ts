@@ -18,6 +18,7 @@ import {
   useV1ServicingLoanRiskNotesList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
+  useV1MarketplacePrimaryPublicProjectsList,
   useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList,
   useV1InvestorSmartInvestRetrieve
@@ -35,6 +36,7 @@ import {
   fxFixture,
   loanDetailsFixture,
   marketplaceLoansFixture,
+  pastProjectsFixture,
   portfolioFixture,
   publicLoanNotesFixture,
   primaryOrdersFixture,
@@ -336,5 +338,12 @@ export function useSecondaryListingDetailData(listingId: string) {
 
   return useV1MarketplaceSecondaryListingsRetrieve(listingId, {
     query: previewQuery(fixture, Boolean(listingId))
+  });
+}
+
+/** Funded, repaying, repaid and defaulted loans for Past opportunities (public projects API). */
+export function usePastProjectsData(enabled = true) {
+  return useV1MarketplacePrimaryPublicProjectsList({ limit: 250 }, {
+    query: previewQuery(pastProjectsFixture, enabled)
   });
 }

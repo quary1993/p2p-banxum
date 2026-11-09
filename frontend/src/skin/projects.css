@@ -2,219 +2,9 @@
 /* User-side skin: projects. All rules are scoped with .bxm (see banxumSkin.css). */
 
 /* ==========================================================================
-   Primary market: page head, balance band, toolbar card
+   Filter and sort controls still used by old screens (the U33 Investment
+   opportunities page, portal/screens/invest/, replaced the old primary market)
    ========================================================================== */
-
-.bxm .marketplace-page {
-  margin: 0;
-  max-width: none;
-}
-
-/* The old centred hero is now the design page head. */
-.bxm .page-head.marketplace-intro {
-  margin: 0 0 28px;
-  max-width: none;
-  text-align: left;
-}
-
-.bxm .marketplace-intro .eyebrow {
-  letter-spacing: var(--bxm-label-track);
-  margin-bottom: 10px;
-}
-
-.bxm .marketplace-intro h1 {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-  margin: 0;
-}
-
-.bxm .mk-layout-switch button svg {
-  flex: none;
-}
-
-/* "Available to commit": a compact bordered row. */
-.bxm .marketplace-capacity {
-  align-items: center;
-  border-radius: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 28px;
-  margin-bottom: 28px;
-  min-height: 0;
-  padding: 18px 24px;
-}
-
-.bxm .marketplace-capacity-figure {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.bxm .marketplace-capacity-label {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: var(--bxm-label-track);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.bxm .marketplace-capacity-amount {
-  align-items: baseline;
-  color: var(--ink);
-  display: flex;
-  font-size: 24px;
-  font-weight: 400;
-  gap: 6px;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-
-.bxm .marketplace-capacity-amount span {
-  color: var(--ink-3);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.bxm .marketplace-capacity-note {
-  align-self: flex-end;
-  color: var(--ink-3);
-  flex: 1 1 200px;
-  font-size: 13px;
-  line-height: 1.5;
-  padding-bottom: 3px;
-}
-
-.bxm .marketplace-capacity-tools {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-left: auto;
-}
-
-.bxm .marketplace-capacity .seg {
-  border: 1px solid var(--line);
-}
-
-.bxm .marketplace-investing-rule {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  font-family: var(--font-sans);
-  gap: 10px;
-  height: 36px;
-  min-height: 0;
-  padding: 0 14px 0 18px;
-}
-
-.bxm .marketplace-investing-rule:hover,
-.bxm .marketplace-investing-rule.active:hover {
-  background: var(--bxm-paper);
-  border-color: var(--line);
-}
-
-.bxm .marketplace-investing-rule.active {
-  background: #fff;
-  border-color: var(--line);
-}
-
-.bxm .marketplace-investing-rule-name {
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.bxm .marketplace-investing-rule-state,
-.bxm .marketplace-investing-rule.active .marketplace-investing-rule-state {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  color: var(--ink-3);
-  display: inline-flex;
-  font-size: 10px;
-  font-weight: 600;
-  height: 20px;
-  letter-spacing: var(--bxm-tag-track);
-  line-height: 1;
-  padding: 0 7px;
-  text-transform: uppercase;
-}
-
-.bxm .marketplace-investing-rule.active .marketplace-investing-rule-state {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-}
-
-.bxm .marketplace-investing-rule-arrow {
-  color: var(--ink-3);
-  margin-left: 0;
-}
-
-/* Toolbar card: section title, filter / sort controls, active filter tokens. */
-.bxm .mk-toolbar {
-  margin-bottom: 28px;
-}
-
-.bxm .mk-toolbar .marketplace-section-head {
-  align-items: flex-start;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-direction: row;
-  gap: 12px;
-  justify-content: space-between;
-  margin: 0;
-  padding: 16px 24px;
-}
-
-.bxm .mk-toolbar .marketplace-section-head .eyebrow {
-  margin-bottom: 6px;
-}
-
-.bxm .mk-toolbar .marketplace-section-head h2 {
-  color: var(--ink);
-  font-size: 16.8px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.3;
-  margin: 0;
-}
-
-.bxm .mk-toolbar-body {
-  padding: 16px 24px;
-}
-
-.bxm .fs-controls {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0;
-}
-
-.bxm .fs-controls-spacer {
-  flex: 1 1 0;
-}
-
-.bxm .fs-count {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-.bxm .fs-count strong {
-  color: var(--ink);
-  font-weight: 600;
-}
 
 /* Pill buttons used by Filter and Sort (marketplace and portfolio). */
 .bxm .fs-pill {
@@ -253,7 +43,6 @@
   padding: 0 14px;
 }
 
-.bxm .fs-pill .fs-caret,
 .bxm .fs-pill .fs-arrows {
   font-size: 9px;
   opacity: 0.75;
@@ -277,12 +66,6 @@
   padding: 6px 0;
   top: calc(100% + 6px);
   z-index: 44;
-}
-
-/* On the primary market the Sort pill sits on the left, so its menu opens rightwards. */
-.bxm .marketplace-page .fs-menu {
-  left: 0;
-  right: auto;
 }
 
 .bxm .fs-menu-cap {
@@ -346,39 +129,6 @@
   font-size: 11px;
 }
 
-/* Active filters as small removable pills. */
-.bxm .marketplace-page .fs-tokens {
-  justify-content: flex-start;
-  margin: 14px 0 0;
-}
-
-.bxm .fs-token {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-  gap: 8px;
-  height: 30px;
-  padding: 0 8px 0 14px;
-}
-
-.bxm .fs-token:hover {
-  background: var(--bxm-paper);
-}
-
-.bxm .fs-token .fs-token-x {
-  background: var(--ink);
-  color: #fff;
-  font-size: 11px;
-  height: 16px;
-  width: 16px;
-}
-
-.bxm .marketplace-page .fs-clear-link,
 .bxm .smart-invest-page .fs-clear-link,
 .bxm .si-wiz .fs-clear-link {
   border: 0;
@@ -390,237 +140,16 @@
   text-underline-offset: 2px;
 }
 
-.bxm .marketplace-page .fs-clear-link:hover,
 .bxm .smart-invest-page .fs-clear-link:hover,
 .bxm .si-wiz .fs-clear-link:hover {
   color: var(--ink-3);
-}
-
-/* Filter panel: part of the toolbar card, below a rule. */
-.bxm .fs-panel {
-  background: #fff;
-  border: 0;
-  border-radius: 0;
-  border-top: 1px solid var(--line);
-  box-shadow: none;
-  margin: 0;
-  padding: 24px;
-}
-
-.bxm .fs-group-cap {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: var(--bxm-label-track);
-  line-height: 1.2;
-}
-
-.bxm .fs-group-x {
-  background: var(--bxm-paper);
-  border: 1px solid var(--line);
-  color: var(--ink);
-  height: 18px;
-  width: 18px;
-}
-
-.bxm .fs-group-x:hover {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-}
-
-.bxm .fs-search-row {
-  margin-bottom: 24px;
-}
-
-.bxm .fs-search-input {
-  background: #fff;
-  border: 1px solid #8a8a8a;
-  border-radius: 999px;
-  color: var(--ink-2);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  height: 40px;
-  margin-top: 10px;
-  max-width: 560px;
-  padding: 0 18px;
-}
-
-.bxm .fs-search-input:focus {
-  border-color: var(--ink);
-  outline: none;
-}
-
-.bxm .fs-sliders {
-  gap: 40px;
-  margin-bottom: 24px;
-}
-
-.bxm .fs-slider-val {
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
-.bxm .fs-hist span {
-  border-radius: 0;
 }
 
 .bxm .fs-range {
   accent-color: var(--ink);
 }
 
-.bxm .fs-range-ends {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
-.bxm .fs-groups {
-  border-top: 1px solid var(--line);
-  gap: 22px;
-  padding-top: 24px;
-}
-
-.bxm .fs-group .fs-group-cap {
-  margin-bottom: 10px;
-}
-
-.bxm .fs-chips {
-  gap: 8px;
-}
-
-.bxm .fs-chip {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  gap: 8px;
-  height: 32px;
-  padding: 0 14px;
-}
-
-.bxm .fs-chip:hover {
-  border-color: var(--ink);
-}
-
-.bxm .fs-chip.dim {
-  color: var(--ink-4);
-}
-
-.bxm .fs-chip.on {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-  font-weight: 600;
-}
-
-.bxm .fs-chip .fs-chip-count {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.bxm .fs-chip.on .fs-chip-count {
-  color: #b5b5b5;
-}
-
-.bxm .fs-subgroup {
-  border-left: 1px solid var(--line);
-}
-
-.bxm .fs-subgroup-label {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
-/* Multi-select filter groups: a muted "any ..." note while nothing is ticked. */
-.bxm .fs-group-any {
-  color: var(--ink-4);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0;
-  margin-left: 8px;
-  text-transform: none;
-}
-
-/* A collateral type included by "Any collateral": shown ticked, not clickable. */
-.bxm .fs-chip.implied,
-.bxm .fs-chip.implied:hover {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.bxm .fs-panel-hint {
-  color: var(--ink-3);
-  font-size: 13px;
-  margin: 20px 0 0;
-}
-
-.bxm .fs-panel-foot {
-  border-top: 1px solid var(--line);
-  gap: 12px 16px;
-  margin-top: 24px;
-  padding-top: 20px;
-}
-
-.bxm .fs-panel-note {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-.bxm .fs-save-rule,
-.bxm .fs-done,
-.bxm .fs-empty-clear,
-.bxm .fs-empty-rule {
-  align-items: center;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  height: 36px;
-  justify-content: center;
-  letter-spacing: 0.02em;
-  padding: 0 18px;
-  white-space: nowrap;
-}
-
-.bxm .fs-save-rule,
-.bxm .fs-empty-rule {
-  background: #fff;
-  border: 1px solid var(--line);
-  color: var(--ink);
-}
-
-.bxm .fs-save-rule:hover,
-.bxm .fs-empty-rule:hover {
-  background: var(--bxm-paper);
-}
-
-.bxm .fs-save-rule:disabled {
-  color: var(--ink-4);
-}
-
-.bxm .fs-done,
-.bxm .fs-empty-clear {
-  background: var(--ink);
-  border: 1px solid var(--ink);
-  color: #fff;
-}
-
-.bxm .fs-done:hover,
-.bxm .fs-empty-clear:hover {
-  background: var(--bxm-graphite);
-}
-
 /* Inline errors: the design alert with a red left rule. */
-.bxm .fs-save-error,
 .bxm .smart-inline-error {
   background: #fff;
   border: 1px solid var(--line);
@@ -630,456 +159,6 @@
   line-height: 1.55;
   margin-top: 16px;
   padding: 12px 16px;
-}
-
-/* Empty result */
-.bxm .fs-empty {
-  padding: 48px 24px;
-  text-align: center;
-}
-
-.bxm .fs-empty-copy {
-  color: var(--ink-3);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-style: normal;
-  line-height: 1.6;
-  margin: 0 auto 20px;
-  max-width: 520px;
-}
-
-.bxm .fs-empty-actions {
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-/* ==========================================================================
-   Primary market: Cards layout (design "project" cards)
-   ========================================================================== */
-
-.bxm .mk-cards {
-  display: grid;
-  gap: 28px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-@media (min-width: 768px) {
-  .bxm .mk-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1600px) {
-  .bxm .mk-cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.bxm .mk-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 24px;
-}
-
-.bxm .mk-card-head {
-  align-items: flex-start;
-  display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.bxm .mk-card-tile {
-  align-items: center;
-  background: var(--ink);
-  color: #fff;
-  display: flex;
-  flex: none;
-  height: 40px;
-  justify-content: center;
-  width: 40px;
-}
-
-.bxm .mk-card-info {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.bxm .mk-card-title {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-  margin: 1px 0 2px;
-}
-
-.bxm .mk-card-title button {
-  background: none;
-  border: 0;
-  color: var(--ink);
-  cursor: pointer;
-  font: inherit;
-  letter-spacing: inherit;
-  padding: 0;
-  text-align: left;
-}
-
-.bxm .mk-card-title button:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.bxm .mk-card-sub {
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.bxm .mk-card-copy {
-  flex: none;
-  margin: -4px -8px 0 0;
-}
-
-.bxm .mk-card-copy .copy-id-btn.icon-only {
-  color: var(--ink-3);
-  height: 30px;
-  justify-content: center;
-  padding: 0;
-  width: 30px;
-}
-
-.bxm .mk-card-copy .copy-id-btn.icon-only:hover {
-  color: var(--ink);
-}
-
-.bxm .mk-card-tags {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 18px;
-}
-
-.bxm .mk-card-tags .tag {
-  height: 22px;
-  padding: 0 8px;
-}
-
-.bxm .mk-card-figures {
-  border-bottom: 1px solid var(--line);
-  border-top: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0 0 16px;
-}
-
-.bxm .mk-card-figures > div {
-  min-width: 0;
-  padding: 12px 0;
-}
-
-.bxm .mk-card-figures > div + div {
-  border-left: 1px solid var(--line);
-  padding-left: 14px;
-}
-
-.bxm .mk-card-figures dt {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.3;
-  margin-bottom: 4px;
-}
-
-.bxm .mk-card-figures dd {
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  margin: 0;
-}
-
-.bxm .mk-card-ccy {
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-}
-
-.bxm .mk-card-progress {
-  margin-top: auto;
-}
-
-.bxm .mk-card-row {
-  color: var(--ink-3);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 12px;
-  gap: 4px 12px;
-  justify-content: space-between;
-  line-height: 1.5;
-}
-
-.bxm .mk-card-row strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.bxm .mk-card-progress .bar {
-  height: 3px;
-  margin: 6px 0 10px;
-}
-
-.bxm .mk-card-foot {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  justify-content: space-between;
-  margin-top: 16px;
-}
-
-.bxm .mk-card-when {
-  align-items: flex-start;
-  color: var(--ink-3);
-  display: inline-flex;
-  flex: 1 1 180px;
-  font-size: 13px;
-  gap: 8px;
-  line-height: 1.45;
-  min-width: 0;
-}
-
-.bxm .mk-card-when svg {
-  flex: none;
-  margin-top: 2px;
-}
-
-.bxm .mk-card-when strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.bxm .mk-card-go {
-  flex: none;
-  margin-left: auto;
-}
-
-/* ==========================================================================
-   Primary market: List layout (the sortable table, Focused / Detailed)
-   ========================================================================== */
-
-.bxm .marketplace-list {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-top: 1px solid var(--line);
-}
-
-.bxm .marketplace-list-head {
-  background: var(--bxm-paper);
-  border-bottom: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: var(--bxm-tag-track);
-  padding: 12px 16px;
-}
-
-.bxm .marketplace-opportunity:last-child {
-  border-bottom: 0;
-}
-
-.bxm .marketplace-opportunity:hover {
-  background: #fafafa;
-}
-
-.bxm .marketplace-opportunity-hit:focus-visible {
-  border-radius: 0;
-  outline: 2px solid var(--ink);
-  outline-offset: -2px;
-}
-
-.bxm .marketplace-opportunity-main {
-  min-height: 73px;
-  padding: 14px 16px;
-}
-
-.bxm .marketplace-opportunity-name > strong {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.bxm .marketplace-opportunity-name > span {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-.bxm .marketplace-opportunity-rating strong,
-.bxm .marketplace-opportunity-rate strong,
-.bxm .marketplace-opportunity-term strong,
-.bxm .marketplace-opportunity-collateral strong,
-.bxm .marketplace-opportunity-deadline strong {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.bxm .marketplace-opportunity-rate small,
-.bxm .marketplace-opportunity-term small,
-.bxm .marketplace-opportunity-collateral small,
-.bxm .marketplace-opportunity-funding small,
-.bxm .marketplace-opportunity-deadline small {
-  color: var(--ink-3);
-  font-size: 11px;
-}
-
-.bxm .marketplace-funding-value strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bxm .marketplace-funding-value span {
-  color: var(--ink-3);
-  font-size: 11px;
-}
-
-.bxm .marketplace-opportunity-funding .bar {
-  height: 3px;
-  margin-top: 6px;
-}
-
-.bxm .marketplace-row-arrow {
-  color: var(--ink-3);
-}
-
-.bxm .marketplace-opportunity-details {
-  background: #fafafa;
-  border-top: 1px solid var(--line);
-  padding: 0 16px;
-}
-
-.bxm .marketplace-opportunity-details > div + div {
-  border-left: 1px solid var(--line);
-}
-
-.bxm .marketplace-opportunity-details span {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-.bxm .marketplace-opportunity-details strong {
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bxm .marketplace-mobile-label {
-  letter-spacing: var(--bxm-tag-track);
-}
-
-.bxm .marketplace-copy-id .copy-id-btn.icon-only {
-  height: 24px;
-  padding: 0 4px;
-}
-
-.bxm .marketplace-footnote {
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.6;
-  margin-top: 16px;
-  max-width: 90ch;
-}
-
-/* ==========================================================================
-   Primary market: process explainer band and order guide
-   ========================================================================== */
-
-.bxm .marketplace-process {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  margin: 28px 0 0;
-}
-
-.bxm .marketplace-process > div {
-  padding: 24px;
-}
-
-.bxm .marketplace-process > div + div {
-  border-left: 1px solid var(--line);
-}
-
-.bxm .marketplace-process-number {
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  margin-bottom: 10px;
-}
-
-.bxm .marketplace-process strong {
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  margin-bottom: 6px;
-}
-
-.bxm .marketplace-process p {
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.bxm .marketplace-process-help {
-  align-items: center;
-  align-self: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  gap: 6px;
-  height: 36px;
-  letter-spacing: 0.02em;
-  margin: 0 24px;
-  padding: 0 14px 0 18px;
-}
-
-.bxm .marketplace-process-help:hover {
-  background: var(--bxm-paper);
-  color: var(--ink);
-}
-
-.bxm .marketplace-order-guide > div {
-  border-bottom: 1px solid var(--line);
-}
-
-.bxm .marketplace-order-guide > div:nth-child(odd) {
-  border-right: 1px solid var(--line);
-}
-
-.bxm .marketplace-order-guide span {
-  border: 1px solid var(--ink);
-  border-radius: 0;
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 600;
-  height: 24px;
-  width: 24px;
-}
-
-.bxm .marketplace-order-guide p {
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 /* ==========================================================================
@@ -2024,33 +1103,6 @@
   line-height: 1.55;
 }
 
-.bxm .si-cond-pills {
-  flex-wrap: wrap;
-}
-
-.bxm .si-cond-pills button {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  display: inline-flex;
-  font-size: 12px;
-  height: 32px;
-  justify-content: center;
-  letter-spacing: 0.02em;
-  min-width: 96px;
-  padding: 0 14px;
-}
-
-.bxm .si-cond-pills button:hover {
-  border-color: var(--ink);
-}
-
-.bxm .si-cond-pills button.on {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-}
-
 /* Multi-select criteria (rule editor and wizard): square checkboxes in a grid.
    Nothing ticked means the condition does not restrict the rule. */
 .bxm .si-cond-card.wide {
@@ -2430,43 +1482,6 @@
   margin-bottom: 20px;
 }
 
-.bxm .si-wiz-options {
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.bxm .si-wiz-option {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  flex: 1 1 200px;
-  padding: 18px 20px;
-}
-
-.bxm .si-wiz-option:hover {
-  border-color: var(--ink);
-}
-
-.bxm .si-wiz-option.on {
-  background: var(--ink);
-  border-color: var(--ink);
-}
-
-.bxm .si-wiz-option strong {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-}
-
-.bxm .si-wiz-option span {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-.bxm .si-wiz-option.on span {
-  color: #b5b5b5;
-}
-
 .bxm .si-wiz-value {
   font-size: 28px;
   letter-spacing: -0.03em;
@@ -2837,37 +1852,10 @@
    Responsive
    ========================================================================== */
 
-@media (max-width: 1180px) {
-  .bxm .marketplace-capacity {
-    border-radius: 0;
-    padding: 18px 24px;
-  }
-}
-
-@media (max-width: 980px) {
-  .bxm .marketplace-process {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .bxm .marketplace-process-help {
-    border-radius: 0;
-    border-width: 1px 0 0;
-    grid-column: 1 / -1;
-    height: 48px;
-    justify-content: center;
-    margin: 0;
-  }
-}
-
 @media (max-width: 860px) {
-  .bxm .marketplace-process {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  
 
-  .bxm .marketplace-process > div + div {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
+  
 
   .bxm .os-wallet-col.last {
     border-left: 0;
@@ -2881,90 +1869,47 @@
   }
 
   /* These stack vertically below 860px, so a flex basis would become a height. */
-  .bxm .os-step-mid,
-  .bxm .si-wiz-option {
+  .bxm .os-step-mid {
     flex: none;
   }
 }
 
 @media (max-width: 560px) {
-  .bxm .marketplace-capacity {
-    gap: 12px 16px;
-    padding: 16px;
-  }
+  
 
-  .bxm .marketplace-capacity-note {
-    align-self: auto;
-    flex-basis: 100%;
-    padding-bottom: 0;
-  }
+  
 
-  .bxm .marketplace-capacity-tools {
-    margin-left: 0;
-  }
+  
 
-  .bxm .marketplace-investing-rule {
-    margin-left: 0;
-  }
+  
 
-  .bxm .mk-toolbar .marketplace-section-head,
-  .bxm .mk-toolbar-body {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
+  
 
-  .bxm .fs-panel {
-    padding: 20px 16px;
-  }
+  
 
-  .bxm .fs-controls-spacer {
-    display: none;
-  }
+  
 
-  .bxm .mk-cards {
-    gap: 16px;
-  }
+  
 
-  .bxm .mk-card {
-    padding: 20px 16px;
-  }
+  
 
-  .bxm .mk-card-figures > div + div {
-    padding-left: 10px;
-  }
+  
 
-  .bxm .mk-card-figures dd {
-    font-size: 15px;
-  }
+  
 
-  .bxm .marketplace-list {
-    border-left: 0;
-    border-right: 0;
-  }
+  
 
-  .bxm .marketplace-opportunity-main {
-    padding: 16px 4px;
-  }
+  
 
-  .bxm .marketplace-opportunity-details {
-    padding: 0;
-  }
+  
 
-  .bxm .marketplace-opportunity-details > div + div {
-    border-left: 0;
-  }
+  
 
-  .bxm .marketplace-opportunity-details > div:nth-child(even) {
-    border-left: 1px solid var(--line);
-  }
+  
 
-  .bxm .marketplace-opportunity-details > div {
-    padding: 12px 16px;
-  }
+  
 
-  .bxm .marketplace-list-head {
-    display: none;
-  }
+  
 
   .bxm .os-head {
     padding: 18px 16px 0;
