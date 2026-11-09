@@ -117,10 +117,11 @@ function withdrawalHandlers(results: Array<() => Response>) {
 }
 
 async function openWithdrawalConfirm() {
-  fireEvent.click((await screen.findAllByRole("button", { name: "Withdraw to IBAN" }, { timeout: 5000 }))[0]);
-  const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "100" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  const card = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
+  fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
+  const dialog = await screen.findByRole("dialog", { name: "Withdraw" });
+  fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: "100" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   return dialog;
 }
