@@ -61,7 +61,6 @@ export function Home() {
       <SecuritySection views={views} />
       <HowItWorks />
       <Questions />
-      <ClosingCall />
     </>
   );
 }
@@ -1373,25 +1372,5 @@ function Questions() {
         </div>
       </section>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------
-// Closing call to action (the About page's "conversation" band, for opening an account)
-
-function ClosingCall() {
-  const t = useT();
-  return (
-    <section aria-labelledby="closing-title" className="bxp-closing">
-      <h2 id="closing-title">{t("Ready when you are.")}</h2>
-      <div className="bxp-closing-actions">
-        <PublicLink className="bxp-closing-secondary" href="/contact">
-          {t("Talk to Banxum")}
-        </PublicLink>
-        <PublicLink className="button-primary" href="/register">
-          {t("Open an account")} <Ni glyph="arrow" />
-        </PublicLink>
-      </div>
-    </section>
   );
 }

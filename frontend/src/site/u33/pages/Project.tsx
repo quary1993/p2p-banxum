@@ -206,9 +206,6 @@ function ProjectBody({ view, list, index }: { view: ProjectView; list: ProjectVi
               <PublicLink className="button-primary" href="/register">
                 {t("Create an account")} <Ni glyph="arrow" />
               </PublicLink>
-              <PublicLink className="bxp-gate-login" href={`/marketplace/${encodeURIComponent(p.loan_id)}`}>
-                {t("I have an account")}
-              </PublicLink>
             </>
           ) : (
             <HomeSectionLink className="button-primary" section="opportunities">

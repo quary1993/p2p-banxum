@@ -227,7 +227,7 @@ describe("Project page (U33)", () => {
     expect(screen.queryByText(/Sample Company/)).not.toBeInTheDocument();
 
     expect(within(gate()).getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/register");
-    expect(within(gate()).getByRole("link", { name: "I have an account" })).toHaveAttribute("href", `/marketplace/${ID("bx-1048")}`);
+    expect(within(gate()).queryByRole("link", { name: "I have an account" })).not.toBeInTheDocument();
     expect(screen.getByText("Capital at risk. Collateral does not guarantee repayment.")).toBeInTheDocument();
   });
 

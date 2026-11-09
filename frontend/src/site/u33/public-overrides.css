@@ -446,89 +446,6 @@ html.bxp .bxp-fade-in {
   }
 }
 
-/* Closing call to action: the About page's "conversation" band, on the home page. */
-html.bxp .bxp-closing {
-  max-width: 1176px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 25px;
-  padding: 43px 0 44px;
-  border-top: 1px solid #dde3e7;
-}
-
-html.bxp .bxp-closing h2 {
-  margin: 0;
-  font-size: 29px;
-  line-height: 1.2;
-  font-weight: 500;
-  letter-spacing: -0.85px;
-}
-
-html.bxp .bxp-closing-actions {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-
-html.bxp .bxp-closing-secondary {
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-html.bxp .bxp-closing .button-primary {
-  font-size: 13px;
-  min-height: 48px;
-  padding: 0 22px;
-  gap: 30px;
-}
-
-@media (max-width: 1250px) {
-  html.bxp .bxp-closing {
-    margin: 0 40px;
-  }
-}
-
-@media (max-width: 1119px) {
-  html.bxp .bxp-closing {
-    margin: 0 24px;
-    padding: 36px 0;
-  }
-}
-
-@media (max-width: 767px) {
-  html.bxp .bxp-closing {
-    margin: 0 20px;
-    align-items: stretch;
-    flex-direction: column;
-    gap: 19px;
-    padding: 32px 0;
-  }
-
-  html.bxp .bxp-closing h2 {
-    font-size: 28px;
-  }
-
-  html.bxp .bxp-closing-actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-    gap: 14px;
-  }
-
-  html.bxp .bxp-closing .button-primary {
-    width: 100%;
-    justify-content: space-between;
-    font-size: 14px;
-  }
-
-  html.bxp .bxp-closing-secondary {
-    align-self: center;
-  }
-}
-
 /* ---------------------------------------------------------------------------------------------
  * 4. Forms (sent for real): consent, errors, alert, sent state, honeypot.
  */
@@ -848,33 +765,5 @@ html.bxp .bxp-legal-documents li a:hover {
   html.bxp .bxp-kv > div {
     grid-template-columns: 1fr;
     gap: 2px;
-  }
-}
-
-/* The October page's "I have an account" (opens the loan in the investor area after log in). */
-html.bxp .compact-gate-actions .bxp-gate-login {
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  white-space: nowrap;
-}
-
-html.bxp .compact-gate-actions:has(.bxp-gate-login) {
-  display: flex;
-  flex-direction: row-reverse;
-  align-items: center;
-  gap: 22px;
-}
-
-@media (max-width: 767px) {
-  html.bxp .compact-gate-actions:has(.bxp-gate-login) {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 14px;
-  }
-
-  html.bxp .compact-gate-actions .bxp-gate-login {
-    align-self: center;
   }
 }
