@@ -14,6 +14,8 @@ This folder is the source of truth for product, operations, compliance, and tech
 
 ## Core Assumptions
 
+> Updated 2026-11-08: the 39 approved U33 redesign decisions in [22_u33_redesign_decisions.md](22_u33_redesign_decisions.md) replace the conflicting statements below (for example password + second-factor login, PIN-only confirmation of operations, 56-day return without penalty, resale premium up to 2% with a capped 2% fee, the CHF 500,000 Swiss-borrower cap instead of the 20-investor limit, Due/Late/Default at 0-14/15/60 days, Actual/365 interest, no investor-facing risk ratings). Until each change is implemented (IMPLEMENTATION_PLAN.md Phase 17), the platform still behaves as described below.
+
 - The platform brand/name is BANXUM, and the legal operator is Garanta Finanzgruppe AG.
 - The platform will support investor/client users, admin-managed borrower/requesting entity records, internal administrators, compliance staff, finance staff, and auditors.
 - Natural-person lender KYC/AML will use Didit during registration before dashboard, deposit, balance, FX, or investment access. The platform sends relevant registration/KYC metadata to Didit and sends the user to Didit for KYC, selfie/liveness, and ID scan. Legal-entity lender and borrower KYC/KYB/AML are handled off-platform or through external providers and recorded by admin.
@@ -70,6 +72,7 @@ This folder is the source of truth for product, operations, compliance, and tech
 19. [Infrastructure, DevOps, and Platform Operations](19_infrastructure_devops.md)
 20. [Q/A Workflow](20_qna_workflow.md)
 21. [Cross-Module Consistency Review](21_consistency_review.md)
+22. [U33 Redesign Reconciliation Decisions](22_u33_redesign_decisions.md)
 
 ## Suggested Q/A Order
 

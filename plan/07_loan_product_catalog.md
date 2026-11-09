@@ -83,6 +83,8 @@ Confirm exact labels for the admin picker and any investor-facing wording.
 
 ### PROD-DEC-002: Collateral/Backing Options
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-21 and U33-DEC-38: several securities per loan with structured details; every new loan needs collateral or guarantees (no unsecured exception).
+
 Status: Accepted.
 Date: 2026-05-15.
 Owner: Garanta product / credit / operations.
@@ -99,6 +101,8 @@ Follow-ups:
 Confirm exact option labels and whether unsecured exception requires a reason code.
 
 ### PROD-DEC-003: V1 Collateral Data Fields
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-21: structured data per security (type, holder/guarantor, rank, status, value, valuation date/source, appraiser, insurance, documents; limit for undertakings).
 
 Status: Accepted.
 Date: 2026-05-15.
@@ -137,6 +141,8 @@ Follow-ups:
 Define exact minimum and maximum term values and whether amount sanity limits are currency-specific.
 
 ### PROD-DEC-005: Repayment Type Options
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-11: monthly, quarterly, half-yearly and annual frequencies, interest-only or principal+interest, payment at maturity, custom schedules and initial interest-only phases.
 
 Status: Accepted.
 Date: 2026-05-15.
@@ -191,6 +197,8 @@ Define which settings are superadmin-editable for launch and which require deplo
 
 ### PROD-DEC-008: Launch Interest, Schedule, Rounding, and Funding Deadline Defaults
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-10: interest accrues Actual/365 Fixed on the outstanding principal (annual rate / 12 is no longer the general rule); the contractual start date is to be specified.
+
 Status: Accepted.
 Date: 2026-05-22. Updated 2026-07-08 for the refinancing-loans model.
 Owner: Garanta product / operations / finance.
@@ -219,6 +227,8 @@ Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.
 
 ### PROD-DEC-009: Universal Payment Waterfall And Recovery Terms
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: no Banxum recovery fee for investors; only real documented external costs may be deducted from recoveries when not covered by the borrower.
 
 Status: Accepted.
 Date: 2026-06-01.

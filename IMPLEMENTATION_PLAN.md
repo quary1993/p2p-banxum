@@ -2112,6 +2112,108 @@ Tests:
 - Backup restore drill.
 - Report export validation.
 
+### Phase 17: U33 Redesign and Reconciliation Decisions
+
+Goal: apply the approved U33 design ("Banxum unified U33", 3 Nov 2026) to the public site and the investor area, and implement the 39 reconciliation decisions in `plan/22_u33_redesign_decisions.md` (U33-DEC-01 to U33-DEC-39). The admin console keeps its own style; it changes only where a decision needs new admin data.
+
+Rules for every step:
+
+- U33 is the reference for look, texts and behaviour, except where a U33 decision says otherwise. The prototype's technical structure is not copied; the design's final CSS and DOM structure are ported into the React app and wired to real API data.
+- New UI strings go through the shared message catalog from the first step (English now, de-CH in 17.8), so the redesign does not have to be touched again for localization.
+- No screen shows a rule that the backend does not apply yet. Until a backend step is done, the screen shows the current platform rule with U33 styling, and the TODO is tracked in `docs/claude-design/TODO.md`.
+- Financial changes follow the normal rules: services, append-only ledger, migrations with audit, focused tests, regenerated OpenAPI/client.
+
+#### 17.0 Decisions registered (done 2026-11-09)
+
+The register is `plan/22_u33_redesign_decisions.md`. Superseded decisions in the module plans carry an "Updated 2026-11-08" note.
+
+#### 17.1 Design implementation without conflicts (frontend; in progress)
+
+Straight design work with today's data and flows. The decisions that keep the platform rule are applied in the texts now: U33-DEC-02 (repayments to the Banxum balance), U33-DEC-05 (Verified / Pending verification labels, no 48-hour block), U33-DEC-12 (no universal "0 fees"), U33-DEC-14 (two unchecked acceptances), U33-DEC-15 (no "Banxum invests in every opportunity" claim), U33-DEC-16 (no ratings shown to investors), U33-DEC-26 (verified data read-only, "Contact support to change"), U33-DEC-28 (closure by request to support), U33-DEC-30 (marketing switch "News from Banxum"), U33-DEC-33 (FX stays hidden), U33-DEC-34 (operator line in the footer), U33-DEC-35 (no unconfirmed promises: withdrawals "1-3 business days", no "shortly", factual "Valuation report"), U33-DEC-38 (wording "Every loan is secured by collateral or guarantees", no "Your investment is protected"), U33-DEC-39 (current extra public pages stay reachable until the individual decision).
+
+| Slice | Scope |
+| --- | --- |
+| S1 Foundation | Port the U33 investor CSS (desktop layers + responsive mobile layer) as a scoped stylesheet with local fonts and icons; Light/Dark appearance with a saved preference; the shell (sidebar groups Invest / Wallet / Account, header with available balances, investor menu, notifications dropdown, mobile header and menu); message catalog. |
+| S2 Investing | Overview; Investment opportunities (cards/list, filters, sort, past opportunities); opportunity page (summary, security, funding, amount); Review & sign; reservation confirmation; payment schedule. |
+| S3 Portfolio | My investments (in funding, current, history); investment detail and documents; Resale market (list, offer, sell dialog with current backend limits); Smart Invest screens with today's criteria minus ratings. |
+| S4 Wallet | Account, Add funds, Withdraw, balance details; Transactions; Reports (today's statement and tax outputs); Documents; Notifications. |
+| S5 Account | Profile & Settings (personal data read-only, bank accounts, PIN, notifications, appearance); Help and "Help with this step"; sign-in, registration and verification screens in U33 style on today's flow (magic link + PIN until 17.3). |
+| S6 Public site | U33 Home (opportunities from live data, calculator, how it works, security, questions), About, project pages (live, anonymous fields), For borrowers, For loan originators, Contact (existing email forms with the U33 field sets), legal page layout with the real legal texts; existing extra pages kept per U33-DEC-39. |
+
+Acceptance: desktop 1440 and phone 390 screenshots match U33 for each slice; Light and Dark; existing frontend tests updated; preview fixtures cover the new screens.
+
+#### 17.2 Rule changes with small backend work
+
+| Item | Work | Depends on / open |
+| --- | --- | --- |
+| U33-DEC-03 | Return after 56 days: setting, reminders 10 and 3 days before, return confirmation, reservation window to the new last day; data migration of the old defaults. | Day counting, start time and non-business days to confirm. |
+| U33-DEC-04 | Remove penalty mode and the daily penalty; require a verified IBAN before the first investment; block removal of the last return IBAN while money must be returned; failed-return state and team task. | Operational/legal validation of the failed-return procedure. |
+| U33-DEC-05 | Default return account per currency; Verified / Pending states in the API; manual check of unclear deposits before availability. | - |
+| U33-DEC-06, -07 | Principal price 0-102%; fee = min(2% x principal price, 2% x outstanding principal); accrued interest outside the fee base; reconcile open listings (refresh/reconfirm). | Handling of open listings to confirm. |
+| U33-DEC-09 | Status thresholds Due 0-14 / Late 15 / Default 60 as settings with per-loan override; termination as a separate admin event; notifications, reports and resale follow. | Day boundaries (Europe/Zurich). |
+| U33-DEC-12 | No investor recovery fee: remove or lock the recovery fee for investor distributions; keep documented external costs; show gross / costs / net. | Contract wording for recovery costs. |
+| U33-DEC-16 | Remove ratings from investor and public payloads, filters, reports and documents; migrate Smart-Invest rules (drop rating criteria). | - |
+| U33-DEC-19 | Remove batch placement; Pause/Resume that keeps preferences; criteria: security types, max LTV, repayment, country, originator (no purpose/refinancing); optional usual amount; separate app/email channels. | Security types after U33-DEC-21; repayment groups after U33-DEC-11. |
+| U33-DEC-23 | Borrower city and employees (with period); originator founding year, city, sector; admin forms. | - |
+| U33-DEC-28, -35 | Closure request endpoint and Help message endpoint (email to support, receipt confirmation, error/retry, page context). | Support address (U33-DEC-36). |
+| U33-DEC-30 | Notification preferences: service emails fixed, marketing switch, Smart-Invest app/email channels. | Legal classification of messages. |
+| U33-DEC-38 | Publication guard: no new loan without collateral or guarantee; "unsecured exception" closed for new loans. | Proof-of-security checks with legal. |
+
+#### 17.3 Authentication and security (U33-DEC-01, -25, part of -29)
+
+- Password login with mandatory second factor (TOTP app or SMS, enrolled and verified); recovery flows as in U33-DEC-01; no magic link or passkeys.
+- PIN-only confirmation of operations with a server authorization bound to operation, amount and destination, single-use and expiring; reconfirmation on change.
+- Sessions list, remote sign-out, sign-in history, new-device and security-change alerts.
+- Migration of existing accounts to password + second factor + PIN; assisted recovery procedure for support.
+- Security review before release.
+- Open: operational procedure, SMS provider, migration plan, history retention.
+
+#### 17.4 Loan data and opportunity features
+
+| Item | Work |
+| --- | --- |
+| U33-DEC-21 | Several securities per loan with structured fields; reconciled taxonomy; LTV and prior-ranking debt kept separate; migration without invented data. |
+| U33-DEC-20 | Credit file: structured financial statements (years, sub-items, four calculated ratios, debts), template texts and media, checks & updates, document library with metadata; admin editors; seven-chapter investor view. |
+| U33-DEC-22 | Recovery stages, events and termination in the admin; stage presentation for investors; next step only when known. |
+| U33-DEC-24 | Show investor/originator interest and penalty-interest percentages, refinancing old/new terms and the effect on the first receipt. Open: first installment owned by the originator. |
+| U33-DEC-17 | Coming soon state with planned opening date, opening alert by email, no reservation before opening, no duplicate with Smart-Invest alerts. |
+| U33-DEC-18 | Save for later with optional amount; alerts 7, 3 and 1 day before closing (app and email). Open: de-duplication and rescheduling details. |
+| U33-DEC-15 | Optional Banxum co-investment record (entity, amount, status, operation reference) shown only when real. Open: contractual terms. |
+
+#### 17.5 Interest and schedules (U33-DEC-10, -11)
+
+- Actual/365 Fixed accrual engine for new loans, broken periods, early/late repayments and assignments; existing and imported contracts keep their convention.
+- Frequencies monthly/quarterly/half-yearly/annual, interest-only or principal+interest, payment at maturity, initial interest-only phases, custom schedules (editor and import validation).
+- Calculator, projections, schedules, contracts, resale accrued interest and Smart-Invest repayment filter use the same engine.
+- Open: contractual start date, boundary days, rounding and allocation between investors, penalty rules per contract.
+
+#### 17.6 Contracts (U33-DEC-13, -14)
+
+- QES (ZertES) assignment declaration per investment at successful closing, signed by Garanta's authorized representative, stored in Documents; never "signed" before success. Provider selection, templates, archiving and error handling.
+- Acceptance set validated by legal; resale agreements per side.
+- Open: contractual/signature chain including resale.
+
+#### 17.7 Compliance and limits (U33-DEC-27, -08)
+
+- Self-declarations (beneficial owner, source of funds, PEP, expected yearly volume) in onboarding and profile; admin record and review; per-investor re-verification date and notifications (manual handling allowed).
+- Swiss-borrower cap: total loans strictly below CHF 500,000 per Swiss borrower; remove the 20-investor rule and the raised minimum; checks in admin, investing and resale. Blocked until the basis of the total, timing, CHF conversion and concurrency control are confirmed with legal.
+
+#### 17.8 Localization and formats (U33-DEC-31, -32)
+
+- de-CH for the investor platform, DE/FR for the public site (U33 texts as the start), backend emails and notifications, language variants for admin-managed content, language saved in the account.
+- Number format European (default) / Swiss with a saved preference, applied to interface, input parsing, emails and new personal reports; Europe/Zurich only.
+- Open: legal translations of contracts.
+
+#### 17.9 Owner inputs and later design
+
+- U33-DEC-29: designs for the seven missing states/screens.
+- U33-DEC-39: individual decision for Projects/history, Statistics, How it works, Help/FAQ, Guides, legal pages, newsletter, cookies.
+- U33-DEC-36: final contact addresses and domain.
+- U33-DEC-37: licence check of fonts, Nioicon and images.
+- U33-DEC-35: confirmation of withdrawal and repayment times and support hours.
+
+Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close.
+
 ## 9. Critical End-to-End Scenarios
 
 These scenarios should become automated end-to-end tests or scripted UAT checks.
@@ -2662,6 +2764,7 @@ Do not enable production real-money operations until these are complete:
 15. Complete investor portal and admin daily operations views.
 16. Harden security, privacy, backups, anonymization, and observability.
 17. Run UAT, configure production providers, deploy, and launch first controlled loan.
+18. Apply the U33 redesign and the reconciliation decisions (Phase 17, `plan/22_u33_redesign_decisions.md`).
 
 ## 21. V1 Definition of Done
 
@@ -2719,3 +2822,4 @@ These are intentionally not part of launch implementation:
 - **2026-08-08, MKT-DEC-027; superseded for current Loan Originator products on 2026-09-03:** one reviewed Smart-Invest allocation may contain direct-loan orders and current Loan Originator subscription orders in CHF and EUR behind one umbrella clickwrap and one sensitive-action code. Both reserve exact at-par balance until their product-specific resolution. Only historical `legacy_yield_v1` rows use a five-minute quote and immediate purchase. Child evidence remains investment-specific, parent evidence stores per-currency totals without aggregating unlike currencies, and one outer transaction rolls back every selected investment if any item fails.
 - **2026-09-03, amended 2026-09-07, PROD-DEC-010 through PROD-DEC-014 / MKT-DEC-022 through MKT-DEC-025:** current LO subscriptions use finite at-par funding and automatic activation at successful close. The immutable published schedule fixes post-boundary principal and interest/penalty rights; the boundary installment belongs entirely to the LO. No manual activation, new activation CSV or fictional bank receipt is needed. Actual repayments are separate append-only evidence. Company KYB files are optional because Garanta handles company compliance offline; explicit holds/adverse decisions remain blocking. Existing closed reservations are upgraded from original evidence, with immediate repair tasks/emails for exceptions. These rules supersede previous boundary-payment activation guidance, without reinterpreting historical legacy-yield purchases.
 - **2026-10-16, MKT-DEC-028:** a loan to a Swiss borrower (Direct borrower entity or Loan Originator borrower country, any spelling of Switzerland) has at most 20 investors (`investment.swiss_borrower_max_investors`, 0 = off). Investors are distinct accounts with a current holding or money allocated to the round, the same source as the public `investors_count`. A new investor's minimum rises to `min(remaining, max(minimum, ceil(remaining / places_left)))` (share rounded up to whole units); with no place left a new investor gets 409 `swiss_investor_limit`; an existing investor keeps the minimum capped by the remaining capacity. Every investment path counts under the loan row lock; a secondary buyer may take the place of a seller who sells their last holding. Investor payloads add `max_investors`, `places_left` and `is_existing_investor`; the public project adds `max_investors` and `places_left`.
+- **2026-11-08, U33-DEC-01 to U33-DEC-39 (`plan/22_u33_redesign_decisions.md`):** the 39 approved U33 redesign reconciliation decisions replace conflicting module decisions (each superseded decision carries an "Updated 2026-11-08" note). They are approved but not implemented; the order of work is Phase 17. Until each step is done, the platform keeps its current behaviour.

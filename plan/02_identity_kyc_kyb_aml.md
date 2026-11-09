@@ -245,6 +245,8 @@ The platform enforces natural-person KYC and explicit account/compliance restric
 
 ### KYC-DEC-007: Provider-Side Ongoing Monitoring and Manual Remediation
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-27: self-declarations (beneficial owner, source of funds, PEP, expected yearly volume) and a per-investor re-verification date are added; manual handling is allowed; no continuous-monitoring system.
+
 Status: Accepted.
 Date: 2026-05-15.
 Owner: Garanta compliance / technology.

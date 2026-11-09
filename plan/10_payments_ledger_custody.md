@@ -136,6 +136,8 @@ Bank-specific statement/import fields and evidence labels remain configurable on
 
 ### PAY-DEC-005: Repayment Distribution
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-02 confirms this decision: repayments and recoveries go to the Banxum balance; all texts saying "paid directly to the bank account" are adapted.
+
 Status: Accepted.
 Date: 2026-05-15. Updated 2026-07-08 for fixed-amount installments and repayment in advance.
 Owner: Garanta finance / operations.
@@ -152,6 +154,8 @@ Follow-ups:
 Define rounding rules, internal distribution artifact/export format, and balance-credit confirmation workflow. Later withdrawal bank payment failures/returns are handled offline after the in-platform withdrawal has been finalized.
 
 ### PAY-DEC-006: Borrower Success Fee and Lender Payment Fee
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: the configurable lender payment fee stays zero at launch; a future fee needs a new decision and is never retroactive.
 
 Status: Accepted.
 Date: 2026-05-15. Updated 2026-07-08 for fee booking at disbursement.
@@ -375,6 +379,8 @@ Define refund file/export handling, refund evidence fields, and whether exceptio
 
 ### PAY-DEC-017: Balance Ageing, Reinvestment Deadline, Withdrawal Deadline, and Penalty
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-03 and U33-DEC-04: money not invested is returned after 56 days with notices 10 and 3 days before, then a return confirmation; the 1% daily penalty is removed.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta compliance / finance / product.
@@ -513,6 +519,8 @@ Define evidence requirements for admin external FX settlement. Intraday/overnigh
 
 ### PAY-DEC-021: Balance Eligibility After 30 Days and FIFO Consumption
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-03: reservation eligibility follows the 56-day return deadline; a reservation never resets or extends the period.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta compliance / finance / product.
@@ -540,6 +548,8 @@ Follow-ups:
 Monitor whether legal/compliance later requires stricter per-source splitting for FX target entries instead of the v1 earliest-deadline inheritance rule.
 
 ### PAY-DEC-022: Forced Withdrawal, Missing IBAN Freeze, and Penalty Mode
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-04 and U33-DEC-05: no penalty mode; bank account verified before the first investment; the last valid return IBAN cannot be removed while money must be returned; one default return account per currency; failed returns go to the team.
 
 Status: Accepted.
 Date: 2026-05-20.

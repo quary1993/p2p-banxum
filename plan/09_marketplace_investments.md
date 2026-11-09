@@ -147,6 +147,8 @@ Confirm launch restrictions by jurisdiction if needed. V1 does not enforce hard 
 
 ### MKT-DEC-007: Secondary Market Seller Pricing
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-06: principal price 0-102% of the outstanding principal (premium at most 2%), accrued interest added separately, warnings above 10% and from 20% discount.
+
 Status: Accepted. Amended 2026-10-16 (par or discount only).
 Date: 2026-05-16. Updated 2026-05-29, 2026-10-09, 2026-10-16.
 Owner: Garanta product / operations / legal.
@@ -295,6 +297,8 @@ Draft editing preserves operational flexibility. Publication freezes the two val
 
 ### MKT-DEC-015: Generic Investor Confirmations
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-14 confirms two unchecked acceptances (investment/assignment terms and risks) and the specific resale agreements.
+
 Status: Accepted.
 Date: 2026-05-22.
 Owner: Garanta product / legal.
@@ -326,6 +330,8 @@ Rationale:
 Direct acceptance keeps the bulletin-board secondary market simple and usable while admin approval gates non-performing or otherwise non-standard listings before buyer purchase.
 
 ### MKT-DEC-017: Secondary-Market Fees
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-07: seller fee = min(2% x principal price, 2% x outstanding principal); no fee on accrued interest (shown as "No fees"); no buyer fee.
 
 Status: Accepted. Amended 2026-10-16 (fee rates).
 Date: 2026-05-22. Updated 2026-05-29, 2026-10-16.
@@ -686,6 +692,8 @@ Borrower principal repayments reduce investor and originator claims using the co
 
 ### MKT-DEC-026: Smart-Invest Is One Saved Alert Rule, Not Auto-Invest
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19 (with U33-DEC-16 and U33-DEC-30): criteria become currency, minimum interest, maximum term, security types, maximum LTV, repayment, country and originator (no ratings, purposes or new/refinancing); optional usual amount; Pause keeps the preferences; separate in-platform/email channel controls.
+
 Status: Accepted.
 Date: 2026-08-06.
 Owner: Garanta product / compliance / technology.
@@ -704,6 +712,8 @@ Smart-Invest is a discovery mechanism only. It does not rank credit quality, ass
 
 ### MKT-DEC-027: Explicit Multi-Currency Batch Placement
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19: batch approval is removed; each investment is confirmed individually with the PIN.
+
 Status: Accepted.
 Date: 2026-08-08.
 Owner: Garanta product / compliance / technology.
@@ -717,6 +727,8 @@ The backend locks all funding-round loans in stable ID order. Each item must sat
 An immutable parent batch record binds the investor, per-currency cash totals, item snapshot, primary-order IDs, legacy Loan Originator purchase IDs, umbrella acceptance, idempotency key, and request fingerprint. Mixed-currency batches never store or display a meaningless cross-currency scalar total. Exact replays return the parent record without consuming a second code; conflicting replays are rejected. The system derives server-owned `primary_order` evidence for direct and current Loan Originator subscription orders, and retains `originator_claim_quote` evidence only for legacy quoted claims.
 
 ### MKT-DEC-028: Swiss-Borrower Investor Limit
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-08: the 20-investor limit and the raised minimum are removed; each Swiss borrower's total loans must stay strictly below CHF 500,000 (basis to confirm); the usual EUR/CHF 1,000 minimum stays.
 
 Status: Accepted.
 Date: 2026-10-16.

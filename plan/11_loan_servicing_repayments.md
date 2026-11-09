@@ -24,6 +24,8 @@ Define how active loans are serviced after drawdown, including schedules, repaym
 
 ### SERV-DEC-001: Launch Repayment Types
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-11: repayment types and frequencies are extended (see PROD-DEC-005 note).
+
 Status: Accepted.
 Date: 2026-05-16.
 Owner: Garanta product / operations / finance.
@@ -172,6 +174,8 @@ Follow-ups:
 Define lender notification wording. Launch recalculation preserves the remaining due dates with lower remaining principal, annual nominal interest, monthly installment defaults, currency minor-unit rounding, and final installment rounding-residue absorption.
 
 ### SERV-DEC-008: Late and Default Status Timing
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-09: Due on the due date and the first 14 days overdue, Late from day 15, Default at 60 days, thresholds adaptable per contract; termination and recovery stages are separate events.
 
 Status: Accepted.
 Date: 2026-05-16.

@@ -79,6 +79,8 @@ Define formatting for financial values and document visibility rules.
 
 ### ORIG-DEC-004: Manual Risk Rating
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-16: no risk ratings or classes in the investor experience (public, platform, filters, Smart Invest, reports, documents); ratings may stay passively in the admin only at no extra cost.
+
 Status: Accepted.
 Date: 2026-05-15.
 Owner: Garanta operations / credit.

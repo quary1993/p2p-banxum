@@ -84,6 +84,8 @@ None for v1. Late/default day counts are calendar days.
 
 ### RISK-DEC-003: Notes and Document Uploads Instead of Notice Templates
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-22: stage-by-stage presentation of arrears and recovery, with admin-recorded real stages, events (including termination) and the next step only when known.
+
 Status: Accepted.
 Date: 2026-05-16.
 Owner: Garanta operations / legal.
@@ -128,6 +130,8 @@ Follow-ups:
 Define public note visibility rules, authoring permissions, and whether historical public notes remain visible after resolution.
 
 ### RISK-DEC-005: Gross Recovery, Third-Party Costs, Recovery Fee, and Net Reporting
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: no Banxum recovery fee for investors; gross recovered, deducted external costs and net distributed are shown.
 
 Status: Accepted.
 Date: 2026-05-16. Updated 2026-06-01.
@@ -213,6 +217,8 @@ Follow-ups:
 Finalize lender notification wording and final PDF/CSV report labels. Legal agreements must describe the universal order rather than introduce an alternate project waterfall.
 
 ### RISK-DEC-007: Generic v1 Recovery Events
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-22: generic events are extended with real recovery stages and termination (see RISK-DEC-003 note).
 
 Status: Accepted.
 Date: 2026-05-16.

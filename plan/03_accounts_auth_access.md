@@ -51,6 +51,8 @@ Define how users, internal staff, service accounts, and future external auditor/
 
 ### ACC-DEC-001: Investor Magic-Link Login and Mandatory Phone Verification
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: investor login becomes password + mandatory second factor (SMS or authenticator app, chosen by the investor); no magic link and no passkeys.
+
 Status: Accepted.
 Date: 2026-05-22.
 Owner: Garanta product / technology / security.
@@ -185,6 +187,8 @@ Any future write-capable impersonation or admin-role targeting would require a n
 
 ### ACC-DEC-006: Account Closure, Access Restriction, and Reversible Pseudonymization
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-26 and U33-DEC-28 confirm this decision: verified personal data change only through support after identity verification; the "Close account" button sends a closure request to the team.
+
 Status: Accepted.
 Date: 2026-05-22. Updated 2026-05-30.
 Owner: Garanta operations / compliance / product.
@@ -217,6 +221,8 @@ Define closure request workflow, closure reason codes, final direct-identifier f
 
 ### ACC-DEC-007: Session and Device Management
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-25: investors get a session list with remote sign-out, a sign-in history and new-device security alerts.
+
 Status: Accepted.
 Date: 2026-05-22.
 Owner: Garanta product / technology / security.
@@ -228,6 +234,8 @@ Rationale:
 Launch can rely on server-side session controls while leaving user-facing session management as a polish item.
 
 ### ACC-DEC-008: Investor Long-Lived Sessions and Sensitive-Action Email Codes
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: sensitive operations need a review step and the PIN only, inside the authenticated session; the email code for operations is removed. The server authorization is bound to operation, amount and destination, expires and is single-use.
 
 Status: Accepted.
 Date: 2026-05-22.
@@ -260,6 +268,8 @@ Define exact resend cooldown/window, global rate limits, session revocation beha
 Updated 2026-10-09 (QA regression decision): investor and admin sessions now end a fixed time after login, default 2 hours (`AUTH_SESSION_MAX_AGE_SECONDS`), absolute rather than idle-based. The login time is kept in the server-side session and enforced by `accounts_auth.middleware.SessionLifetimeMiddleware`; after expiry every authenticated API call from that browser answers 401 `{"code": "session_expired"}` until the next login or sign-out, and the investor portal and admin console return to their login screen with a "session expired" notice. Read-only superadmin impersonation ends with the superadmin's session. The real clock is used, so the QA simulated clock never ends or extends sessions. The per-code attempt limit is configurable through `AUTH_SENSITIVE_CODE_MAX_ATTEMPTS` (default 3).
 
 ### ACC-DEC-009: Investor PIN for Every Sensitive Action
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: the PIN stays and becomes the only confirmation factor for operations; PIN recovery needs password + second factor.
 
 Status: Accepted.
 Date: 2026-10-16 (owner decision of 2026-10-15, row 12).

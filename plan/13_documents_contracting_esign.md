@@ -99,6 +99,8 @@ Legal counsel must approve the final wording and whether any document is merged 
 
 ### DOC-DEC-002: English-Only Launch Documents
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-31: interface, messages and backend emails in EN and de-CH (public EN/DE/FR); contracts may stay in English at first, announced before acceptance.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta product / legal.
@@ -117,6 +119,8 @@ Follow-ups:
 Define whether future German, French, Italian, or other language support requires a language preference model and separate legal review.
 
 ### DOC-DEC-003: Checkbox Acceptance Instead of E-Signature in v1
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-13: investors still confirm with the PIN (not a QES); after successful closing, one assignment declaration per investment is signed with a Swiss QES (ZertES) by Garanta Finanzgruppe AG and stored in Documents.
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -140,6 +144,8 @@ Legal counsel must confirm which acceptance evidence is sufficient for each docu
 
 ### DOC-DEC-004: Offline Borrower Documents as Optional Admin Uploads
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: the credit file keeps seven chapters with structured financial data, template-based texts/media, structured securities and a document library with metadata.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta operations.
@@ -159,6 +165,8 @@ Follow-ups:
 Define which offline borrower documents are internal-only and which, if any, can be investor-visible.
 
 ### DOC-DEC-005: Claim Assignment Document Per Investment Order
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-13: a QES-signed assignment declaration per investment is issued after successful closing (see DOC-DEC-003 note).
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -182,6 +190,8 @@ Implementation status:
 The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance can render a generated PDF/CSV on demand from immutable clickwrap evidence in the investor portal or admin Users document-history modal. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Since 2026-10-09 (QA audit SECCODE-11) secondary-market listing, secondary-market purchase and Loan Originator claim-quote acceptances store only a server-built snapshot: the holding, listing or quote must exist and belong to (or, for a purchase, be open to) the investor, or the acceptance is refused. A listing snapshot takes only the chosen price from the client and the listing must use that price. A purchase snapshot holds the fresh buyer price; if the buyer's reviewed figures differ, the API answers 409 `secondary_price_changed` and records nothing. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
 
 ### DOC-DEC-006: Pre-Investment Borrower Documents
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: borrower documents become a credit-file library with category, period/date, issuer, version, status and access metadata.
 
 Status: Accepted.
 Date: 2026-05-20.

@@ -121,6 +121,8 @@ Twilio Email API, legacy SendGrid and Twilio Verify are implemented behind provi
 
 ### COMMS-DEC-002: Marketing Consent and Future Newsletter Lists
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-30: marketing stays optional and unchecked at sign-up, controlled in Profile & Settings -> Notifications -> News from Banxum.
+
 Status: Accepted.
 Date: 2026-05-21.
 Owner: Garanta marketing / product / compliance.
@@ -269,6 +271,8 @@ Follow-ups:
 Define the template variable registry, validation rules, preview/test-send behavior, legal review evidence fields, and template rollback process.
 
 ### COMMS-DEC-008: Smart-Invest Match Alerts Are Transactional And First-Publication-Only
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19 and U33-DEC-30: Smart Invest alerts get separate in-platform and email controls with real effects; Pause stops both channels; no duplicate alert with the Coming soon opening alert (U33-DEC-17).
 
 Status: Accepted.
 Date: 2026-08-06.
