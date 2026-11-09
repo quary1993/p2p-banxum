@@ -2127,7 +2127,7 @@ Rules for every step:
 
 The register is `plan/22_u33_redesign_decisions.md`. Superseded decisions in the module plans carry an "Updated 2026-11-08" note.
 
-#### 17.1 Design implementation without conflicts (frontend; in progress)
+#### 17.1 Design implementation without conflicts (frontend; S1-S6 done 2026-11-09, clean-up open)
 
 Straight design work with today's data and flows. The decisions that keep the platform rule are applied in the texts now: U33-DEC-02 (repayments to the Banxum balance), U33-DEC-05 (Verified / Pending verification labels, no 48-hour block), U33-DEC-12 (no universal "0 fees"), U33-DEC-14 (two unchecked acceptances), U33-DEC-15 (no "Banxum invests in every opportunity" claim), U33-DEC-16 (no ratings shown to investors), U33-DEC-26 (verified data read-only, "Contact support to change"), U33-DEC-28 (closure by request to support), U33-DEC-30 (marketing switch "News from Banxum"), U33-DEC-33 (FX stays hidden), U33-DEC-34 (operator line in the footer), U33-DEC-35 (no unconfirmed promises: withdrawals "1-3 business days", no "shortly", factual "Valuation report"), U33-DEC-38 (wording "Every loan is secured by collateral or guarantees", no "Your investment is protected"), U33-DEC-39 (current extra public pages stay reachable until the individual decision).
 
@@ -2141,6 +2141,8 @@ Straight design work with today's data and flows. The decisions that keep the pl
 | S6 Public site | U33 Home (opportunities from live data, calculator, how it works, security, questions), About, project pages (live, anonymous fields), For borrowers, For loan originators, Contact (existing email forms with the U33 field sets), legal page layout with the real legal texts; existing extra pages kept per U33-DEC-39. |
 
 Acceptance: desktop 1440 and phone 390 screenshots match U33 for each slice; Light and Dark; existing frontend tests updated; preview fixtures cover the new screens.
+
+Status 2026-11-09: S1-S6 are merged on branch `u33-redesign`. Every investor screen, the sign-in, registration and verification screens and the main public pages use U33 (generated stylesheets `frontend/src/portal/u33/u33.css` and `frontend/src/site/u33/public.css`); the frontend gates pass (tsc, eslint, vitest 52 files / 340 tests) and the backend suite passes. Differences from the design that wait for a decision or for Phase 17.2+ are listed in `docs/claude-design/TODO.md` (entries dated 2026-11-09). Open clean-up (S7): the currency exchange screen (FX is off, U33-DEC-33) still uses the old skin inside `LegacyBody`; when FX is redesigned or removed, delete `LegacyBody`, regenerate `u33.css` without the legacy guard, remove `UserSkin`, `banxumSkin.css` and `skin/*.css`, and keep in `styles.css` only what the admin console uses.
 
 #### 17.2 Rule changes with small backend work
 
