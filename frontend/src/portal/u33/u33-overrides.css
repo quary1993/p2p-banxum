@@ -95,7 +95,35 @@ html.bxu :where(.nk-footer .nav-link) {
   text-align: inherit;
 }
 
+/* styles.css .modal and banxumSkin.css .bxm .modal style every .modal as the old white box (max-width
+   540/580px, background, border, auto margins). The U33 dialogs (portal/components Dialog and the
+   screens' own dialogs, rendered straight into <body>) use .modal as Bootstrap's full-screen layer;
+   old dialogs stay inside .bxu-legacy and are not matched. Found by S5; remove with the old skin. */
+html.bxu body > .modal {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+}
+
 /* 3. Shared U33 components without a single design class ------------------------------------------ */
+
+/* Amount fields (design .p73-amount-field: currency + a bare input) in the Withdraw, Add funds and
+   invest dialogs: the design's generic input :focus-visible ring (outline + 5px shadow) draws a box
+   inside the field when it gets focus (the dialogs focus it on open). As the design does for its
+   other composite amount fields (.si-amount, .s106-price-field), the whole field shows the focus. */
+/* Same specificity as the design rule (0,7,3), which comes earlier. */
+html.bxu[data-edition] body.bxm-app .p73-amount-field input:not([type=range]):not([type=checkbox]):focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+html.bxu body.bxm-app .p73-amount-field:focus-within {
+  border-color: #77858e;
+  box-shadow: 0 0 0 3px #73838e33;
+}
 
 /* LinkArrow: the design's "View account ->" link of the Overview cards (.ov-card-footer a). */
 html.bxu .u33-link-arrow {

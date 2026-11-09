@@ -24,9 +24,6 @@ html.bxu .v107-amount-card .u33-invest-amount-hint {
   line-height: 1.6;
 }
 
-/* Old skin .modal rules squeeze U33 dialogs: temporary, moves to u33-overrides.css at merge. */
-html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
-
 /* Confirmation dialog (design .p73-modal) with today's email code + PIN (ACC-DEC-009): the design has a
    single code field, so the request link, the help line and the PIN boxes are styled like it. */
 html.bxu .p73-modal .u33-invest-code-head {

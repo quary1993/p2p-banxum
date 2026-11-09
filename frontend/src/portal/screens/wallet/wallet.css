@@ -2,9 +2,6 @@
 /* Wallet screens (slice S4): fixes and the few additions the design does not have. Every rule is
  * scoped to html.bxu (U33Skin) and says why it exists. Design classes come from portal/u33/u33.css. */
 
-/* temporary, moves to u33-overrides.css at merge */
-html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
-
 /* Account notices: the design's alert component (Overview .ov-updates) on the Account page; amber
  * variant for money on its last day or due back (the design colours late payments this way). */
 html.bxu .ap-alerts { margin-bottom: 24px; }

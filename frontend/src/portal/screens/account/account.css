@@ -1,24 +1,7 @@
 /* IP of Webby-Soft SRL. */
 /* Slice S5 (Profile & Settings, Help, sign-in, registration, verification): fixes and the few
  * additions the design has no rule for. Every rule is under html.bxu and says why. The generated
- * u33.css is never edited; u33-overrides.css belongs to S1. */
-
-/* ---- Dialogs ----------------------------------------------------------------------------------- */
-
-/* The old skin styles every .modal as its white box (styles.css .modal, banxumSkin.css .bxm .modal:
-   max-width 540/580px, background, border, auto margins) while UserSkin is still mounted. The U33
-   dialogs (portal/components Dialog, rendered straight into <body>) use .modal as Bootstrap's
-   full-screen layer; old dialogs stay inside .bxu-legacy and are not matched. Shared by every U33
-   dialog until the old skin is removed (the main session may move this to u33-overrides.css). */
-html.bxu body > .modal {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  margin: 0;
-  max-width: none;
-  max-height: none;
-}
+ * u33.css is never edited; shared fixes are in u33-overrides.css. */
 
 /* ---- Notices (the design has .alert-danger/-warning/-success colours but no .alert box) ---------- */
 
