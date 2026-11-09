@@ -228,8 +228,26 @@ import {
 } from "./investorPortal/ui";
 
 // Routes whose screens are rebuilt in U33 (portal/screens); every other screen body is wrapped in
-// <LegacyBody> by InvestorShell until its slice replaces it.
-const U33_SCREENS = new Set<RouteName>(["transactions", "reports"]);
+// <LegacyBody> by InvestorShell until its slice replaces it. One list per slice (kept apart so the
+// parallel slices do not edit the same lines).
+// S2 investing (portal/screens/invest).
+const U33_SCREENS_INVEST: RouteName[] = [];
+
+// S3 portfolio, resale, Smart Invest (portal/screens/portfolio).
+const U33_SCREENS_PORTFOLIO: RouteName[] = [];
+
+// S4 account, transactions, reports, documents, notifications (portal/screens/wallet).
+const U33_SCREENS_WALLET: RouteName[] = ["transactions", "reports"];
+
+// S5 profile and settings, help, verification (portal/screens/account).
+const U33_SCREENS_ACCOUNT: RouteName[] = [];
+
+const U33_SCREENS = new Set<RouteName>([
+  ...U33_SCREENS_INVEST,
+  ...U33_SCREENS_PORTFOLIO,
+  ...U33_SCREENS_WALLET,
+  ...U33_SCREENS_ACCOUNT
+]);
 // The Reports page lists the account statements and annual tax information of Documents.
 const reportDocumentKinds = ["account_statement", "annual_tax_information"];
 
