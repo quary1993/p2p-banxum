@@ -262,7 +262,7 @@ html.bxp .body-copy{font-size:16px;line-height:1.6;color:var(--text)}
 html.bxp .muted{color:var(--muted)}
 html.bxp .section-gap{margin-top:56px}
 html.bxp .paper-panel{padding:32px;border:1px solid #e3e6e8;border-radius:24px;background:#fff}
-html.bxp .button-primary{min-height:52px;border-radius:99px;padding:0 24px;display:inline-flex;align-items:center;justify-content:center;gap:20px;font:500 14px Archivo,Arial,sans-serif;letter-spacing:-.1px;cursor:pointer;text-decoration:none;white-space:nowrap}
+html.bxp .button-primary{min-height:52px;border-radius:99px;padding:0 24px;display:inline-flex;align-items:center;justify-content:center;gap:20px;font:500 14px "Archivo Variable", Archivo,Arial,sans-serif;letter-spacing:-.1px;cursor:pointer;text-decoration:none;white-space:nowrap}
 html.bxp .button-primary{background:#111214;color:#fff;border:1px solid #111214}
 html.bxp .button-primary:hover{background:#2d3033;border-color:#2d3033}
 html.bxp .button-primary .ni{font-size:22px}
@@ -271,7 +271,7 @@ html.bxp .text-link .ni{font-size:21px;text-decoration:none}
 html.bxp .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 html.bxp .field{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:13px;font-weight:500;color:var(--text)}
 html.bxp .field label{font-size:13px;font-weight:500}
-html.bxp .field input,html.bxp .field select,html.bxp .field textarea{font:400 14px Archivo,Arial,sans-serif;color:var(--ink);min-height:48px;width:100%;border:1px solid #ced3d7;border-radius:10px;padding:12px 13px;background:#fff;box-sizing:border-box}
+html.bxp .field input,html.bxp .field select,html.bxp .field textarea{font:400 14px "Archivo Variable", Archivo,Arial,sans-serif;color:var(--ink);min-height:48px;width:100%;border:1px solid #ced3d7;border-radius:10px;padding:12px 13px;background:#fff;box-sizing:border-box}
 html.bxp .field textarea{min-height:96px;line-height:1.5;resize:vertical}
 html.bxp .field input::placeholder,html.bxp .field textarea::placeholder{color:#747c83}
 html.bxp .full-span{grid-column:1/-1}
@@ -436,7 +436,7 @@ html.bxp:where(.bxp-home) .story-copy h2{font-size:42px;line-height:1.12;letter-
 html.bxp:where(.bxp-home) .story-copy h2 span{color:#626a70}
 html.bxp:where(.bxp-home) .story-copy>p:last-child{font-size:15px;line-height:1.65;letter-spacing:-.13px;color:var(--muted);margin:23px 0 0;max-width:365px}
 html.bxp:where(.bxp-home) .motion-replay{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:400;letter-spacing:0;color:#66717a;cursor:pointer;border:0;background:none;padding:5px;border-radius:5px;line-height:1}
-html.bxp:where(.bxp-home) .motion-replay>span{font:400 17px Archivo,sans-serif}
+html.bxp:where(.bxp-home) .motion-replay>span{font:400 17px "Archivo Variable", Archivo,sans-serif}
 html.bxp:where(.bxp-home) .motion-replay:hover{color:#111214;background:#ffffff80}
 html.bxp:where(.bxp-home) .motion-replay:disabled{opacity:.35;cursor:default}
 html.bxp:where(.bxp-home) .persuasion-preview .public-opportunities{padding-top:40px;border-top:1px solid #e2e6e9;padding-bottom:38px}
@@ -529,7 +529,7 @@ html.bxp:where(.bxp-home) .money-flow-story .flow-caption{display:flex;align-ite
 html.bxp:where(.bxp-home) .money-flow-story .scene-note{font-size:10px;line-height:1.5;color:#687680;margin:0;white-space:nowrap}
 html.bxp:where(.bxp-home) .money-flow-story .flow-controls{display:flex;align-items:center;gap:10px}
 html.bxp:where(.bxp-home) .money-flow-story .flow-controls[hidden]{display:none}
-html.bxp:where(.bxp-home) .money-flow-story .flow-controls button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:#596873;padding:5px 3px;border-radius:5px;font:400 10px Archivo,Arial,sans-serif;cursor:pointer}
+html.bxp:where(.bxp-home) .money-flow-story .flow-controls button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:#596873;padding:5px 3px;border-radius:5px;font:400 10px "Archivo Variable", Archivo,Arial,sans-serif;cursor:pointer}
 html.bxp:where(.bxp-home) .money-flow-story .flow-controls button:hover{color:#111214;background:#E9EDF0}
 html.bxp:where(.bxp-home) .money-flow-story .flow-controls button:focus-visible{outline:2px solid #596873;outline-offset:4px}
 html.bxp:where(.bxp-home) .money-flow-story .flow-controls button:disabled{opacity:.35;cursor:default}
@@ -860,7 +860,7 @@ html.bxp:where(.bxp-contact) .contact-refined .contact-form .field textarea{heig
 html.bxp:where(.bxp-contact) .contact-topics{border:0;min-width:0;padding:0;margin:0}
 html.bxp:where(.bxp-contact) .contact-topics legend{padding:0;margin:0 0 10px;font-size:13px;font-weight:500;color:var(--text)}
 html.bxp:where(.bxp-contact) .contact-topic-options{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-html.bxp:where(.bxp-contact) .contact-topic-options button{font:400 12px/1.3 Archivo,Arial,sans-serif;letter-spacing:-.1px;min-height:35px;border:1px solid #dce1e5;border-radius:99px;padding:8px 12px;background:#fff;color:#4a555e;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,color 140ms ease}
+html.bxp:where(.bxp-contact) .contact-topic-options button{font:400 12px/1.3 "Archivo Variable", Archivo,Arial,sans-serif;letter-spacing:-.1px;min-height:35px;border:1px solid #dce1e5;border-radius:99px;padding:8px 12px;background:#fff;color:#4a555e;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,color 140ms ease}
 html.bxp:where(.bxp-contact) .contact-topic-options button:hover{background:#f4f6f7;border-color:#bfc7ce;color:#111214}
 html.bxp:where(.bxp-contact) .contact-topic-options button[aria-pressed="true"]{background:#eaf0f3;border-color:#8b99a4;color:#202c35}
 html.bxp:where(.bxp-contact) .contact-refined .contact-form input:focus-visible,html.bxp:where(.bxp-contact) .contact-refined .contact-form textarea:focus-visible,html.bxp:where(.bxp-contact) .contact-topic-options button:focus-visible{outline:2px solid #74818c;outline-offset:3px}
@@ -1357,7 +1357,7 @@ html.bxp .money-flow-story :is(.flow-controls,.mobile-flow-controls) button[hidd
   html.bxp .money-flow-story .mobile-receipt-circuit { display: block; width: 100%; height: auto; overflow: visible; font-family: "Archivo Variable", Archivo, Arial, sans-serif; font-variant-numeric: tabular-nums; }
   html.bxp .money-flow-story .mobile-flow-note { margin: 12px 0 7px; font-size: 12px; line-height: 1.55; color: #687680; text-align: center; }
   html.bxp .money-flow-story .mobile-flow-controls { display: flex; align-items: center; justify-content: center; gap: 8px; }
-  html.bxp .money-flow-story .mobile-flow-controls button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 0; padding: 5px 8px; border: 0; border-radius: 8px; background: transparent; color: #596873; font: 400 13px Archivo, Arial, sans-serif; cursor: pointer; white-space: nowrap; }
+  html.bxp .money-flow-story .mobile-flow-controls button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 0; padding: 5px 8px; border: 0; border-radius: 8px; background: transparent; color: #596873; font: 400 13px "Archivo Variable", Archivo, Arial, sans-serif; cursor: pointer; white-space: nowrap; }
   html.bxp .money-flow-story .mobile-flow-controls button > span:first-child { font-size: 18px; line-height: 1; }
   html.bxp .money-flow-story .mobile-flow-controls button:disabled { opacity: .35; cursor: default; }
   html.bxp .money-flow-story .mobile-flow-controls :is(button,input):focus-visible { outline: 2px solid #596873; outline-offset: 3px; }
@@ -1677,14 +1677,14 @@ html.bxp:where(.bxp-project) .loan-repayments.repay-b .incoming-account .repay-a
 
 /* public-language.css · all pages */
 html.bxp .language-switcher{position:relative;flex:none}
-html.bxp .language-trigger{font:500 13px/1 Archivo,Arial,sans-serif;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 9px;border:0;border-radius:10px;background:transparent;color:#242629;cursor:pointer;transition:background 140ms ease}
+html.bxp .language-trigger{font:500 13px/1 "Archivo Variable", Archivo,Arial,sans-serif;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 9px;border:0;border-radius:10px;background:transparent;color:#242629;cursor:pointer;transition:background 140ms ease}
 html.bxp .language-trigger:hover,html.bxp .language-trigger[aria-expanded=true]{background:#f3f5f6}
 html.bxp .language-globe{width:19px;height:19px;flex:none;stroke:currentColor;fill:none;stroke-width:1.4}
 html.bxp .language-chevron{width:10px;height:10px;fill:none;stroke:#64717b;stroke-width:1.5;transition:transform 140ms ease}
 html.bxp .language-trigger[aria-expanded=true] .language-chevron{transform:rotate(180deg)}
 html.bxp .language-menu{position:absolute;top:calc(100% + 10px);right:0;width:222px;box-sizing:border-box;padding:7px;background:#fff;border:1px solid #e0e4e8;border-radius:16px;box-shadow:0 10px 32px -12px #26384633;z-index:110;animation:bxp-language-reveal 140ms ease-out}
 html.bxp .language-menu[hidden]{display:none}
-html.bxp .language-option{font:400 14px/1.3 Archivo,Arial,sans-serif;display:flex;align-items:center;justify-content:space-between;gap:24px;width:100%;min-height:44px;padding:11px 13px;border:0;border-radius:9px;background:transparent;color:#242629;text-align:left;cursor:pointer}
+html.bxp .language-option{font:400 14px/1.3 "Archivo Variable", Archivo,Arial,sans-serif;display:flex;align-items:center;justify-content:space-between;gap:24px;width:100%;min-height:44px;padding:11px 13px;border:0;border-radius:9px;background:transparent;color:#242629;text-align:left;cursor:pointer}
 html.bxp .language-option:hover{background:#f4f6f7}
 html.bxp .language-option[aria-checked=true]{font-weight:500}
 html.bxp .language-check{width:16px;height:16px;fill:none;stroke:#3b4a54;stroke-width:1.6;visibility:hidden}
