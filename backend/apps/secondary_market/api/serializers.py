@@ -230,8 +230,8 @@ class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSer
     product_type = serializers.CharField()
     originator_id = serializers.UUIDField(allow_null=True)
     originator_name = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
-    borrower_name = serializers.CharField()
-    borrower_country = serializers.CharField(allow_blank=True)
+    borrower_name = serializers.CharField()  # type: ignore[assignment]
+    borrower_country = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
     risk_rating = serializers.CharField()

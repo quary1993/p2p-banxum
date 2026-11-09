@@ -168,3 +168,16 @@ html.bxu .r100-credit .u33-invest-files {
   display: grid;
   gap: 8px;
 }
+
+/* Loan originators on a phone: the design squeezes the name, the three figures and the arrow into one
+   row (their labels overlap at 390 px). Here the figures take their own row under the name. */
+@media (max-width: 767px) {
+  html.bxu[data-edition="refined"] body.bxm-app .u33-invest-originators .r75c-originator {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+  html.bxu[data-edition="refined"] body.bxm-app .u33-invest-originators .r75c-originator > .r75c-originator-metrics {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
