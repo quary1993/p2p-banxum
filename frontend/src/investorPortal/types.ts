@@ -19,6 +19,8 @@ export type RouteName =
   | "investment"
   | "secondary"
   | "balances"
+  | "transactions"
+  | "reports"
   | "fx"
   | "documents"
   | "notifications"

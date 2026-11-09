@@ -66,7 +66,6 @@ import type {
   InvestorDocument,
   InvestorDocumentDownloadResponse,
   InvestorNotification,
-  InvestorNotifications,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
   OriginatorClaimQuoteResponse,
@@ -168,7 +167,14 @@ import { scheduleStatusTone } from "./investorPortal/scheduleStatus";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
 import { notificationRoute } from "./investorPortal/notifications";
+import { useT } from "./i18n";
+import { PortalNavProvider, type PortalNav } from "./portal/components";
+import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
+import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
+import { PreviewControls } from "./portal/shell/PreviewControls";
+import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
+import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
 import { LoanDocumentList } from "./investorPortal/LoanDocumentList";
 import {
@@ -217,6 +223,12 @@ import {
   UserSkin,
   type IconName
 } from "./investorPortal/ui";
+
+// Routes whose screens are rebuilt in U33 (portal/screens); every other screen body is wrapped in
+// <LegacyBody> by InvestorShell until its slice replaces it.
+const U33_SCREENS = new Set<RouteName>(["transactions", "reports"]);
+// The Reports page lists the account statements and annual tax information of Documents.
+const reportDocumentKinds = ["account_statement", "annual_tax_information"];
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
@@ -384,6 +396,8 @@ const routeNames: RouteName[] = [
   "investment",
   "secondary",
   "balances",
+  "transactions",
+  "reports",
   "fx",
   "documents",
   "notifications",
@@ -442,6 +456,8 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/portfolio": "portfolio",
     "/secondary-market": "secondary",
     "/balances": "balances",
+    "/transactions": "transactions",
+    "/reports": "reports",
     "/fx": "fx",
     "/documents": "documents",
     "/notifications": "notifications",
@@ -491,6 +507,8 @@ function routePath(route: AppRoute) {
     investment: `/portfolio/${encodeURIComponent(route.params?.holdingId ?? "")}`,
     secondary: "/secondary-market",
     balances: "/balances",
+    transactions: "/transactions",
+    reports: "/reports",
     fx: "/fx",
     documents: "/documents",
     notifications: "/notifications",
@@ -610,75 +628,22 @@ const routeTitles: Record<RouteName, string> = {
   register: "Register",
   kyc: "Verification",
   dashboard: "Overview",
-  market: "Primary market",
-  smartInvest: "Smart-Invest",
+  market: "Investment opportunities",
+  smartInvest: "Smart Invest",
   loan: "Project",
   loanSchedule: "Project schedule",
   invest: "Invest",
   portfolio: "My investments",
   investment: "Investment",
-  secondary: "Secondary market",
+  secondary: "Resale market",
   balances: "Account",
+  transactions: "Transactions",
+  reports: "Reports",
   fx: "Currency exchange",
   documents: "Documents",
   notifications: "Notifications",
   settings: "Profile & Settings",
   faq: "Help"
-};
-
-type NavBadge = "projects" | "balances" | "notifications";
-type NavLeaf = { route: RouteName; label: string; icon: IconName; badge?: NavBadge };
-type NavParent = {
-  key: string;
-  label: string;
-  icon: IconName;
-  badge?: NavBadge;
-  children: Array<{ route: RouteName; label: string }>;
-};
-
-const navGroups: Array<{ label: string; items: Array<NavLeaf | NavParent> }> = [
-  {
-    label: "Invest",
-    items: [
-      { route: "dashboard", label: "Overview", icon: "grid" },
-      {
-        key: "projects",
-        label: "Projects",
-        icon: "briefcase",
-        badge: "projects",
-        children: [
-          { route: "market", label: "Primary market" },
-          { route: "secondary", label: "Secondary market" }
-        ]
-      },
-      { route: "portfolio", label: "My investments", icon: "portfolio" },
-      { route: "smartInvest", label: "Smart-Invest", icon: "refresh" }
-    ]
-  },
-  {
-    label: "Wallet",
-    items: [
-      { route: "balances", label: "Account", icon: "wallet", badge: "balances" },
-      { route: "fx", label: "FX", icon: "swap" }
-    ]
-  },
-  {
-    label: "Account",
-    items: [
-      { route: "settings", label: "Profile & Settings", icon: "user" },
-      { route: "documents", label: "Documents", icon: "docs" },
-      { route: "notifications", label: "Notifications", icon: "bell", badge: "notifications" }
-    ]
-  }
-];
-
-// Pages that belong to a menu entry without being one themselves.
-const navActiveRoute: Partial<Record<RouteName, RouteName>> = {
-  loan: "market",
-  loanSchedule: "market",
-  invest: "market",
-  investment: "portfolio",
-  kyc: "settings"
 };
 
 // The published template of a category, shown by the public site's legal page
@@ -2372,8 +2337,8 @@ function InvestorShell({
   setDemoState: (state: DemoAccountState) => void;
 }) {
   const queryClient = useQueryClient();
-  const [navOpen, setNavOpen] = useState(false);
-  const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
+  const t = useT();
+  const notificationReadActions = useNotificationReadActions();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
   const [payoutIbanOpen, setPayoutIbanOpen] = useState(false);
   // Investing is a page (/marketplace/:loanId/invest); callers hand over the loan and an optional amount.
@@ -2394,7 +2359,6 @@ function InvestorShell({
     clearSessionExpiredNotice();
     setReadonlyImpersonation({ active: false, label: "" });
     goTo(setRoute, "public");
-    setNavOpen(false);
     setAddFundsOpen(false);
     setInvestLoan(null);
   };
@@ -2608,6 +2572,10 @@ function InvestorShell({
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
         return <BalancesScreen demoState={demoState} />;
+      case "transactions":
+        return <TransactionsScreen><ActivityPanel /></TransactionsScreen>;
+      case "reports":
+        return <ReportsScreen><DocumentsScreen embedded kinds={reportDocumentKinds} /></ReportsScreen>;
       case "fx":
         if (fxFeature.enabled) return <FxScreen demoState={demoState} />;
         return fxFeature.known
@@ -2649,24 +2617,20 @@ function InvestorShell({
     ?? balances.summaries[0]?.currency
     ?? "CHF";
   const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
-  const activeRoute = navActiveRoute[displayRouteName] ?? displayRouteName;
+  const activeRoute = NAV_PARENT[displayRouteName] ?? displayRouteName;
   const addFundsDisabled = !financialAccessAllowed || frozenAccount.frozen || readonlyImpersonation.active;
   const openProjectCount = marketplaceLoans.filter((loan) => isOpenMarketplaceLoan(loan)).length;
   const unreadCount = notifications?.unread_count ?? 0;
-  const badgeFor = (badge: NavBadge | undefined) => {
-    if (badge === "projects") return openProjectCount > 0 ? <span className="nav-count">{openProjectCount}</span> : null;
-    if (badge === "notifications") return unreadCount > 0 ? <span className="nav-count">{unreadCount}</span> : null;
-    if (badge === "balances" && (frozenAccount.frozen || overdueCount > 0)) {
-      return frozenAccount.frozen
-        ? <span aria-label="Account frozen" className="nav-badge bad">!</span>
-        : <span aria-label={`${overdueCount} ${overdueCount === 1 ? "balance needs" : "balances need"} action`} className="nav-badge warn">{overdueCount}</span>;
-    }
-    return null;
-  };
-  const navigate = (name: RouteName) => {
-    goTo(setRoute, name);
-    setNavOpen(false);
-  };
+  // The Account entry keeps today's alert marker: money that must go back, or a frozen account.
+  const accountMarker = frozenAccount.frozen
+    ? { text: "!", label: t("Account frozen") }
+    : overdueCount > 0
+      ? { text: String(overdueCount), label: overdueCount === 1 ? t("1 balance needs action") : t("{count} balances need action", { count: overdueCount }) }
+      : undefined;
+  // Available balance per currency, EUR first then CHF (design header order).
+  const shellBalances = [...balances.summaries]
+    .sort((a, b) => (a.currency === b.currency ? 0 : a.currency === "EUR" ? -1 : b.currency === "EUR" ? 1 : a.currency.localeCompare(b.currency)))
+    .map((summary) => ({ currency: summary.currency, availableMinor: summary.total_available_minor }));
   const signOut = () => {
     if (readonlyImpersonation.active || isFixturePreview) {
       finishLogout();
@@ -2676,10 +2640,10 @@ function InvestorShell({
     logoutMutation.mutate();
   };
   const signOutLabel = readonlyImpersonation.active
-    ? "Exit read-only view"
+    ? t("Exit read-only view")
     : logoutMutation.isPending
-      ? "Signing out..."
-      : "Sign out";
+      ? t("Signing out...")
+      : t("Sign out");
 
   // ACC-DEC-009: an investor without a PIN creates one before anything else.
   const needsPin = isFixturePreview
@@ -2705,476 +2669,96 @@ function InvestorShell({
     );
   }
 
-  // U33 skin (html.bxu) next to the old one; the old shell and screens stay in LegacyBody until
-  // the U33 shell replaces them.
+  const portalNav: PortalNav = {
+    hrefFor: (name, params) => routePath({ name, params }),
+    go: (name, params) => goTo(setRoute, name, params),
+    route
+  };
+  const status = readonlyImpersonation.active
+    ? t("Read-only view")
+    : financialAccessAllowed
+      ? t("Verified investor")
+      : t("Verification pending");
+  // Rebuilt U33 screens bring their own layout; every other screen body stays in the old skin.
+  const isU33Screen = gatedScreen === screen && U33_SCREENS.has(route.name);
+  const notices = [
+    signOutError ? (
+      <Banner
+        actions={<Button disabled={logoutMutation.isPending} size="sm" variant="primary" onClick={signOut}>{logoutMutation.isPending ? "Signing out..." : "Retry sign out"}</Button>}
+        icon="alert"
+        key="sign-out"
+        tone="bad"
+        title="Sign out failed"
+      >
+        {signOutError}
+      </Banner>
+    ) : null,
+    isFixturePreview ? (
+      <Banner icon="alert" key="preview" tone="warn" title="Preview data">
+        This investor portal is running with local fixture data for UX review. Balances,
+        holdings, activity, FX history, and documents shown here are not real account data.
+      </Banner>
+    ) : null,
+    readonlyImpersonation.active ? (
+      <Banner icon="lock" key="read-only" tone="info" title="Superadmin read-only view">
+        Viewing the portal as {readonlyImpersonation.label || "selected user"}. Mutating
+        actions are disabled and generated/downloaded evidence is audited to the superadmin,
+        not recorded as user activity.
+      </Banner>
+    ) : null,
+    frozenAccount.frozen && financialAccessAllowed && !blockedAccountStatus ? (
+      <div className="frozen-account-notice" key="frozen">
+        <FrozenAccountBanner
+          account={frozenAccount}
+          onAddIban={readonlyImpersonation.active ? undefined : () => setPayoutIbanOpen(true)}
+          onOpenAccount={route.name === "balances" ? undefined : () => goTo(setRoute, "balances")}
+        />
+      </div>
+    ) : null
+  ].filter(Boolean);
+
   return (
     <UserSkin>
-    <U33Skin>
-    <LegacyBody>
-    <div className="app">
-      <a
-        className="portal-skip"
-        href="#portal-content"
-        onClick={(event) => {
-          event.preventDefault();
-          const target = document.querySelector<HTMLElement>(".app .main > main, .app .main main");
-          if (!target) return;
-          if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
-          target.focus();
-        }}
-      >
-        Skip to main content
-      </a>
-      <div className={`nav-scrim ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
-      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="sidebar-brand">
-          <button aria-label={`${platformName} overview`} className="sidebar-logo" onClick={() => navigate("dashboard")} type="button">
-            <Wordmark compact />
-          </button>
-          <button aria-label="Close menu" className="icon-btn sidebar-close" onClick={() => setNavOpen(false)} type="button">
-            <Icon name="arrowL" size={18} />
-          </button>
-        </div>
-        <nav aria-label="Investor portal navigation" className="nav">
-          {navGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <div className="nav-group-label">{group.label}</div>
-              {group.items.filter((item) => !("route" in item) || item.route !== "fx" || fxFeature.enabled).map((item) => {
-                if ("children" in item) {
-                  const childActive = item.children.some((child) => child.route === activeRoute);
-                  const expanded = projectsMenuOpen || childActive;
-                  return (
-                    <div className={`nav-parent ${childActive ? "is-active" : ""} ${expanded ? "is-open" : ""}`} key={item.key}>
-                      <button
-                        aria-expanded={expanded}
-                        className={`nav-link nav-toggle ${childActive ? "on" : ""}`}
-                        onClick={() => setProjectsMenuOpen((open) => (childActive ? true : !open))}
-                        type="button"
-                      >
-                        <Icon name={item.icon} size={22} strokeWidth={1.5} />
-                        <span className="nav-link-label">{item.label}</span>
-                        {badgeFor(item.badge)}
-                        <Icon className="nav-caret" name="chevR" size={16} />
-                      </button>
-                      {expanded ? (
-                        <div className="nav-sub">
-                          {item.children.map((child) => (
-                            <button
-                              aria-current={activeRoute === child.route ? "page" : undefined}
-                              className={`nav-sublink ${activeRoute === child.route ? "on" : ""}`}
-                              key={child.route}
-                              onClick={() => navigate(child.route)}
-                              type="button"
-                            >
-                              {child.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                }
-                const isActive = activeRoute === item.route;
-                return (
-                  <button
-                    aria-current={isActive ? "page" : undefined}
-                    className={`nav-link ${isActive ? "on" : ""}`}
-                    key={item.route}
-                    onClick={() => navigate(item.route)}
-                    type="button"
-                  >
-                    <Icon name={item.icon} size={22} strokeWidth={1.5} />
-                    <span className="nav-link-label">{item.label}</span>
-                    {badgeFor(item.badge)}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <button className={`nav-foot-link ${activeRoute === "faq" ? "on" : ""}`} onClick={() => navigate("faq")} type="button">
-            <Icon name="help" size={17} />
-            <span>Help</span>
-          </button>
-          <button className="nav-foot-link" disabled={logoutMutation.isPending} onClick={signOut} type="button">
-            <Icon name="logout" size={17} />
-            <span>{signOutLabel}</span>
-          </button>
-        </div>
-      </aside>
-      <div className="main">
-        <header aria-label="Investor account header" className="topbar">
-          <button aria-label="Menu" className="icon-btn menu-btn" onClick={() => setNavOpen((open) => !open)} type="button">
-            <Icon name="menu" size={20} />
-          </button>
-          <button aria-label={`${platformName} overview`} className="topbar-brand" onClick={() => navigate("dashboard")} type="button">
-            <Wordmark compact />
-          </button>
-          <div className="crumbs sr-only">{routeTitles[displayRouteName]}</div>
-          <HeaderLatestProject loans={marketplaceLoans} setRoute={setRoute} />
-          <div className="topbar-tools">
-            <div className="bal-pills">
-              {balances.summaries.map((summary) => (
-                <div className={`bal-pill ${summary.overdue_minor > 0 || summary.penalty_mode_minor > 0 ? "flag" : ""}`} key={summary.currency}>
-                  <span className="bp-ccy">{summary.currency}</span>
-                  <span className="bp-amt">{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
-                </div>
-              ))}
-            </div>
-            <Button
-              aria-label="Add Funds"
-              className="btn-green topbar-add-funds"
-              disabled={addFundsDisabled}
-              icon="plus"
-              onClick={() => setAddFundsOpen(true)}
-              size="sm"
-            >
-              <span className="topbar-add-funds-label">Add Funds</span>
-            </Button>
-            {isFixturePreview ? (
-              <div className="state-switch">
-                <span>UX state</span>
-                <select className="select state-switch-select" onChange={(event) => setDemoState(event.target.value as DemoAccountState)} value={demoState}>
-                  <option value="active">Active investor</option>
-                  <option value="kyc_pending">KYC pending</option>
-                  <option value="frozen">Day-60 freeze</option>
-                  <option value="restricted">Restricted account</option>
-                  <option value="no_pin">No PIN yet</option>
-                </select>
-              </div>
+      <U33Skin>
+        <PortalNavProvider value={portalNav}>
+          <PortalShell
+            activeRoute={activeRoute}
+            addFundsDisabled={addFundsDisabled}
+            balances={shellBalances}
+            counts={{ openOpportunities: openProjectCount, unreadNotifications: unreadCount }}
+            dialogs={addFundsOpen || payoutIbanOpen ? (
+              <LegacyBody>
+                {addFundsOpen ? (
+                  <DepositModal
+                    allowCurrencySelection
+                    currency={addFundsCurrency}
+                    onClose={() => setAddFundsOpen(false)}
+                  />
+                ) : null}
+                {payoutIbanOpen ? <PayoutIbanModal onClose={() => setPayoutIbanOpen(false)} /> : null}
+              </LegacyBody>
             ) : null}
-            <HeaderUserMenu
-              addFundsDisabled={addFundsDisabled}
-              financialAccessAllowed={financialAccessAllowed}
-              onAddFunds={() => setAddFundsOpen(true)}
-              onNavigate={navigate}
-              onSignOut={signOut}
-              profile={profile}
-              readonly={readonlyImpersonation.active}
-              signOutDisabled={logoutMutation.isPending}
-              signOutLabel={signOutLabel}
-              summaries={balances.summaries}
-            />
-            <HeaderNotificationsMenu
-              notifications={notifications}
-              onOpen={(target) => {
-                goTo(setRoute, target.name, target.params);
-                setNavOpen(false);
-              }}
-            />
-          </div>
-        </header>
-        {signOutError ? (
-          <div className="fixture-preview-notice">
-            <Banner
-              actions={<Button disabled={logoutMutation.isPending} size="sm" variant="primary" onClick={signOut}>{logoutMutation.isPending ? "Signing out..." : "Retry sign out"}</Button>}
-              icon="alert"
-              tone="bad"
-              title="Sign out failed"
-            >
-              {signOutError}
-            </Banner>
-          </div>
-        ) : null}
-        {isFixturePreview ? (
-          <div className="fixture-preview-notice">
-            <Banner icon="alert" tone="warn" title="Preview data">
-              This investor portal is running with local fixture data for UX review. Balances,
-              holdings, activity, FX history, and documents shown here are not real account data.
-            </Banner>
-          </div>
-        ) : null}
-        {readonlyImpersonation.active ? (
-          <div className="fixture-preview-notice">
-            <Banner icon="lock" tone="info" title="Superadmin read-only view">
-              Viewing the portal as {readonlyImpersonation.label || "selected user"}. Mutating
-              actions are disabled and generated/downloaded evidence is audited to the superadmin,
-              not recorded as user activity.
-            </Banner>
-          </div>
-        ) : null}
-        {frozenAccount.frozen && financialAccessAllowed && !blockedAccountStatus ? (
-          <div className="fixture-preview-notice frozen-account-notice">
-            <FrozenAccountBanner
-              account={frozenAccount}
-              onAddIban={readonlyImpersonation.active ? undefined : () => setPayoutIbanOpen(true)}
-              onOpenAccount={route.name === "balances" ? undefined : () => navigate("balances")}
-            />
-          </div>
-        ) : null}
-        <FrozenAccountContext.Provider value={frozenAccount}>
-          {gatedScreen}
-        </FrozenAccountContext.Provider>
-        <footer className="portal-footer">
-          <span className="portal-footer-copy">&copy; {new Date().getFullYear()} {platformName} · {operatorName}</span>
-          <nav aria-label="Legal and help" className="portal-footer-links">
-            <a href={legalDocumentPath("registration")} rel="noreferrer" target="_blank">Terms and Conditions</a>
-            <a href={legalDocumentPath("risk_disclosure")} rel="noreferrer" target="_blank">Risk disclosure</a>
-            <button onClick={() => navigate("faq")} type="button">Help</button>
-          </nav>
-        </footer>
-      </div>
-      {addFundsOpen ? (
-        <DepositModal
-          allowCurrencySelection
-          currency={addFundsCurrency}
-          onClose={() => setAddFundsOpen(false)}
-        />
-      ) : null}
-      {payoutIbanOpen ? <PayoutIbanModal onClose={() => setPayoutIbanOpen(false)} /> : null}
-    </div>
-    </LegacyBody>
-    </U33Skin>
+            extraNavItems={fxFeature.enabled ? { Wallet: [FX_NAV_ITEM] } : undefined}
+            markers={accountMarker ? { balances: accountMarker } : undefined}
+            notices={notices.length > 0 ? <LegacyBody><div className="col gap-12">{notices}</div></LegacyBody> : null}
+            notifications={notifications}
+            onAddFunds={() => setAddFundsOpen(true)}
+            onMarkAllRead={() => void notificationReadActions.markAllRead().catch(() => undefined)}
+            onMarkRead={(id) => void notificationReadActions.markRead(id).catch(() => undefined)}
+            onSignOut={signOut}
+            profile={profile}
+            signOutDisabled={logoutMutation.isPending}
+            signOutLabel={signOutLabel}
+            status={status}
+          >
+            <FrozenAccountContext.Provider value={frozenAccount}>
+              {isU33Screen ? gatedScreen : <LegacyBody>{gatedScreen}</LegacyBody>}
+            </FrozenAccountContext.Provider>
+          </PortalShell>
+          {isFixturePreview ? <PreviewControls onStateChange={setDemoState} state={demoState} /> : null}
+        </PortalNavProvider>
+      </U33Skin>
     </UserSkin>
-  );
-}
-
-type ShellProfile = { initials: string; name: string; email: string };
-
-// Closes a header menu on an outside click or Escape.
-function useDismissableMenu() {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointer = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-  return { open, setOpen, rootRef };
-}
-
-function HeaderLatestProject({ loans, setRoute }: { loans: MarketplaceLoanPreview[]; setRoute: (route: AppRoute) => void }) {
-  // The list API has no publication date, so the line shows the open loan that closes last.
-  const latest = loans
-    .filter((loan) => isOpenMarketplaceLoan(loan))
-    .reduce<MarketplaceLoanPreview | null>((current, loan) => {
-      if (!current) return loan;
-      return (loan.funding_deadline ?? "") > (current.funding_deadline ?? "") ? loan : current;
-    }, null);
-  if (!latest) return <div className="topbar-news" />;
-  const meta = [
-    formatRateBps(marketplaceYieldBps(latest)),
-    pluralize(latest.term_months, "month"),
-    latest.currency
-  ].join(" · ");
-  return (
-    <div className="topbar-news">
-      <button className="topbar-news-item" onClick={() => goTo(setRoute, "loan", { loanId: latest.loan_id })} type="button">
-        <Icon name="briefcase" size={18} strokeWidth={1.5} />
-        <span className="topbar-news-text">
-          <b>Open now: {latest.title}</b> <span>{meta}</span>
-        </span>
-        <Icon name="arrowR" size={15} />
-      </button>
-    </div>
-  );
-}
-
-function HeaderUserMenu({
-  profile,
-  summaries,
-  financialAccessAllowed,
-  readonly,
-  addFundsDisabled,
-  onAddFunds,
-  onNavigate,
-  onSignOut,
-  signOutDisabled,
-  signOutLabel
-}: {
-  profile: ShellProfile;
-  summaries: Array<{ currency: string; total_available_minor: number }>;
-  financialAccessAllowed: boolean;
-  readonly: boolean;
-  addFundsDisabled: boolean;
-  onAddFunds: () => void;
-  onNavigate: (route: RouteName) => void;
-  onSignOut: () => void;
-  signOutDisabled: boolean;
-  signOutLabel: string;
-}) {
-  const { open, setOpen, rootRef } = useDismissableMenu();
-  const status = readonly ? "Read-only view" : financialAccessAllowed ? "Verified investor" : "Verification pending";
-  const go = (route: RouteName) => {
-    setOpen(false);
-    onNavigate(route);
-  };
-  return (
-    <div className={`hdr-menu user-menu ${open ? "open" : ""}`} ref={rootRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Account menu"
-        className="user-toggle"
-        onClick={() => setOpen((value) => !value)}
-        type="button"
-      >
-        <span className="avatar">{profile.initials}</span>
-        <span className="user-toggle-info">
-          <span className="user-status">{status}</span>
-          <span className="user-name">{profile.name}<Icon name="chevD" size={14} /></span>
-        </span>
-      </button>
-      {open ? (
-        <div className="hdr-dropdown user-dropdown" role="menu">
-          <div className="hdr-dd-inner user-card">
-            <span className="avatar lg">{profile.initials}</span>
-            <span className="user-card-info">
-              <span className="user-card-name">{profile.name}</span>
-              <span className="user-card-email">{profile.email}</span>
-            </span>
-          </div>
-          {summaries.length > 0 ? (
-            <div className="hdr-dd-inner user-balance">
-              <div className="eyebrow">{platformName} account · available</div>
-              {summaries.map((summary, index) => (
-                <div className={index === 0 ? "user-balance-main" : "user-balance-sub"} key={summary.currency}>
-                  {formatMoneyMinor(summary.total_available_minor, summary.currency)} <small>{summary.currency}</small>
-                </div>
-              ))}
-              <button
-                className="user-balance-link"
-                disabled={addFundsDisabled}
-                onClick={() => {
-                  setOpen(false);
-                  onAddFunds();
-                }}
-                role="menuitem"
-                type="button"
-              >
-                Add funds <Icon name="plus" size={14} />
-              </button>
-            </div>
-          ) : null}
-          <div className="hdr-dd-inner">
-            <ul className="hdr-links">
-              <li><button onClick={() => go("settings")} role="menuitem" type="button"><Icon name="user" size={17} /><span>Profile &amp; Settings</span></button></li>
-              <li><button onClick={() => go("balances")} role="menuitem" type="button"><Icon name="wallet" size={17} /><span>Account &amp; payout IBANs</span></button></li>
-              <li><button onClick={() => go("documents")} role="menuitem" type="button"><Icon name="docs" size={17} /><span>Documents</span></button></li>
-              <li><button onClick={() => go("faq")} role="menuitem" type="button"><Icon name="help" size={17} /><span>Help</span></button></li>
-            </ul>
-          </div>
-          <div className="hdr-dd-inner">
-            <ul className="hdr-links">
-              <li>
-                <button
-                  disabled={signOutDisabled}
-                  onClick={() => {
-                    setOpen(false);
-                    onSignOut();
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <Icon name="logout" size={17} />
-                  <span>{signOutLabel}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function HeaderNotificationsMenu({
-  notifications,
-  onOpen
-}: {
-  notifications: InvestorNotifications | undefined;
-  onOpen: (route: AppRoute) => void;
-}) {
-  const { open, setOpen, rootRef } = useDismissableMenu();
-  const readActions = useNotificationReadActions();
-  const unread = notifications?.unread_count ?? 0;
-  const items = (notifications?.notifications ?? []).slice(0, 5);
-  const openNotification = (item: InvestorNotification) => {
-    if (item.unread) void readActions.markRead(item.id).catch(() => undefined);
-    setOpen(false);
-    onOpen(notificationRoute(item));
-  };
-  return (
-    <div className={`hdr-menu notif-menu ${open ? "open" : ""}`} ref={rootRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Notifications"
-        className="icon-btn hdr-bell"
-        onClick={() => setOpen((value) => !value)}
-        type="button"
-      >
-        <Icon name="bell" size={20} strokeWidth={1.5} />
-        {unread > 0 ? <span className="ping" /> : null}
-      </button>
-      {open ? (
-        <div className="hdr-dropdown notif-dropdown" role="menu">
-          <div className="hdr-dd-head">
-            <span>Notifications{unread > 0 ? ` (${unread} new)` : ""}</span>
-            {unread > 0 ? (
-              <button className="notif-read-all" onClick={() => void readActions.markAllRead().catch(() => undefined)} role="menuitem" type="button">
-                Mark all as read
-              </button>
-            ) : null}
-          </div>
-          <div className="hdr-dd-body">
-            {items.length === 0 ? (
-              <div className="notif-empty">No notifications yet.</div>
-            ) : (
-              items.map((item) => {
-                const failed = item.status === "failed" || item.status === "dead_letter";
-                return (
-                  <div className={`notif-item ${item.unread ? "unread" : ""}`} key={item.id}>
-                    <button className="notif-open" onClick={() => openNotification(item)} role="menuitem" type="button">
-                      <span className={`notif-icon ${failed ? "late" : ""}`}><Icon name={failed ? "alert" : "bell"} size={16} /></span>
-                      <span className="notif-content">
-                        <span className={`notif-text ${failed ? "neg" : ""}`}>{item.title}</span>
-                        <span className="notif-time">{formatDateTime(item.created_at)}</span>
-                      </span>
-                    </button>
-                    {item.unread ? (
-                      <Tooltip content="Mark as read" focusable={false}>
-                        <button
-                          aria-label={`Mark "${item.title}" as read`}
-                          className="notif-mark"
-                          onClick={() => void readActions.markRead(item.id).catch(() => undefined)}
-                          role="menuitem"
-                          type="button"
-                        >
-                          <span aria-hidden="true" className="notif-dot" />
-                        </button>
-                      </Tooltip>
-                    ) : null}
-                  </div>
-                );
-              })
-            )}
-          </div>
-          <div className="hdr-dd-foot">
-            <button
-              onClick={() => {
-                setOpen(false);
-                onOpen({ name: "notifications" });
-              }}
-              type="button"
-            >
-              View all
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -9462,6 +9046,26 @@ function ActivityAmount({ entry }: { entry: ActivityEntry }) {
   );
 }
 
+// Body of the Transactions page until slice S4 rebuilds it: today's activity list.
+function ActivityPanel() {
+  const activityQuery = useActivityData();
+  const activity = activityQuery.data;
+  if (activityQuery.isError && !activity) {
+    return (
+      <DataErrorCard title="Could not load transactions" onRetry={() => void activityQuery.refetch()}>
+        We could not load your account activity.
+      </DataErrorCard>
+    );
+  }
+  if (!activity) return <ScreenLoading title="Transactions" />;
+  // The portfolio page's "Activity" list, in its own page context.
+  return (
+    <div className="content pf-page">
+      <ActivityTable entries={activity.entries} />
+    </div>
+  );
+}
+
 function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; dense?: boolean }) {
   const fxEnabled = useFxFeature().enabled;
   return (
@@ -11192,25 +10796,30 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
   );
 }
 
-function DocumentsScreen() {
+// `embedded`: the list without its page frame (the Reports page shows its own U33 head);
+// `kinds`: only these document kinds (account_statement, annual_tax_information, acceptance_evidence).
+function DocumentsScreen({ embedded = false, kinds }: { embedded?: boolean; kinds?: string[] } = {}) {
   const [type, setType] = useState<string>("All");
   const [error, setError] = useState("");
   const documentsQuery = useDocumentsData();
   const downloadMutation = useV1InvestorPortalDocumentsDownloadCreate();
   const documents = documentsQuery.data;
+  const Frame = embedded ? "div" : "main";
+  const frameClass = embedded ? "acct-page acct-documents" : "content acct-page acct-documents";
   if (documentsQuery.isError && !documents) {
     return (
-      <main className="content acct-page acct-documents">
-        <PageHead description="Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />
+      <Frame className={frameClass}>
+        {embedded ? null : <PageHead description="Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
         <DataErrorCard title="Could not load documents" onRetry={() => void documentsQuery.refetch()}>
           We could not load your self-service document list.
         </DataErrorCard>
-      </main>
+      </Frame>
     );
   }
-  if (!documents) return <ScreenLoading title="Documents" />;
-  const rows = documents.documents.filter((document) => type === "All" || document.document_type === type);
-  const types = ["All", ...Array.from(new Set(documents.documents.map((document) => document.document_type)))];
+  if (!documents) return <ScreenLoading title={embedded ? "Reports" : "Documents"} />;
+  const listed = kinds ? documents.documents.filter((document) => kinds.includes(document.document_kind)) : documents.documents;
+  const rows = listed.filter((document) => type === "All" || document.document_type === type);
+  const types = ["All", ...Array.from(new Set(listed.map((document) => document.document_type)))];
   const downloadDocument = (document: InvestorDocument, outputFormat = "pdf") => {
     setError("");
     downloadMutation.mutate(
@@ -11240,8 +10849,8 @@ function DocumentsScreen() {
     );
   };
   return (
-    <main className="content acct-page acct-documents">
-      <PageHead description="Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />
+    <Frame className={frameClass}>
+      {embedded ? null : <PageHead description="Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
       <div className="col gap-12 acct-alerts">
         <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
         {error ? <Banner tone="bad" title="Download failed">{error}</Banner> : null}
@@ -11293,7 +10902,7 @@ function DocumentsScreen() {
           </div>
         )}
       </section>
-    </main>
+    </Frame>
   );
 }
 

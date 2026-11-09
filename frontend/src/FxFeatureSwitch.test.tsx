@@ -46,8 +46,8 @@ test("FX off: no FX menu item, and /fx shows the dashboard at /dashboard", async
 
   await waitFor(() => expect(window.location.pathname).toBe("/dashboard"), { timeout: 5000 });
   const nav = await screen.findByRole("navigation", { name: "Investor portal navigation" }, { timeout: 5000 });
-  expect(within(nav).getByRole("button", { name: "Account" })).toBeInTheDocument();
-  expect(within(nav).queryByRole("button", { name: "FX" })).not.toBeInTheDocument();
+  expect(within(nav).getByRole("link", { name: "Account" })).toBeInTheDocument();
+  expect(within(nav).queryByRole("link", { name: "Currency exchange" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Currency exchange" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Convert" })).not.toBeInTheDocument();
 }, 30_000);
@@ -58,5 +58,5 @@ test("FX on: the FX menu item and the currency exchange page are back", async ()
 
   expect(await screen.findByRole("heading", { name: "Currency exchange" }, { timeout: 5000 })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/fx");
-  expect(within(portalNav()).getByRole("button", { name: "FX" })).toBeInTheDocument();
+  expect(within(portalNav()).getByRole("link", { name: "Currency exchange" })).toBeInTheDocument();
 }, 30_000);

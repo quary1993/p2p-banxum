@@ -35,7 +35,9 @@ test("a failed sign-out keeps the investor signed in and offers Retry", async ()
   );
   renderLiveApp(App, "/dashboard");
 
-  fireEvent.click(await screen.findByRole("button", { name: "Sign out" }, { timeout: 5000 }));
+  // Sign out is in the U33 account menu.
+  fireEvent.click(await screen.findByRole("button", { name: "Account menu" }, { timeout: 5000 }));
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
   expect(await screen.findByText("Sign out failed", {}, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText("We could not sign you out. You are still signed in. Try again.")).toBeInTheDocument();
   // Still in the portal, at the same address; the public home page is not shown.

@@ -104,9 +104,10 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   expect(bannerBox).toHaveTextContent("A penalty of 1.0% of this money is taken every day");
   expect(bannerBox).toHaveTextContent("add a payout IBAN for EUR");
   expect(within(bannerBox).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
-  // The nav marks the Account entry; Add Funds is disabled.
+  // The nav marks the Account entry; Add funds (account menu) is disabled.
   expect(screen.getByLabelText("Account frozen")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Add Funds" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+  expect(screen.getByRole("button", { name: "Add funds" })).toHaveAttribute("aria-disabled", "true");
   // The raw lot status never reaches the page.
   expect(document.body.textContent).not.toMatch(/penalty_mode|PENALTY_MODE/);
 

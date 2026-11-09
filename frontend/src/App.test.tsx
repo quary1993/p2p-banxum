@@ -27,14 +27,29 @@ function renderApp(path = "/") {
   );
 }
 
-// The sidebar uses the design names. "Primary market" and "Secondary market" sit
-// under the "Projects" entry, which opens on click.
+// The U33 sidebar (Phase 17.1 S1): links with the design names ("Investment opportunities" and
+// "Resale market" replace the old "Projects" sub-entries "Primary market" and "Secondary market").
 function clickNav(label: string | RegExp) {
   const nav = screen.getByRole("navigation", { name: "Investor portal navigation" });
-  if (!within(nav).queryByRole("button", { name: label })) {
-    fireEvent.click(within(nav).getByRole("button", { name: /^Projects/ }));
-  }
-  fireEvent.click(within(nav).getByRole("button", { name: label }));
+  // An entry can carry its count ("Investment opportunities 5").
+  const name = typeof label === "string" ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s+\\d+)?$`) : label;
+  fireEvent.click(within(nav).getByRole("link", { name }));
+}
+
+// Sign out and Add funds live in the U33 account menu of the header.
+function openAccountMenu() {
+  fireEvent.click(within(screen.getByRole("banner", { name: "Investor account header" })).getByRole("button", { name: "Account menu" }));
+}
+
+function signOut() {
+  openAccountMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+}
+
+// Preview mode: the fixture account state is switched in the floating preview panel.
+function setUxState(value: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  fireEvent.change(screen.getByLabelText("UX state"), { target: { value } });
 }
 
 test("renders the public site shell on the projects page", () => {
@@ -76,8 +91,8 @@ test("page titles follow public routes and reset after sign out", () => {
   projects.unmount();
 
   renderApp("/smart-invest");
-  expect(document.title).toBe("Smart-Invest · BANXUM");
-  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  expect(document.title).toBe("Smart Invest · BANXUM");
+  signOut();
   expect(window.location.pathname).toBe("/");
   expect(document.title).toBe("Banxum · Lend to real companies");
 });
@@ -314,24 +329,35 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByText("Preview data")).toBeInTheDocument();
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 
+  // The U33 sidebar: INVEST / WALLET / ACCOUNT with the design's entries, as links to real addresses.
   const portalNav = screen.getByRole("navigation", { name: "Investor portal navigation" });
-  expect(within(portalNav).getByRole("button", { name: "Overview" })).toHaveClass("nav-link", "on");
-  const projectsToggle = within(portalNav).getByRole("button", { name: /^Projects/ });
-  expect(projectsToggle).toHaveAttribute("aria-expanded", "false");
-  expect(within(portalNav).queryByRole("button", { name: "Primary market" })).not.toBeInTheDocument();
-  fireEvent.click(projectsToggle);
-  expect(within(portalNav).getByRole("button", { name: "Primary market" })).toHaveClass("nav-sublink");
-  expect(within(portalNav).getByRole("button", { name: "Secondary market" })).toHaveClass("nav-sublink");
-  const smartInvestLink = within(portalNav).getByRole("button", { name: "Smart-Invest" });
-  expect(smartInvestLink).toHaveClass("nav-link");
-  expect(smartInvestLink).not.toHaveClass("nav-sublink");
-  expect(within(portalNav).getByRole("button", { name: "My investments" })).toBeInTheDocument();
-  expect(within(portalNav).getByRole("button", { name: /^Account/ })).toBeInTheDocument();
-  expect(within(portalNav).getByRole("button", { name: /^Notifications/ })).toBeInTheDocument();
+  const overview = within(portalNav).getByRole("link", { name: "Overview" });
+  expect(overview).toHaveClass("nk-menu-link");
+  expect(overview).toHaveAttribute("aria-current", "page");
+  expect(overview).toHaveAttribute("href", "/dashboard");
+  expect(within(portalNav).getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["Invest", "Wallet", "Account"]);
+  expect(within(portalNav).getByRole("link", { name: /^Investment opportunities/ })).toHaveAttribute("href", "/marketplace");
+  expect(within(portalNav).getByRole("link", { name: "Resale market" })).toHaveAttribute("href", "/secondary-market");
+  expect(within(portalNav).getByRole("link", { name: "My investments" })).toHaveAttribute("href", "/portfolio");
+  expect(within(portalNav).getByRole("link", { name: "Smart Invest" })).toHaveAttribute("href", "/smart-invest");
+  expect(within(portalNav).getByRole("link", { name: /^Account/ })).toHaveAttribute("href", "/balances");
+  expect(within(portalNav).getByRole("link", { name: "Transactions" })).toHaveAttribute("href", "/transactions");
+  expect(within(portalNav).getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/reports");
+  expect(within(portalNav).getByRole("link", { name: "Profile & Settings" })).toHaveAttribute("href", "/settings");
+  expect(within(portalNav).getByRole("link", { name: "Documents" })).toHaveAttribute("href", "/documents");
+  expect(within(portalNav).getByRole("link", { name: /^Notifications/ })).toHaveAttribute("href", "/notifications");
+  // FX stays hidden (U33-DEC-33) and the operator is named discreetly (U33-DEC-34).
+  expect(within(portalNav).queryByRole("link", { name: /exchange|FX/i })).not.toBeInTheDocument();
+  expect(screen.getByText("A brand of Garanta Finanzgruppe AG")).toBeInTheDocument();
 
+  // Header: available balance per currency, EUR first, each a link to the account.
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
+  const balances = within(topbar).getByRole("group", { name: "Available balance" });
+  expect(within(balances).getAllByRole("link").map((link) => link.textContent)).toEqual(["EUR 7'420.00", "CHF 24'190.00"]);
   expect(within(topbar).getByRole("button", { name: "Notifications" })).toBeInTheDocument();
-  fireEvent.click(within(topbar).getByRole("button", { name: "Add Funds" }));
+  openAccountMenu();
+  expect(within(topbar).getByText("Verified investor")).toBeInTheDocument();
+  fireEvent.click(within(topbar).getByRole("button", { name: "Add funds" }));
   expect(screen.getByRole("heading", { name: "Add Funds · CHF" })).toBeInTheDocument();
   expect(screen.getByLabelText("Currency")).toHaveClass("select");
 });
@@ -488,7 +514,7 @@ test("smart invest table bulk-selects across currencies and approves one allocat
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+    clickNav("Smart Invest");
 
     // Both currencies come ticked by default and the committing total shows both books.
     expect(screen.getByRole("button", { name: "Untick Bulk CHF loan" })).toBeInTheDocument();
@@ -568,7 +594,7 @@ test("rule desk blocks loans whose minimum the split cannot reach and explains w
     expect(screen.getByRole("button", { name: "Untick Affordable loan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review & confirm →" })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+    clickNav("Smart Invest");
     const matches = screen.getByRole("table", { name: "Smart-Invest matches" });
     const tableBlocked = within(matches).getByLabelText(/Expensive minimum loan cannot be selected/);
     fireEvent.mouseEnter(tableBlocked);
@@ -595,7 +621,7 @@ test("balance ageing reminders appear in notifications instead of a persistent d
 
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
   fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
-  fireEvent.click(within(topbar).getByRole("button", { name: "View all" }));
+  fireEvent.click(within(topbar).getByRole("link", { name: "View all notifications" }));
 
   expect(screen.getByRole("heading", { name: "Notifications" })).toBeInTheDocument();
   expect(screen.getByText("Balance ageing - day 57")).toBeInTheDocument();
@@ -611,7 +637,7 @@ test("Smart-Invest matching loans open the same opportunity sheet without leavin
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+  clickNav("Smart Invest");
 
   const matches = screen.getByRole("table", { name: "Smart-Invest matches" });
   fireEvent.click(within(matches).getByRole("row", { name: /Adriatic Marine d\.o\.o\./i }));
@@ -629,7 +655,7 @@ test("Smart-Invest uses the five approved wizard steps and never implies automat
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+  clickNav("Smart Invest");
 
   expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
   expect(screen.getByText(/never invests for you/i)).toBeInTheDocument();
@@ -683,7 +709,7 @@ test("Marketplace filters can be saved as the active Smart-Invest rule", async (
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
 
   const panel = document.getElementById("marketplace-filter-panel");
@@ -709,7 +735,7 @@ test("investor data tables use the shared editorial table surface", () => {
   clickNav(/^Account/);
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "balance-lots-table");
 
-  clickNav("Secondary market");
+  clickNav("Resale market");
   fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-sell-table");
 
@@ -853,7 +879,7 @@ test("an expired session returns to the login screen with an explanation", () =>
 test("a restricted account is told why its data is unavailable", () => {
   renderApp("/dashboard");
 
-  fireEvent.change(screen.getByDisplayValue("Active investor"), { target: { value: "restricted" } });
+  setUxState("restricted");
 
   expect(screen.getByRole("heading", { name: "Account access" })).toBeInTheDocument();
   expect(screen.getByText("Your account is restricted")).toBeInTheDocument();
@@ -899,7 +925,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
 
   expect(screen.getByText(/closes within 7 days/)).toBeInTheDocument();
 
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   expect(
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
@@ -928,7 +954,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   expect(screen.getByRole("heading", { name: "These companies want your investment" })).toBeInTheDocument();
   expect(screen.getByText("Two ways to put your money to work")).toBeInTheDocument();
@@ -944,7 +970,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
 
   fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
   expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   expect(screen.getAllByText("Loan amount")).toHaveLength(4);
@@ -972,7 +998,7 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
   expect(screen.getByRole("button", { name: /^Filter/ })).toHaveAttribute("aria-expanded", "true");
@@ -1018,7 +1044,7 @@ test("marketplace filter groups are multi-select without combined Either/Both ch
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
   const panel = document.getElementById("marketplace-filter-panel") as HTMLElement;
   const count = (text: string) =>
@@ -1063,7 +1089,7 @@ test("Smart-Invest rule editor saves several values per condition", async () => 
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+  clickNav("Smart Invest");
   fireEvent.click(screen.getByRole("button", { name: "Adjust the rule" }));
 
   const editor = document.getElementById("rule-conditions") as HTMLElement;
@@ -1100,7 +1126,7 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
   const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
@@ -1146,7 +1172,7 @@ test("marketplace closing countdown uses the platform as-of date", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    clickNav("Primary market");
+    clickNav("Investment opportunities");
     fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
     const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
@@ -1166,7 +1192,7 @@ test("opportunity sheet calculator validates the amount and projects the investo
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   // Direct loan: proportional share of the contracted schedule.
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
@@ -1210,7 +1236,7 @@ test("marketplace sorts from the header and the sort menu", () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   const loanTitles = () =>
     Array.from(document.querySelectorAll(".marketplace-opportunity-name strong")).map(
@@ -1297,7 +1323,7 @@ test("loan-specific funding windows block an otherwise positive balance in the o
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    clickNav("Primary market");
+    clickNav("Investment opportunities");
     fireEvent.click(screen.getByText(loan.title));
     const sheet = screen.getByRole("dialog", { name: loan.title });
     expect(within(sheet).getByRole("button", { name: "Invest now" })).toBeDisabled();
@@ -1315,7 +1341,7 @@ test("originator subscription validates the minimum and stages a par reservation
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
 
   const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
@@ -1353,7 +1379,7 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("FX");
+  clickNav("Currency exchange");
 
   expect(screen.getByRole("heading", { name: "Currency exchange" })).toBeInTheDocument();
   expect(
@@ -1388,7 +1414,7 @@ test("refinanced marketplace loan shows badge and informational original loan sc
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
 
   // Listing row of the refinancing loan carries the short tag.
   expect(screen.getAllByText("Refinanced").length).toBeGreaterThan(0);
@@ -1429,7 +1455,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
   const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
   fireEvent.click(within(sheet).getByRole("button", { name: "Meet the borrower →" }));
@@ -1460,7 +1486,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
   expect(screen.getByRole("button", { name: /Invest now/ })).toBeInTheDocument();
 
   // A borrower without a story shows an honest empty state instead of filler.
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Rhône Vignobles SA"));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Rhône Vignobles SA" })).getByRole("button", { name: "Meet the borrower →" }));
   expect(screen.getByText("No story published yet for Rhône Vignobles SA")).toBeInTheDocument();
@@ -1475,7 +1501,7 @@ test("originator loans lead to the originator story and a schedule page with pay
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
   const sheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
   expect(within(sheet).queryByRole("button", { name: /credit file/ })).not.toBeInTheDocument();
@@ -1506,7 +1532,7 @@ test("investing from the loan page runs on the invest page: amount, terms, email
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Primary market");
+  clickNav("Investment opportunities");
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Helvetia Logistik AG" })).getByRole("button", { name: "Meet the borrower →" }));
 
@@ -1566,7 +1592,7 @@ test("immediate originator claim purchases run on the invest page: quote, terms,
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    clickNav("Primary market");
+    clickNav("Investment opportunities");
     fireEvent.click(screen.getByText("Swiss SME equipment claim"));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Swiss SME equipment claim" })).getByRole("button", { name: "Meet the originator →" }));
 
@@ -1731,7 +1757,7 @@ test("secondary market redesign shows for-sale table, explainer band and selling
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Secondary market");
+  clickNav("Resale market");
 
   expect(screen.getByRole("heading", { name: "Loans other people want out of." })).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "For sale now" })).toHaveAttribute("aria-selected", "true");
@@ -2011,7 +2037,7 @@ test("funded holdings explain that secondary listing starts after disbursement",
     ).toBeDisabled();
 
     fireEvent.click(within(page).getByRole("button", { name: "My investments" }));
-    clickNav("Secondary market");
+    clickNav("Resale market");
     fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
 
     const hint = screen.getByText("Available after disbursement");
@@ -2121,7 +2147,7 @@ test("secondary purchase review loads buyer-safe schedules and waits for a manua
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Secondary market");
+  clickNav("Resale market");
   fireEvent.click(screen.getByText("Loan A - Manufacturing - CH"));
 
   const dialog = screen.getByRole("dialog", { name: "Buy Loan A - Manufacturing - CH" });
@@ -2143,10 +2169,8 @@ test("a frozen investor can inspect a secondary listing but cannot request a cod
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.change(screen.getByDisplayValue("Active investor"), {
-    target: { value: "frozen" }
-  });
-  clickNav("Secondary market");
+  setUxState("frozen");
+  clickNav("Resale market");
   fireEvent.click(screen.getByText("Loan A - Manufacturing - CH"));
 
   const dialog = screen.getByRole("dialog", { name: "Buy Loan A - Manufacturing - CH" });
@@ -2166,14 +2190,12 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.change(screen.getByDisplayValue("Active investor"), {
-    target: { value: "frozen" }
-  });
+  setUxState("frozen");
 
   expect(screen.getByText(/Financial actions are frozen/i)).toBeInTheDocument();
   expect(screen.getByText(/portfolio, documents, statements and notices remain available/i)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Documents" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Documents" })).toBeInTheDocument();
 });
 
 test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
@@ -2508,15 +2530,18 @@ test("public and portal footers link the platform Terms and Conditions", () => {
 
   renderApp();
   loginDemo();
+  // The U33 portal footer: "Terms" opens the published Terms and Conditions (/legal/terms).
   const portalLinks = screen.getByRole("navigation", { name: "Legal and help" });
-  expect(within(portalLinks).getByRole("link", { name: "Terms and Conditions" })).toHaveAttribute("href", "/legal/registration");
+  expect(within(portalLinks).getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/legal/terms");
+  expect(within(portalLinks).getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/legal/privacy");
 });
 
 test("Add Funds offers a copy icon for the IBAN and QR IBAN in CHF and EUR", () => {
   renderApp();
   loginDemo();
 
-  fireEvent.click(within(screen.getByRole("banner", { name: "Investor account header" })).getByRole("button", { name: "Add Funds" }));
+  openAccountMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Add funds" }));
   const chf = screen.getByRole("dialog", { name: "Add Funds · CHF" });
   expect(within(chf).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
   expect(within(chf).getByRole("button", { name: "Copy QR IBAN" })).toBeInTheDocument();
@@ -2535,7 +2560,7 @@ test("Smart-Invest matches show the purpose as a readable label under the name",
   try {
     renderApp();
     loginDemo();
-    fireEvent.click(screen.getByRole("button", { name: "Smart-Invest" }));
+    clickNav("Smart Invest");
 
     const table = screen.getByRole("table", { name: "Smart-Invest matches" });
     expect(within(table).getByText("Bridge financing")).toBeInTheDocument();
@@ -2581,20 +2606,29 @@ test("notifications open their target, can be marked read one by one or all at o
   loginDemo();
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
   const nav = screen.getByRole("navigation", { name: "Investor portal navigation" });
-  expect(within(nav).getByRole("button", { name: /^Notifications\s*2$/ })).toBeInTheDocument();
+  expect(within(nav).getByRole("link", { name: /^Notifications\s*2$/ })).toBeInTheDocument();
 
+  // The design's dropdown: unread count, latest items with their destination, unread dots.
   fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
-  expect(within(topbar).getByText("Notifications (2 new)")).toBeInTheDocument();
-  fireEvent.click(within(topbar).getByRole("menuitem", { name: 'Mark "Balance ageing - day 57" as read' }));
-  expect(await within(topbar).findByText("Notifications (1 new)")).toBeInTheDocument();
-  expect(within(nav).getByRole("button", { name: /^Notifications\s*1$/ })).toBeInTheDocument();
+  expect(within(topbar).getByText("2 unread")).toBeInTheDocument();
+  expect(within(topbar).getAllByRole("img", { name: "Unread" })).toHaveLength(2);
 
   // Opening a notification marks it read and goes to the holding it is about.
-  fireEvent.click(within(topbar).getByRole("menuitem", { name: /^Loan in default/ }));
+  const defaultNotice = within(topbar).getByRole("link", { name: /^Loan in default/ });
+  expect(defaultNotice).toHaveAttribute("href", "/portfolio/H-2201");
+  expect(defaultNotice).toHaveTextContent("View investment");
+  fireEvent.click(defaultNotice);
   expect(window.location.pathname).toBe("/portfolio/H-2201");
-  expect(await within(nav).findByRole("button", { name: /^Notifications$/ })).toBeInTheDocument();
+  expect(await within(nav).findByRole("link", { name: /^Notifications\s*1$/ })).toBeInTheDocument();
 
-  fireEvent.click(within(nav).getByRole("button", { name: /^Notifications/ }));
+  // "Mark all as read" in the dropdown clears the rest.
+  fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
+  expect(within(topbar).getByText("1 unread")).toBeInTheDocument();
+  fireEvent.click(within(topbar).getByRole("button", { name: "Mark all as read" }));
+  expect(await within(topbar).findByText("All read")).toBeInTheDocument();
+  expect(within(nav).getByRole("link", { name: /^Notifications$/ })).toBeInTheDocument();
+
+  clickNav(/^Notifications/);
   expect(screen.getByText("Up to date")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /^Mark ".*" as read$/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Mark all as read" })).toBeDisabled();
@@ -2624,7 +2658,7 @@ test("Invest now explains when the balance is too old for the funding window", (
   try {
     renderApp();
     loginDemo();
-    clickNav("Primary market");
+    clickNav("Investment opportunities");
     fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
     const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
@@ -2653,7 +2687,7 @@ test("an amount just over the remaining capacity names the capacity, not the wal
   try {
     renderApp();
     loginDemo();
-    clickNav("Primary market");
+    clickNav("Investment opportunities");
     fireEvent.click(screen.getByText("Léman BioTech SA"));
     const sheet = screen.getByRole("dialog", { name: "Léman BioTech SA" });
     fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
