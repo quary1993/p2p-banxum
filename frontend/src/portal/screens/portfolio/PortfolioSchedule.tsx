@@ -9,7 +9,7 @@ import type { Holding } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { formatDate, formatMoneyMinor, monthLabelFromKey, useNumberFormat } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
-import { EmptyState, NiIcon, PortalLink, usePortalNav } from "../../components";
+import { EmptyState, NiIcon, PortalLink } from "../../components";
 import { addTo, nextPayment, portfolioPayments, projectedInterestMinor, sortedCurrencies, totalsList, type PortfolioPayment } from "./parts/investmentModel";
 import { BackLink } from "./parts/ui";
 import { useMoneyText } from "./parts/money";
@@ -44,9 +44,8 @@ function groupPayments(payments: PortfolioPayment[]): Group[] {
   return groups;
 }
 
-export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf }: { holdings: Holding[]; currency: string | null; currencySwitch: ReactNode; asOf?: string }) {
+export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf, onBack }: { holdings: Holding[]; currency: string | null; currencySwitch: ReactNode; asOf?: string; onBack: () => void }) {
   const t = useT();
-  const nav = usePortalNav();
   useNumberFormat();
   const [mode, setMode] = useState<"schedule" | "calendar">("schedule");
   const scoped = holdings.filter((holding) => currency === null || holding.currency === currency);
@@ -65,7 +64,7 @@ export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf }: 
   const earliestNext = payments.find((payment) => !payment.overdue && nextKeys.has(payment.key))?.row.due_date;
   return (
     <main aria-label={t("My investments")} className="bxm-my-investments r75c-portfolio r75c-calendar ps93-page" data-ps93-mode={mode}>
-      <BackLink onClick={() => nav.go("portfolio")}>{t("My investments")}</BackLink>
+      <BackLink onClick={onBack}>{t("My investments")}</BackLink>
       <header className="r75c-head">
         <div>
           <h1>{t("Payment schedule")}</h1>
@@ -85,9 +84,16 @@ export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf }: 
             <h2 className="h6" id="portfolio-payments-title">{t("Payment schedule")}</h2>
             <p>{t("Upcoming payments across your portfolio · principal + interest")}</p>
           </div>
-          <PortalLink className="link" to="portfolio">
+          <a
+            className="link"
+            href={window.location.pathname}
+            onClick={(event) => {
+              event.preventDefault();
+              onBack();
+            }}
+          >
             {t("Close")} <span aria-hidden="true">×</span>
-          </PortalLink>
+          </a>
         </div>
         <div className="bxm-portfolio-payments-content">
           <div className="ps93-toolbar">

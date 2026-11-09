@@ -20,6 +20,7 @@ import {
   isCurrentHolding,
   isOpenOrder,
   lifetimeInterestMinor,
+  loanCount,
   maturityDate,
   nextPayment,
   orderAmountMinor,
@@ -84,10 +85,10 @@ export function MyInvestmentsScreen() {
   ) : null;
 
   if (view === "history") {
-    return <InvestmentHistory activity={activityQuery.data?.entries ?? []} currency={currency} currencySwitch={currencySwitch} holdings={holdings} />;
+    return <InvestmentHistory activity={activityQuery.data?.entries ?? []} currency={currency} currencySwitch={currencySwitch} holdings={holdings} onBack={() => setParams({ view: null })} />;
   }
   if (view === "payments") {
-    return <PortfolioSchedule asOf={portfolioQuery.data.as_of} currency={currency} currencySwitch={currencySwitch} holdings={holdings} />;
+    return <PortfolioSchedule asOf={portfolioQuery.data.as_of} currency={currency} currencySwitch={currencySwitch} holdings={holdings} onBack={() => setParams({ view: null })} />;
   }
   if (holdings.length === 0 && orders.length === 0) {
     return (
@@ -161,7 +162,8 @@ function InvestmentsOverview({
   const subtitle = current.length === 0
     ? undefined
     : t("{investments} in {companies}.", {
-        investments: current.length === 1 ? t("1 investment") : t("{count} investments", { count: current.length }),
+        // Two lots of one loan (bought at different times) count as one investment (audit SECONDARY-11).
+        investments: loanCount(current) === 1 ? t("1 investment") : t("{count} investments", { count: loanCount(current) }),
         companies: (() => {
           const count = new Set(current.map((holding) => holding.loan.borrower_name || holding.loan.loan_id)).size;
           return count === 1 ? t("1 company") : t("{count} companies", { count });
@@ -298,6 +300,8 @@ function CurrentInvestments({
   const lateCount = currentHoldings.filter((holding) => states.get(holding.id) === "late").length;
   const defaultCount = currentHoldings.filter((holding) => ["default", "writtenOff"].includes(states.get(holding.id) ?? "")).length;
   const dueCount = currentHoldings.filter((holding) => states.get(holding.id) === "due").length;
+  const lotsPerLoan = new Map<string, number>();
+  for (const holding of currentHoldings) lotsPerLoan.set(holding.loan.loan_id, (lotsPerLoan.get(holding.loan.loan_id) ?? 0) + 1);
   const matchesFilter = (state: InvestmentState) =>
     status === "current" ||
     (status === "active" && (state === "active" || state === "funded")) ||
@@ -318,7 +322,7 @@ function CurrentInvestments({
     <section aria-labelledby="mi40-current-title" className="mi40-current">
       <div className="mi40-section-head">
         <div className="mi64-current-heading">
-          <h2 id="mi40-current-title">{t("Current investments")} <span>{currentHoldings.length}</span></h2>
+          <h2 id="mi40-current-title">{t("Current investments")} <span>{loanCount(currentHoldings)}</span></h2>
           {hasHistory ? (
             <a
               className="mi64-history"
@@ -396,6 +400,7 @@ function CurrentInvestments({
                       <InvestmentRow
                         holding={holding}
                         key={holding.id}
+                        multipleLots={(lotsPerLoan.get(holding.loan.loan_id) ?? 0) > 1}
                         onOpen={() => nav.go("investment", { holdingId: holding.id })}
                         state={states.get(holding.id) ?? "active"}
                       />
@@ -411,7 +416,7 @@ function CurrentInvestments({
   );
 }
 
-function InvestmentRow({ holding, state, onOpen }: { holding: Holding; state: InvestmentState; onOpen: () => void }) {
+function InvestmentRow({ holding, state, multipleLots, onOpen }: { holding: Holding; state: InvestmentState; multipleLots: boolean; onOpen: () => void }) {
   const t = useT();
   const money = useMoneyText();
   const tag = stateTag(state, holding.loan.days_past_due);
@@ -445,6 +450,13 @@ function InvestmentRow({ holding, state, onOpen }: { holding: Holding; state: In
               {t("{borrower} · {rate} annual interest rate", { borrower: holding.loan.borrower_name, rate: formatRateBps(investorRateBps(holding.loan)) })}
             </div>
             {maturity && !inRecovery ? <div className="bxm-mi-meta bxm-mi-end-date">{t("Maturity · {date}", { date: formatDate(maturity) })}</div> : null}
+            {multipleLots ? (
+              <div className="bxm-mi-meta u33-lot-date">
+                {holding.source_type === "secondary_market"
+                  ? t("Bought on {date}", { date: formatDate(holding.assignment_effective_at) })
+                  : t("Invested on {date}", { date: formatDate(holding.assignment_effective_at) })}
+              </div>
+            ) : null}
           </div>
         </PortalLink>
       </td>

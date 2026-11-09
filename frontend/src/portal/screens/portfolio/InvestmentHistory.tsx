@@ -32,12 +32,15 @@ export function InvestmentHistory({
   holdings,
   activity,
   currency,
-  currencySwitch
+  currencySwitch,
+  onBack
 }: {
   holdings: Holding[];
   activity: SecondaryMarketActivityEntryPortal[];
   currency: string | null;
   currencySwitch: ReactNode;
+  /** Back to the overview on the same address (the sub-view is a query parameter). */
+  onBack: () => void;
 }) {
   const t = useT();
   const money = useMoneyText();
@@ -71,7 +74,7 @@ export function InvestmentHistory({
 
   return (
     <main aria-label={t("My investments")} className="bxm-my-investments r75c-portfolio">
-      <BackLink onClick={() => nav.go("portfolio")}>{t("My investments")}</BackLink>
+      <BackLink onClick={onBack}>{t("My investments")}</BackLink>
       <header className="r75c-head">
         <div>
           <h1>{t("Investment history")}</h1>

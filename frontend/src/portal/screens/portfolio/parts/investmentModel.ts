@@ -2,7 +2,7 @@
 // Pure figures of My investments and the investment page (U33 slice S3), from today's portfolio API.
 // No invented data: a figure the API does not give is null and the screen leaves it out.
 import type { Holding, PortfolioHoldingInstallment, PrimaryOrderPortal } from "../../../../api/generated/banxumApi";
-import { isPaidScheduleRow } from "../../../../investorPortal/holdingProgress";
+import { installmentProgress, isPaidScheduleRow } from "../../../../investorPortal/holdingProgress";
 
 /** The design's investment states (INV_STATUS). "due" is a payment in its grace days (not Late yet). */
 export type InvestmentState = "active" | "due" | "funded" | "late" | "default" | "writtenOff" | "repaid" | "sold";
@@ -123,13 +123,13 @@ export function principalAfterRows(holding: Holding) {
 
 /** Borrower installments of the loan: received and total, counted once per installment. */
 export function installmentCounts(holding: Holding) {
-  const installments = new Map<number, boolean>();
-  for (const row of holding.loan.schedule) {
-    if (row.installment_number <= 0) continue;
-    const paid = installments.get(row.installment_number) ?? true;
-    installments.set(row.installment_number, paid && isPaidScheduleRow(row));
-  }
-  return { received: Array.from(installments.values()).filter(Boolean).length, total: installments.size };
+  const { paid, total } = installmentProgress(holding.loan.schedule);
+  return { received: paid, total };
+}
+
+/** Distinct loans of a list of holdings: two lots of one loan are one investment (audit SECONDARY-11). */
+export function loanCount(holdings: Holding[]) {
+  return new Set(holdings.map((holding) => holding.loan.loan_id)).size;
 }
 
 /** Adds an amount to a per-currency total. */
