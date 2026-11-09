@@ -132,7 +132,6 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     )
     term_months = serializers.IntegerField(help_text="Loan period in months.")
     repayment_type = serializers.CharField(help_text="RepaymentType value.")
-    risk_rating = serializers.CharField(help_text="RiskRating value.")
     collateral_type = serializers.CharField(help_text="CollateralType value.")
     collateral_description = serializers.CharField(allow_blank=True)
     ltv_bps = serializers.IntegerField(
@@ -245,7 +244,6 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     underlying_interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
     remaining_term_days = serializers.IntegerField(allow_null=True)
-    risk_rating = serializers.CharField()
     funding_deadline = serializers.DateField(allow_null=True)
     maturity_date = serializers.DateField(allow_null=True)
     status = serializers.CharField()

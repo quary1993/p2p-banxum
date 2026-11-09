@@ -297,7 +297,6 @@ def _base_payload(loan: Any, profile: Any | None) -> dict[str, Any]:
         "interest_rate_bps": interest_rate_bps,
         "term_months": int(loan.term_months),
         "repayment_type": str(loan.repayment_type),
-        "risk_rating": str(loan.risk_rating),
         "collateral_type": str(loan.collateral_type),
         "collateral_description": str(loan.collateral_description or ""),
         "ltv_bps": loan.ltv_bps,

@@ -3757,7 +3757,6 @@ def originator_portfolio_loan_payload(
         "collateral_type": str(loan.collateral_type),
         "collateral_value_minor": int(loan.collateral_value_minor),
         "collateral_description": str(loan.collateral_description),
-        "risk_rating": str(loan.risk_rating),
         "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
         "interest_rate_bps": int(profile.target_yield_bps),
         "yield_bps": int(profile.target_yield_bps),
@@ -3923,7 +3922,6 @@ def originator_marketplace_payload(
         "underlying_interest_rate_bps": int(profile.loan.interest_rate_bps),
         "term_months": max(1, (remaining_term_days + 29) // 30),
         "remaining_term_days": remaining_term_days,
-        "risk_rating": profile.loan.risk_rating,
         "funding_deadline": profile.funding_deadline,
         "maturity_date": profile.maturity_date,
         # A closed round reports the loan's own status, like a funded Direct loan.

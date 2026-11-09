@@ -3376,7 +3376,8 @@ def test_old_anonymous_preview_list_is_retired(
     full = client.get("/api/v1/marketplace/primary/opportunities/")
     assert full.status_code == 200
     full_rows = {row["loan_id"]: row for row in full.json()}
-    assert full_rows[str(direct.pk)]["risk_rating"] == "BBB"
+    # U33-DEC-16: no risk rating in the investor marketplace.
+    assert "risk_rating" not in full_rows[str(direct.pk)]
     assert full_rows[str(direct.pk)]["committed_principal_minor"] == 0
 
 
@@ -3442,9 +3443,8 @@ def test_openapi_schema_describes_the_public_site_payload() -> None:
         "schema"
     ]["items"]
     investor_component = schema["components"]["schemas"][investor_items["$ref"].rsplit("/", 1)[-1]]
-    assert {"risk_rating", "ltv_bps", "minimum_investment_minor"} <= set(
-        investor_component["properties"]
-    )
+    assert {"ltv_bps", "minimum_investment_minor"} <= set(investor_component["properties"])
+    assert "risk_rating" not in investor_component["properties"]
 
 
 @pytest.mark.django_db

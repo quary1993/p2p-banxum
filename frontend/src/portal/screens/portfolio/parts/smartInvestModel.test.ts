@@ -54,7 +54,6 @@ describe("rule mapping", () => {
       maximum_term_months: null,
       collateral: ["any_secured"],
       currencies: ["CHF"],
-      risk_ratings: [],
       purposes: [],
       loan_kinds: []
     });
@@ -63,8 +62,8 @@ describe("rule mapping", () => {
 
   test("risk rating, purpose or loan type in an older rule are reported as retired", () => {
     expect(retiredCriteria(rule)).toEqual([]);
-    expect(retiredCriteria({ ...rule, risk_ratings: ["A"], purposes: ["working_capital"] })).toEqual(["risk", "purpose"]);
-    expect(retiredCriteria({ ...rule, is_active: false, risk_ratings: ["A"] })).toEqual([]);
+    expect(retiredCriteria({ ...rule, purposes: ["working_capital"] })).toEqual(["purpose"]);
+    expect(retiredCriteria({ ...rule, is_active: false, purposes: ["working_capital"] })).toEqual([]);
   });
 
   test("switching off clears the rule (no Pause today)", () => {

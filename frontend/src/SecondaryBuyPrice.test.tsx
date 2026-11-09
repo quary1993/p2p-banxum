@@ -47,7 +47,6 @@ const listRow = {
   risk_acknowledgement_required: false,
   loan_status_at_listing: "active",
   collateral_type: "real_estate",
-  risk_rating: "A",
   // Another investor's listing (the generated mock picks this flag at random).
   is_own_listing: false
 };
@@ -146,7 +145,6 @@ function useInvestorApi(state: {
           by_borrower: [],
           by_country: [],
           by_purpose: [],
-          by_risk_rating: [],
           by_collateral_type: [],
           by_maturity: [],
           by_loan_status: []

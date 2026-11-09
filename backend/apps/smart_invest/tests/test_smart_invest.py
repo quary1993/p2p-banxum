@@ -168,7 +168,7 @@ def test_rule_requires_a_real_criterion_and_deactivation_clears_current_state(
     deactivated = deactivate_smart_invest_rule(actor=investor)
     assert deactivated["rule"]["is_active"] is False
     assert deactivated["rule"]["minimum_yield_bps"] is None
-    for field in ("originators", "collateral", "currencies", "risk_ratings", "purposes"):
+    for field in ("originators", "collateral", "currencies", "purposes"):
         assert deactivated["rule"][field] == []
     assert deactivated["rule"]["loan_kinds"] == []
     assert SmartInvestRuleEvent.objects.filter(investor_user_id=investor.pk).count() == 2
@@ -181,7 +181,6 @@ def _criteria(**overrides: Any) -> dict[str, Any]:
         "originators": [],
         "collateral": [],
         "currencies": [],
-        "risk_ratings": [],
         "purposes": [],
         "loan_kinds": [],
     }
@@ -198,6 +197,7 @@ _DIRECT = {
     "collateral_type": "real_estate",
     "ltv_bps": 6_000,
     "currency": "CHF",
+    # U33-DEC-16: a rating in the payload never influences matching.
     "risk_rating": "BBB",
     "purpose": "bridge_financing",
     "is_refinancing": True,
@@ -228,7 +228,6 @@ def test_matching_covers_direct_originator_currency_and_loan_type() -> None:
         originators=["banxum"],
         collateral=["any_secured"],
         currencies=["CHF"],
-        risk_ratings=["BBB"],
         purposes=["bridge_financing"],
         loan_kinds=["refinancing"],
     )
@@ -249,10 +248,6 @@ def test_matching_accepts_any_of_several_ticked_values() -> None:
     def matches(opportunity: dict[str, Any], **criteria: Any) -> bool:
         return opportunity_matches_criteria(opportunity, _criteria(**criteria))
 
-    # Risk rating A together with A-.
-    assert matches(_ORIGINATOR, risk_ratings=["A", "A-"]) is True
-    assert matches(_UNSECURED, risk_ratings=["A", "A-"]) is True
-    assert matches(_DIRECT, risk_ratings=["A", "A-"]) is False
     # CHF together with EUR.
     assert matches(_DIRECT, currencies=["CHF", "EUR"]) is True
     assert matches(_ORIGINATOR, currencies=["CHF", "EUR"]) is True
@@ -293,7 +288,6 @@ def test_rule_lists_are_validated_deduplicated_and_ordered(
             originators=[str(originator.pk).upper(), "banxum", str(originator.pk)],
             collateral=["unsecured", "equipment", "real_estate", "equipment"],
             currencies=["EUR", "CHF", "EUR"],
-            risk_ratings=["A-", "A", "A-"],
             purposes=["working_capital", "acquisition"],
             loan_kinds=["refinancing"],
         )
@@ -302,11 +296,11 @@ def test_rule_lists_are_validated_deduplicated_and_ordered(
     assert rule["originators"] == ["banxum", str(originator.pk)]
     assert rule["collateral"] == ["real_estate", "equipment", "unsecured"]
     assert rule["currencies"] == ["CHF", "EUR"]
-    assert rule["risk_ratings"] == ["A", "A-"]
+    assert "risk_ratings" not in rule
     assert rule["purposes"] == ["working_capital", "acquisition"]
     assert rule["loan_kinds"] == ["refinancing"]
     event = SmartInvestRuleEvent.objects.get(investor_user_id=investor.pk)
-    assert event.criteria_snapshot["risk_ratings"] == ["A", "A-"]
+    assert "risk_ratings" not in event.criteria_snapshot
 
     # "Any collateral" already implies every collateral type.
     implied = save_smart_invest_rule(
@@ -322,7 +316,6 @@ def test_rule_lists_are_validated_deduplicated_and_ordered(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"risk_ratings": ["A", "Z"]}, "Risk rating 'Z'"),
         ({"currencies": ["USD"]}, "Currency 'USD'"),
         ({"purposes": ["holiday"]}, "Purpose 'holiday'"),
         ({"loan_kinds": ["all"]}, "Loan type 'all'"),
@@ -424,13 +417,12 @@ def test_publication_alerts_use_the_same_multi_select_matching(
     save_smart_invest_rule(
         SaveSmartInvestRuleCommand(
             actor=investor,
-            risk_ratings=["A", "BBB"],
             currencies=["CHF", "EUR"],
             collateral=["equipment", "real_estate", "unsecured"],
             purposes=["working_capital", "bridge_financing"],
         )
     )
-    save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=other, risk_ratings=["A", "A-"]))
+    save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=other, currencies=["EUR"]))
     loan = loan_services.create_loan(
         _loan_command(admin_user, _borrower(admin_user, suffix="Multi"), title="Multi")
     )
@@ -440,7 +432,7 @@ def test_publication_alerts_use_the_same_multi_select_matching(
 
     notifications = SmartInvestMatchNotification.objects.filter(loan_id=loan.id)
     assert [str(item.investor_user_id) for item in notifications] == [str(investor.pk)]
-    assert notifications.get().match_snapshot["criteria"]["risk_ratings"] == ["A", "BBB"]
+    assert notifications.get().match_snapshot["criteria"]["currencies"] == ["CHF", "EUR"]
     # The matches list applies the identical rule.
     from backend.apps.smart_invest.services import get_smart_invest
 
@@ -504,7 +496,6 @@ def test_api_saves_multi_select_lists_and_rejects_unknown_values(investor: Model
     response = client.put(
         "/api/v1/investor/smart-invest/",
         data={
-            "risk_ratings": ["A-", "A"],
             "currencies": ["CHF", "EUR"],
             "collateral": ["real_estate", "equipment", "unsecured"],
             "loan_kinds": ["new"],
@@ -513,7 +504,6 @@ def test_api_saves_multi_select_lists_and_rejects_unknown_values(investor: Model
     )
     assert response.status_code == 200, response.json()
     rule = response.json()["rule"]
-    assert rule["risk_ratings"] == ["A", "A-"]
     assert rule["currencies"] == ["CHF", "EUR"]
     assert rule["collateral"] == ["real_estate", "equipment", "unsecured"]
     assert rule["loan_kinds"] == ["new"]
@@ -522,11 +512,19 @@ def test_api_saves_multi_select_lists_and_rejects_unknown_values(investor: Model
 
     rejected = client.put(
         "/api/v1/investor/smart-invest/",
-        data={"risk_ratings": ["A", "not-a-rating"]},
+        data={"currencies": ["CHF", "USD"]},
         content_type="application/json",
     )
     assert rejected.status_code == 400
-    assert "risk_ratings" in rejected.json()
+    assert "currencies" in rejected.json()
+    # U33-DEC-16: a rating criterion is no longer part of the rule.
+    ignored = client.put(
+        "/api/v1/investor/smart-invest/",
+        data={"currencies": ["CHF"], "risk_ratings": ["A"]},
+        content_type="application/json",
+    )
+    assert ignored.status_code == 200
+    assert "risk_ratings" not in ignored.json()["rule"]
 
 
 @pytest.mark.django_db
@@ -562,6 +560,7 @@ def test_rule_update_replaces_the_single_current_rule(investor: Model) -> None:
 
 _BEFORE_LISTS = ("smart_invest", "0002_smart_invest_append_only_guards")
 _AFTER_LISTS = ("smart_invest", "0004_remove_single_value_criteria")
+_LATEST = ("smart_invest", "0006_remove_rating_criterion_column")
 
 
 def _migrate(target: tuple[str, str]) -> Any:
@@ -637,18 +636,77 @@ def test_migration_converts_single_value_rules_exactly() -> None:
             )
             updated_at[key] = rule.updated_at
 
-        _migrate(_AFTER_LISTS)
+        after_apps = _migrate(_AFTER_LISTS)
+        after_rule_model = after_apps.get_model("smart_invest", "SmartInvestRule")
 
         for key, user in users.items():
-            rule = SmartInvestRule.objects.get(user_id=user.pk)
+            rule = after_rule_model.objects.get(user_id=user.pk)
             converted = {field: getattr(rule, field) for field in list_fields}
             assert converted == {field: expected[key].get(field, []) for field in list_fields}, key
             # The storage shape changes, not the investor's rule: no new revision.
             assert rule.revision == 3 and rule.is_active is True
             assert rule.updated_at == updated_at[key]
-        assert SmartInvestRule.objects.get(user_id=users["banxum"].pk).minimum_yield_bps == 700
+        assert after_rule_model.objects.get(user_id=users["banxum"].pk).minimum_yield_bps == 700
     finally:
-        _migrate(_AFTER_LISTS)
+        # 0005 records an append-only event per rating rule; empty the ratings first so the
+        # flush after this transactional test can still delete the rows.
+        state_apps = _migrate(_AFTER_LISTS)
+        state_apps.get_model("smart_invest", "SmartInvestRule").objects.update(risk_ratings=[])
+        _migrate(_LATEST)
+
+
+def _old_rule(**fields: Any) -> Any:
+    from types import SimpleNamespace
+
+    values: dict[str, Any] = {
+        "user_id": "5a1f0f43-7b0f-4a64-8a3c-6d1b0b2c0e11",
+        "is_active": True,
+        "revision": 4,
+        "minimum_yield_bps": None,
+        "maximum_term_months": None,
+        "originators": [],
+        "collateral": [],
+        "currencies": [],
+        "risk_ratings": ["A", "BBB"],
+        "purposes": [],
+        "loan_kinds": [],
+    }
+    values.update(fields)
+    return SimpleNamespace(**values)
+
+
+def test_rating_migration_empties_the_criterion_and_records_it() -> None:
+    # U33-DEC-16: a saved rule must not keep filtering on ratings in a hidden way.
+    migration = import_module(
+        "backend.apps.smart_invest.migrations.0005_remove_rating_criterion_from_rules"
+    )
+    now = timezone.now()
+    purposes = ["working_capital", "bridge_financing"]
+
+    changes, event = migration.plan_rating_removal(_old_rule(currencies=["CHF"]), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5}
+    assert event["event_type"] == "rating_criterion_removed"
+    assert event["revision"] == 5
+    assert event["criteria_snapshot"]["risk_ratings"] == ["A", "BBB"]
+    assert event["metadata"] == {
+        "decision": "U33-DEC-16",
+        "removed_risk_ratings": ["A", "BBB"],
+        "deactivated": False,
+    }
+
+    # Only the rating restricted the rule: it stops instead of alerting on everything.
+    changes, event = migration.plan_rating_removal(_old_rule(), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5, "is_active": False, "deactivated_at": now}
+    assert event["metadata"]["deactivated"] is True
+    # Ticking every currency or every purpose is no restriction either.
+    changes, _event = migration.plan_rating_removal(
+        _old_rule(currencies=["CHF", "EUR"], purposes=purposes), purposes, now
+    )
+    assert changes["is_active"] is False
+    # An inactive rule stays inactive and keeps its other values.
+    changes, event = migration.plan_rating_removal(_old_rule(is_active=False), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5}
+    assert event["metadata"]["deactivated"] is False
 
 
 @pytest.mark.django_db

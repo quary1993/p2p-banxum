@@ -11480,8 +11480,6 @@ components:
         remaining_term_days:
           type: integer
           nullable: true
-        risk_rating:
-          type: string
         funding_deadline:
           type: string
           format: date
@@ -11683,7 +11681,6 @@ components:
       - remaining_capacity_minor
       - remaining_term_days
       - repayment_type
-      - risk_rating
       - schedule_version
       - status
       - term_months
@@ -11717,8 +11714,6 @@ components:
         remaining_term_days:
           type: integer
           nullable: true
-        risk_rating:
-          type: string
         funding_deadline:
           type: string
           format: date
@@ -11834,7 +11829,6 @@ components:
       - remaining_capacity_minor
       - remaining_term_days
       - repayment_type
-      - risk_rating
       - status
       - term_months
       - title
@@ -13829,10 +13823,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ExposureBucket'
-        by_risk_rating:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExposureBucket'
         by_collateral_type:
           type: array
           items:
@@ -13852,7 +13842,6 @@ components:
       - by_loan_status
       - by_maturity
       - by_purpose
-      - by_risk_rating
     PortfolioHoldingInstallment:
       type: object
       properties:
@@ -14008,8 +13997,6 @@ components:
           type: string
         skin_in_the_game_bps:
           type: integer
-        risk_rating:
-          type: string
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -14091,7 +14078,6 @@ components:
       - product_type
       - purpose
       - repayment_type
-      - risk_rating
       - schedule
       - schedule_version
       - skin_in_the_game_bps
@@ -14916,9 +14902,6 @@ components:
         repayment_type:
           type: string
           description: RepaymentType value.
-        risk_rating:
-          type: string
-          description: RiskRating value.
         collateral_type:
           type: string
           description: CollateralType value.
@@ -14998,7 +14981,6 @@ components:
       - record
       - remaining_capacity_minor
       - repayment_type
-      - risk_rating
       - term_months
       - title
     PublicProjectOriginator:
@@ -16049,8 +16031,6 @@ components:
           nullable: true
         purpose:
           type: string
-        risk_rating:
-          type: string
         term_months:
           type: integer
         repayment_type:
@@ -16121,7 +16101,6 @@ components:
       - remaining_term_months
       - repayment_type
       - risk_acknowledgement_required
-      - risk_rating
       - schedule_version
       - status
       - taker_fee_bps
@@ -16928,8 +16907,6 @@ components:
         remaining_term_days:
           type: integer
           nullable: true
-        risk_rating:
-          type: string
         funding_deadline:
           type: string
           format: date
@@ -17000,7 +16977,6 @@ components:
       - purpose
       - remaining_capacity_minor
       - remaining_term_days
-      - risk_rating
       - status
       - term_months
       - title
@@ -17059,10 +17035,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SmartInvestCurrencyEnum'
-        risk_ratings:
-          type: array
-          items:
-            $ref: '#/components/schemas/RiskRatingEnum'
         purposes:
           type: array
           items:
@@ -17099,7 +17071,6 @@ components:
       - originators
       - purposes
       - revision
-      - risk_ratings
       - updated_at
     SmartInvestRuleSaveRequest:
       type: object
@@ -17134,11 +17105,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SmartInvestCurrencyEnum'
-          maxItems: 100
-        risk_ratings:
-          type: array
-          items:
-            $ref: '#/components/schemas/RiskRatingEnum'
           maxItems: 100
         purposes:
           type: array

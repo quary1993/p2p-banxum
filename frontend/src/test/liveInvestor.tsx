@@ -82,7 +82,6 @@ export const emptyPortfolio = {
     by_borrower: [],
     by_country: [],
     by_purpose: [],
-    by_risk_rating: [],
     by_collateral_type: [],
     by_maturity: [],
     by_loan_status: []

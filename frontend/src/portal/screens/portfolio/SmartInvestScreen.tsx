@@ -69,7 +69,7 @@ export function SmartInvestScreen() {
   const data = smartQuery.data;
   const loans = loansQuery.data ?? [];
   // Preview variants for review: ?preview=not-set-up, ?preview=zero-matches, ?preview=retired-criteria.
-  const rule = preview === "not-set-up" ? null : preview === "retired-criteria" && data.rule ? { ...data.rule, risk_ratings: ["A"], purposes: ["working_capital"] } as typeof data.rule : data.rule;
+  const rule = preview === "not-set-up" ? null : preview === "retired-criteria" && data.rule ? { ...data.rule, purposes: ["working_capital"] } as typeof data.rule : data.rule;
   const matches = preview === "zero-matches" ? [] : data.matches;
   const active = rule?.is_active === true;
   const preferences = preferencesFromRule(rule);

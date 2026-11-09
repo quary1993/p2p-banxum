@@ -66,8 +66,6 @@ export interface PublicProject {
   term_months: number;
   /** RepaymentType value. */
   repayment_type: string;
-  /** RiskRating value. */
-  risk_rating: string;
   /** CollateralType value. */
   collateral_type: string;
   collateral_description: string;

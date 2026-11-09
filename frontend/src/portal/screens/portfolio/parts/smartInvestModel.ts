@@ -38,7 +38,6 @@ export const DEFAULT_PREFERENCES: SmartPreferences = { currencies: [...SMART_CUR
 export function retiredCriteria(rule: SmartInvestRule | null | undefined) {
   if (!rule?.is_active) return [];
   return [
-    rule.risk_ratings.length > 0 ? "risk" : "",
     rule.purposes.length > 0 ? "purpose" : "",
     rule.loan_kinds.length > 0 ? "kind" : ""
   ].filter(Boolean);
@@ -77,8 +76,7 @@ export function requestFromPreferences(preferences: SmartPreferences): SmartInve
     originators: [...preferences.originators],
     collateral: collateralList(preferences.security) as SmartInvestCollateralEnum[],
     currencies: [...preferences.currencies] as SmartInvestCurrencyEnum[],
-    // U33-DEC-16/19: never sent; an older rule's values are removed by saving.
-    risk_ratings: [],
+    // U33-DEC-19: never sent; an older rule's values are removed by saving.
     purposes: [],
     loan_kinds: []
   };
@@ -140,7 +138,6 @@ function asOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
     underlying_interest_rate_bps: loan.underlying_interest_rate_bps,
     term_months: loan.term_months,
     remaining_term_days: loan.remaining_term_days,
-    risk_rating: loan.risk_rating,
     funding_deadline: loan.funding_deadline,
     maturity_date: loan.maturity_date,
     status: loan.status,
@@ -178,7 +175,6 @@ export function previewResponse(preferences: SmartPreferences, loans: Marketplac
       originators: request.originators ?? [],
       collateral: request.collateral ?? [],
       currencies: request.currencies ?? [],
-      risk_ratings: [],
       purposes: [],
       loan_kinds: [],
       activated_at: previous?.activated_at ?? now,
@@ -197,7 +193,7 @@ export function previewSwitchedOff(previous: SmartInvestRule | null | undefined,
   const now = new Date().toISOString();
   return {
     rule: previous
-      ? { ...previous, is_active: false, revision: previous.revision + 1, minimum_yield_bps: null, maximum_term_months: null, originators: [], collateral: [], currencies: [], risk_ratings: [], purposes: [], loan_kinds: [], deactivated_at: now, updated_at: now }
+      ? { ...previous, is_active: false, revision: previous.revision + 1, minimum_yield_bps: null, maximum_term_months: null, originators: [], collateral: [], currencies: [], purposes: [], loan_kinds: [], deactivated_at: now, updated_at: now }
       : null,
     match_count: 0,
     open_opportunity_count: loans.filter(isOpenOpportunity).length,

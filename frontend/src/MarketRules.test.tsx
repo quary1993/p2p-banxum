@@ -50,7 +50,6 @@ function publicProject(overrides: Partial<PublicProject>): PublicProject {
     interest_rate_bps: 750,
     term_months: 24,
     repayment_type: "equal_installments",
-    risk_rating: "B",
     collateral_type: "equipment",
     collateral_description: "Pledge on the machine",
     ltv_bps: null,

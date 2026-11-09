@@ -54,7 +54,6 @@ class SaveSmartInvestRuleCommand:
     originators: Sequence[str] = ()
     collateral: Sequence[str] = ()
     currencies: Sequence[str] = ()
-    risk_ratings: Sequence[str] = ()
     purposes: Sequence[str] = ()
     loan_kinds: Sequence[str] = ()
 
@@ -90,7 +89,6 @@ _LIST_CRITERIA = (
     "originators",
     "collateral",
     "currencies",
-    "risk_ratings",
     "purposes",
     "loan_kinds",
 )
@@ -191,11 +189,6 @@ def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
         "currencies": _validated_choices(
             command.currencies, SmartInvestCurrency.values, "Currency"
         ),
-        "risk_ratings": _validated_choices(
-            command.risk_ratings,
-            _choice_values(loan_field_choices("risk_rating")),
-            "Risk rating",
-        ),
         "purposes": _validated_choices(
             command.purposes, _choice_values(loan_field_choices("purpose")), "Purpose"
         ),
@@ -228,7 +221,6 @@ def _has_effective_criterion(criteria: dict[str, Any]) -> bool:
                 SmartInvestCollateralOption.values,
             ),
             _restricts(criteria["currencies"], SmartInvestCurrency.values),
-            _restricts(criteria["risk_ratings"], _choice_values(loan_field_choices("risk_rating"))),
             _restricts(criteria["purposes"], _choice_values(loan_field_choices("purpose"))),
             _restricts(criteria["loan_kinds"], SmartInvestLoanKind.values),
         )
@@ -301,7 +293,6 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
 
     single_value_lists = (
         ("currencies", str(opportunity.get("currency") or "")),
-        ("risk_ratings", str(opportunity.get("risk_rating") or "")),
         ("purposes", str(opportunity.get("purpose") or "")),
         (
             "loan_kinds",

@@ -8,7 +8,6 @@ from backend.apps.smart_invest.models import SmartInvestCurrency, SmartInvestLoa
 from backend.apps.smart_invest.services import collateral_choices, loan_field_choices
 
 COLLATERAL_CHOICES = collateral_choices()
-RISK_RATING_CHOICES = loan_field_choices("risk_rating")
 LOAN_PURPOSE_CHOICES = loan_field_choices("purpose")
 # Bounds a request; duplicates are accepted and de-duplicated by the service.
 MAX_CHOICES = 100
@@ -35,7 +34,6 @@ class SmartInvestRuleSerializer(serializers.Serializer[Any]):
     currencies = serializers.ListField(
         child=serializers.ChoiceField(choices=SmartInvestCurrency.choices)
     )
-    risk_ratings = serializers.ListField(child=serializers.ChoiceField(choices=RISK_RATING_CHOICES))
     purposes = serializers.ListField(child=serializers.ChoiceField(choices=LOAN_PURPOSE_CHOICES))
     loan_kinds = serializers.ListField(
         child=serializers.ChoiceField(choices=SmartInvestLoanKind.choices)
@@ -74,12 +72,6 @@ class SmartInvestRuleSaveRequestSerializer(serializers.Serializer[Any]):
         default=list,
         max_length=MAX_CHOICES,
     )
-    risk_ratings = serializers.ListField(
-        child=serializers.ChoiceField(choices=RISK_RATING_CHOICES),
-        required=False,
-        default=list,
-        max_length=MAX_CHOICES,
-    )
     purposes = serializers.ListField(
         child=serializers.ChoiceField(choices=LOAN_PURPOSE_CHOICES),
         required=False,
@@ -106,7 +98,6 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     underlying_interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
     remaining_term_days = serializers.IntegerField(allow_null=True)
-    risk_rating = serializers.CharField()
     funding_deadline = serializers.DateField(allow_null=True)
     maturity_date = serializers.DateField(allow_null=True)
     status = serializers.CharField()

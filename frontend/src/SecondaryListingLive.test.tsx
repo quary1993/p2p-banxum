@@ -63,7 +63,6 @@ function holdingFixture(openListingId: string | null = null) {
         schedule: [],
         collateral_type: "real_estate",
         purpose: "working_capital",
-        risk_rating: "A",
         borrower_country: "CH",
         repayment_type: "equal_installments"
       }

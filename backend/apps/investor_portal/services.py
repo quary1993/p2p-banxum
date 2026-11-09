@@ -1049,7 +1049,6 @@ def _loan_projection(
         "collateral_value_minor": int(loan.collateral_value_minor),
         "collateral_description": str(loan.collateral_description),
         "skin_in_the_game_bps": int(getattr(loan, "skin_in_the_game_bps", 0)),
-        "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "yield_bps": int(loan.interest_rate_bps),
         "underlying_interest_rate_bps": int(loan.interest_rate_bps),
@@ -1428,10 +1427,6 @@ def get_investor_portfolio(
         "by_purpose": _exposure_dimension(
             active_holdings,
             key_func=lambda _holding, loan: str(loan.purpose),
-        ),
-        "by_risk_rating": _exposure_dimension(
-            active_holdings,
-            key_func=lambda _holding, loan: str(loan.risk_rating),
         ),
         "by_collateral_type": _exposure_dimension(
             active_holdings,

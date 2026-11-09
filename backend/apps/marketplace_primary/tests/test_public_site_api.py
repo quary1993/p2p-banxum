@@ -56,7 +56,6 @@ PUBLIC_PROJECT_FIELDS = {
     "interest_rate_bps",
     "term_months",
     "repayment_type",
-    "risk_rating",
     "collateral_type",
     "collateral_description",
     "ltv_bps",
@@ -425,7 +424,7 @@ def test_public_project_has_the_contract_fields_and_never_the_borrower_identity(
     assert row["interest_rate_bps"] == 1000
     assert row["term_months"] == 12
     assert row["repayment_type"] == "equal_installments"
-    assert row["risk_rating"] == "BBB"
+    assert "risk_rating" not in row  # U33-DEC-16
     assert row["collateral_type"] == "real_estate"
     assert row["ltv_bps"] == 6667
     assert row["purpose"] == "bridge_financing"

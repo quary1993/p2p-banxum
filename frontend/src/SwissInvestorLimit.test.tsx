@@ -47,7 +47,6 @@ function swissLoan(overrides: Record<string, unknown> = {}) {
     underlying_interest_rate_bps: 800,
     term_months: 12,
     remaining_term_days: null,
-    risk_rating: "A",
     funding_deadline: "2026-10-20",
     maturity_date: null,
     status: "published",

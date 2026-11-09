@@ -234,7 +234,6 @@ class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSer
     borrower_country = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
-    risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField(allow_null=True)  # type: ignore[assignment]

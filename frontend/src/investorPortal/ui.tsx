@@ -442,11 +442,6 @@ export function Chip({
   return tooltip ? <Tooltip content={tooltip} label={accessibleLabel}>{chip}</Tooltip> : chip;
 }
 
-export function Rating({ value }: { value: string }) {
-  const rating = value.slice(0, 1).toLowerCase();
-  return <span className={`rating rating-${rating}`}>{value}</span>;
-}
-
 export function Country({ code }: { code: string }) {
   return <span className="tag">{code}</span>;
 }

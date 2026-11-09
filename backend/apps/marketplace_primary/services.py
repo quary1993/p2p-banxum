@@ -3149,7 +3149,6 @@ def public_marketplace_listing_payload(
         "underlying_interest_rate_bps": int(loan_ref.interest_rate_bps),
         "term_months": int(loan_ref.term_months),
         "remaining_term_days": None,
-        "risk_rating": str(loan_ref.risk_rating),
         "funding_deadline": loan_ref.funding_deadline,
         "maturity_date": None,
         "status": str(loan_ref.status),

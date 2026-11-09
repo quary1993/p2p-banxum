@@ -36,6 +36,8 @@ class SmartInvestCollateralOption(models.TextChoices):
 class SmartInvestRuleEventType(models.TextChoices):
     SAVED = "saved", "Saved and activated"
     DEACTIVATED = "deactivated", "Deactivated"
+    # U33-DEC-16: the migration that removed the risk-rating criterion from saved rules.
+    RATING_CRITERION_REMOVED = "rating_criterion_removed", "Risk-rating criterion removed"
 
 
 class SmartInvestRule(TimestampedModel):
@@ -53,7 +55,6 @@ class SmartInvestRule(TimestampedModel):
     # "any_secured", "unsecured" and/or loan collateral types.
     collateral = models.JSONField(default=list, blank=True)
     currencies = models.JSONField(default=list, blank=True)
-    risk_ratings = models.JSONField(default=list, blank=True)
     purposes = models.JSONField(default=list, blank=True)
     loan_kinds = models.JSONField(default=list, blank=True)
     revision = models.PositiveIntegerField(default=0)

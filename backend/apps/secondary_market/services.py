@@ -3522,7 +3522,6 @@ def get_active_secondary_market_listing_detail(
         ),
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
-        "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "yield_bps": projected_yield_bps,
         "projected_yield_bps": projected_yield_bps,

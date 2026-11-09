@@ -88,7 +88,6 @@ function holding(id: string, overrides: Record<string, unknown>, loanOverrides: 
       collateral_value_minor: 0,
       collateral_description: "",
       skin_in_the_game_bps: 0,
-      risk_rating: "B",
       interest_rate_bps: 840,
       yield_bps: 840,
       underlying_interest_rate_bps: 1200,
@@ -170,7 +169,6 @@ function useInvestorApi() {
       by_borrower: [],
       by_country: [],
       by_purpose: [],
-      by_risk_rating: [],
       by_collateral_type: [],
       by_maturity: [],
       by_loan_status: []
