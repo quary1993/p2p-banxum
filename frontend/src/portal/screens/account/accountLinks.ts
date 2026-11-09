@@ -18,4 +18,4 @@ export function supportMailto({ subject, body, reference }: { subject?: string; 
 }
 
 /** Topics of the Contact support dialog (design: Help -> Contact support). */
-export const SUPPORT_TOPICS = ["An investment", "My account", "Documents or taxes", "Security", "Something else"] as const;
+export const SUPPORT_TOPICS = ["An investment", "My Banxum account", "Documents or taxes", "Security", "Something else"] as const;

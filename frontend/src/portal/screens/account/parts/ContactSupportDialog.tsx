@@ -38,7 +38,7 @@ export function ContactSupportDialog({ onClose, topic: initialTopic, reference }
               <label className="form-label" htmlFor="msg-text">{t("Message")}</label>
               <textarea aria-describedby="hp-message-note" className="form-control" id="msg-text" onChange={(event) => setMessage(event.target.value)} rows={5} value={message} />
               <p className="hp-message-note" id="hp-message-note">
-                {t("Write email opens your email app with this message to {email}; you send it from there. Do not include your PIN or any confirmation code.", { email: supportEmail })}
+                {t("Do not include your PIN or any confirmation code.")} {t("Write email opens your email app with this message to {email}; you send it from there.", { email: supportEmail })}
               </p>
             </div>
             <div className="hp-modal-actions">

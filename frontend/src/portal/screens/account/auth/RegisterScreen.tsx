@@ -499,7 +499,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
           </button>
         </form>
         <p className="ca-foot-link">
-          {t("Already have an account?")}
+          {t("Already have an account?")}{" "}
           <PortalLink to="login">{t("Log in")}</PortalLink>
         </p>
         <p className="ca-quiet-note">{t("Your acceptance is recorded with the document version, the time and the context. You find the accepted versions in Documents.")}</p>

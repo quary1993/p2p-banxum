@@ -10,7 +10,7 @@ import { useV1AuthMeRetrieve } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { autoReturnDays } from "../../../investorPortal/balanceAgeing";
 import { isFixturePreview, useBalancesData, useFxFeature } from "../../../investorPortal/data";
-import { operatorName, brandDisplayName } from "../../brand";
+import { brandDisplayName } from "../../brand";
 import { Button, Dialog, NiIcon, PageHead, PortalLink } from "../../components";
 import { supportEmail } from "./accountLinks";
 import { HELP_TOPICS, helpQuestions, matchesHelpQuestion, type HelpTopic } from "./help/helpContent";
@@ -163,7 +163,7 @@ export function HelpScreen() {
           <div className="hp-support rss-help-support">
             <NiIcon className="hp-support-icon" name="mail" />
             <h2>{t("Need more help?")}</h2>
-            <p>{t("Write to us about your account or an investment. Our team replies by email.")}</p>
+            <p>{t("Send us a message about your account or an investment.")}</p>
             <button className="btn btn-primary" onClick={() => setDialog({ kind: "contact" })} type="button">
               {t("Contact support")}
               <NiIcon name="arrow-right" />
@@ -171,8 +171,6 @@ export function HelpScreen() {
             <dl>
               <dt>{t("Email")}</dt>
               <dd><a href={`mailto:${supportEmail}`}>{supportEmail}</a></dd>
-              <dt>{t("Operator")}</dt>
-              <dd>{operatorName}</dd>
             </dl>
           </div>
         </aside>

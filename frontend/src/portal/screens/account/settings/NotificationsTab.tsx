@@ -14,12 +14,16 @@ import { NiIcon, PortalLink } from "../../../components";
 import { Notice, PsPanel, SettingsRow } from "../parts/ui";
 import type { AccountData } from "./useAccountData";
 
-const SERVICE_EMAILS: Array<{ title: string; description: string }> = [
-  { title: "Investments and repayments", description: "Confirmations of your investments, and repayments credited to your {brand} balance." },
-  { title: "Late payments and recoveries", description: "When a payment is late, and updates on recovery." },
-  { title: "Documents and statements", description: "When a document or statement is ready for you." },
-  { title: "Money going back to your bank", description: "Reminders before money you have not invested goes back to your bank account." },
-  { title: "Security", description: "Sign-in links, confirmation codes and changes to your account." }
+// The design's rows and panels. Service emails show "Always on" (U33-DEC-30) where the design has
+// switches; repayments are credited to the Banxum account (U33-DEC-02). The design's opportunity and
+// Smart Invest alerts come with U33-DEC-17/19 (Phase 17.2).
+const INVESTMENT_EMAILS: Array<{ title: string; description: string }> = [
+  { title: "Repayments", description: "Repayments credited to your {brand} account." },
+  { title: "Late payments", description: "Late payments and recovery updates." }
+];
+const ACCOUNT_EMAILS: Array<{ title: string; description: string }> = [
+  { title: "Uninvested funds returning", description: "Reminders before money you have not invested goes back to your bank account." },
+  { title: "Documents and statements", description: "" }
 ];
 
 export function NotificationsTab({ account }: { account: AccountData }) {
@@ -63,15 +67,18 @@ export function NotificationsTab({ account }: { account: AccountData }) {
         </PortalLink>
       </div>
       <div className="ps-personal-grid rss-notification-settings">
-        <PsPanel title={t("Always sent")}>
+        <PsPanel title={t("Investments")}>
           <div className="ps-settings-rows">
-            {SERVICE_EMAILS.map((item) => (
+            {INVESTMENT_EMAILS.map((item) => (
               <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={t(item.description, { brand: brandDisplayName() })} key={item.title} title={t(item.title)} />
             ))}
           </div>
         </PsPanel>
-        <PsPanel title={t("Optional")}>
+        <PsPanel title={t("Account")}>
           <div className="ps-settings-rows">
+            {ACCOUNT_EMAILS.map((item) => (
+              <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={item.description ? t(item.description) : undefined} key={item.title} title={t(item.title)} />
+            ))}
             <SettingsRow
               actions={
                 <div className="custom-control custom-switch me-n2">
@@ -91,6 +98,7 @@ export function NotificationsTab({ account }: { account: AccountData }) {
               description={t("News and updates about {brand}. Optional; you can switch it off at any time.", { brand: brandDisplayName() })}
               title={newsTitle}
             />
+            <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={t("Sign-in links, confirmation codes and changes to your account.")} title={t("Security alerts")} />
           </div>
         </PsPanel>
       </div>

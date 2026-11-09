@@ -74,8 +74,8 @@ export function PersonalTab({ account, section }: { account: AccountData; sectio
                 </div>
               </div>
             ) : null}
+            {/* U33-DEC-26: no free editing; one "Contact support to change" access instead of the design's Edit buttons. */}
             <div className="ps-contact-row acc-contact-change">
-              <p className="ps-panel-note">{t("Verified details cannot be changed here. Our team verifies your identity before it changes them.")}</p>
               <a className="btn btn-outline-light" href={changeHref}>{t("Contact support to change")}</a>
             </div>
           </div>
@@ -95,7 +95,7 @@ export function PersonalTab({ account, section }: { account: AccountData; sectio
                 ))}
               </dl>
             ) : null}
-            <p className="ps-panel-note">{t("These details come from your account registration and your identity verification. Contact support if they need to change.")}</p>
+            <p className="ps-panel-note">{t("These details come from your verified identity document or account registration. Contact support if they need to change.")}</p>
           </div>
         </PsPanel>
       </div>

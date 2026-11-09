@@ -24,18 +24,15 @@ function BankPanel({ instruction }: { instruction: PayoutInstruction }) {
   return (
     <PsPanel className="ps-bank" title={t("{currency} account", { currency: instruction.currency })}>
       <div className="ps-panel-body">
-        <div className="ps-bank-title">
-          <span className="ps-bank-icon"><NiIcon name="building" /></span>
-          <strong>{instruction.destination_account_name}</strong>
-        </div>
+        {/* Design: bank name, IBAN and account holder. The platform does not store the bank name. */}
         <dl className="ps-bank-facts">
           <div>
             <dt>{t("IBAN")}</dt>
             <dd><span className="bxm-iban">{formatIban(instruction.destination_iban)}</span></dd>
           </div>
           <div>
-            <dt>{t("Added")}</dt>
-            <dd>{formatDate(instruction.created_at)}</dd>
+            <dt>{t("Account holder")}</dt>
+            <dd>{instruction.destination_account_name}</dd>
           </div>
         </dl>
         <div className="ps-bank-footer">

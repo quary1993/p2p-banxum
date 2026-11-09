@@ -2144,7 +2144,7 @@ test("the Help page searches its questions and contacts support by email", () =>
   expect(screen.getByText("How much can I invest?").closest("details")).not.toHaveAttribute("hidden");
 
   fireEvent.click(screen.getByRole("button", { name: "Account & security" }));
-  expect(screen.getByText("How do I add a bank account?").closest("details")).not.toHaveAttribute("hidden");
+  expect(screen.getByText("How do I change my bank account?").closest("details")).not.toHaveAttribute("hidden");
   expect(screen.getByText("How much can I invest?").closest("details")).toHaveAttribute("hidden");
 
   // Contact support prepares an email (no Help message endpoint yet, U33-DEC-35).

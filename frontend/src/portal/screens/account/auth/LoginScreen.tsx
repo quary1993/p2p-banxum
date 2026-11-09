@@ -244,7 +244,7 @@ export function LoginScreen() {
           </div>
         </form>
         <p className="ca-foot-link">
-          {t("New to {brand}?", { brand: brandDisplayName() })}
+          {t("New to {brand}?", { brand: brandDisplayName() })}{" "}
           <PortalLink to="register">{t("Create an account")}</PortalLink>
         </p>
       </AuthCard>

@@ -136,7 +136,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       question: t("My bank transfer has not arrived. What should I check?"),
       answer: t("Check the bank details, currency and personal payment reference against the instructions in Add funds. The transfer must come from a bank account in your name. Our team matches payments by hand, so it can take some time after your bank has sent the money. If it is still missing, contact support with the transfer date, amount, currency and reference."),
       links: [{ label: t("Account"), to: "balances" }],
-      contact: "My account"
+      contact: "My Banxum account"
     },
     {
       id: "unused",
@@ -187,7 +187,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
     {
       id: "bank",
       topic: "security",
-      question: t("How do I add a bank account?"),
+      question: t("How do I change my bank account?"),
       answer: t("Open Bank accounts in Profile & Settings and choose Add a bank account. The account must be in your name. You confirm with an email code and your PIN. Our team checks the new account: it shows Pending verification until then and cannot be used for withdrawals before. Your verified accounts stay usable meanwhile."),
       links: [{ label: t("Bank accounts"), to: "settings", params: { tab: "bank-accounts" } }]
     },
