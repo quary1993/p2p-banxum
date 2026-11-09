@@ -114,6 +114,21 @@ def _validate_year_founded(year_founded: int) -> int:
     return year_founded
 
 
+def _validate_employees(employees: int | None, employees_year: int | None) -> None:
+    """U33-DEC-23: a head count always carries the year it refers to."""
+    if employees is None and employees_year is None:
+        return
+    if employees is None or employees_year is None:
+        raise BorrowerValidationError("Give the number of employees together with its year.")
+    if employees < 0:
+        raise BorrowerValidationError("The number of employees cannot be negative.")
+    current_year = business_date(now_utc()).year
+    if employees_year < 1800 or employees_year > current_year:
+        raise BorrowerValidationError(
+            "The employees year must be between 1800 and the current year."
+        )
+
+
 def _clean_currency(currency: str) -> str:
     cleaned = currency.strip().upper()
     if cleaned and (len(cleaned) != 3 or not cleaned.isalpha()):
@@ -157,6 +172,9 @@ def _event_metadata_for_borrower(borrower: BorrowerEntity) -> dict[str, Any]:
         "kyb_status": borrower.kyb_status,
         "compliance_hold": borrower.compliance_hold,
         "country": borrower.country,
+        "city": borrower.city,
+        "employees": borrower.employees,
+        "employees_year": borrower.employees_year,
         "business_classification_public": borrower.business_classification_public,
         "registered_address_public": borrower.registered_address_public,
         "contact_info_public": borrower.contact_info_public,
@@ -199,6 +217,9 @@ class CreateBorrowerEntityCommand:
     kyb_status: str = BorrowerKybStatus.PENDING
     compliance_hold: bool = False
     country: str = ""
+    city: str = ""
+    employees: int | None = None
+    employees_year: int | None = None
     registration_number: str = ""
     business_classification: str = ""
     business_classification_public: bool = False
@@ -235,6 +256,10 @@ class UpdateBorrowerEntityCommand:
     kyb_status: str | None = None
     compliance_hold: bool | None = None
     country: str | None = None
+    city: str | None = None
+    employees: int | None = None
+    employees_year: int | None = None
+    clear_employees: bool = False
     registration_number: str | None = None
     business_classification: str | None = None
     business_classification_public: bool | None = None
@@ -289,6 +314,7 @@ def create_borrower_entity(command: CreateBorrowerEntityCommand) -> BorrowerEnti
         "profit_last_year_minor": command.profit_last_year_minor,
     }
     _validate_financials(financial_data)
+    _validate_employees(command.employees, command.employees_year)
     borrower = BorrowerEntity.objects.create(
         legal_name=_clean_required(command.legal_name, "Legal name"),
         year_founded=_validate_year_founded(command.year_founded),
@@ -296,6 +322,9 @@ def create_borrower_entity(command: CreateBorrowerEntityCommand) -> BorrowerEnti
         kyb_status=_kyb_status(command.kyb_status),
         compliance_hold=command.compliance_hold,
         country=command.country.strip(),
+        city=command.city.strip(),
+        employees=command.employees,
+        employees_year=command.employees_year,
         registration_number=command.registration_number.strip(),
         business_classification=command.business_classification.strip(),
         business_classification_public=command.business_classification_public,
@@ -411,6 +440,7 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
         )
     for field_name in (
         "country",
+        "city",
         "registration_number",
         "business_classification",
         "registered_address",
@@ -482,6 +512,18 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
                     changes=changes,
                 )
 
+    if command.clear_employees:
+        _set_if_changed(borrower=borrower, field="employees", value=None, changes=changes)
+        _set_if_changed(borrower=borrower, field="employees_year", value=None, changes=changes)
+    else:
+        for field_name in ("employees", "employees_year"):
+            command_value = getattr(command, field_name)
+            if command_value is not None:
+                _set_if_changed(
+                    borrower=borrower, field=field_name, value=command_value, changes=changes
+                )
+    _validate_employees(borrower.employees, borrower.employees_year)
+
     if command.investor_story is not None:
         new_story = _clean_story(command.investor_story)
         if new_story != (borrower.investor_story or {}):
@@ -519,6 +561,9 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
             "kyb_status",
             "compliance_hold",
             "country",
+            "city",
+            "employees",
+            "employees_year",
             "registration_number",
             "business_classification",
             "business_classification_public",
@@ -705,6 +750,9 @@ def borrower_investor_disclosure(borrower: BorrowerEntity) -> dict[str, Any]:
             disclosure[field] = value
     for field in (
         "country",
+        "city",
+        "employees",
+        "employees_year",
         "financials_currency",
         "assets_minor",
         "liabilities_minor",

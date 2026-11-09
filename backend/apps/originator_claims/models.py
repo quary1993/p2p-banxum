@@ -68,6 +68,10 @@ class LoanOriginator(TimestampedModel):
     registration_number = models.CharField(max_length=128)
     jurisdiction = models.CharField(max_length=64)
     registered_address = models.TextField()
+    # U33-DEC-23: shown on the Loan originators page when present; unknown stays empty.
+    founded_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    city = models.CharField(max_length=128, blank=True)
+    sector = models.CharField(max_length=128, blank=True)
     contact_info = models.TextField(blank=True)
     settlement_account_name = models.CharField(max_length=255)
     settlement_iban = models.CharField(max_length=128)
@@ -153,6 +157,10 @@ class OriginatorLoanProfile(TimestampedModel):
     borrower_year_founded = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_entity_type = models.CharField(max_length=64, blank=True)
     borrower_country = models.CharField(max_length=64, blank=True)
+    # U33-DEC-23: the borrower's city and head count (with its year), shown when present.
+    borrower_city = models.CharField(max_length=128, blank=True)
+    borrower_employees = models.PositiveIntegerField(null=True, blank=True)
+    borrower_employees_year = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_registration_number = models.CharField(max_length=128, blank=True)
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)

@@ -37,6 +37,9 @@ class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
             "registration_number",
             "jurisdiction",
             "registered_address",
+            "founded_year",
+            "city",
+            "sector",
             "contact_info",
             "settlement_account_name",
             "settlement_iban",
@@ -67,6 +70,9 @@ class LoanOriginatorCreateSerializer(serializers.Serializer[dict[str, object]]):
     registration_number = serializers.CharField(max_length=128)
     jurisdiction = serializers.CharField(max_length=64)
     registered_address = serializers.CharField()
+    founded_year = serializers.IntegerField(required=False, allow_null=True, default=None)
+    city = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
+    sector = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
     contact_info = serializers.CharField(required=False, allow_blank=True, default="")
     settlement_account_name = serializers.CharField(max_length=255)
     settlement_iban = serializers.CharField(max_length=128)
@@ -93,6 +99,9 @@ class LoanOriginatorUpdateSerializer(serializers.Serializer[dict[str, object]]):
     registration_number = serializers.CharField(max_length=128, required=False)
     jurisdiction = serializers.CharField(max_length=64, required=False)
     registered_address = serializers.CharField(required=False)
+    founded_year = serializers.IntegerField(required=False, allow_null=True)
+    city = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    sector = serializers.CharField(max_length=128, required=False, allow_blank=True)
     contact_info = serializers.CharField(required=False, allow_blank=True)
     settlement_account_name = serializers.CharField(max_length=255, required=False)
     settlement_iban = serializers.CharField(max_length=128, required=False)

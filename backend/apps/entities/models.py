@@ -61,6 +61,10 @@ class BorrowerEntity(TimestampedModel):
     )
     compliance_hold = models.BooleanField(default=False)
     country = models.CharField(max_length=64, blank=True)
+    # U33-DEC-23: shown to investors when present; an unknown value stays empty (never 0).
+    city = models.CharField(max_length=128, blank=True)
+    employees = models.PositiveIntegerField(null=True, blank=True)
+    employees_year = models.PositiveSmallIntegerField(null=True, blank=True)
     registration_number = models.CharField(max_length=128, blank=True)
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)

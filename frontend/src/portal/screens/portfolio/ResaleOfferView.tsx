@@ -22,7 +22,7 @@ import { isFixturePreview, useBalancesData, useLoanDetailData, useSecondaryListi
 import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { currentLoanPrincipalMinor, loanLtvBps } from "../../../investorPortal/portfolioCollateral";
 import { Button, ButtonLink, Dialog, EmptyState, NiIcon, PortalLink, StatusTag } from "../../components";
-import { borrowerDisclosure, collateralLabel, countryName } from "../invest/loanFacts";
+import { borrowerDisclosure, collateralLabel, placeName } from "../invest/loanFacts";
 import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
@@ -89,7 +89,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
   const loanQuery = useLoanDetailData(detail.loan_id);
   const loan = loanQuery.data?.loan_id === detail.loan_id ? loanQuery.data : undefined;
   const disclosure = loan ? borrowerDisclosure(loan) : {};
-  const meta = [detail.borrower_name, countryName(disclosure.country || detail.borrower_country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
+  const meta = [detail.borrower_name, placeName(disclosure.city, disclosure.country || detail.borrower_country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
   const story = loan ? loan.purpose_description || loan.investor_summary || collateralLabel(loan.purpose) : "";
   const currency = detail.currency;
   const money = (amount: number) => `${currency} ${formatMoneyMinor(amount, currency)}`;

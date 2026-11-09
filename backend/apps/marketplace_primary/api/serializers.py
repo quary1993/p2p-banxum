@@ -223,6 +223,9 @@ class PublicOriginatorSerializer(serializers.Serializer[Any]):
     claims_funded = serializers.IntegerField(
         help_text="Public claims of this originator that were funded.",
     )
+    founded_year = serializers.IntegerField(allow_null=True)
+    city = serializers.CharField(allow_blank=True)
+    sector = serializers.CharField(allow_blank=True)
     volume = PublicOriginatorVolumeSerializer(
         many=True,
         help_text="Principal of the funded public claims, per currency.",
@@ -290,6 +293,7 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     borrower_display_name = serializers.CharField(allow_null=True)
     # U33 opportunity cards: country line, repayment frequency, security description, "Newest".
     borrower_country = serializers.CharField(allow_blank=True)
+    borrower_city = serializers.CharField(allow_blank=True)
     repayment_type = serializers.CharField(allow_blank=True)
     collateral_description = serializers.CharField(allow_blank=True)
     published_at = serializers.DateTimeField(allow_null=True)

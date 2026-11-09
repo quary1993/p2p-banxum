@@ -757,6 +757,7 @@ def _create_dated_originator_loan(
     suffix: str,
     final_due_days: int = 90,
     skin_in_the_game_bps: int = 0,
+    borrower_extra: dict[str, Any] | None = None,
 ) -> Any:
     originator = create_loan_originator(
         CreateLoanOriginatorCommand(
@@ -802,6 +803,7 @@ def _create_dated_originator_loan(
             borrower_snapshot={
                 "borrower_legal_name": f"Confidential Borrower {suffix} AG",
                 "borrower_display_name": "Swiss SME borrower",
+                **(borrower_extra or {}),
             },
             skin_in_the_game_bps=skin_in_the_game_bps,
         )
@@ -4009,3 +4011,75 @@ def test_originator_claim_purchase_endpoint_needs_the_pin(
         success_status=201,
     )
     assert OriginatorClaimPurchase.objects.filter(quote=quote).count() == 1
+
+
+@pytest.mark.django_db
+def test_originator_and_borrower_descriptive_fields_reach_the_marketplace(
+    admin_user: Model,
+) -> None:
+    """U33-DEC-23: originator founding year, city and sector; borrower city and head count."""
+    from backend.apps.originator_claims.services import (
+        UpdateLoanOriginatorCommand,
+        originator_marketplace_payload,
+        update_loan_originator,
+    )
+
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="FACTS",
+        borrower_extra={"city": " Lugano ", "employees": 18, "employees_year": today.year},
+    )
+    profile = OriginatorLoanProfile.objects.select_related("originator", "loan").get(
+        id=result.profile.id
+    )
+    detail = originator_marketplace_payload(profile, include_detail=True)
+    assert detail["borrower_city"] == "Lugano"
+    assert detail["borrower_disclosure"]["city"] == "Lugano"
+    assert detail["borrower_disclosure"]["employees"] == 18
+    assert detail["borrower_disclosure"]["employees_year"] == today.year
+
+    originator = update_loan_originator(
+        UpdateLoanOriginatorCommand(
+            actor=admin_user,
+            originator_id=str(profile.originator_id),
+            changes={"founded_year": 2009, "city": " Zurich ", "sector": "SME lending"},
+        )
+    )
+    assert (originator.founded_year, originator.city, originator.sector) == (
+        2009,
+        "Zurich",
+        "SME lending",
+    )
+    for bad_year in (1799, today.year + 1, "2009"):
+        with pytest.raises(OriginatorClaimsValidationError):
+            update_loan_originator(
+                UpdateLoanOriginatorCommand(
+                    actor=admin_user,
+                    originator_id=str(profile.originator_id),
+                    changes={"founded_year": bad_year},
+                )
+            )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"employees": 10},
+        {"employees_year": 2024},
+        {"employees": -1, "employees_year": 2024},
+        {"employees": 10, "employees_year": 1799},
+    ],
+)
+def test_borrower_snapshot_employees_need_a_valid_year(
+    admin_user: Model, extra: dict[str, Any]
+) -> None:
+    with pytest.raises(OriginatorClaimsValidationError):
+        _create_dated_originator_loan(
+            admin_user=admin_user,
+            today=business_date(timezone.now()),
+            suffix="BADHEAD",
+            borrower_extra=extra,
+        )

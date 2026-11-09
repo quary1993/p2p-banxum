@@ -18,7 +18,7 @@ import {
   collateralIcon,
   collateralLabel,
   closesInLabel,
-  countryName,
+  placeName,
   daysLeftLabel,
   existingClaimHelp,
   daysUntil,
@@ -362,7 +362,7 @@ export function OpportunityCard({ loan, asOf, matched, invested }: { loan: Marke
   const percent = fundedPercent(loan);
   const places = placesInfo(loan);
   const company = isOriginatorClaimLoan(loan) ? loan.borrower_display_name || loan.originator_name : loan.borrower_display_name;
-  const country = countryName(loan.borrower_country);
+  const country = placeName(loan.borrower_city, loan.borrower_country);
   const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
   const securityName = collateralLabel(loan.collateral_type);
   const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";

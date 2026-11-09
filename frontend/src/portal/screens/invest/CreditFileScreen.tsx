@@ -12,7 +12,7 @@ import { useState, type ReactNode } from "react";
 import type { MarketplaceLoanDetail } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { isFixturePreview, useLoanDetailData } from "../../../investorPortal/data";
-import { formatDate, formatMoneyLabel, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
+import { formatDate, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { LoanDocumentList } from "../../../investorPortal/LoanDocumentList";
 import { isNotFoundError } from "../../../investorPortal/session";
 import { normalizeStory, storyIsEmpty } from "../../../investorPortal/story";
@@ -25,7 +25,7 @@ import {
   borrowerName,
   collateralIcon,
   collateralLabel,
-  countryName,
+  placeName,
   fullLoanSchedule,
   isOpenLoan,
   isOriginatorClaimLoan,
@@ -86,7 +86,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
   const mobile = useMediaQuery(MOBILE_SHELL_QUERY);
   const disclosure = borrowerDisclosure(loan);
   const company = borrowerName(loan);
-  const country = countryName(disclosure.country);
+  const country = placeName(disclosure.city, disclosure.country);
   const sector = disclosure.business_classification || disclosure.industry_activity || "";
   const documents = (disclosure.documents ?? []).filter((document) => document && typeof document === "object");
   const financialsCurrency = disclosure.financials_currency || loan.currency;
@@ -403,10 +403,15 @@ function BusinessChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
   const disclosure = borrowerDisclosure(loan);
   const story = normalizeStory(loan.story);
   const claim = isOriginatorClaimLoan(loan);
+  // Design order: Established, Employees, Industry. The head count always shows its year (U33-DEC-23).
+  const employees = typeof disclosure.employees === "number" && typeof disclosure.employees_year === "number"
+    ? t("{count} in {year}", { count: formatDecimal(disclosure.employees, 0), year: disclosure.employees_year })
+    : "";
   const facts = [
     ["established", t("Established"), disclosure.year_founded ? String(disclosure.year_founded) : ""],
+    ["employees", t("Employees"), employees],
     ["industry", t("Industry"), disclosure.business_classification || disclosure.industry_activity || ""],
-    ["country", t("Country"), countryName(disclosure.country)]
+    ["location", t("Location"), placeName(disclosure.city, disclosure.country)]
   ].filter((row) => row[2]);
   const records = [
     ["address", t("Registered address"), disclosure.registered_address ?? ""],

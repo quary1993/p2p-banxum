@@ -6948,6 +6948,14 @@ components:
           type: boolean
         country:
           type: string
+        city:
+          type: string
+        employees:
+          type: integer
+          nullable: true
+        employees_year:
+          type: integer
+          nullable: true
         registration_number:
           type: string
         business_classification:
@@ -7012,6 +7020,7 @@ components:
       - business_classification
       - business_classification_public
       - can_transact
+      - city
       - compliance_hold
       - contact_info
       - contact_info_public
@@ -7019,6 +7028,8 @@ components:
       - created_at
       - created_by_admin_id
       - directors_officers
+      - employees
+      - employees_year
       - entity_type
       - financial_risk
       - financials_currency
@@ -7061,6 +7072,16 @@ components:
         country:
           type: string
           maxLength: 64
+        city:
+          type: string
+          maxLength: 128
+        employees:
+          type: integer
+          minimum: 0
+          nullable: true
+        employees_year:
+          type: integer
+          nullable: true
         registration_number:
           type: string
           maxLength: 128
@@ -7199,6 +7220,12 @@ components:
           type: string
         country:
           type: string
+        city:
+          type: string
+        employees:
+          type: integer
+        employees_year:
+          type: integer
         financials_currency:
           type: string
         assets_minor:
@@ -10820,6 +10847,18 @@ components:
           maxLength: 64
         registered_address:
           type: string
+        founded_year:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+        city:
+          type: string
+          maxLength: 128
+        sector:
+          type: string
+          maxLength: 128
         contact_info:
           type: string
         settlement_account_name:
@@ -10892,6 +10931,17 @@ components:
           maxLength: 64
         registered_address:
           type: string
+        founded_year:
+          type: integer
+          nullable: true
+        city:
+          type: string
+          default: ''
+          maxLength: 128
+        sector:
+          type: string
+          default: ''
+          maxLength: 128
         contact_info:
           type: string
           default: ''
@@ -11541,6 +11591,8 @@ components:
           nullable: true
         borrower_country:
           type: string
+        borrower_city:
+          type: string
         repayment_type:
           type: string
         collateral_description:
@@ -11641,6 +11693,7 @@ components:
           format: date
           nullable: true
       required:
+      - borrower_city
       - borrower_country
       - borrower_disclosure
       - borrower_display_name
@@ -11775,6 +11828,8 @@ components:
           nullable: true
         borrower_country:
           type: string
+        borrower_city:
+          type: string
         repayment_type:
           type: string
         collateral_description:
@@ -11803,6 +11858,7 @@ components:
           type: integer
           default: 5000
       required:
+      - borrower_city
       - borrower_country
       - borrower_display_name
       - collateral_description
@@ -13177,6 +13233,19 @@ components:
         country:
           type: string
           maxLength: 64
+        city:
+          type: string
+          maxLength: 128
+        employees:
+          type: integer
+          minimum: 0
+          nullable: true
+        employees_year:
+          type: integer
+          nullable: true
+        clear_employees:
+          type: boolean
+          default: false
         registration_number:
           type: string
           maxLength: 128
@@ -13269,6 +13338,15 @@ components:
           maxLength: 64
         registered_address:
           type: string
+        founded_year:
+          type: integer
+          nullable: true
+        city:
+          type: string
+          maxLength: 128
+        sector:
+          type: string
+          maxLength: 128
         contact_info:
           type: string
         settlement_account_name:
@@ -14794,6 +14872,13 @@ components:
         claims_funded:
           type: integer
           description: Public claims of this originator that were funded.
+        founded_year:
+          type: integer
+          nullable: true
+        city:
+          type: string
+        sector:
+          type: string
         volume:
           type: array
           items:
@@ -14803,12 +14888,15 @@ components:
           type: integer
           description: Funded public claims that are late or in default.
       required:
+      - city
       - claims_funded
       - country
+      - founded_year
       - id
       - late_claims
       - name
       - partner_since
+      - sector
       - volume
     PublicOriginatorVolume:
       type: object

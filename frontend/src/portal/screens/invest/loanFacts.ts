@@ -117,6 +117,10 @@ export type BorrowerDisclosure = {
   registered_address?: string;
   contact_info?: string;
   country?: string;
+  // U33-DEC-23: empty or null when the admin has not entered them; never shown as zero.
+  city?: string;
+  employees?: number | null;
+  employees_year?: number | null;
   financials_currency?: string;
   assets_minor?: number;
   liabilities_minor?: number;
@@ -156,6 +160,11 @@ const countryNames: Record<string, string> = {
 export function countryName(code: string | null | undefined) {
   if (!code) return "";
   return t(countryNames[code.toUpperCase()] ?? code);
+}
+
+/** Design "Münsingen, Switzerland": the city when known (U33-DEC-23), then the country name. */
+export function placeName(city: string | null | undefined, country: string | null | undefined) {
+  return [city?.trim() ?? "", countryName(country)].filter(Boolean).join(", ");
 }
 
 // ---- U33 vocabulary ---------------------------------------------------------------------------

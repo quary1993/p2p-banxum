@@ -718,6 +718,10 @@ def list_public_originators() -> list[dict[str, Any]]:
                 "name": str(originator.public_name),
                 "country": public_country_code(originator.jurisdiction),
                 "partner_since": business_date(originator.created_at),
+                # U33-DEC-23: empty when the admin has not entered them.
+                "founded_year": originator.founded_year,
+                "city": str(originator.city),
+                "sector": str(originator.sector),
                 "claims_funded": len(funded),
                 # U33 Loan originators page: funded volume per currency and late claims.
                 "volume": [

@@ -25,7 +25,7 @@ import {
   borrowerName,
   collateralIcon,
   collateralLabel,
-  countryName,
+  placeName,
   daysLeftLabel,
   daysUntil,
   eligibleLots,
@@ -130,7 +130,7 @@ function OpportunityPage({
   const immediate = usesImmediateClaimAssignment(loan);
   const disclosure = borrowerDisclosure(loan);
   const company = borrowerName(loan);
-  const meta = [company && company !== loan.title ? company : "", countryName(disclosure.country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
+  const meta = [company && company !== loan.title ? company : "", placeName(disclosure.city, disclosure.country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
   const ltv = loanLtv(loan);
   const minimum = minimumFunding(loan);
   const places = placesInfo(loan);

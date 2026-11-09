@@ -351,6 +351,9 @@ const publicOriginatorsFixture: PublicOriginator[] = [
     name: "Alpine Credit Partners AG",
     country: "CH",
     partner_since: "2025-09-15",
+    founded_year: 2011,
+    city: "Zug",
+    sector: "Equipment financing for Swiss SMEs",
     claims_funded: 1,
     volume: [{ currency: "CHF", principal_minor: 16_000_000 }],
     late_claims: 0

@@ -124,6 +124,9 @@ class CreateLoanOriginatorCommand:
     registered_address: str
     settlement_account_name: str
     settlement_iban: str
+    founded_year: int | None = None
+    city: str = ""
+    sector: str = ""
     kyb_evidence_reference: str = ""
     contact_info: str = ""
     settlement_bic: str = ""
@@ -325,6 +328,9 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
         "registration_number",
         "jurisdiction",
         "registered_address",
+        "founded_year",
+        "city",
+        "sector",
         "contact_info",
         "settlement_account_name",
         "settlement_iban",
@@ -789,6 +795,16 @@ def _record_event(
     )
 
 
+def _founded_year(value: Any) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or value < 1800 or value > business_date(now_utc()).year:
+        raise OriginatorClaimsValidationError(
+            "The founding year must be between 1800 and the current year."
+        )
+    return value
+
+
 def _clean_story(value: Any) -> dict[str, Any]:
     try:
         return validate_story(value, image_exists=story_image_exists)
@@ -818,6 +834,9 @@ def create_loan_originator(command: CreateLoanOriginatorCommand) -> LoanOriginat
         registration_number=_required(command.registration_number, "Registration number"),
         jurisdiction=_required(command.jurisdiction, "Jurisdiction"),
         registered_address=_required(command.registered_address, "Registered address"),
+        founded_year=_founded_year(command.founded_year),
+        city=command.city.strip(),
+        sector=command.sector.strip(),
         contact_info=command.contact_info.strip(),
         settlement_account_name=_required(
             command.settlement_account_name, "Settlement account name"
@@ -868,6 +887,8 @@ def update_loan_originator(command: UpdateLoanOriginatorCommand) -> LoanOriginat
         raise OriginatorClaimsValidationError("Invalid Loan Originator status.")
     if "investor_story" in changes:
         changes["investor_story"] = _clean_story(changes["investor_story"])
+    if "founded_year" in changes:
+        changes["founded_year"] = _founded_year(changes["founded_year"])
     # Like borrower edits, only fields whose stored value really changes are
     # written, and a save that changes nothing is rejected.
     changed: dict[str, Any] = {}
@@ -920,6 +941,9 @@ def _private_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]
         "year_founded": profile.borrower_year_founded,
         "entity_type": profile.borrower_entity_type,
         "country": profile.borrower_country,
+        "city": profile.borrower_city,
+        "employees": profile.borrower_employees,
+        "employees_year": profile.borrower_employees_year,
         "registration_number": profile.borrower_registration_number,
         "business_classification": profile.business_classification,
         "business_classification_public": profile.business_classification_public,
@@ -960,6 +984,9 @@ def _apply_borrower_snapshot(
     profile.borrower_year_founded = _snapshot_value(snapshot, "year_founded", None)
     profile.borrower_entity_type = str(_snapshot_value(snapshot, "entity_type"))
     profile.borrower_country = str(_snapshot_value(snapshot, "country"))
+    profile.borrower_city = str(_snapshot_value(snapshot, "city")).strip()
+    profile.borrower_employees = _snapshot_value(snapshot, "employees", None)
+    profile.borrower_employees_year = _snapshot_value(snapshot, "employees_year", None)
     profile.borrower_registration_number = str(_snapshot_value(snapshot, "registration_number"))
     profile.business_classification = str(_snapshot_value(snapshot, "business_classification"))
     profile.business_classification_public = bool(
@@ -1012,6 +1039,24 @@ def _validate_borrower_snapshot(snapshot: dict[str, Any]) -> None:
     ):
         raise OriginatorClaimsValidationError(
             "Borrower year founded must be between 1800 and the current year."
+        )
+    employees = _snapshot_value(snapshot, "employees", None)
+    employees_year = _snapshot_value(snapshot, "employees_year", None)
+    if (employees is None) != (employees_year is None):
+        raise OriginatorClaimsValidationError(
+            "Give the borrower's number of employees together with its year."
+        )
+    if employees is not None and (type(employees) is not int or employees < 0):
+        raise OriginatorClaimsValidationError(
+            "The borrower's number of employees must be a whole number of 0 or more."
+        )
+    if employees_year is not None and (
+        type(employees_year) is not int
+        or employees_year < 1800
+        or employees_year > business_date(now_utc()).year
+    ):
+        raise OriginatorClaimsValidationError(
+            "The employees year must be between 1800 and the current year."
         )
     for field_name in (
         "beneficial_owners",
@@ -1317,6 +1362,9 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         borrower_year_founded=_snapshot_value(snapshot, "year_founded", None),
         borrower_entity_type=str(_snapshot_value(snapshot, "entity_type")),
         borrower_country=str(_snapshot_value(snapshot, "country")),
+        borrower_city=str(_snapshot_value(snapshot, "city")).strip(),
+        borrower_employees=_snapshot_value(snapshot, "employees", None),
+        borrower_employees_year=_snapshot_value(snapshot, "employees_year", None),
         borrower_registration_number=str(_snapshot_value(snapshot, "registration_number")),
         business_classification=str(_snapshot_value(snapshot, "business_classification")),
         business_classification_public=bool(
@@ -3337,6 +3385,9 @@ def _public_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]:
         "year_founded": profile.borrower_year_founded,
         "entity_type": profile.borrower_entity_type,
         "country": profile.borrower_country,
+        "city": profile.borrower_city,
+        "employees": profile.borrower_employees,
+        "employees_year": profile.borrower_employees_year,
         "industry_activity": profile.industry_activity,
         "financials_currency": profile.financials_currency,
         "assets_minor": profile.assets_minor,
@@ -3941,6 +3992,7 @@ def originator_marketplace_payload(
         "originator_name": profile.originator.public_name,
         "borrower_display_name": profile.borrower_display_name,
         "borrower_country": str(profile.borrower_country),
+        "borrower_city": str(profile.borrower_city),
         "repayment_type": str(profile.loan.repayment_type),
         "collateral_description": str(profile.loan.collateral_description),
         "published_at": profile.loan.published_at,

@@ -1270,6 +1270,9 @@ test("the credit file's Borrower & business chapter shows the published story, s
 
   expect(screen.getByRole("heading", { level: 3, name: "Meet the borrower" })).toBeInTheDocument();
   expect(screen.getByText("Established").nextElementSibling).toHaveTextContent("2011");
+  // U33-DEC-23: the head count always shows its year; the city comes before the country.
+  expect(screen.getByText("Employees").nextElementSibling).toHaveTextContent("64 in 2025");
+  expect(screen.getByText("Location").nextElementSibling).toHaveTextContent("Basel, Switzerland");
   // Story blocks render as real elements built from the JSON document.
   expect(screen.getByRole("heading", { level: 2, name: "Moving Swiss goods since 1994" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 3, name: "Why they borrow" })).toBeInTheDocument();
@@ -1292,6 +1295,32 @@ test("the credit file's Borrower & business chapter shows the published story, s
   fireEvent.click(screen.getByRole("button", { name: /Open credit file/ }));
   fireEvent.click(screen.getByRole("button", { name: /Borrower & business/ }));
   expect(screen.getByText("No profile of this borrower has been published yet.")).toBeInTheDocument();
+  // A missing head count is left out, never shown as zero.
+  expect(screen.queryByText("Employees")).not.toBeInTheDocument();
+  expect(screen.getByText("Location").nextElementSibling).toHaveTextContent("Sion, Switzerland");
+});
+
+test("opportunity cards show the borrower's city, and only the country when the city is unknown", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace");
+  const card = (title: string) => screen.getByRole("heading", { level: 6, name: title }).closest(".card") as HTMLElement;
+  expect(within(card("Helvetia Logistik AG")).getByText("Basel, Switzerland")).toBeInTheDocument();
+  expect(within(card("Swiss SME equipment claim")).getByText("Winterthur, Switzerland")).toBeInTheDocument();
+});
+
+test("the loan originators pages show the originator's city, sector and founding year", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/originators");
+  const row = screen.getByRole("link", { name: "Alpine Credit Partners AG" }).closest("article") as HTMLElement;
+  expect(within(row).getByText("Zug, Switzerland")).toBeInTheDocument();
+  expect(within(row).getByText("Equipment financing for Swiss SMEs")).toBeInTheDocument();
+
+  fireEvent.click(within(row).getByRole("link", { name: "Alpine Credit Partners AG" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Alpine Credit Partners AG" })).toBeInTheDocument();
+  expect(screen.getByText("Equipment financing for Swiss SMEs · Zug, Switzerland")).toBeInTheDocument();
+  expect(screen.getByText("Founded").nextElementSibling).toHaveTextContent("2011");
 });
 
 test("an originator claim's credit file shows the originator, its story, the interest shares and the borrower payments", () => {

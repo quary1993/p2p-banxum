@@ -3176,6 +3176,9 @@ function LoanOriginatorForm({
   const [registrationNumber, setRegistrationNumber] = useState(originator?.registration_number ?? "");
   const [jurisdiction, setJurisdiction] = useState(originator?.jurisdiction ?? "CH");
   const [registeredAddress, setRegisteredAddress] = useState(originator?.registered_address ?? "");
+  const [foundedYear, setFoundedYear] = useState(originator?.founded_year == null ? "" : String(originator.founded_year));
+  const [city, setCity] = useState(originator?.city ?? "");
+  const [sector, setSector] = useState(originator?.sector ?? "");
   const [contactInfo, setContactInfo] = useState(originator?.contact_info ?? "");
   const [accountName, setAccountName] = useState(originator?.settlement_account_name ?? "");
   const [iban, setIban] = useState(originator?.settlement_iban ?? "");
@@ -3201,6 +3204,9 @@ function LoanOriginatorForm({
       registration_number: registrationNumber,
       jurisdiction,
       registered_address: registeredAddress,
+      founded_year: optionalMinorValue(foundedYear),
+      city,
+      sector,
       contact_info: contactInfo,
       settlement_account_name: accountName,
       settlement_iban: iban,
@@ -3234,6 +3240,9 @@ function LoanOriginatorForm({
         <TextInput label="Public name" onChange={setPublicName} required value={publicName} />
         <TextInput label="Registration number" onChange={setRegistrationNumber} required value={registrationNumber} />
         <TextInput label="Jurisdiction" onChange={setJurisdiction} required value={jurisdiction} />
+        <TextInput hint="Investor-facing. Leave empty when unknown." integer label="Founded (year)" onChange={setFoundedYear} value={foundedYear} />
+        <TextInput hint="Investor-facing, for example Zug." label="City" onChange={setCity} value={city} />
+        <TextInput hint="Investor-facing, one line, for example Equipment leasing for Swiss SMEs." label="Sector" onChange={setSector} value={sector} />
         <SelectInput label="Status" onChange={(value) => setStatus(value as LoanOriginatorCreate["status"])} options={["inactive", "active", "blocked"]} value={status ?? "inactive"} />
         <TextInput integer hint="Default 5000 = BANXUM receives 50% of the originator premium. Never investor-facing." label="BANXUM premium share bps" onChange={setFeeBps} required value={feeBps} />
         <TextInput label="Settlement account name" onChange={setAccountName} required value={accountName} />
@@ -3309,6 +3318,9 @@ function OriginatorLoanCreateForm({
   const [borrowerYearFounded, setBorrowerYearFounded] = useState(snapshot.year_founded == null ? "" : String(snapshot.year_founded));
   const [borrowerEntityType, setBorrowerEntityType] = useState(String(snapshot.entity_type ?? "company"));
   const [borrowerCountry, setBorrowerCountry] = useState(String(snapshot.country ?? "CH"));
+  const [borrowerCity, setBorrowerCity] = useState(String(snapshot.city ?? ""));
+  const [borrowerEmployees, setBorrowerEmployees] = useState(snapshot.employees == null ? "" : String(snapshot.employees));
+  const [borrowerEmployeesYear, setBorrowerEmployeesYear] = useState(snapshot.employees_year == null ? "" : String(snapshot.employees_year));
   const [borrowerRegistration, setBorrowerRegistration] = useState(String(snapshot.registration_number ?? ""));
   const [businessClassification, setBusinessClassification] = useState(String(snapshot.business_classification ?? ""));
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(Boolean(snapshot.business_classification_public));
@@ -3396,6 +3408,9 @@ function OriginatorLoanCreateForm({
           year_founded: optionalMinorValue(borrowerYearFounded),
           entity_type: borrowerEntityType,
           country: borrowerCountry,
+          city: borrowerCity,
+          employees: optionalMinorValue(borrowerEmployees),
+          employees_year: optionalMinorValue(borrowerEmployeesYear),
           registration_number: borrowerRegistration,
           business_classification: businessClassification,
           business_classification_public: businessClassificationPublic,
@@ -3486,6 +3501,9 @@ function OriginatorLoanCreateForm({
         <TextInput label="Year founded" onChange={setBorrowerYearFounded} value={borrowerYearFounded} />
         <TextInput label="Entity type" onChange={setBorrowerEntityType} value={borrowerEntityType} />
         <TextInput label="Country" onChange={setBorrowerCountry} value={borrowerCountry} />
+        <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setBorrowerCity} value={borrowerCity} />
+        <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setBorrowerEmployees} value={borrowerEmployees} />
+        <TextInput integer label="Employees year" onChange={setBorrowerEmployeesYear} value={borrowerEmployeesYear} />
         <TextInput label="Registration number (internal)" onChange={setBorrowerRegistration} value={borrowerRegistration} />
         <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
         <TextInput label="Industry / activity" onChange={setIndustryActivity} value={industryActivity} />
@@ -3911,6 +3929,9 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [entityType, setEntityType] = useState<BorrowerEntityType>(BorrowerEntityTypeEnum.swiss_company);
   const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(BorrowerKybStatusEnum.pending);
   const [country, setCountry] = useState("CH");
+  const [city, setCity] = useState("");
+  const [employees, setEmployees] = useState("");
+  const [employeesYear, setEmployeesYear] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [businessClassification, setBusinessClassification] = useState("");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(false);
@@ -3947,6 +3968,9 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
       entity_type: entityType,
       kyb_status: kybStatus,
       country,
+      city,
+      employees: optionalMinorValue(employees),
+      employees_year: optionalMinorValue(employeesYear),
       registration_number: registrationNumber,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
@@ -3980,6 +4004,9 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
           <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setCity} value={city} />
+          <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
+          <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
@@ -4024,6 +4051,9 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(borrower.kyb_status as BorrowerKybStatus);
   const [complianceHold, setComplianceHold] = useState(borrower.compliance_hold);
   const [country, setCountry] = useState(borrower.country || "CH");
+  const [city, setCity] = useState(borrower.city || "");
+  const [employees, setEmployees] = useState(borrower.employees == null ? "" : String(borrower.employees));
+  const [employeesYear, setEmployeesYear] = useState(borrower.employees_year == null ? "" : String(borrower.employees_year));
   const [registrationNumber, setRegistrationNumber] = useState(borrower.registration_number || "");
   const [businessClassification, setBusinessClassification] = useState(borrower.business_classification || "");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(borrower.business_classification_public);
@@ -4065,6 +4095,11 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
       kyb_status: kybStatus,
       compliance_hold: complianceHold,
       country,
+      city,
+      // Both fields empty clears the head count; the backend keeps a stored value it is not sent.
+      ...(employees.trim() || employeesYear.trim()
+        ? { employees: optionalMinorValue(employees), employees_year: optionalMinorValue(employeesYear) }
+        : { clear_employees: true }),
       registration_number: registrationNumber,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
@@ -4110,6 +4145,9 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
           <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setCity} value={city} />
+          <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
+          <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />

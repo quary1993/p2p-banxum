@@ -3,8 +3,9 @@
  * Loan originators (design #/originators and #/originators/{id}): the originators with funded claims,
  * their figures (claims funded, volume per currency, late claims), the open opportunities and the
  * earlier claims of one originator. Data: the public originators and projects APIs and the investor
- * marketplace. The design's city, business description, "About the originator" text and founding year
- * have no platform data yet (U33-DEC-23) and are left out.
+ * marketplace. City, sector (the design's business line) and founding year come from the admin
+ * (U33-DEC-23) and are left out when empty. The design's "About the originator" text has no public
+ * data and is left out.
  */
 import type { PublicOriginator, PublicProject } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
@@ -12,7 +13,7 @@ import { useBalancesData, useMarketplaceLoansData, usePastProjectsData, usePortf
 import { formatDate, formatDecimal, formatMoneyLabel, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, NiIcon, PortalLink, StatusTag, type TagStatus } from "../../components";
 import { isOpenOrder } from "../portfolio/parts/investmentModel";
-import { countryName, isOpenLoan, isOriginatorClaimLoan } from "./loanFacts";
+import { isOpenLoan, isOriginatorClaimLoan, placeName } from "./loanFacts";
 import { OpportunityCard } from "./OpportunitiesScreen";
 import "./invest.css";
 
@@ -78,7 +79,8 @@ export function LoanOriginatorsScreen({ originatorId }: { originatorId?: string 
             <article className="r75c-surface r75c-originator" key={originator.id}>
               <div>
                 <h2><PortalLink params={{ view: "originators", originatorId: originator.id }} to="market">{originator.name}</PortalLink></h2>
-                {originator.country ? <span className="r75c-muted">{countryName(originator.country)}</span> : null}
+                {placeName(originator.city, originator.country) ? <span className="r75c-muted">{placeName(originator.city, originator.country)}</span> : null}
+                {originator.sector ? <p>{originator.sector}</p> : null}
               </div>
               <OriginatorMetrics originator={originator} />
               <PortalLink aria-label={t("View {name}", { name: originator.name })} className="r75c-profile-link" params={{ view: "originators", originatorId: originator.id }} to="market">
@@ -113,6 +115,8 @@ function OriginatorProfile({ originator }: { originator: PublicOriginator }) {
   ]);
   const open = loans.filter((loan) => isOriginatorClaimLoan(loan) && isOpenLoan(loan) && loan.originator_id === originator.id);
   const earlier = projects.filter((project) => project.originator?.id === originator.id && project.public_status !== "open" && statusOf[project.public_status]);
+  // Design: "{business} · {city}, {country}".
+  const subtitle = [originator.sector, placeName(originator.city, originator.country)].filter(Boolean).join(" · ");
   return (
     <main className="u33-invest-originators">
       <section className="r75c-originators">
@@ -120,13 +124,14 @@ function OriginatorProfile({ originator }: { originator: PublicOriginator }) {
         <header className="r75c-head">
           <div>
             <h1>{originator.name}</h1>
-            {originator.country ? <p>{countryName(originator.country)}</p> : null}
+            {subtitle ? <p>{subtitle}</p> : null}
           </div>
         </header>
         <div className="r75c-profile-grid">
           <section className="r75c-surface r75c-profile-about">
             <h2>{t("About the originator")}</h2>
             <dl>
+              {originator.founded_year ? <div><dt>{t("Founded")}</dt><dd>{originator.founded_year}</dd></div> : null}
               <div><dt>{t("Partner since")}</dt><dd>{formatDate(originator.partner_since)}</dd></div>
             </dl>
             <OriginatorMetrics originator={originator} />

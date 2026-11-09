@@ -507,10 +507,19 @@ type DirectMarketplaceFixtureInput = Omit<
   | "originator_name"
   | "borrower_display_name"
   | "borrower_country"
+  | "borrower_city"
   | "repayment_type"
   | "collateral_description"
   | "published_at"
 >;
+
+// U33-DEC-23 borrower cities; Adriatic Marine has none, to show a missing value.
+const directBorrowerCities: Record<string, string> = {
+  "GA-2401": "Basel",
+  "GA-2399": "Sion",
+  "GA-2402": "Hamburg",
+  "GA-2390": "Lausanne"
+};
 
 const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
   {
@@ -626,6 +635,7 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     borrower_display_name: loan.title,
     // The same values as the loan details below.
     borrower_country: loan.currency === "CHF" ? "CH" : "DE",
+    borrower_city: directBorrowerCities[loan.loan_id] ?? "",
     repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
     collateral_description: loan.collateral_type,
     published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null
@@ -663,6 +673,7 @@ const originatorMarketplaceLoanFixture: MarketplaceLoanPreview = {
   originator_name: "Alpine Credit Partners AG",
   borrower_display_name: "Established Swiss precision manufacturer",
   borrower_country: "CH",
+  borrower_city: "Winterthur",
   repayment_type: "amortizing_principal_interest",
   collateral_description: "First-ranking security over financed machinery and equipment.",
   published_at: `${fixtureIsoDate(0, 1)}T08:00:00Z`,
@@ -854,6 +865,8 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
       loan.currency === "CHF" ? "Zugerstrasse 18, 6300 Zug, Switzerland" : "Kaiserstrasse 12, 60311 Frankfurt am Main, Germany",
     contact_info: "Investor-facing contact is handled through Garanta Finanzgruppe AG.",
     country: loan.currency === "CHF" ? "CH" : "DE",
+    ...(directBorrowerCities[loan.loan_id] ? { city: directBorrowerCities[loan.loan_id] } : {}),
+    ...(loan.loan_id === "GA-2401" ? { employees: 64, employees_year: 2025 } : {}),
     financials_currency: loan.currency,
     assets_minor: loan.loan_id === "GA-2402" ? amount(5_800_000) : amount(12_400_000),
     liabilities_minor: loan.loan_id === "GA-2402" ? amount(2_900_000) : amount(7_200_000),
@@ -968,6 +981,9 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     year_founded: 2007,
     business_classification: "Precision component manufacturing",
     country: "CH",
+    city: "Winterthur",
+    employees: 85,
+    employees_year: 2025,
     industry_activity: "Industrial manufacturing",
     financials_currency: "CHF",
     assets_minor: amount(4_850_000),
@@ -1058,6 +1074,7 @@ const pastLoanDetailsFixture: MarketplaceLoanDetail[] = pastLoanInputs.map((inpu
     loan_status: input.status,
     opportunity_status: "closed",
     borrower_country: input.country,
+    borrower_city: "",
     published_at: `${fixtureIsoDate(-input.monthsAgo, 1)}T08:00:00Z`,
     currency: input.currency,
     principal_minor: principal,

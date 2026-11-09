@@ -3164,6 +3164,7 @@ def public_marketplace_listing_payload(
         # Direct loan (entities.borrower_investor_disclosure); the U33 cards show them.
         "borrower_display_name": str(getattr(borrower, "legal_name", "") or "") or None,
         "borrower_country": str(getattr(borrower, "country", "") or ""),
+        "borrower_city": str(getattr(borrower, "city", "") or ""),
         "repayment_type": str(loan_ref.repayment_type),
         "collateral_description": str(loan_ref.collateral_description),
         "published_at": loan_ref.published_at,
