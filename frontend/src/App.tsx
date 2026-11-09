@@ -1,14 +1,11 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { useQueryClient } from "@tanstack/react-query";
-import QRCode from "qrcode";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
   CategoryEnum,
-  DocumentKindEnum,
-  InvestorDocumentDownloadRequestOutputFormatEnum,
   getV1InvestorSmartInvestRetrieveQueryKey,
   getV1MarketplaceSecondaryListingsListQueryKey,
   useV1AuthMeRetrieve,
@@ -19,10 +16,7 @@ import {
   useV1FxQuotePreviewRetrieve,
   useV1FxQuotesCreate,
   useV1FxQuotesExecuteCreate,
-  useV1InvestorPortalDocumentsDownloadCreate,
   useV1KycStatusRetrieve,
-  useV1LedgerPayoutInstructionsCreate,
-  useV1LedgerWithdrawalRequestsCreate,
   useV1MarketplacePrimaryOrdersAllocateBalanceCreate,
   useV1MarketplacePrimaryOrdersCreate,
   useV1MarketplaceSecondaryListingsCreate,
@@ -55,13 +49,9 @@ import type {
   FxQuotePreview,
   FxQuote,
   Holding,
-  InvestorDocument,
-  InvestorDocumentDownloadResponse,
-  InvestorNotification,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
   OriginatorClaimQuoteResponse,
-  PayoutInstruction,
   PrimaryInvestmentOrder,
   PrimaryOrderBatchResponse,
   PrimaryOrderPortal,
@@ -79,8 +69,6 @@ import {
   useActivityData,
   useBalancesData,
   useDashboardData,
-  useDepositInstructionsData,
-  useDocumentsData,
   useFxData,
   useFxFeature,
   useLoanDetailData,
@@ -101,11 +89,9 @@ import {
   FrozenAccountContext,
   frozenAccountFromBalances,
   frozenActionReason,
-  payoutInstructionState,
   useFrozenAccount,
-  withdrawableMinor
 } from "./investorPortal/accountState";
-import { FrozenAccountBanner, PendingWithdrawalsList } from "./investorPortal/AccountStatus";
+import { FrozenAccountBanner } from "./investorPortal/AccountStatus";
 import { isNotFoundError, isSignedOutError, retryTransientSessionError } from "./investorPortal/session";
 import { handleTabListKeyDown, useDialog } from "./investorPortal/dialog";
 import { platformTodayKey, platformTodayLocalDate, rememberPlatformBusinessDate } from "./investorPortal/platformClock";
@@ -158,7 +144,6 @@ import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/typ
 import { scheduleStatusTone } from "./investorPortal/scheduleStatus";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
-import { notificationRoute } from "./investorPortal/notifications";
 import { useT } from "./i18n";
 import { PortalNavProvider, type PortalNav } from "./portal/components";
 import { PortalShell } from "./portal/shell/PortalShell";
@@ -177,6 +162,10 @@ import { KycStatusScreen, VerificationLoading } from "./portal/screens/account/K
 import { BankAccountDialog } from "./portal/screens/account/parts/BankAccountDialog";
 import { SettingsScreen } from "./portal/screens/account/SettingsScreen";
 import { isSettingsPathSegment } from "./portal/screens/account/settings/settingsTabs";
+import { AccountScreen } from "./portal/screens/wallet/AccountScreen";
+import { AddFundsDialog } from "./portal/screens/wallet/AddFundsDialog";
+import { DocumentsScreen } from "./portal/screens/wallet/DocumentsScreen";
+import { NotificationsScreen } from "./portal/screens/wallet/NotificationsScreen";
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
@@ -191,7 +180,6 @@ import {
   scheduleRowStatus
 } from "./investorPortal/holdingProgress";
 import { currencyBalanceMinor, investAmountLimitMessage, noEligibleFundsReason } from "./investorPortal/investLimits";
-import { AUTO_RETURN_AFTER_DAYS, autoReturnDays, autoReturnRuleText, lotAgeLines } from "./investorPortal/balanceAgeing";
 import { isSwissInvestorLimitError, swissLoanFullForViewer } from "./investorPortal/investorLimit";
 import { SwissInvestorLimitNote } from "./investorPortal/SwissInvestorLimitNote";
 import {
@@ -210,7 +198,6 @@ import {
   Check,
   Chip,
   Country,
-  DeadlineMeter,
   Empty,
   Field,
   Icon,
@@ -238,7 +225,7 @@ const U33_SCREENS_INVEST: RouteName[] = [];
 const U33_SCREENS_PORTFOLIO: RouteName[] = [];
 
 // S4 account, transactions, reports, documents, notifications (portal/screens/wallet).
-const U33_SCREENS_WALLET: RouteName[] = ["transactions", "reports"];
+const U33_SCREENS_WALLET: RouteName[] = ["balances", "transactions", "reports", "documents", "notifications"];
 
 // S5 profile and settings, help, verification (portal/screens/account).
 const U33_SCREENS_ACCOUNT: RouteName[] = ["settings", "faq", "kyc"];
@@ -249,8 +236,6 @@ const U33_SCREENS = new Set<RouteName>([
   ...U33_SCREENS_WALLET,
   ...U33_SCREENS_ACCOUNT
 ]);
-// The Reports page lists the account statements and annual tax information of Documents.
-const reportDocumentKinds = ["account_statement", "annual_tax_information"];
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 
@@ -1109,6 +1094,12 @@ function InvestorShell({
   const notificationReadActions = useNotificationReadActions();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
   const [payoutIbanOpen, setPayoutIbanOpen] = useState(false);
+  // Currency of the bank account being added (the Account page knows it; the frozen-account banner does not).
+  const [bankAccountCurrency, setBankAccountCurrency] = useState<string | undefined>(undefined);
+  const openBankAccountDialog = useCallback((currency?: string) => {
+    setBankAccountCurrency(currency);
+    setPayoutIbanOpen(true);
+  }, []);
   // Investing is a page (/marketplace/:loanId/invest); callers hand over the loan and an optional amount.
   const setInvestLoan = useCallback(
     (loan: MarketplaceLoanDetail | null, initialAmount?: string) => {
@@ -1333,11 +1324,12 @@ function InvestorShell({
       case "secondary":
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
-        return <BalancesScreen demoState={demoState} />;
+        // Adding a bank account opens the shell's bank-account dialog for that currency.
+        return <AccountScreen demoState={demoState} onAddBankAccount={openBankAccountDialog} />;
       case "transactions":
-        return <TransactionsScreen><ActivityPanel /></TransactionsScreen>;
+        return <TransactionsScreen />;
       case "reports":
-        return <ReportsScreen><DocumentsScreen embedded kinds={reportDocumentKinds} /></ReportsScreen>;
+        return <ReportsScreen />;
       case "fx":
         if (fxFeature.enabled) return <FxScreen demoState={demoState} />;
         return fxFeature.known
@@ -1346,7 +1338,7 @@ function InvestorShell({
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
-        return <NotificationsScreen setRoute={setRoute} />;
+        return <NotificationsScreen />;
       case "settings":
         return <SettingsScreen previewProfile={isFixturePreview ? displayProfile() : undefined} tab={route.params?.tab} />;
       case "kyc":
@@ -1474,7 +1466,7 @@ function InvestorShell({
       <div className="frozen-account-notice" key="frozen">
         <FrozenAccountBanner
           account={frozenAccount}
-          onAddIban={readonlyImpersonation.active ? undefined : () => setPayoutIbanOpen(true)}
+          onAddIban={readonlyImpersonation.active ? undefined : () => openBankAccountDialog()}
           onOpenAccount={route.name === "balances" ? undefined : () => goTo(setRoute, "balances")}
         />
       </div>
@@ -1491,16 +1483,18 @@ function InvestorShell({
             balances={shellBalances}
             counts={{ openOpportunities: openProjectCount, unreadNotifications: unreadCount }}
             dialogs={addFundsOpen || payoutIbanOpen ? (
-              <LegacyBody>
+              <>
                 {addFundsOpen ? (
-                  <DepositModal
-                    allowCurrencySelection
-                    currency={addFundsCurrency}
-                    onClose={() => setAddFundsOpen(false)}
+                  <AddFundsDialog currency={addFundsCurrency} onClose={() => setAddFundsOpen(false)} />
+                ) : null}
+                {payoutIbanOpen ? (
+                  <BankAccountDialog
+                    currency={bankAccountCurrency}
+                    holderName={readonlyImpersonation.active ? "" : profile.name}
+                    onClose={() => setPayoutIbanOpen(false)}
                   />
                 ) : null}
-                {payoutIbanOpen ? <BankAccountDialog holderName={readonlyImpersonation.active ? "" : profile.name} onClose={() => setPayoutIbanOpen(false)} /> : null}
-              </LegacyBody>
+              </>
             ) : null}
             extraNavItems={fxFeature.enabled ? { Wallet: [FX_NAV_ITEM] } : undefined}
             markers={accountMarker ? { balances: accountMarker } : undefined}
@@ -5417,505 +5411,6 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 }
 
-function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
-  const balancesQuery = useBalancesData();
-  const fxFeature = useFxFeature();
-  const frozenAccount = useFrozenAccount();
-  const balances = balancesQuery.data;
-  const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
-  const [modal, setModal] = useState<"deposit" | "withdraw" | "iban" | null>(null);
-  // The account cards open the deposit and withdrawal dialogs for their own
-  // currency; the page actions keep using the selected currency.
-  const [modalCurrency, setModalCurrency] = useState<string>("CHF");
-  const returnDays = autoReturnDays(balancesQuery.data?.auto_return_after_days);
-  const pageDescription = `Funds are non-interest-bearing. ${autoReturnRuleText(returnDays)}`;
-  if (balancesQuery.isError && !balances) {
-    return (
-      <ScreenError title="Account" onRetry={() => void balancesQuery.refetch()}>
-        We could not load balance lots and payout instructions. Retry once the API connection is restored.
-      </ScreenError>
-    );
-  }
-  if (!balances) return <ScreenLoading title="Account" />;
-
-  const summary = balances.summaries.find((item) => item.currency === currency) ?? balances.summaries[0];
-  const lots = balances.lots.filter((lot) => lot.currency === currency);
-  const frozen = frozenAccount.frozen;
-  // The fixture preview's "Day-60 freeze" shows the overdue lots as frozen; live data has its own bucket.
-  const previewFrozen = isFixturePreview && demoState === "frozen";
-  const readonly = isReadonlyImpersonationActive();
-  // Withdrawals go only to an IBAN Garanta has verified for that currency.
-  const verifiedIbanCurrencies = new Set(
-    balances.payout_instructions.filter((instruction) => instruction.is_verified_usable).map((instruction) => instruction.currency)
-  );
-  const withdrawBlockedReason = (forCurrency: string) =>
-    verifiedIbanCurrencies.has(forCurrency) ? "" : `No verified payout IBAN for ${forCurrency} yet. Garanta must verify an IBAN before you can withdraw.`;
-  // Money due back to the bank that cannot go back: there is no verified IBAN in its currency.
-  const returnBlocked = balances.summaries.filter((item) => item.overdue_minor > 0 && !verifiedIbanCurrencies.has(item.currency));
-  if (!summary) {
-    return (
-      <main className="content acct-page acct-balances">
-        <PageHead description={pageDescription} title="Account" />
-        <Card><Empty icon="balance" title="No balances yet">Deposits, repayments, recoveries, FX proceeds, and sale proceeds will appear here after reconciliation.</Empty></Card>
-      </main>
-    );
-  }
-  const openModal = (kind: "deposit" | "withdraw" | "iban", forCurrency: string = currency) => {
-    setModalCurrency(forCurrency);
-    setModal(kind);
-  };
-  const modalSummary = balances.summaries.find((item) => item.currency === modalCurrency) ?? summary;
-
-  return (
-    <main className="content acct-page acct-balances">
-      <PageHead
-        actions={
-          <>
-            <Segmented options={[{ value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={currency} onChange={setCurrency} />
-            <Button className="btn-green" disabled={frozen || readonly} icon="plus" variant="primary" onClick={() => openModal("deposit")}>Add Funds</Button>
-            <Button disabled={readonly} icon="download" onClick={() => openModal("withdraw")}>Withdraw</Button>
-            <Button disabled={readonly} icon="balance" variant="ghost" onClick={() => openModal("iban")}>Payout IBANs</Button>
-          </>
-        }
-        description={pageDescription}
-        title="Account"
-      />
-      {readonly || returnBlocked.length > 0 ? (
-        <div className="col gap-12 acct-alerts">
-          {readonly ? (
-            <Banner icon="lock" tone="info" title="Read-only view">
-              Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
-            </Banner>
-          ) : null}
-          {returnBlocked.map((item) => (
-            <Banner
-              actions={readonly ? undefined : <Button size="sm" variant="primary" onClick={() => openModal("iban", item.currency)}>Add payout IBAN</Button>}
-              key={item.currency}
-              tone="warn"
-              title="Add a verified bank account so we can return your money"
-            >
-              {formatMoneyLabel(item.currency, item.overdue_minor)} was not invested within {returnDays} days and must go back to your bank,
-              but there is no verified {item.currency} payout IBAN. Add one in your name: when Garanta has verified it, we send the money there.
-              After 60 days (the legal limit) the money enters penalty mode.
-            </Banner>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="acct-ccy-grid">
-        {balances.summaries.map((item) => {
-          const ccy = item.currency;
-          const nextReturn = item.next_return_date;
-          return (
-            <section className="card acct-ccy" key={ccy}>
-              <h2 className="acct-ccy-title">{ccy} account</h2>
-              <div className="acct-ccy-amount num">{ccy} {formatMoneyMinor(item.total_available_minor, ccy)}</div>
-              <ul className="acct-ccy-list">
-                <BucketTile label="Potentially investable" value={item.investable_minor} currency={ccy} tone="ok" sub="Depends on the loan funding window" />
-                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub={`Day ${returnDays}: last day, can only be withdrawn today`} />
-                <BucketTile label="Due back to your bank" value={item.overdue_minor} currency={ccy} tone="warn" sub={`Not invested within ${returnDays} days`} />
-                {/* Blocked balance only. Penalties already charged are no longer in the balance; they are listed in the lots view. */}
-                <BucketTile
-                  label="Frozen"
-                  value={previewFrozen ? item.overdue_minor : item.penalty_mode_minor + item.frozen_minor}
-                  currency={ccy}
-                  tone={previewFrozen || item.penalty_mode_minor + item.frozen_minor > 0 ? "bad" : "neutral"}
-                  sub={previewFrozen
-                    ? "IBAN required"
-                    : item.penalty_mode_minor > 0
-                      ? `Penalty ${formatRateBps(balances.penalty_bps_per_day ?? 0)} a day until withdrawn`
-                      : item.frozen_minor > 0 ? "Blocked until withdrawn" : "None"}
-                />
-                <li className="acct-ccy-row total">
-                  <span className="acct-ccy-label">On the account</span>
-                  <span className="acct-ccy-value num">{formatMoneyMinor(item.total_available_minor, ccy)}</span>
-                </li>
-              </ul>
-              <div className="acct-ccy-cta">
-                <Button block className="btn-green" disabled={frozen || readonly} size="lg" variant="primary" onClick={() => openModal("deposit", ccy)}>Add {ccy}</Button>
-                <Button block className="acct-ccy-withdraw" disabled={readonly} variant="ghost" onClick={() => openModal("withdraw", ccy)}>Withdraw to IBAN</Button>
-                {withdrawBlockedReason(ccy) ? <p className="acct-ccy-note acct-ccy-blocked">{withdrawBlockedReason(ccy)}</p> : null}
-                <p className="acct-ccy-note">
-                  {nextReturn ? <>Goes back to your bank on <strong>{formatDate(nextReturn)}</strong> if not invested</> : "No money waiting to go back to your bank."}
-                </p>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-
-      <section className="card acct-lots-card">
-        <div className="card-head">
-          <h2>{currency} balance lots</h2>
-          <span className="acct-card-meta">{pluralize(lots.length, "lot")} · used oldest first</span>
-        </div>
-        {summary.penalty_charged_minor > 0 ? (
-          <div className="acct-penalty-line">
-            <span>Penalty charged</span>
-            <span className="acct-penalty-value num">{currency} {formatMoneyMinor(summary.penalty_charged_minor, currency)}</span>
-            <span className="acct-penalty-note">
-              Balance-ageing penalty for funds held past day 60, taken from the lots below. It is already deducted and not part of any balance shown.
-            </span>
-          </div>
-        ) : null}
-        <BalanceLotsTable lots={lots} frozen={previewFrozen} returnDays={returnDays} />
-      </section>
-
-      <div className="acct-two">
-        <section className="card acct-iban-card">
-          <div className="card-head">
-            <h2>Payout IBANs</h2>
-            <Button disabled={readonly} icon="plus" size="sm" onClick={() => openModal("iban")}>Add or update IBAN</Button>
-          </div>
-          <div className="acct-rows">
-            {balances.payout_instructions.map((instruction) => (
-              <div className="acct-row" key={instruction.id}>
-                <div className="acct-row-text">
-                  <div className="acct-row-title">{instruction.destination_account_name}</div>
-                  <div className="acct-iban num">{instruction.destination_iban}</div>
-                </div>
-                <div className="acct-row-actions">
-                  <span className="tag">{instruction.currency}</span>
-                  {(() => {
-                    const state = payoutInstructionState(instruction);
-                    return <Chip status={state.key} tone={state.tone}>{state.label}</Chip>;
-                  })()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="card acct-pending-card">
-          <div className="card-head"><h2>Pending withdrawals</h2></div>
-          <PendingWithdrawalsList withdrawals={balances.pending_withdrawals ?? []} />
-        </section>
-      </div>
-
-      <section className="card acct-rules">
-        <div className="card-head"><h2>Rules for your money</h2></div>
-        <ul className="acct-rules-list">
-          <li>{autoReturnRuleText(returnDays)} We send it to your verified payout IBAN.</li>
-          <li>To invest, that amount must have enough time left to cover the loan's remaining funding period. Shorter periods can use older funds.</li>
-          <li>Eligible lots are consumed oldest-first.</li>
-          {fxFeature.enabled ? <li>FX conversion does not restart this count.</li> : null}
-          <li>Without a verified payout IBAN we cannot return the money. After 60 days (the legal limit) it enters penalty mode.</li>
-        </ul>
-      </section>
-      {modal === "deposit" ? <DepositModal currency={modalCurrency} onClose={() => setModal(null)} /> : null}
-      {modal === "withdraw" ? <WithdrawModal currency={modalCurrency} maxMinor={withdrawableMinor(modalSummary)} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === modalCurrency)} onClose={() => setModal(null)} /> : null}
-      {modal === "iban" ? <PayoutIbanModal onClose={() => setModal(null)} /> : null}
-    </main>
-  );
-}
-
-// One line of a currency account card (design "nk-iv-wg2-list").
-function BucketTile({ label, value, currency, tone, sub }: { label: string; value: number; currency: string; tone: "ok" | "warn" | "bad" | "neutral"; sub: string }) {
-  return (
-    <li className={`acct-ccy-row tone-${tone}`}>
-      <span className="acct-ccy-label">
-        {label}
-        <span className={`acct-ccy-sub${tone === "bad" ? " neg" : ""}`}>{sub}</span>
-      </span>
-      <span className="acct-ccy-value num">{formatMoneyMinor(value, currency)}</span>
-    </li>
-  );
-}
-
-function BalanceLotsTable({ lots, frozen, returnDays }: { lots: BalanceLot[]; frozen: boolean; returnDays: number }) {
-  if (lots.length === 0) {
-    return <div className="portal-table-empty"><Empty icon="balance" title="No balance lots">Incoming deposits, repayments, recoveries, FX proceeds, or sale proceeds will appear here.</Empty></div>;
-  }
-  const showPenalty = lots.some((lot) => lot.penalized_amount_minor > 0);
-
-  return (
-    <div className="portal-data-surface">
-      <div className="tbl-wrap">
-        <table className="tbl portal-data-table balance-lots-table stack-on-phone">
-          <thead><tr><th>Lot</th><th>Source</th><th>Received</th><th className="num">Remaining</th>{showPenalty ? <th className="num">Penalty charged</th> : null}<th>Age/deadline</th><th>Status</th></tr></thead>
-          <tbody>
-            {lots.map((lot) => {
-              const penalty = frozen && lot.bucket === "overdue";
-              const age = lotAgeLines(lot, returnDays);
-              return (
-                <tr className={penalty ? "lot-penalty" : lot.bucket === "overdue" ? "lot-overdue" : ""} key={lot.id}>
-                  <td data-label="Lot"><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
-                  <td data-label="Source"><div>{sourceLabel(lot.source_type)}</div>{lot.source_type === "fx_proceeds" ? <div className="sub">Deadline inherited from source lot</div> : null}</td>
-                  <td className="lot-received" data-label="Received">{formatDate(lot.received_at)}</td>
-                  <td className="num lot-remaining" data-label="Remaining">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
-                  {showPenalty ? (
-                    <td className={`num lot-penalty-charged${lot.penalized_amount_minor > 0 ? " has-penalty" : ""}`} data-label="Penalty charged">{lot.penalized_amount_minor > 0 ? formatMoneyMinor(lot.penalized_amount_minor, lot.currency) : "-"}</td>
-                  ) : null}
-                  <td className="lot-deadline" data-label="Age / deadline">
-                    <DeadlineMeter daysLeft={lot.days_until_last_day} totalDays={returnDays} />
-                    <div className="lot-deadline-meta">
-                      <span>{age.status}</span>
-                      <span>{age.detail}</span>
-                    </div>
-                  </td>
-                  <td data-label="Status"><Chip status={penalty ? "penalty" : lot.bucket}>{!penalty && lot.bucket === "overdue" ? "Due back" : undefined}</Chip></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function DepositModal({
-  allowCurrencySelection = false,
-  currency: initialCurrency,
-  onClose
-}: {
-  allowCurrencySelection?: boolean;
-  currency: string;
-  onClose: () => void;
-}) {
-  const [currency, setCurrency] = useState(initialCurrency);
-  const instructionsQuery = useDepositInstructionsData();
-  const payload = instructionsQuery.data;
-  if (instructionsQuery.isError && !payload) {
-    return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Add Funds">
-        <DataErrorCard title="Could not load funding instructions" onRetry={() => void instructionsQuery.refetch()}>
-          We could not load the live bank-transfer instructions. Try again before sending funds.
-        </DataErrorCard>
-      </Modal>
-    );
-  }
-  if (!payload) {
-    return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Add Funds">
-        <ScreenLoading title="Loading funding instructions" />
-      </Modal>
-    );
-  }
-  const selectedCurrency = allowCurrencySelection && !payload.instructions.some((item) => item.currency === currency)
-    ? payload.instructions[0]?.currency ?? currency
-    : currency;
-  const instruction = payload.instructions.find((item) => item.currency === selectedCurrency);
-  if (!instruction) {
-    return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Add Funds · ${selectedCurrency}`}>
-        <Empty icon="info" title={`No ${selectedCurrency} funding account`}>
-          Garanta has not enabled bank-transfer instructions for this currency.
-        </Empty>
-      </Modal>
-    );
-  }
-  return (
-    <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Add Funds · ${selectedCurrency}`}>
-      <div className="col gap-16 acct-modal deposit-modal">
-        {allowCurrencySelection && payload.instructions.length > 1 ? (
-          <Field label="Currency">
-            <select aria-label="Currency" className="select" onChange={(event) => setCurrency(event.target.value)} value={selectedCurrency}>
-              {payload.instructions.map((item) => (
-                <option key={item.currency} value={item.currency}>{item.currency}</option>
-              ))}
-            </select>
-          </Field>
-        ) : null}
-        <Banner tone={instruction.is_configured ? "warn" : "bad"} title={`Send ${selectedCurrency} only to this ${selectedCurrency} account`}>
-          {instruction.is_configured
-            ? "Matching depends on amount, currency, sender name/IBAN and the reference below."
-            : "This deposit account is not fully configured yet. Do not send funds until Garanta confirms the live bank details."}
-        </Banner>
-        <dl className="acct-copy-list">
-          <DepositDetailRow copyLabel="Copy account holder" copyValue={instruction.account_holder_name} label="Account holder" value={instruction.account_holder_name || "Pending configuration"} />
-          <DepositDetailRow label="Bank" value={instruction.bank_name || "Pending configuration"} />
-          <DepositDetailRow copyLabel="Copy IBAN" copyValue={instruction.iban} label="IBAN" value={instruction.iban} />
-          {instruction.qr_iban ? <DepositDetailRow copyLabel="Copy QR IBAN" copyValue={instruction.qr_iban} label="QR IBAN" value={instruction.qr_iban} /> : null}
-          <DepositDetailRow copyLabel="Copy BIC/SWIFT" copyValue={instruction.bic} label="BIC/SWIFT" value={instruction.bic} />
-        </dl>
-        {instruction.qr_bill_payload ? (
-          <div className="qr-instruction-panel">
-            <QrBillImage payload={instruction.qr_bill_payload} />
-            <div>
-              <div className="eyebrow">Swiss QR-bill code</div>
-              <p className="qr-instruction-copy">
-                Scan this code only for {selectedCurrency} transfers. If your bank app does not carry the
-                BANXUM payment reference automatically, enter the reference below unchanged.
-              </p>
-            </div>
-          </div>
-        ) : null}
-        <div className="deposit-reference">
-          <div className="acct-copy is-key">
-            <div className="acct-copy-label">Payment reference - required</div>
-            <div className="acct-copy-value num">{instruction.payment_reference}</div>
-            <div className="acct-copy-action"><CopyIdButton ariaLabel="Copy payment reference" id={instruction.payment_reference} label="Copy" /></div>
-          </div>
-          <div className="deposit-reference-guidance">
-            <Icon name="info" size={16} />
-            <span>
-              Enter this reference unchanged in the payment details or reference field of your bank
-              transfer. Missing or incorrect references may delay allocation of the funds to your
-              BANXUM account.
-            </span>
-          </div>
-          <p className="acct-modal-note">The bank value date starts the new balance lot's count: what is not invested goes back to your bank after {AUTO_RETURN_AFTER_DAYS} days.</p>
-          <p className="acct-modal-note">{payload.reference_rule}</p>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// A label/value row with an optional copy button (design "How to add funds").
-function DepositDetailRow({ label, value, copyValue, copyLabel }: { label: string; value: ReactNode; copyValue?: string | null; copyLabel?: string }) {
-  return (
-    <div className="acct-copy">
-      <dt className="acct-copy-label">{label}</dt>
-      <dd className="acct-copy-value num">{value}</dd>
-      {copyValue ? (
-        <dd className="acct-copy-action"><CopyIdButton ariaLabel={copyLabel ?? `Copy ${label}`} iconOnly id={copyValue} label={copyLabel ?? `Copy ${label}`} /></dd>
-      ) : null}
-    </div>
-  );
-}
-
-function QrBillImage({ payload }: { payload: string }) {
-  const [src, setSrc] = useState("");
-
-  useEffect(() => {
-    let mounted = true;
-    QRCode.toDataURL(payload, {
-      errorCorrectionLevel: "M",
-      margin: 1,
-      width: 220,
-      color: {
-        dark: "#0a0a0a",
-        light: "#ffffff"
-      }
-    })
-      .then((nextSrc) => {
-        if (mounted) {
-          setSrc(nextSrc);
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setSrc("");
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [payload]);
-
-  if (!src) {
-    return <div className="qr-instruction-placeholder">QR code unavailable</div>;
-  }
-
-  return <img alt="Swiss QR-bill code for the collection account" className="qr-instruction-image" src={src} />;
-}
-
-function formatIbanGroups(iban: string) {
-  return iban.replace(/\s/g, "").replace(/(.{4})/g, "$1 ").trim();
-}
-
-function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { currency: string; maxMinor: number; payoutInstructions: PayoutInstruction[]; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [amount, setAmount] = useState("");
-  const [step, setStep] = useState<"form" | "confirm" | "done">("form");
-  const [code, setCode] = useState("");
-  const [selectedInstructionId, setSelectedInstructionId] = useState(payoutInstructions.find((instruction) => instruction.is_verified_usable)?.id ?? payoutInstructions[0]?.id ?? "");
-  const [error, setError] = useState("");
-  const codeRequest = useSensitiveActionCode(ActionEnum.withdrawal);
-  useAutoRequestEmailCode(codeRequest, step === "confirm");
-  const withdrawalMutation = useV1LedgerWithdrawalRequestsCreate();
-  const selectedInstruction = payoutInstructions.find((instruction) => instruction.id === selectedInstructionId);
-  const parsedAmount = parseMoneyInputToMinorUnits(amount, currency);
-  const amountMinor = parsedAmount.amountMinor;
-  const amountError =
-    parsedAmount.error ?? (amountMinor > maxMinor ? `Exceeds withdrawable ${currency} balance.` : undefined);
-  const valid = amountMinor > 0 && !amountError && Boolean(selectedInstruction?.is_verified_usable);
-
-  const submitWithdrawal = () => {
-    setError("");
-    if (isFixturePreview) {
-      if (codeRequest.pin.previewAccepts()) setStep("done");
-      return;
-    }
-    if (!selectedInstruction?.is_verified_usable || !codeRequest.codeId) {
-      setError("Select a verified payout IBAN and request an email code first.");
-      return;
-    }
-    withdrawalMutation.mutate(
-      {
-        data: {
-          amount_minor: amountMinor,
-          currency,
-          destination_iban: selectedInstruction.destination_iban,
-          destination_account_name: selectedInstruction.destination_account_name,
-          // One key per withdrawal intent: a retry after a timeout is recognised by
-          // the server and not paid out twice. New amount or IBAN, new key.
-          idempotency_key: intentIdempotencyKey("investor-withdrawal", {
-            amount_minor: amountMinor,
-            currency,
-            destination_iban: selectedInstruction.destination_iban,
-            destination_account_name: selectedInstruction.destination_account_name
-          }),
-          sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code,
-          pin: codeRequest.pin.value
-        }
-      },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries();
-          setStep("done");
-        },
-        onError: (mutationError) => {
-          if (codeRequest.pin.handleError(mutationError)) return;
-          setError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-
-  const footer = step === "done"
-    ? <Button variant="primary" onClick={onClose}>Done</Button>
-    : step === "confirm"
-      ? <><Button variant="ghost" onClick={() => setStep("form")}>Back</Button><Button disabled={code.length < 6 || !codeRequest.pin.ready || (!isFixturePreview && !codeRequest.codeId) || withdrawalMutation.isPending} variant="primary" onClick={submitWithdrawal}>{withdrawalMutation.isPending ? "Submitting..." : "Confirm withdrawal"}</Button></>
-      : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} variant="primary" onClick={() => setStep("confirm")}>Review</Button></>;
-
-  return (
-    <Modal footer={footer} onClose={onClose} title={`Withdraw ${currency}`}>
-      {step === "form" ? (
-        <div className="col gap-16 acct-modal">
-          <div className="acct-modal-figure"><span className="acct-modal-figure-label">Withdrawable balance</span><span className="acct-modal-figure-value num">{currency} {formatMoneyMinor(maxMinor, currency)}</span></div>
-          <Field error={amountError} label="Amount to withdraw">
-            <div className="input-affix"><span className="prefix">{currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.,'\u2019\s]/g, ""))} placeholder="0.00" style={{ paddingLeft: 60 }} value={amount} /></div>
-          </Field>
-          <Field error={!selectedInstruction?.is_verified_usable ? "Add and verify a payout IBAN before withdrawing." : undefined} label="Payout IBAN">
-            <select className="select" onChange={(event) => setSelectedInstructionId(event.target.value)} value={selectedInstructionId}>
-              {payoutInstructions.length === 0 ? <option value="">No verified IBAN</option> : null}
-              {payoutInstructions.map((instruction) => (
-                <option disabled={!instruction.is_verified_usable} key={instruction.id} value={instruction.id}>
-                  {instruction.destination_account_name} - {instruction.destination_iban}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Banner tone="neutral" title="Operational timing">Withdrawals are processed by Garanta and usually arrive within 1-3 business days.</Banner>
-        </div>
-      ) : step === "confirm" ? (
-        <div className="col gap-16 acct-modal">
-          <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "To IBAN", value: selectedInstruction ? formatIbanGroups(selectedInstruction.destination_iban) : "-" }, { label: "Account name", value: selectedInstruction?.destination_account_name || "-" }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
-          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code and your PIN.</Banner>
-          <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={submitWithdrawal} />
-          {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
-          {codeRequest.error || error ? <Banner tone="bad" title="Could not submit withdrawal">{codeRequest.error || error}</Banner> : null}
-        </div>
-      ) : (
-        <SuccessState title="Withdrawal requested">You will receive a confirmation email after operational processing.</SuccessState>
-      )}
-    </Modal>
-  );
-}
-
 function FxCurrencyFlag({ currency }: { currency: "CHF" | "EUR" }) {
   return currency === "CHF" ? (
     <svg aria-hidden="true" className="fx-flag" viewBox="0 0 20 14">
@@ -7787,14 +7282,6 @@ function activityCategory(entry: ActivityEntry) {
   return safeMetadataCategory(entry.metadata);
 }
 
-// "email.magic_link_requested" -> "Magic link requested".
-// "3" -> "v3"; generated statements ("reporting-v2") -> "v2".
-function documentVersionLabel(version: string) {
-  if (/^\d+$/.test(version)) return `v${version}`;
-  const suffix = version.match(/-v(\d+)$/);
-  return suffix ? `v${suffix[1]}` : version;
-}
-
 function ActivityAmount({ entry }: { entry: ActivityEntry }) {
   if (entry.amount_minor === 0 || entry.amount_minor === null) {
     return <span className="muted">-</span>;
@@ -7808,26 +7295,6 @@ function ActivityAmount({ entry }: { entry: ActivityEntry }) {
       {sign}
       {formatMoneyMinor(absoluteAmount, entry.currency)}
     </span>
-  );
-}
-
-// Body of the Transactions page until slice S4 rebuilds it: today's activity list.
-function ActivityPanel() {
-  const activityQuery = useActivityData();
-  const activity = activityQuery.data;
-  if (activityQuery.isError && !activity) {
-    return (
-      <DataErrorCard title="Could not load transactions" onRetry={() => void activityQuery.refetch()}>
-        We could not load your account activity.
-      </DataErrorCard>
-    );
-  }
-  if (!activity) return <ScreenLoading title="Transactions" />;
-  // The portfolio page's "Activity" list, in its own page context.
-  return (
-    <div className="content pf-page">
-      <ActivityTable entries={activity.entries} />
-    </div>
   );
 }
 
@@ -9557,291 +9024,6 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
           {codeRequest.error || error ? <Banner tone="bad" title={isEdit ? "Could not update listing" : "Could not list holding"}>{codeRequest.error || error}</Banner> : null}
         </div>
       )}
-    </Modal>
-  );
-}
-
-// `embedded`: the list without its page frame (the Reports page shows its own U33 head);
-// `kinds`: only these document kinds (account_statement, annual_tax_information, acceptance_evidence).
-function DocumentsScreen({ embedded = false, kinds }: { embedded?: boolean; kinds?: string[] } = {}) {
-  const [type, setType] = useState<string>("All");
-  const [error, setError] = useState("");
-  const documentsQuery = useDocumentsData();
-  const downloadMutation = useV1InvestorPortalDocumentsDownloadCreate();
-  const documents = documentsQuery.data;
-  const Frame = embedded ? "div" : "main";
-  const frameClass = embedded ? "acct-page acct-documents" : "content acct-page acct-documents";
-  if (documentsQuery.isError && !documents) {
-    return (
-      <Frame className={frameClass}>
-        {embedded ? null : <PageHead description="Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
-        <DataErrorCard title="Could not load documents" onRetry={() => void documentsQuery.refetch()}>
-          We could not load your self-service document list.
-        </DataErrorCard>
-      </Frame>
-    );
-  }
-  if (!documents) return <ScreenLoading title={embedded ? "Reports" : "Documents"} />;
-  const listed = kinds ? documents.documents.filter((document) => kinds.includes(document.document_kind)) : documents.documents;
-  const rows = listed.filter((document) => type === "All" || document.document_type === type);
-  const types = ["All", ...Array.from(new Set(listed.map((document) => document.document_type)))];
-  const downloadDocument = (document: InvestorDocument, outputFormat = "pdf") => {
-    setError("");
-    downloadMutation.mutate(
-      {
-        data: {
-          document_kind:
-            document.document_kind === "acceptance_evidence"
-              ? DocumentKindEnum.acceptance_evidence
-              : document.document_kind === "annual_tax_information"
-                ? DocumentKindEnum.annual_tax_information
-                : DocumentKindEnum.account_statement,
-          document_id: document.document_kind === "acceptance_evidence" ? document.id : undefined,
-          output_format:
-            outputFormat === "csv"
-              ? InvestorDocumentDownloadRequestOutputFormatEnum.csv
-              : outputFormat === "zip"
-                ? InvestorDocumentDownloadRequestOutputFormatEnum.zip
-                : InvestorDocumentDownloadRequestOutputFormatEnum.pdf,
-          start_date: document.period_start,
-          end_date: document.period_end
-        }
-      },
-      {
-        onSuccess: (artifact) => downloadPortalArtifact(artifact),
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
-      }
-    );
-  };
-  return (
-    <Frame className={frameClass}>
-      {embedded ? null : <PageHead description="Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />}
-      <div className="col gap-12 acct-alerts">
-        <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
-        {error ? <Banner tone="bad" title="Download failed">{error}</Banner> : null}
-      </div>
-      <div className="doc-filter-bar">
-        <div aria-label="Document type" className="tabs doc-type-tabs" role="group">
-          {types.map((item) => <button aria-pressed={type === item} className={type === item ? "on" : ""} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
-        </div>
-        <span className="results-count">{pluralize(rows.length, "document")}</span>
-      </div>
-      <section className="card acct-table-card">
-        {rows.length === 0 ? (
-          <div className="portal-table-empty">
-            <Empty icon="doc" title="No documents match this filter">
-              Choose another document type, or return later after accepting terms or generating a statement.
-            </Empty>
-          </div>
-        ) : (
-          <div className="portal-data-surface">
-            <div className="tbl-wrap">
-              <table className="tbl portal-data-table documents-data-table stack-on-phone"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
-              <tbody>{rows.map((document) => (
-                <tr key={document.id}>
-                  <td data-label="Document">
-                    <div className="doc-title-cell">
-                      <Icon className="doc-title-icon" name="doc" size={16} />
-                      <span>
-                        <span className="doc-title">{document.title}</span>
-                        {document.template_title ? <span className="sub">{document.template_title}</span> : null}
-                      </span>
-                    </div>
-                  </td>
-                  <td data-label="Type"><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : "neutral"}>{document.document_type}</Chip></td>
-                  <td className="doc-muted" data-label="Version">{documentVersionLabel(document.version)}</td>
-                  <td className="doc-muted doc-context" data-label="Context">{document.context_label}</td>
-                  <td className="doc-muted doc-date" data-label="Date">{formatDate(document.date)}</td>
-                  <td className="num doc-muted" data-label="Artifact">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
-                  <td className="right doc-downloads-cell">
-                    <div className="doc-downloads">
-                      {document.output_formats.includes("csv") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "csv")}>CSV</Button> : null}
-                      {document.output_formats.includes("zip") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "zip")}>ZIP</Button> : null}
-                      <Button disabled={downloadMutation.isPending} icon="download" size="sm" onClick={() => downloadDocument(document, "pdf")}>PDF</Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}</tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </section>
-    </Frame>
-  );
-}
-
-function downloadPortalArtifact(artifact: InvestorDocumentDownloadResponse) {
-  const bytes =
-    artifact.content_encoding === "base64"
-      ? Uint8Array.from(window.atob(artifact.content), (character) => character.charCodeAt(0))
-      : new TextEncoder().encode(artifact.content);
-  const blob = new Blob([bytes], { type: artifact.content_type });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = artifact.filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
-}
-
-function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const notificationsQuery = useNotificationsData(100);
-  const readActions = useNotificationReadActions();
-  const payload = notificationsQuery.data;
-  if (notificationsQuery.isError && !payload) {
-    return (
-      <ScreenError title="Notifications" onRetry={() => void notificationsQuery.refetch()}>
-        We could not load notification delivery status. Retry once the API connection is restored.
-      </ScreenError>
-    );
-  }
-  if (!payload) return <ScreenLoading title="Notifications" />;
-  const openNotification = (notification: InvestorNotification) => {
-    if (notification.unread) void readActions.markRead(notification.id).catch(() => undefined);
-    const target = notificationRoute(notification);
-    if (target.name !== "notifications") goTo(setRoute, target.name, target.params);
-  };
-  return (
-    <main className="content acct-page acct-notifications">
-      <PageHead
-        actions={
-          <>
-            {payload.unread_count > 0 ? <Chip tone="warn">{payload.unread_count} unread</Chip> : <Chip tone="ok">Up to date</Chip>}
-            <Button disabled={payload.unread_count === 0} icon="check" onClick={() => void readActions.markAllRead().catch(() => undefined)} size="sm">
-              Mark all as read
-            </Button>
-          </>
-        }
-        description="Email delivery status, operational notices, and investor messages. Open a notice to go to the loan, holding or balance it is about."
-        title="Notifications"
-      />
-      <Card>
-        {payload.notifications.length === 0 ? (
-          <Empty icon="bell" title="No notifications yet">
-            Emails, confirmations, balance reminders, and operational notices will appear here.
-          </Empty>
-        ) : (
-          <div className="notice-list">
-            {payload.notifications.map((notification) => {
-              const failed = notification.status === "failed" || notification.status === "dead_letter";
-              const hasTarget = notificationRoute(notification).name !== "notifications";
-              return (
-                <div className={`notice-row${failed ? " is-failed" : ""}${notification.unread ? " is-unread" : ""}`} key={notification.id}>
-                  <span className="notice-icon"><Icon className={failed ? "neg" : "muted"} name="bell" size={17} /></span>
-                  <div className="notice-content">
-                    {hasTarget ? (
-                      <button className="notice-title notice-open" onClick={() => openNotification(notification)} type="button">
-                        {notification.title}
-                        <Icon name="arrowR" size={14} />
-                      </button>
-                    ) : (
-                      <div className="notice-title">{notification.title}</div>
-                    )}
-                    <p className="notice-body">{notification.body}</p>
-                    <div className="notice-meta">
-                      <span>{formatDateTime(notification.created_at)}</span>
-                      <span>{notification.topic_label}</span>
-                    </div>
-                  </div>
-                  <div className="notice-status">
-                    {notification.unread ? <Chip dot tone="info">Unread</Chip> : null}
-                    <Chip status={notification.status} />
-                    {notification.unread ? (
-                      <Button aria-label={`Mark "${notification.title}" as read`} onClick={() => void readActions.markRead(notification.id).catch(() => undefined)} size="sm" variant="ghost">
-                        Mark as read
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </main>
-  );
-}
-
-function PayoutIbanModal({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [currency, setCurrency] = useState("CHF");
-  const [iban, setIban] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
-  const mutation = useV1LedgerPayoutInstructionsCreate();
-  const codeRequest = useSensitiveActionCode(ActionEnum.bank_account_change);
-  const hasValidPayoutDetails =
-    currency.length === 3 && iban.replace(/\s/g, "").length >= 15 && accountName.trim().length > 1;
-  useAutoRequestEmailCode(codeRequest, !done && hasValidPayoutDetails);
-  const canSubmit = hasValidPayoutDetails && codeRequest.pin.ready && (isFixturePreview || (codeRequest.codeId && code.length >= 6));
-
-  const submit = () => {
-    setError("");
-    if (isFixturePreview) {
-      if (codeRequest.pin.previewAccepts()) setDone(true);
-      return;
-    }
-    if (!codeRequest.codeId) {
-      setError("Request an email code before submitting a payout IBAN change.");
-      return;
-    }
-    mutation.mutate(
-      {
-        data: {
-          currency,
-          destination_iban: iban,
-          destination_account_name: accountName,
-          sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code,
-          pin: codeRequest.pin.value
-        }
-      },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries();
-          setDone(true);
-        },
-        onError: (mutationError) => {
-          if (codeRequest.pin.handleError(mutationError)) return;
-          setError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-
-  if (done) {
-    return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Payout IBAN submitted">
-        <SuccessState title="Pending Garanta verification">The payout instruction was recorded. It is not usable for withdrawals or forced returns until Garanta verifies it.</SuccessState>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!canSubmit || mutation.isPending} variant="primary" onClick={submit}>{mutation.isPending ? "Submitting..." : "Submit for verification"}</Button></>} onClose={onClose} title="Add/update payout IBAN">
-      <div className="col gap-16 acct-modal">
-        <Banner tone="warn" title="Adding payout details">A newly submitted IBAN is added to your existing payout accounts and remains unavailable until Garanta verifies it. Existing verified IBANs stay usable. The 60-day balance deadline is not extended.</Banner>
-        <Field label="Currency">
-          <select className="select" value={currency} onChange={(event) => setCurrency(event.target.value)}>
-            <option value="CHF">CHF</option>
-            <option value="EUR">EUR</option>
-          </select>
-        </Field>
-        <Field label="IBAN">
-          <input className="input mono" onChange={(event) => setIban(event.target.value.toUpperCase())} placeholder="CH..." value={iban} />
-        </Field>
-        <Field label="Account holder name">
-          <input className="input" onChange={(event) => setAccountName(event.target.value)} placeholder={displayProfile().name} value={accountName} />
-        </Field>
-        <SensitiveActionFields code={code} codeRequest={codeRequest} onCodeChange={setCode} onContinue={submit} />
-        {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
-        {codeRequest.error || error ? <Banner tone="bad" title="Could not submit payout IBAN">{codeRequest.error || error}</Banner> : null}
-      </div>
     </Modal>
   );
 }

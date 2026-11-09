@@ -1,0 +1,86 @@
+/* IP of Webby-Soft SRL. */
+/* Wallet screens (slice S4): fixes and the few additions the design does not have. Every rule is
+ * scoped to html.bxu (U33Skin) and says why it exists. Design classes come from portal/u33/u33.css. */
+
+/* temporary, moves to u33-overrides.css at merge */
+html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
+
+/* Account notices: the design's alert component (Overview .ov-updates) on the Account page; amber
+ * variant for money on its last day or due back (the design colours late payments this way). */
+html.bxu .ap-alerts { margin-bottom: 24px; }
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates.ap-alerts > .alert.wl-alert-amber { background: #fff7e8 !important; }
+html.bxu .ap-alerts > .wl-alert-amber .bxm-signal-text,
+html.bxu .ap-alerts > .wl-alert-amber > .icon { color: #956117; }
+html.bxu .ap-alerts .alert-link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+html.bxu[data-theme="dark"] .ap-alerts > .wl-alert-amber .bxm-signal-text,
+html.bxu[data-theme="dark"] .ap-alerts > .wl-alert-amber > .icon { color: #e5b66c; }
+
+/* Balance details: the lot's source under its received date (the design table has no such line). */
+html.bxu .p73-balance-table .wl-lot-source { display: block; margin-top: 3px; font-size: 12px; color: #6b7076; }
+html.bxu[data-theme="dark"] .p73-balance-table .wl-lot-source { color: #a9b0b6; }
+/* Status of a lot (last day, due back, frozen) next to its return date. */
+html.bxu .p73-balance-table .wl-lot-tag { margin-left: 8px; vertical-align: 1px; }
+/* Penalty charged so far (penalty mode exists until U33-DEC-04). */
+html.bxu .wl-penalty-note { margin: 14px 0 0; font-size: 12px; color: #6b7076; }
+html.bxu[data-theme="dark"] .wl-penalty-note { color: #a9b0b6; }
+/* Withdrawals in progress reuse the reservation rows; the list itself has no bullets. */
+html.bxu .wl-plain-list { list-style: none; margin: 0; padding: 0; }
+html.bxu .wl-withdrawal-row { cursor: default; }
+
+/* Account rules dialog: link to the bank accounts in Profile & Settings. */
+html.bxu .wl-rules-link { margin: 16px 0 0; font-size: 13px; }
+
+/* Money dialogs: loading, error and empty states inside the dialog body. */
+html.bxu .p73-modal .wl-dialog-state { margin: 18px 0 4px; }
+html.bxu .p73-modal .wl-alert { margin: 0 0 16px; font-size: 13px; }
+
+/* Add funds: the Swiss QR-bill of the CHF account (the design offers a download button only). */
+html.bxu .wl-qr-body { display: flex; gap: 18px; align-items: flex-start; }
+html.bxu .wl-qr-body p { margin: 0 0 12px; }
+html.bxu .wl-qr-image { width: 148px; height: 148px; flex: none; border: 1px solid #e6e6e6; border-radius: 8px; }
+html.bxu .wl-qr-placeholder { width: 148px; flex: none; font-size: 12px; color: #6b7076; }
+
+/* Withdraw: holder check mark (the design's .p73-holder rule is not in the generated sheet). */
+html.bxu .p73-destination .p73-holder .icon { color: #39704b; margin-left: 4px; }
+html.bxu .wl-account-select { margin-bottom: 12px; }
+html.bxu .wl-destination-missing strong { display: block; }
+
+/* Withdraw confirmation: today's email code + PIN (ACC-DEC-009 until U33-DEC-01). */
+html.bxu .wl-code-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+html.bxu .wl-code-resend { background: none; border: 0; padding: 0; font-size: 12px; text-decoration: underline; cursor: pointer; color: inherit; }
+html.bxu .wl-code-resend:disabled { text-decoration: none; color: #8a8a8a; cursor: default; }
+html.bxu .wl-code-hint { margin: 6px 0 0; font-size: 12px; color: #6b7076; }
+html.bxu .wl-sensitive .pin-sensitive { margin-top: 18px; }
+
+/* Withdraw result. */
+html.bxu .wl-result { display: flex; gap: 12px; align-items: flex-start; margin: 18px 0 24px; font-size: 14px; line-height: 1.6; }
+html.bxu .wl-result > .icon { font-size: 22px; color: #39704b; }
+html.bxu .wl-result p { margin: 0; }
+
+/* Transactions: the detail list in one column (the design sets this inline on .bxm-kv). */
+html.bxu .bxm-kv.wl-kv-single { grid-template-columns: 1fr; }
+html.bxu .wl-summary-empty { margin: 0; font-size: 13px; color: #6b7076; }
+/* Note under a list (latest 250 movements, informational disclaimer). */
+html.bxu .wl-list-note { margin: 16px 2px 0; font-size: 12px; line-height: 1.6; color: #6b7076; }
+html.bxu[data-theme="dark"] .wl-list-note,
+html.bxu[data-theme="dark"] .wl-summary-empty { color: #a9b0b6; }
+
+/* Reports: PDF and CSV links side by side in the action column (the design has one "View" link). */
+html.bxu .wl-report-actions { display: inline-flex; gap: 18px; justify-content: flex-end; }
+html.bxu .wl-report-actions .tr-link { white-space: nowrap; }
+
+/* Documents: the CSV download next to "Download" (PDF). */
+html.bxu .dp-actions .wl-download-csv { margin-left: 16px; }
+
+/* Notifications: the topic label under the text (audit A-46) and rows that open nothing. */
+html.bxu .nd-row .wl-nd-topic { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; color: #6b7076; }
+html.bxu[data-theme="dark"] .nd-row .wl-nd-topic { color: #a9b0b6; }
+html.bxu button.nd-row.wl-nd-static { width: 100%; border: 0; text-align: left; font: inherit; cursor: default; }
+html.bxu .nd-list > button.nd-row + .nd-row,
+html.bxu .nd-list > .nd-row + button.nd-row { border-top: 1px solid #eceef0; }
+
+/* Documents: three tabs (the design has two) must fit a 390px phone without scrolling away. */
+@media (max-width: 575px) {
+  html.bxu[data-responsive] body.bxm-app .dp-page .dp-tabs { gap: 12px !important; } /* design sets 20px !important */
+  html.bxu[data-responsive] body.bxm-app .dp-page .dp-tabs > a { font-size: 13px; }
+}

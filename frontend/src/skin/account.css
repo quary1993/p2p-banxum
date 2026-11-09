@@ -2,9 +2,9 @@
 /* User-side skin: account. All rules are scoped with .bxm (see banxumSkin.css). */
 
 /* ==========================================================================
-   Wallet and account pages: Account (balances), FX, Documents,
-   Notifications, Profile & Settings, Verification, portal Help, and the
-   deposit / withdrawal / payout IBAN / FX dialogs.
+   Old-skin account pages still in use: FX, Profile & Settings, Verification,
+   portal Help and the payout IBAN / FX dialogs. Account, Transactions,
+   Reports, Documents and Notifications are U33 screens (portal/screens/wallet).
    ========================================================================== */
 
 /* Shared pieces ------------------------------------------------------------ */
@@ -20,11 +20,6 @@
   letter-spacing: -0.015em;
   line-height: 1.3;
   margin: 0;
-}
-
-.bxm .acct-card-meta {
-  color: var(--ink-3);
-  font-size: 13px;
 }
 
 /* A bordered list of rows (design "card-inner-group" with rows). */
@@ -86,417 +81,19 @@
   border: 0;
 }
 
-/* Account (balances) -------------------------------------------------------- */
-
-.bxm .acct-ccy-grid {
-  display: grid;
-  gap: 28px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: 28px;
-}
-
-.bxm .acct-ccy {
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-}
-
-.bxm .acct-ccy-title {
-  color: var(--ink-3);
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.45;
-  margin: 0 0 12px;
-}
-
-.bxm .acct-ccy-amount {
-  border-bottom: 2px solid var(--ink);
-  color: var(--ink);
-  font-size: 30px;
-  font-weight: 400;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  margin-bottom: 16px;
-  padding-bottom: 20px;
-}
-
-.bxm .acct-ccy-list {
-  list-style: none;
-  margin: 0 0 32px;
-  padding: 0;
-}
-
-.bxm .acct-ccy-row {
-  align-items: baseline;
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-
-.bxm .acct-ccy-label {
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1.45;
-  min-width: 0;
-}
-
-.bxm .acct-ccy-sub {
-  color: var(--ink-3);
-  display: block;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.bxm .acct-ccy-sub.neg {
-  color: var(--bxm-signal);
-  font-weight: 500;
-}
-
-.bxm .acct-ccy-value {
-  color: var(--ink);
-  flex: none;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.bxm .acct-ccy-row.total {
-  border-top: 1px solid var(--line);
-  margin-top: 6px;
-  padding-top: 10px;
-}
-
-.bxm .acct-ccy-row.total .acct-ccy-label,
-.bxm .acct-ccy-row.total .acct-ccy-value {
-  font-weight: 700;
-}
-
-.bxm .acct-ccy-cta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: auto;
-  text-align: center;
-}
-
-.bxm .acct-ccy-cta .btn-lg {
-  height: 44px;
-}
-
-.bxm .acct-ccy-withdraw {
-  font-size: 13px;
-}
-
-.bxm .acct-ccy-withdraw:hover:not(:disabled) {
-  background: transparent;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.bxm .acct-ccy-note {
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 12px 0 0;
-}
-
-.bxm .acct-ccy-note strong {
-  font-weight: 600;
-}
-
-.bxm .acct-lots-card {
-  margin-bottom: 28px;
-}
-
-.bxm .acct-lots-card .tbl-wrap {
-  overflow-x: auto;
-}
-
-.bxm .balance-lots-table .lot-received {
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-
-.bxm .balance-lots-table .lot-remaining {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.bxm .balance-lots-table .lot-deadline {
-  min-width: 190px;
-}
-
-.bxm .balance-lots-table .lot-penalty-charged {
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-
-.bxm .balance-lots-table .lot-penalty-charged.has-penalty {
-  color: var(--bxm-signal);
-  font-weight: 600;
-}
-
-/* Penalty charged on this currency's lots, shown apart from the frozen balance. */
-.bxm .acct-penalty-line {
-  align-items: baseline;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 13px;
-  gap: 4px 12px;
-  padding: 12px 24px;
-}
-
-.bxm .acct-penalty-value {
-  color: var(--bxm-signal);
-  font-weight: 600;
-}
-
-.bxm .acct-penalty-note {
-  color: var(--ink-3);
-  flex-basis: 100%;
-  font-size: 12px;
-}
-
-.bxm .lot-deadline-meta {
-  color: var(--ink-3);
-  display: flex;
-  font-size: 11px;
-  gap: 8px;
-  justify-content: space-between;
-  line-height: 1.4;
-  margin-top: 6px;
-  white-space: nowrap;
-}
-
-.bxm .balance-lots-table .sub {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
-.bxm .balance-lots-table tr.lot-overdue td,
-.bxm .balance-lots-table tr.lot-penalty td {
-  background: #fff;
-}
-
-.bxm .balance-lots-table tr.lot-overdue td:first-child,
-.bxm .balance-lots-table tr.lot-penalty td:first-child {
-  box-shadow: inset 2px 0 0 var(--bxm-signal);
-}
-
-.bxm .balance-lots-table tr.lot-penalty td {
-  background: var(--bad-bg);
-}
-
-.bxm .acct-two {
-  display: grid;
-  gap: 28px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: 28px;
-}
-
-.bxm .acct-iban-card .acct-row {
-  padding: 16px 24px;
-}
+/* Payout IBAN rows (Profile & Settings) -------------------------------------- */
 
 .bxm .acct-row-text .acct-row-title + .acct-iban {
   margin-top: 2px;
 }
 
-.bxm .acct-iban-card .acct-row-text {
-  display: block;
-}
-
-.bxm .acct-pending-card .empty {
-  padding: 36px 24px;
-}
-
-.bxm .acct-rules-list {
-  list-style: none;
-  margin: 0;
-  padding: 8px 24px 12px;
-}
-
-.bxm .acct-rules-list li {
-  border-bottom: 1px solid var(--line);
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1.6;
-  padding: 9px 0 9px 20px;
-  position: relative;
-}
-
-.bxm .acct-rules-list li::before {
-  background: var(--ink);
-  content: "";
-  height: 6px;
-  left: 0;
-  position: absolute;
-  top: 18px;
-  width: 6px;
-}
-
-.bxm .acct-rules-list li:last-child {
-  border-bottom: 0;
-}
-
-/* Dialogs: deposit, withdrawal, payout IBAN, FX confirmation ----------------- */
+/* Dialogs: payout IBAN, FX confirmation ------------------------------------- */
 
 .bxm .acct-modal-note {
   color: var(--ink-3);
   font-size: 12px;
   line-height: 1.6;
   margin: 0;
-}
-
-.bxm .acct-modal-figure {
-  align-items: baseline;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  justify-content: space-between;
-  padding: 0 0 14px;
-}
-
-.bxm .acct-modal .input-affix .prefix {
-  color: var(--ink-3);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  left: 18px;
-}
-
-.bxm .acct-modal-figure-label {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-.bxm .acct-modal-figure-value {
-  color: var(--ink);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-/* Label above value, copy button at the right (design "bxm-copy"). */
-.bxm .acct-copy-list {
-  margin: 0;
-}
-
-.bxm .acct-copy {
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  column-gap: 12px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 10px 0;
-}
-
-.bxm .acct-copy-label {
-  color: var(--ink-3);
-  font-size: 12px;
-  grid-column: 1;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.bxm .acct-copy-value {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  grid-column: 1;
-  line-height: 1.5;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.bxm .acct-copy-action {
-  align-self: center;
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  margin: 0;
-}
-
-.bxm .acct-copy .copy-id-btn {
-  color: var(--ink);
-}
-
-.bxm .acct-copy .copy-id-btn.icon-only {
-  border-radius: 999px;
-  height: 32px;
-  padding: 0;
-  width: 32px;
-}
-
-.bxm .acct-copy.is-key {
-  border: 1px solid var(--ink);
-  padding: 12px 16px;
-}
-
-.bxm .acct-copy.is-key .acct-copy-label {
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: var(--bxm-label-track);
-  text-transform: uppercase;
-}
-
-.bxm .acct-copy.is-key .acct-copy-value {
-  font-size: 18px;
-  letter-spacing: 0.03em;
-  margin-top: 4px;
-}
-
-.bxm .acct-copy.is-key .copy-id-btn {
-  background: #fff;
-  border-color: var(--line);
-  font-size: 12px;
-  height: 30px;
-  padding: 0 14px;
-}
-
-.bxm .deposit-modal .qr-instruction-panel {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  gap: 20px;
-  padding: 16px;
-}
-
-.bxm .deposit-modal .qr-instruction-image,
-.bxm .deposit-modal .qr-instruction-placeholder {
-  border-color: var(--line);
-  border-radius: 0;
-}
-
-.bxm .qr-instruction-copy {
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 6px 0 0;
-}
-
-.bxm .deposit-modal .deposit-reference-guidance {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--ink);
-  border-radius: 0;
-  color: var(--ink);
-  font-size: 13px;
-  gap: 10px;
-  line-height: 1.6;
-  margin-top: 12px;
-  padding: 12px 14px;
-}
-
-.bxm .deposit-modal .deposit-reference-guidance svg {
-  margin-top: 3px;
-}
-
-.bxm .deposit-reference .acct-modal-note {
-  margin-top: 10px;
 }
 
 /* FX ------------------------------------------------------------------------ */
@@ -814,176 +411,15 @@
   font-size: 13px;
 }
 
-/* Documents ----------------------------------------------------------------- */
+/* Profile & Settings (design "bxm-settings" card with "card-aside") ---------- */
 
-.bxm .doc-filter-bar {
-  align-items: flex-end;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 24px;
-  justify-content: space-between;
-}
+/* Restricted, locked or closed account --------------------------------------- */
 
-.bxm .doc-filter-bar .tabs {
-  border-bottom: 0;
-  flex: 1 1 auto;
-  min-width: 0;
-}
+/* Verification (KYC status and gate) ---------------------------------------- */
 
-.bxm .doc-filter-bar .results-count {
-  color: var(--ink-3);
-  font-size: 13px;
-  margin-left: auto;
-  padding: 16px 0;
-}
+/* Portal Help (design "help") ----------------------------------------------- */
 
-.bxm .acct-documents .acct-table-card {
-  border-top: 0;
-}
-
-.bxm .documents-data-table .doc-title-cell {
-  align-items: flex-start;
-  display: flex;
-  gap: 10px;
-  min-width: 220px;
-}
-
-.bxm .doc-title-icon {
-  color: var(--ink-3);
-  flex: none;
-  margin-top: 3px;
-}
-
-.bxm .doc-title {
-  color: var(--ink);
-  display: block;
-  font-weight: 500;
-}
-
-.bxm .documents-data-table .sub {
-  color: var(--ink-3);
-  display: block;
-  font-size: 12px;
-}
-
-.bxm .documents-data-table .doc-muted {
-  color: var(--ink-3);
-}
-
-.bxm .documents-data-table .doc-date {
-  white-space: nowrap;
-}
-
-.bxm .doc-downloads {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-/* Notifications ------------------------------------------------------------- */
-
-.bxm .acct-notifications .notice-list {
-  display: block;
-}
-
-.bxm .acct-notifications .notice-row {
-  align-items: flex-start;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  gap: 14px;
-  padding: 20px 24px;
-}
-
-.bxm .acct-notifications .notice-row:last-child {
-  border-bottom: 0;
-}
-
-.bxm .notice-icon {
-  align-items: center;
-  background: var(--bxm-paper);
-  border: 1px solid var(--bxm-paper);
-  border-radius: 50%;
-  display: inline-flex;
-  flex: none;
-  height: 36px;
-  justify-content: center;
-  width: 36px;
-}
-
-.bxm .notice-icon .muted {
-  color: var(--ink);
-}
-
-.bxm .notice-row.is-failed .notice-icon {
-  background: #fff;
-  border-color: var(--bxm-signal);
-}
-
-.bxm .notice-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.bxm .notice-title {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
-.bxm .notice-body {
-  color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 2px 0 0;
-}
-
-.bxm .notice-meta {
-  color: var(--ink-3);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 11px;
-  gap: 2px 12px;
-  margin-top: 6px;
-}
-
-.bxm .notice-status {
-  align-items: center;
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.bxm .acct-notifications .notice-row.is-unread {
-  background: #fcfcfc;
-  box-shadow: inset 3px 0 0 var(--ink);
-}
-
-/* A notice that leads somewhere: its title opens the loan, holding or balance. */
-.bxm .notice-open {
-  align-items: center;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  display: inline-flex;
-  font-family: var(--font-sans);
-  gap: 6px;
-  padding: 0;
-  text-align: left;
-}
-
-.bxm .notice-open:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.bxm .notice-open:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
-}
+/* FaqContent repeats the page head; the PageHead above replaces it here. */
 
 /* Responsive ------------------------------------------------------------------ */
 
@@ -1009,16 +445,13 @@
 
 @media (max-width: 991px) {
 
-  .bxm .acct-two,
   .bxm .fx-band {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 860px) {
-  .bxm .acct-ccy-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  
 
   .bxm .fx-rail {
     flex-direction: column;
@@ -1027,20 +460,15 @@
 
 @media (max-width: 560px) {
   .bxm .acct-page .acct-alerts,
-  .bxm .acct-ccy-grid,
-  .bxm .acct-lots-card,
-  .bxm .acct-two,
-  .bxm .fx-desk,
-  .bxm .fx-error,
-  .bxm .fx-history-card {
+.bxm .fx-desk,
+.bxm .fx-error,
+.bxm .fx-history-card {
     margin-bottom: 20px;
   }
 
-  .bxm .acct-ccy-grid,
-  .bxm .acct-two,
   .bxm .fx-band,
-  .bxm .fx-desk,
-  .bxm .fx-rail {
+.bxm .fx-desk,
+.bxm .fx-rail {
     gap: 20px;
   }
 
@@ -1048,21 +476,10 @@
     padding: 14px 16px;
   }
 
-  .bxm .acct-ccy {
-    padding: 20px 16px;
-  }
+  
 
-  .bxm .acct-ccy-amount {
-    font-size: 26px;
-  }
-
-  .bxm .acct-iban-card .acct-row,
   .bxm .acct-row {
     padding: 14px 16px;
-  }
-
-  .bxm .acct-rules-list {
-    padding: 4px 16px 8px;
   }
 
   .bxm .fx-panel,
@@ -1137,23 +554,5 @@
     grid-column: 2;
     grid-row: 2;
     text-align: right;
-  }
-
-  .bxm .doc-filter-bar .results-count {
-    padding: 4px 0 12px;
-  }
-
-  .bxm .acct-notifications .notice-row {
-    flex-wrap: wrap;
-    padding: 16px;
-  }
-
-  .bxm .acct-notifications .notice-content {
-    flex-basis: calc(100% - 50px);
-  }
-
-  .bxm .acct-notifications .notice-status {
-    justify-content: flex-start;
-    margin-left: 50px;
   }
 }

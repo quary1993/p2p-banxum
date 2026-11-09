@@ -58,10 +58,11 @@ function withdrawalHandlers(results: Array<() => Response>) {
 }
 
 async function openWithdrawalConfirm(amount: string) {
-  fireEvent.click((await screen.findAllByRole("button", { name: "Withdraw to IBAN" }, { timeout: 5000 }))[0]);
-  const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: amount } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  const card = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
+  fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
+  const dialog = await screen.findByRole("dialog", { name: "Withdraw" });
+  fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: amount } });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   enterPin();
   await waitFor(() => expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeEnabled());
@@ -97,8 +98,8 @@ test("A-41: a new withdrawal amount gets a new key", async () => {
   expect(calls.withdrawals[0]).toMatchObject({ amount_minor: 10_050 });
 
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  fireEvent.change(within(screen.getByRole("dialog")).getByPlaceholderText("0.00"), { target: { value: "150" } });
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review" }));
+  fireEvent.change(within(screen.getByRole("dialog", { name: "Withdraw" })).getByLabelText("Amount to withdraw"), { target: { value: "150" } });
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Withdraw" })).getByRole("button", { name: /Continue/ }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
   await screen.findAllByText("Withdrawal requested", {}, { timeout: 5000 });

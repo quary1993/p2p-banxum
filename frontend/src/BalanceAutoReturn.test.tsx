@@ -3,6 +3,7 @@
 // the last day and the return date of each lot, the money due back, and asks for a verified IBAN
 // when the money cannot go back; the Help page answers with the same rule.
 import { fireEvent, screen, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
@@ -83,38 +84,53 @@ const ageingBalances = () =>
   });
 
 test("Account shows the last day, the return date and asks for an IBAN when money cannot go back", async () => {
-  server.use(...shellHandlers({ balances: ageingBalances }));
+  server.use(
+    ...shellHandlers({ balances: ageingBalances }),
+    http.get("*/api/v1/investor/portal/primary-orders/", () => HttpResponse.json({ orders: [] }))
+  );
   renderLiveApp(App, "/balances");
 
-  const lotsCard = (await screen.findByRole("heading", { name: "CHF balance lots" }, { timeout: 5000 })).closest("section") as HTMLElement;
-  expect(screen.getAllByText("Funds are non-interest-bearing. Money that is not invested goes back to your bank automatically after 58 days.").length).toBeGreaterThan(0);
-  const lastDayRow = within(lotsCard).getByText("Day 58: last day").closest("tr") as HTMLElement;
-  expect(within(lastDayRow).getByText("Goes back to your bank on 11 Dec 2026")).toBeInTheDocument();
-  expect(within(lastDayRow).getByText("Withdraw-only")).toBeInTheDocument();
-  const newRow = within(lotsCard).getByText("10d holding time left").closest("tr") as HTMLElement;
-  expect(within(newRow).getByText("Goes back to your bank on 21 Dec 2026")).toBeInTheDocument();
+  // Account cards: the next automatic return of money that can still be invested, with its real date.
+  const chf = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
+  expect(within(chf).getByText("21 Dec 2026").closest("p")).toHaveTextContent("CHF 200,00 returns on 21 Dec 2026 if not invested.");
+  // EUR money is already due back: no upcoming return date, the rule with the API's day count.
+  const eur = screen.getByRole("region", { name: "EUR account" });
+  expect(within(eur).getByText("Money that is not invested goes back to your bank account after 58 days.")).toBeInTheDocument();
 
-  // Account cards: the last-day tile, the money due back, and the next return date.
-  expect(screen.getAllByText("Day 58: last day, can only be withdrawn today")).toHaveLength(2);
-  expect(screen.getAllByText("Due back to your bank")).toHaveLength(2);
-  expect(screen.getAllByText("Not invested within 58 days")).toHaveLength(2);
-  expect(screen.getByText("11 Dec 2026").closest("p")).toHaveTextContent("Goes back to your bank on 11 Dec 2026 if not invested");
+  // Notices: EUR cannot go back (no verified EUR account); the CHF last-day money can be withdrawn.
+  const notices = within(screen.getByRole("region", { name: "Account notices" }));
+  const noAccount = notices.getByText("Add a verified bank account so we can return your money.").closest(".alert") as HTMLElement;
+  expect(noAccount).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank, but there is no verified EUR bank account.");
+  expect(noAccount).toHaveTextContent("After 60 days (the legal limit) the money enters penalty mode.");
+  expect(within(noAccount).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
+  const lastDay = notices.getByText("Last day for CHF 100,00.").closest(".alert") as HTMLElement;
+  expect(lastDay).toHaveTextContent("It can no longer be invested and goes back to your bank account on 11 Dec 2026. You can withdraw it until then.");
+  expect(notices.getAllByText("Add a verified bank account so we can return your money.")).toHaveLength(1);
 
-  // EUR cannot go back: no verified EUR IBAN. CHF has one, so it gets no such banner.
-  const banner = screen.getByRole("heading", { name: "Add a verified bank account so we can return your money" }).closest("[role='status']") as HTMLElement;
-  expect(banner).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank");
-  expect(banner).toHaveTextContent("After 60 days (the legal limit) the money enters penalty mode.");
-  expect(within(banner).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
-  expect(screen.getAllByText("Add a verified bank account so we can return your money")).toHaveLength(1);
-
-  fireEvent.click(screen.getByRole("tab", { name: "EUR" }));
-  const eurLots = (await screen.findByRole("heading", { name: "EUR balance lots" })).closest("section") as HTMLElement;
-  const dueRow = within(eurLots).getByText("Due back to your bank").closest("tr") as HTMLElement;
-  expect(within(dueRow).getByText("Return due since 10 Dec 2026")).toBeInTheDocument();
+  // Balance details: each lot's return date and state.
+  const table = within(screen.getByText("Balance details").closest("details") as HTMLElement).getByRole("table");
+  const lastDayRow = within(table).getByText("100,00").closest("tr") as HTMLElement;
+  expect(within(lastDayRow).getByText("11 Dec 2026")).toBeInTheDocument();
+  expect(within(lastDayRow).getByText("Last day")).toBeInTheDocument();
+  const newRow = within(table).getByText("200,00").closest("tr") as HTMLElement;
+  expect(within(newRow).getByText("21 Dec 2026")).toBeInTheDocument();
+  const dueRow = within(table).getByText("500,00").closest("tr") as HTMLElement;
+  expect(within(dueRow).getByText("Due since 10 Dec 2026")).toBeInTheDocument();
   expect(within(dueRow).getByText("Due back")).toBeInTheDocument();
+
+  // The account rules name the same 58 days and today's 60-day limit.
+  fireEvent.click(screen.getByRole("button", { name: "How your account works" }));
+  const rules = screen.getByRole("dialog", { name: "How your account works" });
+  expect(rules).toHaveTextContent("goes back automatically to your verified bank account (IBAN) after 58 days");
+  expect(rules).toHaveTextContent("Loan repayments and recoveries are credited to your Banxum balance.");
 
   // Both the last-day lot and the money due back need action.
   expect(screen.getAllByLabelText("2 balances need action").length).toBeGreaterThan(0);
+
+  // "Add a bank account" opens the bank-account dialog for the currency that has no account.
+  fireEvent.click(within(rules).getByRole("button", { name: "Close" }));
+  fireEvent.click(within(noAccount).getByRole("button", { name: "Add a bank account" }));
+  expect(await screen.findByRole("dialog", { name: "New EUR bank account" })).toBeInTheDocument();
 }, 30_000);
 
 test("the Help page explains the 58-day return and the 60-day legal limit", async () => {

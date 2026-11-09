@@ -423,8 +423,10 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   openAccountMenu();
   expect(within(topbar).getByText("Verified investor")).toBeInTheDocument();
   fireEvent.click(within(topbar).getByRole("button", { name: "Add funds" }));
-  expect(screen.getByRole("heading", { name: "Add Funds · CHF" })).toBeInTheDocument();
-  expect(screen.getByLabelText("Currency")).toHaveClass("select");
+  const addFunds = screen.getByRole("dialog", { name: "Add funds" });
+  expect(addFunds).toHaveClass("p73-modal");
+  expect(within(addFunds).getByRole("group", { name: "Currency" })).toHaveClass("p73-currency");
+  expect(within(addFunds).getByRole("button", { name: "CHF" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("dashboard renders the v9 financial overview and opens matching loans in the opportunity sheet", () => {
@@ -797,8 +799,9 @@ test("investor data tables use the shared editorial table surface", () => {
   fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
 
+  // U33 wallet screens (S4) use the design's tables: Balance details and the Documents list.
   clickNav(/^Account/);
-  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "balance-lots-table");
+  expect(screen.getByRole("table")).toHaveClass("p73-balance-table");
 
   clickNav("Resale market");
   fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
@@ -808,7 +811,7 @@ test("investor data tables use the shared editorial table surface", () => {
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-activity-table");
 
   clickNav("Documents");
-  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "documents-data-table");
+  expect(screen.getByRole("table")).toHaveClass("tr-table", "dp-table");
 });
 
 test("read-only impersonation token survives a new tab and opens the investor portal", () => {
@@ -2436,11 +2439,21 @@ test("deposit instructions explain how to use the required payment reference", (
   fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   clickNav(/^Account/);
-  fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "Add Funds" }));
+  fireEvent.click(within(screen.getByRole("region", { name: "CHF account" })).getByRole("button", { name: "Add funds" }));
 
-  expect(screen.getByText("Payment reference - required")).toBeInTheDocument();
-  expect(screen.getByText(/enter this reference unchanged in the payment details/i)).toBeInTheDocument();
-  expect(screen.getByText(/may delay allocation of the funds/i)).toBeInTheDocument();
+  const dialog = screen.getByRole("dialog", { name: "Add funds" });
+  expect(within(dialog).getByText("Your personal reference")).toBeInTheDocument();
+  expect(within(dialog).getByText("BX-LBR-CHF-4471")).toBeInTheDocument();
+  expect(within(dialog).getByText("Use your reference with every transfer so we can identify your payment.")).toBeInTheDocument();
+  expect(within(dialog).getByText(/must be included unchanged in the bank transfer reference/i)).toBeInTheDocument();
+  // U33-DEC-05 and U33-DEC-34: own-name accounts, unclear deposits checked by hand, the operator named.
+  expect(within(dialog).getByText("Transfer from a bank account in your name.")).toBeInTheDocument();
+  expect(within(dialog).getByText(/checked by hand before they become available/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/other accounts are returned/i)).not.toBeInTheDocument();
+  expect(within(dialog).getByText("Banxum is a brand of Garanta Finanzgruppe AG.")).toBeInTheDocument();
+  // CHF has a Swiss QR-bill; there are no simulated deposits.
+  expect(within(dialog).getByText("Show the QR code")).toBeInTheDocument();
+  expect(within(dialog).queryByText(/simulate|prototype/i)).not.toBeInTheDocument();
 });
 
 test("account page shows one card per currency whose actions open that currency", () => {
@@ -2455,18 +2468,26 @@ test("account page shows one card per currency whose actions open that currency"
   clickNav(/^Account/);
 
   const main = screen.getByRole("main");
-  expect(within(main).getByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
-  expect(within(main).getByRole("heading", { name: "CHF account" })).toBeInTheDocument();
-  expect(within(main).getByRole("heading", { name: "EUR account" })).toBeInTheDocument();
-  expect(within(main).getByRole("heading", { name: "CHF balance lots" })).toBeInTheDocument();
-  expect(within(main).getByRole("heading", { name: "Rules for your money" })).toBeInTheDocument();
+  expect(within(main).getByRole("heading", { name: "Banxum account", level: 1 })).toBeInTheDocument();
+  // EUR first, then CHF (design order); each card has its available and reserved amounts.
+  expect(within(main).getAllByRole("region", { name: /^[A-Z]{3} account$/ }).map((card) => card.getAttribute("aria-labelledby"))).toEqual(["wl-account-EUR", "wl-account-CHF"]);
+  const chf = within(main).getByRole("region", { name: "CHF account" });
+  expect(within(chf).getByText("24.190,00")).toBeInTheDocument();
+  // The CHF order of 6.500,00 is allocated: reserved until its funding closes.
+  expect(within(chf).getByRole("link", { name: "CHF 6.500,00" })).toHaveAttribute("href", "/portfolio");
+  expect(within(main).getByText("Balance details")).toBeInTheDocument();
+  expect(within(main).getByRole("button", { name: "How your account works" })).toBeInTheDocument();
 
-  fireEvent.click(within(main).getByRole("button", { name: "Add EUR" }));
-  expect(screen.getByRole("dialog", { name: "Add Funds · EUR" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  const eur = within(main).getByRole("region", { name: "EUR account" });
+  fireEvent.click(within(eur).getByRole("button", { name: "Add funds" }));
+  const addFunds = screen.getByRole("dialog", { name: "Add funds" });
+  expect(within(addFunds).getByRole("button", { name: "EUR" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(within(addFunds).getByRole("button", { name: "Close" }));
 
-  fireEvent.click(within(main).getAllByRole("button", { name: "Withdraw to IBAN" })[1]);
-  expect(screen.getByRole("dialog", { name: "Withdraw EUR" })).toBeInTheDocument();
+  fireEvent.click(within(eur).getByRole("button", { name: "Withdraw" }));
+  const withdraw = screen.getByRole("dialog", { name: "Withdraw" });
+  expect(within(withdraw).getByRole("button", { name: "EUR" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(withdraw).getByText("Available EUR 7.420,00")).toBeInTheDocument();
 });
 
 test("profile and settings keep every section reachable from its tabs and the account menu", () => {
@@ -2692,14 +2713,18 @@ test("Add Funds offers a copy icon for the IBAN and QR IBAN in CHF and EUR", () 
 
   openAccountMenu();
   fireEvent.click(screen.getByRole("button", { name: "Add funds" }));
-  const chf = screen.getByRole("dialog", { name: "Add Funds · CHF" });
-  expect(within(chf).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
-  expect(within(chf).getByRole("button", { name: "Copy QR IBAN" })).toBeInTheDocument();
-  expect(within(chf).getByRole("button", { name: "Copy payment reference" })).toBeInTheDocument();
+  const dialog = screen.getByRole("dialog", { name: "Add funds" });
+  expect(within(dialog).getByRole("button", { name: "Copy beneficiary" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Copy QR-IBAN" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Copy BIC" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Copy your personal reference" })).toBeInTheDocument();
 
-  fireEvent.change(within(chf).getByLabelText("Currency"), { target: { value: "EUR" } });
-  const eur = screen.getByRole("dialog", { name: "Add Funds · EUR" });
-  expect(within(eur).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "EUR" }));
+  expect(within(dialog).getByRole("button", { name: "EUR" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(dialog).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: "Copy QR-IBAN" })).not.toBeInTheDocument();
+  expect(within(dialog).getByText("BX-LBR-EUR-4471")).toBeInTheDocument();
 });
 
 test("Smart-Invest matches show the purpose as a readable label under the name", () => {
@@ -2779,8 +2804,9 @@ test("notifications open their target, can be marked read one by one or all at o
   expect(within(nav).getByRole("link", { name: /^Notifications$/ })).toBeInTheDocument();
 
   clickNav(/^Notifications/);
-  expect(screen.getByText("Up to date")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /^Mark ".*" as read$/ })).not.toBeInTheDocument();
+  const filters = screen.getByRole("navigation", { name: "Notification view" });
+  expect(within(filters).getByRole("button", { name: "Unread 0" })).toBeInTheDocument();
+  expect(within(screen.getByRole("main")).queryAllByRole("img", { name: "Unread" })).toHaveLength(0);
   expect(screen.getByRole("button", { name: "Mark all as read" })).toBeDisabled();
 });
 
@@ -2789,13 +2815,27 @@ test("the Notifications page marks all as read and opens a notice's page", async
   loginDemo();
   clickNav(/^Notifications/);
 
-  expect(screen.getByText("2 unread")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: 'Mark "Loan in default" as read' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
-  expect(await screen.findByText("Up to date")).toBeInTheDocument();
-  expect(screen.queryByText("Unread")).not.toBeInTheDocument();
+  const main = screen.getByRole("main");
+  const filters = within(main).getByRole("navigation", { name: "Notification view" });
+  expect(within(filters).getByRole("button", { name: "All 5" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(filters).getByRole("button", { name: "Unread 2" })).toBeInTheDocument();
+  expect(within(main).getAllByRole("img", { name: "Unread" })).toHaveLength(2);
+  // Rows lead to the screen they are about; a failed delivery is amber and says so.
+  expect(within(main).getByRole("link", { name: /^Loan in default/ })).toHaveAttribute("href", "/portfolio/H-2201");
+  const failed = within(main).getByText("Withdrawal requested: CHF 1,500.00").closest(".nd-row") as HTMLElement;
+  expect(failed).toHaveClass("is-late");
+  expect(within(failed).getByText(/Email not delivered/)).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Balance ageing - day 57" }));
+  // The Unread view lists only unread notices.
+  fireEvent.click(within(filters).getByRole("button", { name: "Unread 2" }));
+  expect(within(main.querySelector(".nd-list") as HTMLElement).getAllByRole("link")).toHaveLength(2);
+
+  fireEvent.click(within(main).getByRole("button", { name: "Mark all as read" }));
+  expect(await within(main).findByRole("heading", { name: "No unread notifications" })).toBeInTheDocument();
+  expect(within(filters).getByRole("button", { name: "Unread 0" })).toBeInTheDocument();
+  fireEvent.click(within(main).getByRole("button", { name: /View all notifications/ }));
+
+  fireEvent.click(within(main).getByRole("link", { name: /^Balance ageing - day 57/ }));
   expect(window.location.pathname).toBe("/balances");
 });
 
@@ -2886,11 +2926,16 @@ test("Account shows the frozen balance apart from the penalty charged on the lot
     clickNav(/^Account/);
 
     expect(screen.queryByText("Penalty/frozen")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Frozen").length).toBe(2);
-    const lots = screen.getByRole("heading", { name: "CHF balance lots" }).closest("section") as HTMLElement;
-    expect(within(lots).getByText("Penalty charged", { selector: "span" })).toBeInTheDocument();
-    expect(within(lots).getByRole("columnheader", { name: "Penalty charged" })).toBeInTheDocument();
-    expect(within(lots).getAllByText(/49,00/).length).toBeGreaterThanOrEqual(2);
+    // The available balance does not include the penalty: it is listed per lot in Balance details,
+    // with a note that it is already deducted (penalty mode exists until U33-DEC-04).
+    const details = screen.getByText("Balance details").closest("details") as HTMLElement;
+    const table = within(details).getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Penalty charged" })).toBeInTheDocument();
+    const overdueRow = within(table).getByText("980,00").closest("tr") as HTMLElement;
+    expect(within(overdueRow).getByText("49,00")).toBeInTheDocument();
+    expect(within(overdueRow).getByText("Due back")).toBeInTheDocument();
+    expect(within(details).getByText("Penalty charged so far: CHF 49,00. It is already deducted and not part of any balance shown.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "CHF account" })).getByText("24.190,00")).toBeInTheDocument();
   } finally {
     overdueLot!.penalized_amount_minor = 0;
     chf!.penalty_charged_minor = 0;
@@ -2901,17 +2946,20 @@ test("withdrawal review shows the destination IBAN and account name before the c
   renderApp();
   loginDemo();
   clickNav(/^Account/);
-  const main = screen.getByRole("main");
-  fireEvent.click(within(main).getAllByRole("button", { name: "Withdraw to IBAN" })[0]);
-  const dialog = screen.getByRole("dialog", { name: "Withdraw CHF" });
-  fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "250" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  fireEvent.click(within(screen.getByRole("region", { name: "CHF account" })).getByRole("button", { name: "Withdraw" }));
+  const dialog = screen.getByRole("dialog", { name: "Withdraw" });
+  // The verified account is chosen; timing and fee follow U33-DEC-35.
+  expect(within(dialog).getByText("Usually 1–3 business days · No Banxum fee")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
+  expect(within(dialog).getByText("Enter the amount to withdraw.")).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: "250" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
 
-  const review = screen.getByRole("dialog", { name: "Withdraw CHF" });
-  expect(within(review).getByText("To IBAN")).toBeInTheDocument();
+  const review = screen.getByRole("dialog", { name: "Confirm withdrawal" });
+  expect(within(review).getByText("250,00")).toBeInTheDocument();
   expect(within(review).getByText("CH93 0076 2011 6238 5295 7")).toBeInTheDocument();
-  expect(within(review).getByText("Account name")).toBeInTheDocument();
   expect(within(review).getByText("Lukas Brunner")).toBeInTheDocument();
+  expect(within(review).getByRole("textbox", { name: "Email confirmation code" })).toBeInTheDocument();
 });
 
 test("activity shows penalty charges and labels a forced return as such", () => {
