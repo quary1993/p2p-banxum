@@ -3,7 +3,7 @@
  * Shared U33 building blocks for the investor area (slices S2-S5 use these instead of making their own).
  *
  * Conventions of the U33 investor area (Phase 17.1):
- * - Styles: portal/u33/u33.css is GENERATED from the design (never edit it; run the S1 tool), fixes go to
+ * - Styles: portal/u33/u33.css is GENERATED from the design (never edit it; run tools/u33-design/investor/build.sh), fixes go to
  *   portal/u33/u33-overrides.css. Both are scoped to html.bxu, which <U33Skin> sets while the investor
  *   area is mounted. Use the design's DOM and class names; do not invent a parallel class system.
  * - Screens: one folder per area, frontend/src/portal/screens/<area>/<Name>Screen.tsx (areas: invest,

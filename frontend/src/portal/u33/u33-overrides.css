@@ -1,6 +1,6 @@
 /* IP of Webby-Soft SRL. */
 /* Hand-made fixes for the U33 investor area, all under html.bxu. u33.css is generated from the design
- * (do not edit it; rebuild it with the S1 tool); put every fix here, with the reason.
+ * (do not edit it; rebuild it with tools/u33-design/investor/build.sh); put every fix here, with the reason.
  * Generated rules have the specificity of the design selector + one class (:where(html).bxu ...),
  * so a fix written as "html.bxu <same selector>" wins without !important.
  *
@@ -14,7 +14,7 @@
  *
  * How the final slice removes the old skin (after the last <LegacyBody> is gone):
  * 1. Delete portal/shell/LegacyBody.tsx and section 1 below; rebuild u33.css with
- *    "build-u33-css.mjs --no-legacy-guard" (drops the :where(:not(.bxu-legacy *)) guards).
+ *    "tools/u33-design/investor/build.sh --no-legacy-guard" (drops the :where(:not(.bxu-legacy *)) guards).
  * 2. Remove UserSkin from InvestorShell and the sign-in screens (S5 moves them to U33Skin), then delete
  *    banxumSkin.css, skin/*.css and the html.bxm-only rules; keep the styles.css rules the admin
  *    console still uses (it never mounts either skin), or move them to the admin console.
