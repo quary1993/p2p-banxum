@@ -47,6 +47,7 @@ import {
 } from "./fixtures";
 import { portalFixture } from "./fixtures";
 import { markNotificationsRead } from "./notifications";
+import { backgroundMutation } from "./dialog";
 
 export const isFixturePreview =
   import.meta.env.VITE_PREVIEW === "true" || import.meta.env.MODE === "test";
@@ -188,8 +189,9 @@ export function useNotificationsData(limit = 50, enabled = true) {
  */
 export function useNotificationReadActions() {
   const queryClient = useQueryClient();
-  const markOne = useV1InvestorPortalNotificationsReadCreate();
-  const markAll = useV1InvestorPortalNotificationsReadAllCreate();
+  // Background requests: an open dialog stays closable while they run (dialog.ts).
+  const markOne = useV1InvestorPortalNotificationsReadCreate({ mutation: backgroundMutation });
+  const markAll = useV1InvestorPortalNotificationsReadAllCreate({ mutation: backgroundMutation });
   const notificationsKey = getV1InvestorPortalNotificationsRetrieveQueryKey().slice(0, 1);
   const applyLocally = (ids: string[] | "all") => {
     queryClient.setQueriesData<InvestorNotifications>({ queryKey: notificationsKey }, (current) =>

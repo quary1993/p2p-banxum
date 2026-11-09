@@ -1,10 +1,12 @@
 // Accessibility of the shared Field and Modal (audit 2026-10-09, A-61/A-62): labels and hints are
 // linked to their controls; dialogs take focus, trap Tab, give focus back, ignore Escape while a
 // money action runs, and only the top-most of two stacked dialogs closes on Escape.
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { expect, test } from "vitest";
 
+import { backgroundMutation } from "./dialog";
 import { Button, Field, Modal } from "./ui";
 
 test("Field links its label, hint and error to the control", () => {
@@ -106,4 +108,29 @@ test("while a money action runs, Escape, the backdrop and the close button do no
   expect(screen.getByRole("dialog", { name: "Task" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
   expect(dialog).toHaveAttribute("aria-busy", "true");
+});
+
+test("a background request does not hold a dialog open; the dialog's own kind of request does", async () => {
+  const client = new QueryClient();
+  const never = () => new Promise<never>(() => undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <DialogHarness />
+    </QueryClientProvider>
+  );
+  // A notification marked as read in the background (never answers here).
+  await act(async () => {
+    void client.getMutationCache().build(client, { mutationFn: never, ...backgroundMutation }).execute(undefined);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Open task" }));
+  fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Task" })).not.toBeInTheDocument();
+
+  // Any other running request still keeps the dialog open.
+  await act(async () => {
+    void client.getMutationCache().build(client, { mutationFn: never }).execute(undefined);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Open task" }));
+  fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+  expect(screen.getByRole("dialog", { name: "Task" })).toBeInTheDocument();
 });

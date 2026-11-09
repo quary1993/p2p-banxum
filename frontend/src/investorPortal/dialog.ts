@@ -64,14 +64,24 @@ function noopSubscribe() {
   return () => undefined;
 }
 
-/** Number of pending mutations; 0 outside a QueryClientProvider. */
+/**
+ * Mutation options for requests that run in the background and must not hold an open dialog (marking
+ * notifications as read from the header, for example): pass them as `{ mutation: backgroundMutation }`.
+ */
+export const backgroundMutation = { meta: { background: true } } as const;
+
+function isBackgroundMutation(mutation: { options: { meta?: Record<string, unknown> } }) {
+  return mutation.options.meta?.background === true;
+}
+
+/** Number of pending mutations that are not background requests; 0 outside a QueryClientProvider. */
 export function usePendingMutationCount() {
   const client = useContext(QueryClientContext);
   const subscribe = useCallback(
     (listener: () => void) => (client ? client.getMutationCache().subscribe(listener) : noopSubscribe()),
     [client]
   );
-  const snapshot = () => (client ? client.isMutating() : 0);
+  const snapshot = () => (client ? client.isMutating({ predicate: (mutation) => !isBackgroundMutation(mutation) }) : 0);
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
