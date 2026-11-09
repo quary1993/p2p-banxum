@@ -10,6 +10,7 @@ import type { PayoutInstruction } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { isFixturePreview, useBalancesData } from "../../../../investorPortal/data";
 import { formatDate } from "../../../../investorPortal/format";
+import { brandDisplayName } from "../../../brand";
 import { Button, NiIcon, PortalLink } from "../../../components";
 import { BankAccountDialog } from "../parts/BankAccountDialog";
 import { formatIban } from "../parts/format";
@@ -77,9 +78,9 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
   return (
     <>
       <div className="ps-section-intro">
-        <p>{t("Bank accounts in your name, for withdrawals and for money that goes back to your bank. Repayments are credited to your Banxum balance.")}</p>
+        <p>{t("Bank accounts in your name, for withdrawals and for money that goes back to your bank. Repayments are credited to your {brand} balance.", { brand: brandDisplayName() })}</p>
         <PortalLink className="ps-text-link" to="balances">
-          {t("Banxum account")}
+          {t("{brand} account", { brand: brandDisplayName() })}
           <NiIcon name="arrow-right" />
         </PortalLink>
       </div>

@@ -15,7 +15,7 @@ import { Notice, PsPanel, SettingsRow } from "../parts/ui";
 import type { AccountData } from "./useAccountData";
 
 const SERVICE_EMAILS: Array<{ title: string; description: string }> = [
-  { title: "Investments and repayments", description: "Confirmations of your investments, and repayments credited to your Banxum balance." },
+  { title: "Investments and repayments", description: "Confirmations of your investments, and repayments credited to your {brand} balance." },
   { title: "Late payments and recoveries", description: "When a payment is late, and updates on recovery." },
   { title: "Documents and statements", description: "When a document or statement is ready for you." },
   { title: "Money going back to your bank", description: "Reminders before money you have not invested goes back to your bank account." },
@@ -66,7 +66,7 @@ export function NotificationsTab({ account }: { account: AccountData }) {
         <PsPanel title={t("Always sent")}>
           <div className="ps-settings-rows">
             {SERVICE_EMAILS.map((item) => (
-              <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={t(item.description)} key={item.title} title={t(item.title)} />
+              <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={t(item.description, { brand: brandDisplayName() })} key={item.title} title={t(item.title)} />
             ))}
           </div>
         </PsPanel>

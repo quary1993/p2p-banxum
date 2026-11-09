@@ -136,7 +136,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       question: t("My bank transfer has not arrived. What should I check?"),
       answer: t("Check the bank details, currency and personal payment reference against the instructions in Add funds. The transfer must come from a bank account in your name. Our team matches payments by hand, so it can take some time after your bank has sent the money. If it is still missing, contact support with the transfer date, amount, currency and reference."),
       links: [{ label: t("Account"), to: "balances" }],
-      contact: "My Banxum account"
+      contact: "My account"
     },
     {
       id: "unused",

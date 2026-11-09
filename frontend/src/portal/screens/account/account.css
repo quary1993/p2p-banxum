@@ -171,3 +171,7 @@ html.bxu .acc-kyc-message { margin: 0 0 22px; font-size: 14px; line-height: 1.65
 html.bxu[data-theme="dark"] .acc-kyc-message { color: #e4e8e6; }
 html.bxu .acc-kyc-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
 html.bxu .acc-blocked-panel { margin-top: 8px; }
+
+/* Help: the support email is a link here (the design shows plain text); keep the box's text colour,
+   which the global link colour would make unreadable in Dark. */
+html.bxu .hp-support dd a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
