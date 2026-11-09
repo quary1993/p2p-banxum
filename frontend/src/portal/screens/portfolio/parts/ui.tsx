@@ -1,12 +1,12 @@
 // IP of Webby-Soft SRL.
 // Small U33 building blocks of the portfolio area (slice S3). Shared primitives come from
 // portal/components; these are portfolio-specific and may be merged into components later.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useT } from "../../../../i18n";
 import { formatMoneyMinor, useNumberFormat } from "../../../../investorPortal/format";
 import type { RouteName } from "../../../../investorPortal/types";
-import { Button, EmptyState, NiIcon, PageHead, PortalLink } from "../../../components";
+import { Button, Dialog, EmptyState, NiIcon, PageHead, PortalLink } from "../../../components";
 import { tileIcon } from "./labels";
 
 /** The black project tile with a line icon (design .bxm-project-tile / .mi40-tile). */
@@ -111,5 +111,26 @@ export function PageError({ title, className, message, onRetry }: { title: strin
         </EmptyState>
       </div>
     </main>
+  );
+}
+
+/**
+ * An "i" button with the design's own class (r67-price-info, r69-info, r69-discount...) opening a short
+ * explanation dialog (design .u104-explanation). S1's InfoTip is the generic .bxm-vocab-info version.
+ */
+export function InfoButton({ className, label, title, children, content }: { className: string; label: string; title: string; children?: ReactNode; content: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button aria-haspopup="dialog" aria-label={label} className={className} onClick={() => setOpen(true)} type="button">
+        {children}
+        <NiIcon name="info" />
+      </button>
+      {open ? (
+        <Dialog bodyClassName="u104-explanation" onClose={() => setOpen(false)} size="sm" title={title}>
+          {content}
+        </Dialog>
+      ) : null}
+    </>
   );
 }

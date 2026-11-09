@@ -50,7 +50,7 @@ export function SecuritySection({
   ltvBps,
   currency,
   loanId,
-  className = "p99v3-security"
+  variant = "investment"
 }: {
   collateralType: string;
   description: string;
@@ -59,53 +59,76 @@ export function SecuritySection({
   ltvBps: number | null;
   currency: string;
   loanId: string;
-  className?: string;
+  /** "offer": the resale offer page's layout (section.refined-security, h2 heading, "Details" link). */
+  variant?: "investment" | "offer";
 }) {
   const t = useT();
   const disclosureId = useId();
   const [open, setOpen] = useState(false);
   const unsecured = /unsecured/i.test(collateralType);
   const comparable = !unsecured && ltvBps !== null && collateralValueMinor !== null && collateralValueMinor > 0 && loanPrincipalMinor !== null;
+  const group = (
+    <div className={`r62-collateral-group${variant === "offer" ? "" : " p99v3-collateral"}`}>
+      <div className="r62-collateral-head">
+        <NiIcon name={tileIcon(collateralType)} />
+        <div className="r62-collateral-copy">
+          <strong>{securityLabel(collateralType)}</strong>
+          {description && variant !== "offer" ? <span>{description}</span> : null}
+        </div>
+        {comparable ? (
+          <button
+            aria-controls={disclosureId}
+            aria-expanded={open}
+            aria-label={open ? t("Loan-to-value {ratio}. Hide comparison", { ratio: formatRateBps(ltvBps) }) : t("Loan-to-value {ratio}. Show comparison", { ratio: formatRateBps(ltvBps) })}
+            className="r62-toggle"
+            onClick={() => setOpen((value) => !value)}
+            type="button"
+          >
+            <span>{t("Loan-to-value")}</span>
+            <strong>{formatRateBps(ltvBps)}</strong>
+            <i aria-hidden="true" className="r62-circle" />
+          </button>
+        ) : !unsecured && ltvBps !== null ? (
+          <span className="r62-toggle u33-ltv-static">
+            <span>{t("Loan-to-value")}</span>
+            <strong>{formatRateBps(ltvBps)}</strong>
+          </span>
+        ) : null}
+      </div>
+      {comparable ? (
+        <div aria-hidden={!open} className={`r62-disclosure${open ? " is-open" : ""}`} id={disclosureId} inert={!open}>
+          <div className="r62-clip">
+            <figure className="r62-figure">
+              <LtvFigure currency={currency} loanMinor={loanPrincipalMinor} ltvBps={ltvBps} valueLabel={t("Collateral value")} valueMinor={collateralValueMinor} />
+            </figure>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+  if (variant === "offer") {
+    return (
+      <section className="refined-security">
+        <div className="r36-security-head">
+          <h2>{t("Security")}</h2>
+          <PortalLink aria-label={t("Security details & documents")} className="rc-resource" params={{ loanId }} to="loan">
+            {t("Details")} <NiIcon name="arrow-right" />
+          </PortalLink>
+        </div>
+        {description ? <p>{description}</p> : null}
+        <div className="rc-security-types">{group}</div>
+      </section>
+    );
+  }
   return (
-    <section className={className}>
+    <section className="p99v3-security">
       <div className="p99v3-security-heading">
         <h3>{t("Security")}</h3>
         <PortalLink params={{ loanId }} to="loan">
           {t("Details & documents")} <NiIcon name="arrow-right" />
         </PortalLink>
       </div>
-      <div className="r62-collateral-group p99v3-collateral">
-        <div className="r62-collateral-head">
-          <NiIcon name={tileIcon(collateralType)} />
-          <div className="r62-collateral-copy">
-            <strong>{securityLabel(collateralType)}</strong>
-            {description ? <span>{description}</span> : null}
-          </div>
-          {comparable ? (
-            <button
-              aria-controls={disclosureId}
-              aria-expanded={open}
-              aria-label={open ? t("Loan-to-value {ratio}. Hide comparison", { ratio: formatRateBps(ltvBps) }) : t("Loan-to-value {ratio}. Show comparison", { ratio: formatRateBps(ltvBps) })}
-              className="r62-toggle"
-              onClick={() => setOpen((value) => !value)}
-              type="button"
-            >
-              <span>{t("Loan-to-value")}</span>
-              <strong>{formatRateBps(ltvBps)}</strong>
-              <i aria-hidden="true" className="r62-circle" />
-            </button>
-          ) : null}
-        </div>
-        {comparable ? (
-          <div aria-hidden={!open} className={`r62-disclosure${open ? " is-open" : ""}`} id={disclosureId} inert={!open}>
-            <div className="r62-clip">
-              <figure className="r62-figure">
-                <LtvFigure currency={currency} loanMinor={loanPrincipalMinor} ltvBps={ltvBps} valueLabel={t("Collateral value")} valueMinor={collateralValueMinor} />
-              </figure>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      {group}
     </section>
   );
 }

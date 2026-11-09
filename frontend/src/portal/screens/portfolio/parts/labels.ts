@@ -2,6 +2,7 @@
 // Readable labels of the portfolio area: investment states, repayment types, security types and their
 // design groups, project tiles. English keys for t(); never raw API tokens on screen.
 import { t } from "../../../../i18n";
+import { formatRateBps } from "../../../../investorPortal/format";
 import type { TagTone } from "../../../components";
 import type { InvestmentState } from "./investmentModel";
 
@@ -101,6 +102,19 @@ export const SECURITY_GROUPS: Array<{ key: string; label: string; types: string[
 
 export const ALL_SECURED_TYPES = SECURITY_GROUPS.flatMap((group) => group.types);
 
+/** The security preference of Smart Invest in a few words ("Any security type", or the chosen types). */
+export function securityPreferenceText(security: string[] | null) {
+  if (security === null) return t("No preference");
+  const secured = security.filter((type) => type !== "unsecured");
+  const parts = ALL_SECURED_TYPES.every((type) => secured.includes(type))
+    ? [t("Any security type")]
+    : secured.length > 3
+      ? [t("{count} security types", { count: secured.length })]
+      : secured.map(securityLabel);
+  if (security.includes("unsecured")) parts.push(securityLabel("unsecured"));
+  return parts.join(", ");
+}
+
 /** Nioicon glyph of a project tile, from the security behind the loan (the subset has no sector icons). */
 export function tileIcon(collateralType: string) {
   switch (collateralType) {
@@ -139,4 +153,11 @@ export function investmentTypeText(productType: string, sourceType?: string) {
 /** "12 months" / "1 month". */
 export function monthsText(months: number) {
   return months === 1 ? t("1 month") : t("{count} months", { count: months });
+}
+
+/** "1,0% discount", "2,0% premium" (only on listings made before today's par-or-discount rule) or "No discount or premium". */
+export function priceAdjustmentText(discountPremiumBps: number) {
+  if (discountPremiumBps === 0) return t("No discount or premium");
+  const percent = formatRateBps(Math.abs(discountPremiumBps));
+  return discountPremiumBps < 0 ? t("{percent} discount", { percent }) : t("{percent} premium", { percent });
 }
