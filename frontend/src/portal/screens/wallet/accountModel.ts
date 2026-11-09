@@ -82,7 +82,7 @@ export function nextReturn(summary: BalanceSummary, lots: BalanceLot[]): NextRet
 export type AccountNotice =
   | { kind: "dueBackNoAccount"; currency: string; amountMinor: number }
   | { kind: "dueBack"; currency: string; amountMinor: number }
-  | { kind: "lastDay"; currency: string; amountMinor: number; returnDate: string | null };
+  | { kind: "lastDay"; currency: string; amountMinor: number; returnDate: string | null; hasAccount: boolean };
 
 /**
  * Today's states that need the investor (PAY-DEC-017/022, until U33-DEC-03/04): money on its last
@@ -100,7 +100,7 @@ export function accountNotices(balances: Pick<InvestorBalancePortal, "summaries"
     if (summary.withdraw_only_minor > 0) {
       const lastDayLots = liveLots(balances.lots, currency).filter((lot) => lot.bucket === "withdraw_only");
       const returnDate = lastDayLots.map((lot) => lot.return_date).filter(Boolean).sort()[0] ?? null;
-      notices.push({ kind: "lastDay", currency, amountMinor: summary.withdraw_only_minor, returnDate });
+      notices.push({ kind: "lastDay", currency, amountMinor: summary.withdraw_only_minor, returnDate, hasAccount });
     }
   }
   // Money that cannot go back comes first.

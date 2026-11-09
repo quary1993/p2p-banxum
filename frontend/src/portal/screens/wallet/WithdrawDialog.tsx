@@ -30,10 +30,13 @@ type Step = "form" | "confirm" | "done";
 export function WithdrawDialog({
   currency: initialCurrency,
   balances,
+  onAddBankAccount,
   onClose
 }: {
   currency: string;
   balances: Pick<InvestorBalancePortal, "summaries" | "payout_instructions">;
+  /** Today's add-bank-account dialog (shell); without it the link opens Profile & Settings. */
+  onAddBankAccount?: (currency: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -118,7 +121,8 @@ export function WithdrawDialog({
   const goToBankAccounts = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     onClose();
-    nav.go("settings");
+    if (verified.length === 0 && onAddBankAccount) onAddBankAccount(currency);
+    else nav.go("settings");
   };
   const timing = t("Usually 1–3 business days · No Banxum fee");
   const amountLabel = formatMoneyLabel(currency, amountMinor);

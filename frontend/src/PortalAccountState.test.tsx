@@ -166,6 +166,7 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
   expect(within(eurDialog).getByText("DE89 3704 0044 0532 0130 00 · Pending verification")).toBeInTheDocument();
   expect(within(eurDialog).queryByText("Verified bank account")).not.toBeInTheDocument();
   expect(within(eurDialog).getByRole("button", { name: /Continue/ })).toBeDisabled();
+  expect(within(eurDialog).getByRole("link", { name: "Add a bank account" })).toBeInTheDocument();
 
   // CHF: the verified account, and the withdraw maximum is everything except the "frozen" lot.
   fireEvent.click(within(eurDialog).getByRole("button", { name: "CHF" }));
@@ -173,4 +174,10 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
   expect(within(eurDialog).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
   expect(within(eurDialog).getByText("Verified bank account")).toBeInTheDocument();
   await waitFor(() => expect(eurDialog.contains(document.activeElement)).toBe(true));
+
+  // Without a verified EUR account, "Add a bank account" opens today's payout-IBAN dialog.
+  fireEvent.click(within(eurDialog).getByRole("button", { name: "EUR" }));
+  fireEvent.click(within(eurDialog).getByRole("link", { name: "Add a bank account" }));
+  expect(await screen.findByRole("dialog", { name: "Add/update payout IBAN" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Withdraw" })).not.toBeInTheDocument();
 }, 30_000);

@@ -39,9 +39,23 @@ import "./wallet.css";
 
 type OpenDialog = { kind: "deposit" | "withdraw"; currency: string } | { kind: "rules" } | null;
 
-function AccountNoticeAlert({ notice, days, onWithdraw }: { notice: AccountNotice; days: number; onWithdraw?: (currency: string) => void }) {
+function AccountNoticeAlert({
+  notice,
+  days,
+  onWithdraw,
+  onAddBankAccount
+}: {
+  notice: AccountNotice;
+  days: number;
+  onWithdraw?: (currency: string) => void;
+  onAddBankAccount?: (currency: string) => void;
+}) {
   const t = useT();
   const amount = formatMoneyLabel(notice.currency, notice.amountMinor);
+  // Today's add-bank-account dialog when the shell offers it, else Profile & Settings.
+  const addAccount = onAddBankAccount
+    ? <button className="alert-link" onClick={() => onAddBankAccount(notice.currency)} type="button">{t("Add a bank account")}</button>
+    : <PortalLink className="alert-link" to="settings">{t("Add a bank account")}</PortalLink>;
   if (notice.kind === "dueBackNoAccount") {
     return (
       <div className="alert alert-danger alert-icon">
@@ -49,7 +63,7 @@ function AccountNoticeAlert({ notice, days, onWithdraw }: { notice: AccountNotic
         <strong className="bxm-signal-text">{t("Add a verified bank account so we can return your money.")}</strong>{" "}
         {t("{amount} was not invested within {days} days and must go back to your bank, but there is no verified {currency} bank account.", { amount, days, currency: notice.currency })}{" "}
         {t("After 60 days (the legal limit) the money enters penalty mode.")}{" "}
-        <PortalLink className="alert-link" to="settings">{t("Add a bank account")}</PortalLink>
+        {addAccount}
       </div>
     );
   }
@@ -69,7 +83,9 @@ function AccountNoticeAlert({ notice, days, onWithdraw }: { notice: AccountNotic
       {notice.returnDate
         ? t("It can no longer be invested and goes back to your bank account on {date}. You can withdraw it until then.", { date: formatDate(notice.returnDate) })
         : t("It can no longer be invested. You can withdraw it today.")}{" "}
-      {onWithdraw ? <button className="alert-link" onClick={() => onWithdraw(notice.currency)} type="button">{t("Withdraw")}</button> : null}
+      {!notice.hasAccount
+        ? addAccount
+        : onWithdraw ? <button className="alert-link" onClick={() => onWithdraw(notice.currency)} type="button">{t("Withdraw")}</button> : null}
     </div>
   );
 }
@@ -290,7 +306,7 @@ function BalanceDetails({
 export function AccountRulesDialog({ days, fxEnabled, onClose }: { days: number; fxEnabled: boolean; onClose: () => void }) {
   const t = useT();
   return (
-    <Dialog className="wl-dialog" onClose={onClose} title={t("How your account works")}>
+    <Dialog onClose={onClose} title={t("How your account works")}>
       <ul className="bxm-rules mt-3">
         <li>{t("Your Banxum account holds money for investment. Money that is not invested earns no interest and goes back automatically to your verified bank account (IBAN) after {days} days.", { days })}</li>
         <li>{t("To invest, the money must have enough time left to cover the loan's remaining funding period. The oldest money is used first.")}</li>
@@ -315,7 +331,14 @@ function ScreenFrame({ actions, children }: { actions?: ReactNode; children: Rea
   );
 }
 
-export function AccountScreen({ demoState }: { demoState: DemoAccountState }) {
+export function AccountScreen({
+  demoState,
+  onAddBankAccount
+}: {
+  demoState: DemoAccountState;
+  /** Opens today's add-bank-account dialog of the shell (PayoutIbanModal; S5's BankAccountDialog after the merge). */
+  onAddBankAccount?: (currency: string) => void;
+}) {
   const t = useT();
   useNumberFormat();
   const balancesQuery = useBalancesData();
@@ -355,12 +378,13 @@ export function AccountScreen({ demoState }: { demoState: DemoAccountState }) {
   const previewFrozen = isFixturePreview && demoState === "frozen";
   const openWithdraw = readonly ? undefined : (currency: string) => setDialog({ kind: "withdraw", currency });
   const openRules = () => setDialog({ kind: "rules" });
+  const addBankAccount = readonly || !onAddBankAccount ? undefined : onAddBankAccount;
 
   return (
     <ScreenFrame actions={viewTransactions}>
       {notices.length > 0 ? (
         <section aria-label={t("Account notices")} className="ov-updates ap-alerts">
-          {notices.map((notice) => <AccountNoticeAlert days={days} key={`${notice.kind}-${notice.currency}`} notice={notice} onWithdraw={openWithdraw} />)}
+          {notices.map((notice) => <AccountNoticeAlert days={days} key={`${notice.kind}-${notice.currency}`} notice={notice} onAddBankAccount={addBankAccount} onWithdraw={openWithdraw} />)}
         </section>
       ) : null}
       {summaries.length === 0 ? (
@@ -404,7 +428,7 @@ export function AccountScreen({ demoState }: { demoState: DemoAccountState }) {
         <span>{t("Money held here does not earn interest.")}</span>
       </div>
       {dialog?.kind === "deposit" ? <AddFundsDialog currency={dialog.currency} onClose={() => setDialog(null)} /> : null}
-      {dialog?.kind === "withdraw" ? <WithdrawDialog balances={balances} currency={dialog.currency} onClose={() => setDialog(null)} /> : null}
+      {dialog?.kind === "withdraw" ? <WithdrawDialog balances={balances} currency={dialog.currency} onAddBankAccount={addBankAccount} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === "rules" ? <AccountRulesDialog days={days} fxEnabled={fxEnabled} onClose={() => setDialog(null)} /> : null}
     </ScreenFrame>
   );

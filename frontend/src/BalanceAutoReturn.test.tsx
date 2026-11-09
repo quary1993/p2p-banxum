@@ -102,7 +102,7 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   const noAccount = notices.getByText("Add a verified bank account so we can return your money.").closest(".alert") as HTMLElement;
   expect(noAccount).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank, but there is no verified EUR bank account.");
   expect(noAccount).toHaveTextContent("After 60 days (the legal limit) the money enters penalty mode.");
-  expect(within(noAccount).getByRole("link", { name: "Add a bank account" })).toHaveAttribute("href", "/settings");
+  expect(within(noAccount).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   const lastDay = notices.getByText("Last day for CHF 100,00.").closest(".alert") as HTMLElement;
   expect(lastDay).toHaveTextContent("It can no longer be invested and goes back to your bank account on 11 Dec 2026. You can withdraw it until then.");
   expect(notices.getAllByText("Add a verified bank account so we can return your money.")).toHaveLength(1);
@@ -126,6 +126,11 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
 
   // Both the last-day lot and the money due back need action.
   expect(screen.getAllByLabelText("2 balances need action").length).toBeGreaterThan(0);
+
+  // "Add a bank account" opens today's payout-IBAN dialog.
+  fireEvent.click(within(rules).getByRole("button", { name: "Close" }));
+  fireEvent.click(within(noAccount).getByRole("button", { name: "Add a bank account" }));
+  expect(await screen.findByRole("dialog", { name: "Add/update payout IBAN" })).toBeInTheDocument();
 }, 30_000);
 
 test("the Help page explains the 58-day return and the 60-day legal limit", async () => {

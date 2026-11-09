@@ -2,21 +2,8 @@
 /* Wallet screens (slice S4): fixes and the few additions the design does not have. Every rule is
  * scoped to html.bxu (U33Skin) and says why it exists. Design classes come from portal/u33/u33.css. */
 
-/* Dialogs opened by the wallet screens: the old skin's ".modal" box (styles.css: max-width 540px,
- * white background, border, radius, margin auto) also matches the U33 ".modal.fade.show" wrapper and
- * squeezes it into a 540px white panel at the left. Undo it so the Bootstrap modal fills the
- * viewport as in the design. (Affects S1's shared Dialog too: belongs in u33-overrides.css.) */
-html.bxu body.bxm-app > .modal.fade.show:is(.p73-modal, .tr-report-modal, .wl-dialog, :has(.bxm-vocab-dialog)) {
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
+/* temporary, moves to u33-overrides.css at merge */
+html.bxu body > .modal { background: transparent; border: 0; border-radius: 0; box-shadow: none; margin: 0; max-width: none; max-height: none; }
 
 /* Account notices: the design's alert component (Overview .ov-updates) on the Account page; amber
  * variant for money on its last day or due back (the design colours late payments this way). */

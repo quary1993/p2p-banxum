@@ -2580,7 +2580,8 @@ function InvestorShell({
       case "secondary":
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
-        return <AccountScreen demoState={demoState} />;
+        // Adding a bank account opens the shell's payout-IBAN dialog (it has no currency choice yet).
+        return <AccountScreen demoState={demoState} onAddBankAccount={() => setPayoutIbanOpen(true)} />;
       case "transactions":
         return <TransactionsScreen />;
       case "reports":

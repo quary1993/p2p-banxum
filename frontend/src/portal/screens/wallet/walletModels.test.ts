@@ -171,7 +171,7 @@ test("account notices put money that cannot go back first", () => {
   });
   expect(notices).toEqual([
     { kind: "dueBackNoAccount", currency: "EUR", amountMinor: 50_000 },
-    { kind: "lastDay", currency: "CHF", amountMinor: 10_000, returnDate: "2026-12-11" }
+    { kind: "lastDay", currency: "CHF", amountMinor: 10_000, returnDate: "2026-12-11", hasAccount: true }
   ]);
 });
 

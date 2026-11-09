@@ -82,7 +82,7 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
           ? t("The amount is set aside from your balance until the bank transfer is sent.")
           : null;
   return (
-    <Dialog className="wl-dialog" onClose={onClose} title={t(row.label)}>
+    <Dialog onClose={onClose} title={t(row.label)}>
       {description ? <p className="bxm-muted">{description}</p> : null}
       <dl className="bxm-kv wl-kv-single">
         {items.filter(([, value]) => value).map(([label, value]) => (
