@@ -1,5 +1,5 @@
-"""Current holders of a Loan Originator claim get one notice when the loan turns Late (day 5)
-and one when it turns Defaulted (day 16)."""
+"""Current holders of a Loan Originator claim get one notice when the loan turns Late (day 15)
+and one when it turns Defaulted (day 60), U33-DEC-09."""
 
 from __future__ import annotations
 
@@ -43,19 +43,20 @@ def test_originator_loan_late_and_default_notify_the_current_holder_once_each(
         idempotency_key="notice-claim-holding-1",
     )
 
-    # The first installment is due 15 days after today: day 4 is grace, day 5 is Late.
-    for days in (19, 20, 21):
+    # The first installment is due 15 days after today. U33-DEC-09: day 14 is still due, day
+    # 15 is Late, day 60 is Default.
+    for days in (29, 30, 31):
         _scan_originator_at_as_of(actor=admin_user, as_of_date=today + timedelta(days=days))
     notices = investor_notices(investor, "email.loan_status_changed")
     assert [notice.payload["metadata"]["new_status"] for notice in notices] == ["late"]
     late = notices[0]
     assert late.payload["subject"] == f"Loan payment late: {result.loan.title}"
     assert ["Your current principal", "CHF 2'500.00"] in late.payload["data_rows"]
-    assert ["Status date", (today + timedelta(days=20)).isoformat()] in late.payload["data_rows"]
+    assert ["Status date", (today + timedelta(days=30)).isoformat()] in late.payload["data_rows"]
     assert late.payload["metadata"]["navigation_target_id"] == str(holding.id)
     assert_renders_to(late, investor, "CHF 2'500.00")
 
-    for days in (31, 32):
+    for days in (75, 76):
         _scan_originator_at_as_of(actor=admin_user, as_of_date=today + timedelta(days=days))
     notices = investor_notices(investor, "email.loan_status_changed")
     assert [notice.payload["metadata"]["new_status"] for notice in notices] == [

@@ -40,6 +40,9 @@ from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F4
     investor_two,
 )
 
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+pytestmark = pytest.mark.usefixtures("legacy_status_days")
+
 
 def _advance(admin: Model, loan: Model, key: str, **changes: Any) -> Any:
     command = _repayment_command(

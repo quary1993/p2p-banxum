@@ -10,6 +10,10 @@ from backend.apps.platform_core.domain.funding import (
     BALANCE_AUTO_RETURN_AFTER_DAYS,
     DEFAULT_BALANCE_REMINDER_DAYS,
 )
+from backend.apps.platform_core.domain.loan_status import (
+    DEFAULT_DEFAULT_THRESHOLD_DAYS,
+    DEFAULT_LATE_THRESHOLD_DAYS,
+)
 from backend.apps.platform_core.models import PlatformSetting, PlatformSettingVersion
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
@@ -186,6 +190,22 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Deployment-configured day-60 penalty policy.",
         "string",
         "Display-only penalty policy text.",
+    ),
+    SettingDefinition(
+        "servicing.late_threshold_days",
+        DEFAULT_LATE_THRESHOLD_DAYS,
+        "integer",
+        "A loan is Late from this day after the due date of its first unpaid installment "
+        "(Europe/Zurich calendar days; before it the payment is Due). U33-DEC-09: day 15. "
+        "A loan with its own contract thresholds uses those.",
+    ),
+    SettingDefinition(
+        "servicing.default_threshold_days",
+        DEFAULT_DEFAULT_THRESHOLD_DAYS,
+        "integer",
+        "A loan is in Default from this day after the due date of its first unpaid "
+        "installment (U33-DEC-09: day 60). Default does not end the contract; the "
+        "termination is a separate admin event.",
     ),
     SettingDefinition(
         "secondary_market.maker_fee_bps",

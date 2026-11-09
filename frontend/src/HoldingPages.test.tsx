@@ -145,6 +145,8 @@ const defaulted = holding(
     loan_status: "defaulted",
     currency: "CHF",
     days_past_due: 16,
+    // U33-DEC-09: the loan's contract days (5 / 16) apply; the termination is a recorded stage.
+    contract_terminated_on: "2026-12-18",
     schedule: [
       scheduleRow({ id: "d1", installment_number: 1, due_date: "2026-11-11", status: "overdue", days_past_due: 16 }),
       scheduleRow({ id: "d2", installment_number: 2, due_date: "2026-12-11" }),
@@ -239,6 +241,7 @@ test("a defaulted holding opens on the recovery, not on an upcoming payment", as
   expect(await screen.findByRole("heading", { level: 1, name: "Defaulted direct loan" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Recovery in progress" })).toBeInTheDocument();
   expect(screen.getByText(/16 days since the first unpaid payment/)).toBeInTheDocument();
+  expect(screen.getByText(/The loan contract was terminated on 18 Dec 2026\./)).toBeInTheDocument();
   expect(screen.getByText("No scheduled payments. This loan is in default.")).toBeInTheDocument();
   expect(screen.queryByText("Next payment")).not.toBeInTheDocument();
   expect(screen.queryByText("Scheduled")).not.toBeInTheDocument();

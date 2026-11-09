@@ -167,6 +167,22 @@ test("a defaulted loan can still publish a loan note as public note, email or bo
   expect(currentUrl()).toBe("/admin/loans/loan-luzern-quartier/manage/note?loan=loan-luzern-quartier");
 });
 
+test("U33-DEC-09: a defaulted loan records the contract termination; its days no longer change", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Luzern Quartier renovation")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Luzern Quartier renovation" });
+  // A loan in default stays in default: the Late / Default days are not offered.
+  expect(within(dialog).queryByRole("button", { name: /Late and default days/ })).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: /Record contract termination/ }));
+
+  expect(within(dialog).getByText(/Default does not end the contract by itself\./)).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Note"), { target: { value: "Letter of 2 Nov." } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Record termination" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Confirm contract termination" })).getByRole("button", { name: "Record termination" }));
+  expect(within(dialog).getByText(/Contract termination on .* would be recorded/)).toBeInTheDocument();
+});
+
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {
   renderAdmin("/admin/loans");
   fireEvent.click(screen.getByRole("button", { name: "Create direct loan" }));

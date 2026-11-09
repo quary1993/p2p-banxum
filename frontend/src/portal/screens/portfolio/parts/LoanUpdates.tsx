@@ -2,8 +2,9 @@
 // Late and default information of an investment in the U33 presentation, from today's data only: the
 // overdue rows of the investor's schedule, the loan's days past due, the recorded recoveries and the
 // public loan notes published by the team (the old "Loan notes"). No invented stages, next steps or
-// dates (U33-DEC-22: structured recovery stages come with Phase 17.4). Banxum follows up; the investor
-// is never asked to act. Recoveries are credited to the Banxum balance (U33-DEC-02).
+// dates (U33-DEC-22: structured recovery stages come with Phase 17.4). The contract termination is a
+// separate recorded stage with its real date (U33-DEC-09). Banxum follows up; the investor is never
+// asked to act. Recoveries are credited to the Banxum balance (U33-DEC-02).
 import { useEffect } from "react";
 
 import type { Holding, PublicLoanRiskNote } from "../../../../api/generated/banxumApi";
@@ -128,6 +129,16 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
                     <p>{t("Your scheduled payment of {amount} has not been received.", { amount: `${holding.currency} ${formatMoneyMinor(row.projected_total_minor, holding.currency)}` })}</p>
                   </li>
                 ))}
+                {holding.loan.contract_terminated_on ? (
+                  <li>
+                    <span aria-hidden="true" className="rc-step-dot done" />
+                    <div>
+                      <strong>{t("Contract terminated")}</strong>
+                      <time dateTime={holding.loan.contract_terminated_on}>{formatDate(holding.loan.contract_terminated_on)}</time>
+                    </div>
+                    <p>{t("The loan contract was terminated.")}</p>
+                  </li>
+                ) : null}
               </ol>
             ) : (
               <p className="u33-muted">{t("The borrower is {days} days late. The overdue amounts are shown once the schedule is updated.", { days: holding.loan.days_past_due })}</p>
@@ -171,6 +182,7 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
             <span>{t("Current stage")}</span>
             <h3>{writtenOff ? t("Written off") : t("Default")}</h3>
             <p>
+              {holding.loan.contract_terminated_on ? `${t("The loan contract was terminated on {date}.", { date: formatDate(holding.loan.contract_terminated_on) })} ` : null}
               {holding.loan.days_past_due > 0 ? t("{days} days since the first unpaid payment.", { days: holding.loan.days_past_due }) : null}{" "}
               {/* Design text adapted: recoveries go to the Banxum account, not to the IBAN (U33-DEC-02/12). */}
               {t("Recovered amounts, after the costs of enforcement, are credited to each investor's Banxum account in proportion to their share.")}

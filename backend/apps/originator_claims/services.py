@@ -61,6 +61,7 @@ from backend.apps.platform_core.domain.investor_limit import (
     InvestorLimit,
     swiss_investor_limit_message,
 )
+from backend.apps.platform_core.domain.loan_status import servicing_status_for_days_past_due
 from backend.apps.platform_core.domain.money import (
     Money,
     allocate_by_weights,
@@ -76,6 +77,7 @@ from backend.apps.platform_core.domain.payment_waterfall import (
 )
 from backend.apps.platform_core.domain.story import StoryValidationError, validate_story
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
+from backend.apps.platform_core.selectors.settings import loan_status_thresholds
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -345,15 +347,16 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
 )
 
 
-# A loan becomes Late on day 5 after a missed due date (SERV-DEC-008).
-LATE_THRESHOLD_DAYS = 5
+def _schedule_row_status(
+    *, due_date: date, as_of_date: date, is_outstanding: bool, late_days: int
+) -> str:
+    """Investor-facing row status: "due" before the loan's late threshold, "overdue" once Late.
 
-
-def _schedule_row_status(*, due_date: date, as_of_date: date, is_outstanding: bool) -> str:
-    """Investor-facing row status: "due" in the grace period, "overdue" once Late."""
+    U33-DEC-09: the threshold is the loan's own or the platform's (default day 15).
+    """
     if not is_outstanding:
         return "due" if due_date == as_of_date else "historical"
-    if (as_of_date - due_date).days >= LATE_THRESHOLD_DAYS:
+    if (as_of_date - due_date).days >= late_days:
         return "overdue"
     if due_date <= as_of_date:
         return "due"
@@ -3477,6 +3480,7 @@ def originator_portfolio_schedule_payload(
     loan_import = profile.current_import
     if loan_import is None:
         return []
+    late_days = loan_status_thresholds(profile.loan).late_days
     rows: list[dict[str, Any]] = []
     for payment in loan_import.payment_rows.order_by("value_date", "reference", "id"):
         rows.append(
@@ -3542,6 +3546,7 @@ def originator_portfolio_schedule_payload(
                     due_date=schedule_row.due_date,
                     as_of_date=as_of_date,
                     is_outstanding=is_outstanding,
+                    late_days=late_days,
                 ),
                 "row_type": "originator_schedule",
                 "label": (
@@ -3602,6 +3607,7 @@ def get_originator_holding_schedule_payloads(
         loan_import = profile.current_import
         if loan_import is None:
             continue
+        late_days = loan_status_thresholds(profile.loan).late_days
         loan_holdings = holdings_by_loan.get(loan_id, [])
         remaining = {
             str(cast(Any, holding).pk): int(cast(Any, holding).current_principal_minor)
@@ -3749,6 +3755,7 @@ def get_originator_holding_schedule_payloads(
                             due_date=row.due_date,
                             as_of_date=as_of_date,
                             is_outstanding=True,
+                            late_days=late_days,
                         ),
                         "accrual_start_date": row.accrual_start_date,
                     }
@@ -3828,6 +3835,7 @@ def originator_portfolio_loan_payload(
         "first_payment_date": future_rows[0].due_date if future_rows else None,
         "ltv_bps": ltv_bps,
         "days_past_due": days_past_due,
+        "contract_terminated_on": profile.loan.contract_terminated_on,
         "schedule_version": int(profile.schedule_revision),
         "schedule": originator_portfolio_schedule_payload(profile, as_of_date=as_of_date),
     }
@@ -6051,8 +6059,9 @@ def _scan_originator_profile_lifecycle(
         as_of_date=as_of_date,
     )
     if previous_loan_status in {"active", "late"}:
-        new_loan_status = (
-            "defaulted" if days_past_due >= 16 else ("late" if days_past_due >= 5 else "active")
+        # U33-DEC-09: the loan's own or the platform's Late / Default days.
+        new_loan_status = servicing_status_for_days_past_due(
+            days_past_due, loan_status_thresholds(loan)
         )
         if new_loan_status != previous_loan_status:
             loan.status = new_loan_status

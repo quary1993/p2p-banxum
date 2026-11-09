@@ -117,6 +117,8 @@ class LoanEventType(models.TextChoices):
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
     RECOVERY_RECORDED = "recovery_recorded", "Recovery recorded"
     WRITE_OFF_RECORDED = "write_off_recorded", "Write-off recorded"
+    STATUS_THRESHOLDS_CHANGED = "status_thresholds_changed", "Status thresholds changed"
+    CONTRACT_TERMINATED = "contract_terminated", "Contract terminated"
 
 
 class Loan(TimestampedModel):
@@ -178,6 +180,12 @@ class Loan(TimestampedModel):
     skin_in_the_game_bps = models.PositiveSmallIntegerField(default=0)
     minimum_subscription_bps = models.PositiveSmallIntegerField(default=5_000)
     recovery_fee_bps = models.PositiveIntegerField(default=0)
+    # U33-DEC-09: the contract's own Late / Default days; both empty = the platform settings
+    # servicing.late_threshold_days / servicing.default_threshold_days.
+    late_threshold_days = models.PositiveSmallIntegerField(null=True, blank=True)
+    default_threshold_days = models.PositiveSmallIntegerField(null=True, blank=True)
+    # U33-DEC-09: the contract termination date, recorded by an admin (never automatic).
+    contract_terminated_on = models.DateField(null=True, blank=True)
     recovery_waterfall_version = models.CharField(
         max_length=64,
         default=PAYMENT_WATERFALL_VERSION,
@@ -211,6 +219,20 @@ class Loan(TimestampedModel):
             models.CheckConstraint(
                 condition=models.Q(minimum_subscription_bps__lte=10_000),
                 name="loan_minimum_subscription_bps_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(late_threshold_days__isnull=True)
+                        & models.Q(default_threshold_days__isnull=True)
+                    )
+                    | (
+                        models.Q(late_threshold_days__gte=1)
+                        & models.Q(default_threshold_days__gt=models.F("late_threshold_days"))
+                        & models.Q(default_threshold_days__lte=365)
+                    )
+                ),
+                name="loan_status_thresholds_pair_valid",
             ),
             models.CheckConstraint(
                 condition=(

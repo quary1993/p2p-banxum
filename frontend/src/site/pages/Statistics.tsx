@@ -119,8 +119,8 @@ export function Statistics() {
             <div>
               <h3 className="site-h4">How we count</h3>
               <p className="site-text">
-                A payment is late from day 5 after its due date. A loan is in default from day 16 (calendar days, Swiss
-                time); recovery continues after that and is shown on the project page.
+                A payment is late from day 15 after its due date. A loan is in default from day 60 (calendar days, Swiss
+                time), unless its contract sets other days; recovery continues after that and is shown on the project page.
               </p>
             </div>
             <div>

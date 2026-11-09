@@ -5060,6 +5060,75 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerRepaymentAdvancePreviewResponse'
           description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/contract-termination/:
+    post:
+      operationId: v1_servicing_admin_loans_contract_termination_create
+      description: 'U33-DEC-09: record the contract termination of a late or defaulted
+        loan.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanContractTerminationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanContractTerminationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanContractTerminationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanStatusStages'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/status-thresholds/:
+    post:
+      operationId: v1_servicing_admin_loans_status_thresholds_create
+      description: 'U33-DEC-09: set or clear a loan''s contract Late / Default days.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanStatusThresholdsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanStatusThresholdsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanStatusThresholdsRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanStatusStages'
+          description: ''
   /api/v1/servicing/admin/recoveries/:
     post:
       operationId: v1_servicing_admin_recoveries_create
@@ -10597,6 +10666,22 @@ components:
           type: integer
         recovery_fee_bps:
           type: integer
+        late_threshold_days:
+          type: integer
+          nullable: true
+        default_threshold_days:
+          type: integer
+          nullable: true
+        effective_late_threshold_days:
+          type: integer
+          readOnly: true
+        effective_default_threshold_days:
+          type: integer
+          readOnly: true
+        contract_terminated_on:
+          type: string
+          format: date
+          nullable: true
         minimum_subscription_bps:
           type: integer
           default: 5000
@@ -10642,11 +10727,15 @@ components:
       - collateral_type
       - collateral_value_minor
       - committed_principal_minor
+      - contract_terminated_on
       - created_at
       - created_by_admin_id
       - currency
       - current_outstanding_principal_minor
       - default_penalty_interest_bps
+      - default_threshold_days
+      - effective_default_threshold_days
+      - effective_late_threshold_days
       - first_payment_date
       - funding_deadline
       - id
@@ -10654,6 +10743,7 @@ components:
       - interest_rate_bps
       - investor_summary
       - is_refinancing
+      - late_threshold_days
       - lender_payment_fee_minor
       - loan_start_date
       - ltv_bps
@@ -10690,6 +10780,18 @@ components:
       - updated_at
       - updated_by_admin_id
       - yield_bps
+    LoanContractTerminationRequest:
+      type: object
+      properties:
+        terminated_on:
+          type: string
+          format: date
+        note:
+          type: string
+          maxLength: 4000
+      required:
+      - note
+      - terminated_on
     LoanCreateRequest:
       type: object
       properties:
@@ -11383,6 +11485,62 @@ components:
       required:
       - as_of_date
       - changes
+    LoanStatusStages:
+      type: object
+      description: A loan's Late / Default days (own or platform) and its contract
+        termination date.
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        loan_status:
+          type: string
+        late_threshold_days:
+          type: integer
+          nullable: true
+        default_threshold_days:
+          type: integer
+          nullable: true
+        effective_late_threshold_days:
+          type: integer
+        effective_default_threshold_days:
+          type: integer
+        threshold_source:
+          type: string
+        contract_terminated_on:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - contract_terminated_on
+      - default_threshold_days
+      - effective_default_threshold_days
+      - effective_late_threshold_days
+      - late_threshold_days
+      - loan_id
+      - loan_status
+      - threshold_source
+    LoanStatusThresholdsRequest:
+      type: object
+      description: 'U33-DEC-09: both days, or both null to use the platform settings.'
+      properties:
+        late_threshold_days:
+          type: integer
+          maximum: 365
+          minimum: 1
+          nullable: true
+        default_threshold_days:
+          type: integer
+          maximum: 365
+          minimum: 2
+          nullable: true
+        reason:
+          type: string
+          maxLength: 2000
+      required:
+      - default_threshold_days
+      - late_threshold_days
+      - reason
     LoanWriteOffEvent:
       type: object
       properties:
@@ -14199,6 +14357,10 @@ components:
           nullable: true
         days_past_due:
           type: integer
+        contract_terminated_on:
+          type: string
+          format: date
+          nullable: true
         schedule_version:
           type: integer
         schedule:

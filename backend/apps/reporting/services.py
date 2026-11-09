@@ -28,6 +28,7 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.funding import balance_last_day
+from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
 from backend.apps.platform_core.domain.money import minor_units_to_decimal
 from backend.apps.platform_core.domain.pdf_text import (
     PDF_STANDARD_FONT_OBJECTS,
@@ -41,7 +42,11 @@ from backend.apps.platform_core.domain.time import (
     now_utc,
 )
 from backend.apps.platform_core.models import AuditEvent, Currency
-from backend.apps.platform_core.selectors.settings import balance_auto_return_after_days
+from backend.apps.platform_core.selectors.settings import (
+    balance_auto_return_after_days,
+    loan_status_thresholds,
+    platform_loan_status_thresholds,
+)
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.reporting.investor_statement import (
@@ -1400,13 +1405,16 @@ def _loan_funding_dataset(
     )
 
 
-def _repayment_bucket(*, outstanding: int, due_date: date, as_of: date) -> str:
+def _repayment_bucket(
+    *, outstanding: int, due_date: date, as_of: date, thresholds: LoanStatusThresholds
+) -> str:
+    """U33-DEC-09: the loan's own or the platform's Late / Default days (15 / 60)."""
     days = max(0, (as_of - due_date).days) if outstanding else 0
     if not outstanding:
         return "paid"
-    if days >= 16:
+    if days >= thresholds.default_days:
         return "default_threshold"
-    if days >= 5:
+    if days >= thresholds.late_days:
         return "late_threshold"
     return "past_due_under_late_threshold" if due_date < as_of else "due_or_upcoming"
 
@@ -1477,7 +1485,9 @@ def _repayment_status_dataset(
     if filters.get("product_type"):
         loans = loans.filter(product_type=filters["product_type"])
     rows: list[dict[str, Any]] = []
+    platform_thresholds = platform_loan_status_thresholds()
     for loan in loans.iterator():
+        thresholds = loan_status_thresholds(loan, platform=platform_thresholds)
         profile = getattr(loan, "originator_profile", None)
         event = (
             event_model.objects.filter(
@@ -1595,6 +1605,7 @@ def _repayment_status_dataset(
                             outstanding=outstanding,
                             due_date=installment.due_date,
                             as_of=end_date,
+                            thresholds=thresholds,
                         ),
                         "investor_distributed_minor": None,
                         "originator_payable_minor": None,
@@ -1687,6 +1698,7 @@ def _repayment_status_dataset(
                         outstanding=outstanding,
                         due_date=installment.due_date,
                         as_of=end_date,
+                        thresholds=thresholds,
                     ),
                     "investor_distributed_minor": None,
                     "originator_payable_minor": None,

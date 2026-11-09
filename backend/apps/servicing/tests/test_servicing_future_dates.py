@@ -25,6 +25,9 @@ from backend.apps.servicing.tests.test_servicing_repayments import (
     _repayment_command,
 )
 
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+pytestmark = pytest.mark.usefixtures("legacy_status_days")
+
 
 def _user(email: str, account_type: str) -> Model:
     user_model: Any = get_user_model()

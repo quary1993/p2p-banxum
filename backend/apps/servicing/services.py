@@ -21,6 +21,11 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.loan_status import (
+    LoanStatusThresholds,
+    servicing_status_for_days_past_due,
+    valid_threshold_pair,
+)
 from backend.apps.platform_core.domain.money import (
     Money,
     MoneyError,
@@ -38,7 +43,11 @@ from backend.apps.platform_core.domain.payment_waterfall import (
 )
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
-from backend.apps.platform_core.selectors.settings import get_collection_account_identifier
+from backend.apps.platform_core.selectors.settings import (
+    get_collection_account_identifier,
+    loan_status_thresholds,
+    platform_loan_status_thresholds,
+)
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -99,8 +108,8 @@ PROJECTABLE_LOAN_STATUSES = {
     LOAN_STATUS_LATE,
 }
 RECOVERY_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_DEFAULTED}
-LATE_THRESHOLD_DAYS = 5
-DEFAULT_THRESHOLD_DAYS = 16
+# U33-DEC-09: Late / Default days come from loan_status_thresholds() (platform settings
+# servicing.late_threshold_days / servicing.default_threshold_days, or the loan's contract).
 PUBLIC_NOTE_LOAN_STATUSES = {
     LOAN_STATUS_FUNDED,
     LOAN_STATUS_ACTIVE,
@@ -313,6 +322,27 @@ class ScanLoanServicingStatusesCommand:
     actor: Model
     as_of_date: date
     loan_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SetLoanStatusThresholdsCommand:
+    """U33-DEC-09: the contract's own Late / Default days, or None/None for the platform's."""
+
+    actor: Model
+    loan_id: str
+    late_threshold_days: int | None
+    default_threshold_days: int | None
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class RecordLoanContractTerminationCommand:
+    """U33-DEC-09: an admin records that the loan contract was terminated (never automatic)."""
+
+    actor: Model
+    loan_id: str
+    terminated_on: date
+    note: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -898,6 +928,7 @@ def _first_outstanding_installment_status(
     ).order_by("due_date", "installment_number", "id")
     if lock_installments:
         installments = installments.select_for_update()
+    thresholds = loan_status_thresholds(loan)
     for installment in installments:
         principal_paid, interest_paid = _installment_paid_totals(cast(Model, installment))
         remaining_principal = int(installment.principal_minor) - principal_paid
@@ -908,11 +939,8 @@ def _first_outstanding_installment_status(
         if outstanding <= 0:
             continue
         days_past_due = max(0, (as_of_date - installment.due_date).days)
-        if days_past_due >= DEFAULT_THRESHOLD_DAYS:
-            return LOAN_STATUS_DEFAULTED, days_past_due, outstanding, cast(Model, installment)
-        if days_past_due >= LATE_THRESHOLD_DAYS:
-            return LOAN_STATUS_LATE, days_past_due, outstanding, cast(Model, installment)
-        return LOAN_STATUS_ACTIVE, days_past_due, outstanding, cast(Model, installment)
+        status = servicing_status_for_days_past_due(days_past_due, thresholds)
+        return status, days_past_due, outstanding, cast(Model, installment)
     return LOAN_STATUS_REPAID, 0, 0, None
 
 
@@ -958,6 +986,11 @@ def get_loan_repayment_schedule_snapshots(
             schedule_version=F("loan__schedule_version"),
         ).order_by("loan_id", "installment_number", "id")
     )
+    platform_thresholds = platform_loan_status_thresholds()
+    late_days_by_loan_id = {
+        loan_id: loan_status_thresholds(loan, platform=platform_thresholds).late_days
+        for loan_id, loan in loan_by_id.items()
+    }
     installment_ids = [installment.pk for installment in installments]
     paid_by_installment_id = {
         str(row["installment_id"]): (
@@ -1056,11 +1089,11 @@ def get_loan_repayment_schedule_snapshots(
         )
         if is_paid:
             row_status = "paid"
-        elif days_past_due >= LATE_THRESHOLD_DAYS:
-            # Overdue from the late threshold (day 5), when the loan becomes Late.
+        elif days_past_due >= late_days_by_loan_id[str(installment_ref.loan_id)]:
+            # Overdue from the late threshold (U33-DEC-09: day 15), when the loan is Late.
             row_status = "overdue"
         elif installment_ref.due_date <= as_of_date:
-            # Due today or in the grace period (days 1-4): due, not yet overdue.
+            # Due on the due date and before the late threshold: due, not yet overdue.
             row_status = "due"
         else:
             row_status = "upcoming"
@@ -3655,3 +3688,174 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
         )
     )
     return cast(LoanWriteOffEvent, write_off)
+
+
+# U33-DEC-09: thresholds can change until the loan is in default or closed; a defaulted
+# loan keeps its status (the daily scan does not move it back).
+THRESHOLD_CHANGE_BLOCKED_STATUSES = {
+    LOAN_STATUS_DEFAULTED,
+    LOAN_STATUS_REPAID,
+    LOAN_STATUS_WRITTEN_OFF,
+    "cancelled",
+}
+CONTRACT_TERMINATION_LOAN_STATUSES = {LOAN_STATUS_LATE, LOAN_STATUS_DEFAULTED}
+
+
+def _thresholds_payload(thresholds: LoanStatusThresholds) -> dict[str, Any]:
+    return {
+        "late_days": thresholds.late_days,
+        "default_days": thresholds.default_days,
+        "source": thresholds.source,
+    }
+
+
+@transaction.atomic
+def set_loan_status_thresholds(command: SetLoanStatusThresholdsCommand) -> Model:
+    """Set or clear a loan's contract Late / Default days (U33-DEC-09).
+
+    Both days together, or neither (the platform settings apply). For a direct loan that is
+    active or late the status is checked again at once with the new days; other loans use
+    them from their next status scan. Penalties and contract terms do not change.
+    """
+    _require_admin_actor(command.actor)
+    reason = _clean_required(command.reason, "Reason")
+    late_days = command.late_threshold_days
+    default_days = command.default_threshold_days
+    if (late_days is None) != (default_days is None):
+        raise ServicingValidationError(
+            "Enter both the Late day and the Default day, or leave both empty to use the "
+            "platform values."
+        )
+    if late_days is not None and not valid_threshold_pair(late_days, default_days):
+        raise ServicingValidationError(
+            "The Late day must be from day 1 and before the Default day, and the Default day "
+            "can be at most day 365."
+        )
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    status = str(loan_ref.status)
+    if status in THRESHOLD_CHANGE_BLOCKED_STATUSES:
+        raise ServicingValidationError(
+            f"The status thresholds of a loan that is {status.replace('_', ' ')} cannot change."
+        )
+    previous = {
+        "late_threshold_days": loan_ref.late_threshold_days,
+        "default_threshold_days": loan_ref.default_threshold_days,
+    }
+    new = {"late_threshold_days": late_days, "default_threshold_days": default_days}
+    if previous == new:
+        return loan
+    previous_effective = loan_status_thresholds(loan)
+    loan_ref.late_threshold_days = late_days
+    loan_ref.default_threshold_days = default_days
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(
+        update_fields=[
+            "late_threshold_days",
+            "default_threshold_days",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    effective = loan_status_thresholds(loan)
+    metadata = {
+        "decision": "U33-DEC-09",
+        "previous": previous,
+        "new": new,
+        "previous_effective": _thresholds_payload(previous_effective),
+        "effective": _thresholds_payload(effective),
+    }
+    _loan_event_model().objects.create(
+        loan=loan,
+        event_type="status_thresholds_changed",
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        note=reason,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="servicing.loan_status_thresholds_changed",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata={**metadata, "reason": reason},
+        )
+    )
+    if status in STATUS_SCAN_LOAN_STATUSES and str(loan_ref.product_type) == "direct":
+        scan_loan_servicing_statuses(
+            ScanLoanServicingStatusesCommand(
+                actor=command.actor,
+                as_of_date=business_date(now_utc()),
+                loan_ids=(str(loan_ref.id),),
+            )
+        )
+        loan.refresh_from_db()
+    return loan
+
+
+@transaction.atomic
+def record_loan_contract_termination(command: RecordLoanContractTerminationCommand) -> Model:
+    """Record the termination of a late or defaulted loan's contract (U33-DEC-09).
+
+    The status does not change: Default, termination and recovery are separate stages. The
+    date is shown to the loan's investors. A termination is recorded once; sending the same
+    date again changes nothing.
+    """
+    _require_admin_actor(command.actor)
+    note = _clean_required(command.note, "Note")
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    if loan_ref.contract_terminated_on is not None:
+        if loan_ref.contract_terminated_on == command.terminated_on:
+            return loan
+        raise ServicingValidationError(
+            "The contract termination is already recorded for "
+            f"{loan_ref.contract_terminated_on.isoformat()}."
+        )
+    status = str(loan_ref.status)
+    if status not in CONTRACT_TERMINATION_LOAN_STATUSES:
+        raise ServicingValidationError(
+            "A contract termination can be recorded only for a loan that is late or in default."
+        )
+    if command.terminated_on > business_date(now_utc()):
+        raise ServicingValidationError("The termination date cannot be in the future.")
+    if command.terminated_on < loan_ref.loan_start_date:
+        raise ServicingValidationError(
+            "The termination date cannot be before the start of the loan."
+        )
+    loan_ref.contract_terminated_on = command.terminated_on
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(update_fields=["contract_terminated_on", "updated_by_admin_id", "updated_at"])
+    metadata = {
+        "decision": "U33-DEC-09",
+        "terminated_on": command.terminated_on.isoformat(),
+        "loan_status": status,
+    }
+    _loan_event_model().objects.create(
+        loan=loan,
+        event_type="contract_terminated",
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        note=note,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="servicing.loan_contract_terminated",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata={**metadata, "note": note},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanContractTerminated",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=metadata,
+            idempotency_key=f"loan:{loan_ref.id}:contract-terminated",
+        )
+    )
+    return loan

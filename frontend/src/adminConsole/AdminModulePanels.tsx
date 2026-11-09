@@ -71,6 +71,8 @@ import {
   useV1ReportingAdminReportsCreate,
   useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
+  useV1ServicingAdminLoansContractTerminationCreate,
+  useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
   useV1ServicingAdminStatusScanCreate,
@@ -4721,7 +4723,17 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery" | "note";
+type ManageLoanActionId =
+  | "publish"
+  | "cancel"
+  | "expiry"
+  | "release"
+  | "disburse"
+  | "servicing"
+  | "recovery"
+  | "status_days"
+  | "terminate"
+  | "note";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -4779,6 +4791,21 @@ const MANAGE_LOAN_ACTIONS: Array<{
     description:
       "For a defaulted loan: record recovered funds and distribute them to lenders through the recovery waterfall.",
     statuses: ["defaulted"],
+    danger: true
+  },
+  {
+    id: "status_days",
+    title: "Late and default days",
+    description:
+      "Use the contract's own days for Late and Default, or the platform days (U33-DEC-09: Late from day 15, Default from day 60).",
+    statuses: ["draft", "published", "funded", "active", "late"]
+  },
+  {
+    id: "terminate",
+    title: "Record contract termination",
+    description:
+      "Record the date the loan contract was terminated. The status does not change; lenders see the date on their investment.",
+    statuses: ["late", "defaulted"],
     danger: true
   },
   {
@@ -5708,6 +5735,10 @@ function ManageLoanModal({
 
             {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
 
+            {action === "status_days" ? <LoanStatusDaysForm loan={loan} onDone={onChanged} /> : null}
+
+            {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
+
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
@@ -5984,6 +6015,160 @@ function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => vo
       {mutation.error ? <Banner tone="bad" title="Disbursement failed">{errorMessage(mutation.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Disbursement submitted">{success}</Banner> : null}
+    </>
+  );
+}
+
+/** U33-DEC-09: the contract's own Late / Default days of a loan, or the platform days. */
+function LoanStatusDaysForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const ownDays = loan.late_threshold_days !== null && loan.default_threshold_days !== null;
+  const [useContract, setUseContract] = useState(ownDays);
+  const [lateDays, setLateDays] = useState(String(loan.late_threshold_days ?? loan.effective_late_threshold_days));
+  const [defaultDays, setDefaultDays] = useState(String(loan.default_threshold_days ?? loan.effective_default_threshold_days));
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1ServicingAdminLoansStatusThresholdsCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(
+          `The loan now uses Late from day ${result.effective_late_threshold_days} and Default from day ${result.effective_default_threshold_days} (${result.threshold_source === "loan" ? "contract days" : "platform days"}). Status: ${result.loan_status}.`
+        );
+        onDone();
+      }
+    }
+  });
+  const late = intValue(lateDays);
+  const deflt = intValue(defaultDays);
+  const daysInvalid =
+    useContract &&
+    (Boolean(integerInputError(lateDays) || integerInputError(defaultDays)) || late < 1 || deflt <= late || deflt > 365);
+  const blocked = daysInvalid || !reason.trim() || mutation.isPending;
+
+  function submit() {
+    const data = {
+      late_threshold_days: useContract ? late : null,
+      default_threshold_days: useContract ? deflt : null,
+      reason: reason.trim()
+    };
+    if (isFixturePreview) {
+      setPreview(useContract ? `Loan ${loan.id} would use Late from day ${late} and Default from day ${deflt}.` : `Loan ${loan.id} would use the platform days.`);
+      return;
+    }
+    mutation.mutate({ loanId: loan.id, data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Days are Europe/Zurich calendar days after the due date of the first unpaid installment. Before the Late day the
+        payment shows as due. Penalties follow the contract, not these days. An active or late direct loan is checked again
+        at once; a loan in default stays in default.
+      </p>
+      <div className="admin-context-bar">
+        <span>Now: Late from day {loan.effective_late_threshold_days}</span>
+        <span>Default from day {loan.effective_default_threshold_days}</span>
+        <span>{ownDays ? "Contract days" : "Platform days"}</span>
+      </div>
+      <label className="check-row">
+        <input checked={useContract} onChange={(event) => setUseContract(event.target.checked)} type="checkbox" />
+        Use the contract&apos;s own days for this loan.
+      </label>
+      {useContract ? (
+        <FieldGrid>
+          <TextInput integer label="Late from day" onChange={setLateDays} required value={lateDays} />
+          <TextInput integer label="Default from day" onChange={setDefaultDays} required value={defaultDays} />
+        </FieldGrid>
+      ) : null}
+      <TextAreaInput hint="For example the contract clause." label="Reason" onChange={setReason} required value={reason} />
+      {daysInvalid ? (
+        <Banner tone="bad" title="Days not usable">
+          The Late day must be from day 1 and before the Default day. The Default day can be at most day 365.
+        </Banner>
+      ) : null}
+      <OperationConfirmButton
+        confirmLabel="Save days"
+        description="The change is recorded in the loan history with the reason."
+        details={[
+          { label: "Loan", value: loan.id },
+          { label: "Late from day", value: useContract ? String(late) : "Platform" },
+          { label: "Default from day", value: useContract ? String(deflt) : "Platform" }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title="Confirm Late and Default days"
+        variant="primary"
+      >
+        Save days
+      </OperationConfirmButton>
+      {mutation.error ? <Banner tone="bad" title="Could not save the days">{errorMessage(mutation.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Days saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+/** U33-DEC-09: record the contract termination date (separate from Default; never automatic). */
+function LoanTerminationForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const [terminatedOn, setTerminatedOn] = useState(loan.contract_terminated_on ?? businessDate);
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1ServicingAdminLoansContractTerminationCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(`Contract termination recorded for ${formatDate(result.contract_terminated_on ?? terminatedOn)}. The loan stays ${result.loan_status}.`);
+        onDone();
+      }
+    }
+  });
+  const recorded = Boolean(loan.contract_terminated_on);
+  const future = terminatedOn > businessDate;
+  const blocked = recorded || !terminatedOn || future || !note.trim() || mutation.isPending;
+
+  function submit() {
+    if (isFixturePreview) {
+      setPreview(`Contract termination on ${terminatedOn} would be recorded for ${loan.id}.`);
+      return;
+    }
+    mutation.mutate({ loanId: loan.id, data: { terminated_on: terminatedOn, note: note.trim() } });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Default does not end the contract by itself. Record the termination when it happened, with the evidence in the
+        note. It is recorded once. To tell lenders more, publish a loan note.
+      </p>
+      {recorded ? (
+        <Banner tone="info" title="Termination already recorded">
+          The contract was terminated on {formatDate(loan.contract_terminated_on ?? "")}.
+        </Banner>
+      ) : null}
+      <FieldGrid>
+        <TextInput label="Termination date" onChange={setTerminatedOn} required type="date" value={terminatedOn} />
+      </FieldGrid>
+      <TextAreaInput hint="Internal: for example the letter reference." label="Note" onChange={setNote} required value={note} />
+      {future ? <Banner tone="bad" title="Date in the future">The termination date cannot be after today.</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel="Record termination"
+        description="The termination date is recorded in the loan history and shown to the loan's lenders. The loan status does not change."
+        details={[
+          { label: "Loan", value: loan.id },
+          { label: "Status", value: loan.status },
+          { label: "Termination date", value: terminatedOn }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title="Confirm contract termination"
+        variant="danger"
+      >
+        Record termination
+      </OperationConfirmButton>
+      {mutation.error ? <Banner tone="bad" title="Could not record the termination">{errorMessage(mutation.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Termination recorded">{success}</Banner> : null}
     </>
   );
 }

@@ -15,6 +15,11 @@ from backend.apps.loans.models import (
     RepaymentType,
     RiskRating,
 )
+from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
+from backend.apps.platform_core.selectors.settings import (
+    loan_status_thresholds,
+    platform_loan_status_thresholds,
+)
 
 
 class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
@@ -67,6 +72,13 @@ class LoanSerializer(serializers.Serializer[Any]):
     lender_payment_fee_minor = serializers.IntegerField()
     default_penalty_interest_bps = serializers.IntegerField()
     recovery_fee_bps = serializers.IntegerField()
+    # U33-DEC-09: the contract's own Late / Default days (null = platform settings), the days
+    # in use, and the contract termination date.
+    late_threshold_days = serializers.IntegerField(allow_null=True)
+    default_threshold_days = serializers.IntegerField(allow_null=True)
+    effective_late_threshold_days = serializers.SerializerMethodField()
+    effective_default_threshold_days = serializers.SerializerMethodField()
+    contract_terminated_on = serializers.DateField(allow_null=True)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
     recovery_waterfall_version = serializers.CharField()
     schedule_version = serializers.IntegerField()
@@ -80,6 +92,23 @@ class LoanSerializer(serializers.Serializer[Any]):
     updated_by_admin_id = serializers.UUIDField(allow_null=True)
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def _thresholds(self, obj: Loan) -> LoanStatusThresholds:
+        # One settings read per response, shared by the rows of a list.
+        platform = self.context.get("platform_loan_status_thresholds")
+        if platform is None:
+            platform = platform_loan_status_thresholds()
+            if isinstance(self.context, dict):
+                self.context["platform_loan_status_thresholds"] = platform
+        return loan_status_thresholds(obj, platform=platform)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_effective_late_threshold_days(self, obj: Loan) -> int:
+        return self._thresholds(obj).late_days
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_effective_default_threshold_days(self, obj: Loan) -> int:
+        return self._thresholds(obj).default_days
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_original_repayment_type(self, obj: Loan) -> str | None:

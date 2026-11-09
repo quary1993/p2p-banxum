@@ -166,7 +166,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "What happens if a borrower pays late?",
-        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. From day 5 after the due date the investment is marked as late and you are informed. From day 16 the loan is in default (calendar days, Swiss time): Garanta enforces the security on behalf of the investors and shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
+        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. During the first 14 days after the due date the payment is shown as due, with the number of days. From day 15 the investment is marked as late and you are informed. From day 60 the loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself: the end of the contract, the enforcement of the security and the recovery are separate steps, shown with their dates on the investment page. Garanta shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
       },
       {
         q: "What if Garanta stops operating?",
@@ -298,12 +298,12 @@ export const siteGuides: SiteGuide[] = [
     title: "What happens when a borrower pays late",
     summary: "From the first reminder to the enforcement of the security: the steps, who takes them and how you are kept informed.",
     body: `<p>Most late payments are a few days late and are paid after a reminder. Some are the start of real difficulties. Here is what happens in each case.</p>
-        <h2>Day 1 to 4</h2>
-        <p>Garanta reminds the borrower. Many payments arrive in these first days.</p>
-        <h2>Day 5 to 15</h2>
+        <h2>Day 1 to 14</h2>
+        <p>The payment is shown as due in your account, with the number of days. Garanta reminds the borrower. Many payments arrive in these days.</p>
+        <h2>Day 15 to 59</h2>
         <p>The payment is marked as late in your account, in red, with the number of days. Garanta talks to the company and its owners. Investors are informed of every step on the investment page.</p>
-        <h2>From day 16</h2>
-        <p>The loan is in default automatically (calendar days, Swiss time). Garanta then enforces the security (sells the pledged asset, calls the guarantee) on behalf of all investors.</p>
+        <h2>From day 60</h2>
+        <p>The loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
         <h2>Recovery</h2>
         <p>What is recovered, after the costs of enforcement, is shared in proportion to each share and credited to your Banxum balance. Recovery can take months or years and may not cover the full amount.</p>`
   },

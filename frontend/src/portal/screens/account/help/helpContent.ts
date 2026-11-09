@@ -4,8 +4,9 @@
 // PIN + email code (Phase 17.3 brings password + second factor, U33-DEC-01); repayments credited to the
 // Banxum balance (U33-DEC-02); the holding time from the balances API; the minimum shown per
 // opportunity; resale at 0-102% of the outstanding principal with the capped 2% seller fee and no fee on
-// accrued interest (U33-DEC-06/07; the prototype's "95% to 105%" text is corrected); late/default status as the servicing process sets it today (U33-DEC-09 comes
-// with Phase 17.2); no ratings (U33-DEC-16); support by email (U33-DEC-35).
+// accrued interest (U33-DEC-06/07; the prototype's "95% to 105%" text is corrected); Due for 14 days,
+// Late from day 15, Default from day 60 (U33-DEC-09); no ratings (U33-DEC-16); support by email
+// (U33-DEC-35).
 import type { RouteName } from "../../../../investorPortal/types";
 import type { t as translate } from "../../../../i18n";
 
@@ -92,10 +93,10 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       id: "late",
       topic: "investing",
       question: t("What happens if a payment is late?"),
-      answer: t("The investment is marked Late and you are informed. {brand} contacts the borrower and, when needed, takes steps to recover the money, including through the security provided. Amounts recovered are credited to the investors' {brand} balances in proportion to their share. Recovery is not guaranteed.", { brand }),
+      answer: t("During the first 14 days the payment is shown as due, with the number of days. From day 15 the investment is marked Late and you are informed. {brand} contacts the borrower and, when needed, takes steps to recover the money, including through the security provided. Amounts recovered are credited to the investors' {brand} balances in proportion to their share. Recovery is not guaranteed.", { brand }),
       more: {
         title: t("Late payment, default and recovery"),
-        text: t("The investment page shows the overdue amount and the days overdue. If the delay continues, the loan can be marked Default. Updates about the loan are published as loan notes on the investment page.")
+        text: t("The investment page shows the overdue amount and the days overdue. If the payment is still missing on day 60, the loan is marked Default. A loan's contract can set other days. Default does not end the contract by itself: the end of the contract and the recovery steps are shown with their dates. Updates about the loan are published as loan notes on the investment page.")
       },
       links: [
         { label: t("My investments"), to: "portfolio" },

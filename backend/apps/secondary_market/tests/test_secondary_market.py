@@ -966,7 +966,8 @@ def test_servicing_status_scan_cancels_open_listing_of_a_loan_that_turns_late(
     servicing = import_module("backend.apps.servicing.services")
     _approve_financial_access(investor)
     loan = _create_funded_loan(admin_user)
-    _create_current_installment(loan, due_date=date(2026, 1, 8))
+    # U33-DEC-09: Late from day 15 (16 Jan is day 15).
+    _create_current_installment(loan, due_date=date(2026, 1, 1))
     holding = _create_holding(admin_user, investor, loan)
     acceptance = _create_listing_acceptance(investor, holding)
     listing = create_secondary_market_listing(

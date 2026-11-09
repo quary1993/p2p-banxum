@@ -486,3 +486,29 @@ def serialize_write_off_event(write_off: LoanWriteOffEvent) -> dict[str, Any]:
 
 def serialize_loss_recognition_line(line: InvestorLossRecognitionLine) -> dict[str, Any]:
     return dict(InvestorLossRecognitionLineSerializer(line).data)
+
+
+class LoanStatusThresholdsRequestSerializer(serializers.Serializer[Any]):
+    """U33-DEC-09: both days, or both null to use the platform settings."""
+
+    late_threshold_days = serializers.IntegerField(allow_null=True, min_value=1, max_value=365)
+    default_threshold_days = serializers.IntegerField(allow_null=True, min_value=2, max_value=365)
+    reason = serializers.CharField(max_length=2000)
+
+
+class LoanContractTerminationRequestSerializer(serializers.Serializer[Any]):
+    terminated_on = serializers.DateField()
+    note = serializers.CharField(max_length=4000)
+
+
+class LoanStatusStagesSerializer(serializers.Serializer[Any]):
+    """A loan's Late / Default days (own or platform) and its contract termination date."""
+
+    loan_id = serializers.UUIDField()
+    loan_status = serializers.CharField()
+    late_threshold_days = serializers.IntegerField(allow_null=True)
+    default_threshold_days = serializers.IntegerField(allow_null=True)
+    effective_late_threshold_days = serializers.IntegerField()
+    effective_default_threshold_days = serializers.IntegerField()
+    threshold_source = serializers.CharField()
+    contract_terminated_on = serializers.DateField(allow_null=True)

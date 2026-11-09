@@ -5,9 +5,11 @@ from django.urls import path
 from backend.apps.servicing.api.views import (
     BorrowerRepaymentAdvancePreviewView,
     BorrowerRepaymentRecordView,
+    LoanContractTerminationView,
     LoanRecoveryPaymentRecordView,
     LoanRiskNoteAdminListCreateView,
     LoanServicingStatusScanView,
+    LoanStatusThresholdsView,
     LoanWriteOffRecordView,
     PublicLoanRiskNoteListView,
 )
@@ -42,6 +44,16 @@ urlpatterns = [
         "admin/write-offs/",
         LoanWriteOffRecordView.as_view(),
         name="servicing-write-off-record",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/status-thresholds/",
+        LoanStatusThresholdsView.as_view(),
+        name="servicing-loan-status-thresholds",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/contract-termination/",
+        LoanContractTerminationView.as_view(),
+        name="servicing-loan-contract-termination",
     ),
     path(
         "admin/recoveries/",

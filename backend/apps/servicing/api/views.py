@@ -12,11 +12,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.platform_core.domain.access import is_admin_actor
+from backend.apps.platform_core.selectors.settings import loan_status_thresholds
 from backend.apps.servicing.api.serializers import (
     BorrowerRepaymentAdvancePreviewRequestSerializer,
     BorrowerRepaymentAdvancePreviewResponseSerializer,
     BorrowerRepaymentRecordRequestSerializer,
     BorrowerRepaymentRecordResponseSerializer,
+    LoanContractTerminationRequestSerializer,
     LoanRecoveryPaymentRecordRequestSerializer,
     LoanRecoveryPaymentRecordResponseSerializer,
     LoanRiskNoteCreateRequestSerializer,
@@ -24,6 +26,8 @@ from backend.apps.servicing.api.serializers import (
     LoanRiskNoteSerializer,
     LoanServicingStatusScanRequestSerializer,
     LoanServicingStatusScanResponseSerializer,
+    LoanStatusStagesSerializer,
+    LoanStatusThresholdsRequestSerializer,
     LoanWriteOffRecordRequestSerializer,
     LoanWriteOffRecordResponseSerializer,
     PublicLoanRiskNoteListQuerySerializer,
@@ -42,20 +46,24 @@ from backend.apps.servicing.services import (
     AddLoanRiskNoteCommand,
     PreviewAdvanceRepaymentCommand,
     RecordBorrowerRepaymentCommand,
+    RecordLoanContractTerminationCommand,
     RecordLoanRecoveryPaymentCommand,
     RecordLoanWriteOffCommand,
     ScanLoanServicingStatusesCommand,
     ServicingAuthorizationError,
     ServicingDuplicatePaymentError,
     ServicingValidationError,
+    SetLoanStatusThresholdsCommand,
     add_loan_risk_note,
     list_admin_loan_risk_notes,
     list_public_loan_risk_notes,
     preview_borrower_repayment_in_advance,
     record_borrower_repayment,
+    record_loan_contract_termination,
     record_loan_recovery_payment,
     record_loan_write_off,
     scan_loan_servicing_statuses,
+    set_loan_status_thresholds,
 )
 
 
@@ -124,9 +132,7 @@ class BorrowerRepaymentRecordView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             {
-                "repayment_event": serialize_borrower_repayment_event(
-                    result.repayment_event
-                ),
+                "repayment_event": serialize_borrower_repayment_event(result.repayment_event),
                 "distribution_lines": [
                     serialize_distribution_line(line) for line in result.distribution_lines
                 ],
@@ -360,20 +366,14 @@ class LoanRecoveryPaymentRecordView(APIView):
                     actor=cast(Model, request.user),
                     loan_id=str(data["loan_id"]),
                     gross_recovered_minor=data["gross_recovered_minor"],
-                    externally_deducted_costs_minor=data[
-                        "externally_deducted_costs_minor"
-                    ],
+                    externally_deducted_costs_minor=data["externally_deducted_costs_minor"],
                     third_party_costs_from_received_minor=data[
                         "third_party_costs_from_received_minor"
                     ],
                     recovery_fee_applied=data["recovery_fee_applied"],
                     recovery_fee_bps=data["recovery_fee_bps"],
-                    contractual_interest_due_minor=data[
-                        "contractual_interest_due_minor"
-                    ],
-                    default_interest_due_minor=data[
-                        "default_interest_due_minor"
-                    ],
+                    contractual_interest_due_minor=data["contractual_interest_due_minor"],
+                    default_interest_due_minor=data["default_interest_due_minor"],
                     penalties_due_minor=data["penalties_due_minor"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
@@ -399,9 +399,86 @@ class LoanRecoveryPaymentRecordView(APIView):
             {
                 "recovery_event": serialize_recovery_event(result.recovery_event),
                 "distribution_lines": [
-                    serialize_recovery_distribution_line(line)
-                    for line in result.distribution_lines
+                    serialize_recovery_distribution_line(line) for line in result.distribution_lines
                 ],
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def _loan_status_stages_payload(loan: Model) -> dict[str, Any]:
+    loan_ref = cast(Any, loan)
+    thresholds = loan_status_thresholds(loan)
+    return {
+        "loan_id": str(loan_ref.id),
+        "loan_status": str(loan_ref.status),
+        "late_threshold_days": loan_ref.late_threshold_days,
+        "default_threshold_days": loan_ref.default_threshold_days,
+        "effective_late_threshold_days": thresholds.late_days,
+        "effective_default_threshold_days": thresholds.default_days,
+        "threshold_source": thresholds.source,
+        "contract_terminated_on": loan_ref.contract_terminated_on,
+    }
+
+
+class LoanStatusThresholdsView(APIView):
+    """U33-DEC-09: set or clear a loan's contract Late / Default days."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanStatusThresholdsRequestSerializer,
+        responses={200: LoanStatusStagesSerializer},
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanStatusThresholdsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            loan = set_loan_status_thresholds(
+                SetLoanStatusThresholdsCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(loan_id),
+                    late_threshold_days=data["late_threshold_days"],
+                    default_threshold_days=data["default_threshold_days"],
+                    reason=data["reason"],
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(_loan_status_stages_payload(loan))
+
+
+class LoanContractTerminationView(APIView):
+    """U33-DEC-09: record the contract termination of a late or defaulted loan."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanContractTerminationRequestSerializer,
+        responses={200: LoanStatusStagesSerializer},
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanContractTerminationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            loan = record_loan_contract_termination(
+                RecordLoanContractTerminationCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(loan_id),
+                    terminated_on=data["terminated_on"],
+                    note=data["note"],
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(_loan_status_stages_payload(loan))

@@ -1568,12 +1568,12 @@ def test_direct_servicing_scanner_does_not_mutate_originator_loans(
 @pytest.mark.parametrize(
     ("days_after_first_due", "expected_status", "expected_close_reason"),
     [
-        (4, "active", ""),
-        (5, "late", "loan_status_late"),
-        (16, "defaulted", "loan_status_defaulted"),
+        (14, "active", ""),
+        (15, "late", "loan_status_late"),
+        (60, "defaulted", "loan_status_defaulted"),
     ],
 )
-def test_originator_lifecycle_scan_uses_day_5_and_day_16_boundaries(
+def test_originator_lifecycle_scan_uses_day_15_and_day_60_boundaries(
     admin_user: Model,
     days_after_first_due: int,
     expected_status: str,

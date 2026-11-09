@@ -365,6 +365,8 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     first_payment_date = serializers.DateField(allow_null=True)
     ltv_bps = serializers.IntegerField(allow_null=True)
     days_past_due = serializers.IntegerField()
+    # U33-DEC-09: the contract termination date recorded by Banxum (null when not terminated).
+    contract_terminated_on = serializers.DateField(allow_null=True, required=False)
     schedule_version = serializers.IntegerField()
     schedule = PortfolioInstallmentSerializer(many=True)
 

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from backend.apps.platform_core.domain.funding import (
     BALANCE_AUTO_RETURN_AFTER_DAYS,
     DEFAULT_BALANCE_REMINDER_DAYS,
     normalized_auto_return_after_days,
     normalized_balance_reminder_days,
+)
+from backend.apps.platform_core.domain.loan_status import (
+    DEFAULT_DEFAULT_THRESHOLD_DAYS,
+    DEFAULT_LATE_THRESHOLD_DAYS,
+    SOURCE_LOAN,
+    LoanStatusThresholds,
+    platform_thresholds,
+    valid_threshold_pair,
 )
 from backend.apps.platform_core.models import PlatformSetting, PlatformSettingVersion
 
@@ -34,6 +42,30 @@ def balance_reminder_days(*, return_after_days: int) -> tuple[int, ...]:
         get_platform_setting_value("balance.reminder_days", list(DEFAULT_BALANCE_REMINDER_DAYS)),
         return_after_days=return_after_days,
     )
+
+
+def platform_loan_status_thresholds() -> LoanStatusThresholds:
+    """Settings ``servicing.late_threshold_days`` / ``servicing.default_threshold_days``.
+
+    U33-DEC-09 defaults: Late from day 15, Default from day 60.
+    """
+    return platform_thresholds(
+        get_platform_setting_value("servicing.late_threshold_days", DEFAULT_LATE_THRESHOLD_DAYS),
+        get_platform_setting_value(
+            "servicing.default_threshold_days", DEFAULT_DEFAULT_THRESHOLD_DAYS
+        ),
+    )
+
+
+def loan_status_thresholds(
+    loan: Any, *, platform: LoanStatusThresholds | None = None
+) -> LoanStatusThresholds:
+    """The loan's own contract thresholds when it has them, otherwise the platform ones."""
+    late_days = getattr(loan, "late_threshold_days", None)
+    default_days = getattr(loan, "default_threshold_days", None)
+    if valid_threshold_pair(late_days, default_days):
+        return LoanStatusThresholds(cast(int, late_days), cast(int, default_days), SOURCE_LOAN)
+    return platform if platform is not None else platform_loan_status_thresholds()
 
 
 def platform_switch_enabled(key: str) -> bool:

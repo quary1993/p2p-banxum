@@ -355,3 +355,10 @@ Each entry should include:
 - Current first-version behavior: one row per platform switch; today only "Currency exchange (FX)" (`fx.enabled`, off by owner decision 2026-10-16). The row shows a switch, an On/Off tag, the description, and the last change (state, time, who, reason) from the setting history. Moving the switch shows a required "Reason for this change" field and a "Switch on"/"Switch off" button; the change goes through the audited settings service (new setting version with the reason and an audit event). Switching to the state it already has is refused ("... is already on. Nothing was changed.").
 - Suggested improvement / required admin-console improvement: a "History" link with every version of the switch (the API keeps them in `PlatformSettingVersion`); a confirm dialog that says what investors will see before switching FX on; a link to the audit log filtered on `fx.enabled`.
 - Priority: nice-to-have.
+
+## 2026-11-10: Late and Default Days, Contract Termination (U33-DEC-09)
+
+- Screen or component: loan Manage modal, actions "Late and default days" and "Record contract termination" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: "Late and default days" shows the days in use (platform or contract) and lets the admin set the contract's own pair, or go back to the platform days, with a required reason; offered for draft, published, funded, active and late loans. "Record contract termination" takes the date (not in the future) and an internal note for a late or defaulted loan, recorded once; the status does not change. The loan list does not show the days or the termination date yet.
+- Required admin-console improvement: show the days in use and the termination date in the loan row and the loan events list; show the `status_thresholds_changed` and `contract_terminated` events with their reason in the loan history; a platform settings form for `servicing.late_threshold_days` / `servicing.default_threshold_days` with the pair check.
+- Priority: important.

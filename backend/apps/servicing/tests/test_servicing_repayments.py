@@ -52,6 +52,9 @@ from backend.apps.servicing.services import (
     scan_loan_servicing_statuses,
 )
 
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+pytestmark = pytest.mark.usefixtures("legacy_status_days")
+
 
 @pytest.fixture
 def admin_user() -> Model:
