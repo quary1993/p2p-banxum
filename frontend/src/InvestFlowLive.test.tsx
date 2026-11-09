@@ -321,7 +321,7 @@ test("FRONTCODE-24: a closed loan shows a notice and sends no email code", async
     ...primaryOrderHandlers(directLoan({ status: "funded", loan_status: "funded", opportunity_status: "closed", remaining_capacity_minor: 0, fillable_amount_minor: 0 }), () => ({}))
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  await screen.findByText("This loan is not open for investment", {}, { timeout: 5000 });
+  await screen.findByText("This loan is not open for investment.", {}, { timeout: 5000 });
   expect(screen.queryByRole("textbox", { name: "Your investment amount" })).not.toBeInTheDocument();
   expect(calls.codes).toHaveLength(0);
 }, 30_000);

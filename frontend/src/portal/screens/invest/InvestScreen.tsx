@@ -142,7 +142,7 @@ function ReviewEntry({ loan, initialAmount, sensitiveAction, onAddFunds }: { loa
   const t = useT();
   const [unavailable] = useState(() => {
     if (isReadonlyView()) return { title: t("Read-only view"), detail: t("This is a read-only investor view. You can see the loan, but you cannot invest.") };
-    if (!isOpenLoan(loan)) return { title: t("This loan is not open for investment"), detail: t("It is closed or fully funded. You can still read the loan page and its credit file, or choose another opportunity.") };
+    if (!isOpenLoan(loan)) return { title: t("This loan is not open for investment."), detail: t("It is closed or fully funded. You can still read the loan page and its credit file, or choose another opportunity.") };
     return null;
   });
   if (unavailable) return <Unavailable detail={unavailable.detail} loan={loan} title={unavailable.title} />;

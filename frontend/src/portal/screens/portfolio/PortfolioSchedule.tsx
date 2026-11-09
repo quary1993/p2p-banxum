@@ -104,7 +104,7 @@ export function PortfolioSchedule({ holdings, currency, currencySwitch, asOf, on
             {currencySwitch}
           </div>
           {payments.length === 0 ? (
-            <EmptyState icon="calendar" title={t("No scheduled payments")}>
+            <EmptyState icon="calendar" title={t("No scheduled payments.")}>
               {t("Payments of your current investments appear here. Loans in default have no scheduled payments.")}
             </EmptyState>
           ) : mode === "schedule" ? (

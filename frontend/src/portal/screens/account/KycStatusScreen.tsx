@@ -146,7 +146,7 @@ export function KycStatusScreen() {
             <div className="acc-kyc-actions">
               {canStart ? (
                 <Button disabled={sessionMutation.isPending} onClick={start} variant="primary">
-                  {sessionMutation.isPending ? t("Starting Didit...") : t("Start Didit verification")}
+                  {sessionMutation.isPending ? t("Starting Didit...") : t("Start identity verification")}
                 </Button>
               ) : null}
               {financialAccess ? <Button onClick={() => nav.go("dashboard")} variant={canStart ? "secondary" : "primary"}>{t("Back to overview")}</Button> : null}

@@ -388,7 +388,7 @@ function OpportunityPage({
             <li>{t("When funding closes, the reserved amount becomes your investment. Repayments are credited to your Banxum balance.")}</li>
             <li>{t("If the funding round is cancelled or does not reach its minimum, the reservation is released to your balance.")}</li>
           </ol>
-          <p className="bxm-muted">{t("Repayments are not guaranteed. You can lose part or all of your investment.")}</p>
+          <p className="bxm-muted">{t("Repayments are not guaranteed. You may lose part or all of your investment.")}</p>
         </Dialog>
       ) : null}
     </main>
@@ -486,7 +486,7 @@ function ClosedState({ loan, holdingId }: { loan: MarketplaceLoanDetail; holding
       ? t("This loan has been repaid.")
       : status === "late"
         ? t("A payment of this loan is overdue. Banxum follows up on overdue payments. No action is needed from you.")
-        : t("This loan is no longer open for investment.");
+        : t("This loan is not open for investment.");
   return (
     <aside className="l8-funding">
       <h2>{t("Project funding")}</h2>

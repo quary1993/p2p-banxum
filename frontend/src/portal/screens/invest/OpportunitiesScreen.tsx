@@ -318,7 +318,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           <EmptyState
             actions={anyFilter ? <Button onClick={clearAll} variant="primary">{t("Clear filters")}</Button> : <Button onClick={() => nav.go("smartInvest")}>{t("Set up Smart Invest")}</Button>}
             icon="search"
-            title={openLoans.length === 0 ? t("No investment opportunities are open right now") : t("No opportunity matches these filters")}
+            title={openLoans.length === 0 ? t("No investment opportunities are open right now") : t("No opportunity matches these filters.")}
           >
             {openLoans.length === 0 ? t("New opportunities appear here when they are published.") : t("Change or clear the filters to see more opportunities.")}
           </EmptyState>

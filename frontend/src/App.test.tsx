@@ -352,7 +352,9 @@ test("direct registration and login URLs render the requested public flow", () =
 test("client navigation writes a stable URL and browser history restores the screen", () => {
   renderApp("/");
 
-  fireEvent.click(screen.getByRole("link", { name: "Open an account" }));
+  // The design's public home has no sign-up band: Log in, then "Create an account".
+  fireEvent.click(screen.getAllByRole("link", { name: /^Log in/ })[0]);
+  fireEvent.click(screen.getByRole("link", { name: "Create an account" }));
   expect(window.location.pathname).toBe("/register");
   expect(screen.getByRole("heading", { name: "Create your account" })).toBeInTheDocument();
 
@@ -1835,7 +1837,9 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
 test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Open an account" }));
+  // The design's public home has no sign-up band: Log in, then "Create an account".
+  fireEvent.click(screen.getAllByRole("link", { name: /^Log in/ })[0]);
+  fireEvent.click(screen.getByRole("link", { name: "Create an account" }));
   expect(screen.getByText("Step 1 of 4")).toBeInTheDocument();
   // Checkbox labels embed new-tab document links, so the text spans elements.
   fireEvent.click(

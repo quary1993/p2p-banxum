@@ -81,7 +81,7 @@ export function PastOpportunitiesScreen() {
         ) : query.isPending && past.length === 0 ? (
           <EmptyState icon="clock" title={t("Loading past opportunities")} />
         ) : visible.length === 0 ? (
-          <EmptyState icon="archive" title={past.length === 0 ? t("No past opportunities yet") : t("No past opportunity matches your search")} />
+          <EmptyState icon="archive" title={past.length === 0 ? t("No past opportunities yet") : t("No past opportunity matches your search.")} />
         ) : (
           <div className="card card-bordered card-stretch">
             <div className="card-inner-group">

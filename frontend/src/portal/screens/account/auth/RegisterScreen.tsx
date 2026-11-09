@@ -593,7 +593,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
           {t("Open my account")}
           <CaIcon name="right" />
         </button>
-        <p className="ca-quiet-note">{t("You review and confirm each investment yourself.")}</p>
+        <p className="ca-quiet-note">{t("You review and confirm each investment.")}</p>
       </AuthCard>
     );
   } else if (kycStatus && IN_REVIEW.has(kycStatus)) {

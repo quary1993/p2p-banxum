@@ -355,7 +355,7 @@ export function SmartInvestWizard({
     review: (
       <>
         <h4 id="si-step-heading" ref={headingRef} tabIndex={-1}>{mode === "edit" ? t("Review & save your preferences") : t("Review & activate Smart Invest")}</h4>
-        <p className="si-setup-intro">{mode === "edit" ? t("Check your preferences before saving them.") : t("Check your preferences before activating Smart Invest.")}</p>
+        <p className="si-setup-intro">{mode === "edit" ? t("Check your preferences before saving.") : t("Check your preferences before activating Smart Invest.")}</p>
         {retired.length > 0 ? (
           <div className="alert alert-warning alert-icon u33-retired-criteria" role="status">
             <NiIcon name="alert-circle" />
