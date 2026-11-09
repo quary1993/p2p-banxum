@@ -5371,7 +5371,7 @@ export interface SecondaryMarketListingCancelRequest {
 export interface SecondaryMarketListingCreateRequest {
   holding_id: string;
   /**
-     * @minimum 1
+     * @minimum 0
      * @maximum 1000000
      */
   price_bps: number;
@@ -5388,7 +5388,7 @@ export interface SecondaryMarketListingCreateRequest {
 
 export interface SecondaryMarketListingEditRequest {
   /**
-     * @minimum 1
+     * @minimum 0
      * @maximum 1000000
      */
   price_bps: number;
@@ -5469,7 +5469,7 @@ export interface SecondaryMarketPurchaseRequest {
   /** @minimum 1 */
   expected_buyer_total_cost_minor: number;
   /**
-     * @minimum 1
+     * @minimum 0
      * @maximum 1000000
      */
   expected_price_bps: number;
@@ -6669,7 +6669,7 @@ limit?: number;
 export type V1MarketplaceSecondaryListingsPricingPreviewRetrieveParams = {
 holding_id: string;
 /**
- * @minimum 1
+ * @minimum 0
  */
 price_bps: number;
 };

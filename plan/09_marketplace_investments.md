@@ -148,6 +148,8 @@ Confirm launch restrictions by jurisdiction if needed. V1 does not enforce hard 
 ### MKT-DEC-007: Secondary Market Seller Pricing
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-06: principal price 0-102% of the outstanding principal (premium at most 2%), accrued interest added separately, warnings above 10% and from 20% discount.
+>
+> Implemented 2026-11-10 (Phase 17.2): `price_bps` is 0 to 10,200 for Direct and Loan Originator holdings. A listing, an edit, the pricing preview and a purchase above 102% are refused with HTTP 400 "The sale price can be at most 102% of the outstanding principal." A principal price of 0% is allowed when the buyer still pays accrued interest; a sale with a total of zero is refused ("Nothing would be paid for this sale..."). The money check constraints allow a transfer price of zero (migration `secondary_market.0012_allow_zero_principal_price`, which reinstalls the purchase append-only guards on SQLite). The seller form has the slider 0-102% with the par mark, "Up to 2% premium", "100% discount" / "2% premium", and "Maximum selling price: ... (2% premium)." The Help answer and "How resale works" no longer say "95% to 105%" or "par or a discount". The update of 2026-10-16 below is replaced.
 
 Status: Accepted. Amended 2026-10-16 (par or discount only).
 Date: 2026-05-16. Updated 2026-05-29, 2026-10-09, 2026-10-16.
@@ -332,6 +334,8 @@ Direct acceptance keeps the bulletin-board secondary market simple and usable wh
 ### MKT-DEC-017: Secondary-Market Fees
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-07: seller fee = min(2% x principal price, 2% x outstanding principal); no fee on accrued interest (shown as "No fees"); no buyer fee.
+>
+> Implemented 2026-11-10 (Phase 17.2): the seller fee is `max(min(rate x transfer price, rate x current principal), stored minimum)`, each part rounded half-up, with `secondary_market.maker_fee_bps` = 200. New, edited and refreshed listings store a minimum of 0, so there is no minimum fee and a principal price of zero has no fee; the per-currency minimum setting is no longer used for them. The seller form shows "No fees" next to accrued interest. Open listings were reconciled by migration `secondary_market.0013_reconcile_open_listings_u33_dec_06_07`: all of them were at par or a discount, so the capped fee equals the accepted fee; they keep their stored rate and minimum until an edit or a servicing refresh, no seller has to confirm again, and each listing records the check in `metadata.u33_dec_06_07`. Closed trades are not recalculated. The buyer fee setting stays (default 0).
 
 Status: Accepted. Amended 2026-10-16 (fee rates).
 Date: 2026-05-22. Updated 2026-05-29, 2026-10-16.

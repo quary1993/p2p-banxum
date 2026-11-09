@@ -191,7 +191,9 @@ DEFAULT_PLATFORM_SETTINGS = (
         "secondary_market.maker_fee_bps",
         200,
         "integer",
-        "Seller/maker fee in basis points of the sale price (2%, owner decision 2026-10-16).",
+        "Seller fee rate in basis points (2%, U33-DEC-07). The fee is the smaller of this "
+        "rate on the sale price of the principal and this rate on the outstanding "
+        "principal. There is no fee on accrued interest.",
     ),
     SettingDefinition(
         "secondary_market.taker_fee_bps",
@@ -203,7 +205,8 @@ DEFAULT_PLATFORM_SETTINGS = (
         "secondary_market.minimum_maker_fee_minor_by_currency",
         {},
         "json",
-        "Optional seller/maker minimum fee by currency in minor units.",
+        "Not used for new listings: U33-DEC-07 has no minimum seller fee. Older listings "
+        "keep the minimum they accepted until they are edited or refreshed.",
     ),
     SettingDefinition(
         "secondary_market.minimum_taker_fee_minor_by_currency",

@@ -70,12 +70,12 @@ function holdingFixture(openListingId: string | null = null) {
   };
 }
 
-// The server's seller pricing: 2 % maker fee (minimum CHF 20.00, owner decision
-// 2026-10-16), no buyer fee, and accrued interest of CHF 7.89 to today.
+// The server's seller pricing (U33-DEC-07): 2 % of the price, capped at 2 % of the outstanding
+// principal, no minimum, no buyer fee, and accrued interest of CHF 7.89 to today.
 function serverPricing(priceBps: number) {
   const transfer = Math.round((600_000 * priceBps) / 10_000);
   const accrued = 789;
-  const makerFee = Math.max(2_000, Math.round(transfer * 0.02));
+  const makerFee = Math.min(Math.round(transfer * 0.02), Math.round(600_000 * 0.02));
   return {
     holding_id: "h1",
     currency: "CHF",
@@ -88,7 +88,7 @@ function serverPricing(priceBps: number) {
     accrued_interest_from_date: "2026-10-10",
     accrued_interest_to_date: "2026-10-14",
     maker_fee_bps: 200,
-    minimum_maker_fee_minor: 2_000,
+    minimum_maker_fee_minor: 0,
     maker_fee_minor: makerFee,
     seller_net_proceeds_minor: transfer + accrued - makerFee,
     taker_fee_minor: 0,
@@ -144,30 +144,45 @@ test("A-34: the listing form shows the server's seller net, with accrued interes
   // 5,940.00 selling price + 7.89 accrued - 118.80 selling fee (2 %).
   await waitFor(() => expect(reviewValue("You receive if sold")).toMatch(/CHF 5\.829,09/));
   expect(reviewValue("Accrued interest")).toMatch(/CHF 7,89/);
+  // U33-DEC-07: "No fees" stands next to the accrued interest, not only in the info text.
+  expect(within(dialog).getByText("· No fees")).toBeInTheDocument();
   expect(reviewValue("Selling fee")).toMatch(/CHF 118,80/);
   expect(within(dialog).getByText("1,0% discount", { selector: ".s106-adjustment" })).toBeInTheDocument();
   expect((input as HTMLInputElement).value).toMatch(/5\.?940,00/);
   expect(calls.previews.at(-1)).toEqual({ priceBps: 9_900 });
 }, 30_000);
 
-test("the sale price is par or a discount: above the investment value shows an error and cannot continue", async () => {
+test("U33-DEC-06/07: a premium of up to 2% with the capped fee; above it shows an error and cannot continue", async () => {
   server.use(...sellerHandlers(holdingFixture(), () => HttpResponse.json(getV1MarketplaceSecondaryListingsCreateResponseMock(), { status: 201 })));
   const dialog = await openSellDialog();
-  expect(within(dialog).getByText("Up to 100% of the investment value")).toBeInTheDocument();
-  expect(within(dialog).getByRole("slider", { name: "Selling price" })).toHaveAttribute("max", "100");
+  expect(within(dialog).getByText("Up to 2% premium")).toBeInTheDocument();
+  const slider = within(dialog).getByRole("slider", { name: "Selling price" });
+  expect(slider).toHaveAttribute("min", "0");
+  expect(slider).toHaveAttribute("max", "102");
+  expect(within(dialog).getByText("100% discount")).toBeInTheDocument();
+  expect(within(dialog).getByText("2% premium")).toBeInTheDocument();
   await waitFor(() => expect(calls.previews).toHaveLength(1));
 
-  const input = typePrice(dialog, "6060");
-  expect(await within(dialog).findByText(/at most the investment value \(CHF 6\.000,00\), with no premium\./)).toBeInTheDocument();
+  const input = typePrice(dialog, "6150");
+  expect(await within(dialog).findByText("Maximum selling price: CHF 6.120,00 (2% premium).")).toBeInTheDocument();
   expect(input).toHaveAttribute("aria-invalid", "true");
   expect(within(dialog).getByRole("button", { name: "Review listing" })).toBeDisabled();
   // No server pricing is asked for a price the server refuses.
-  expect(calls.previews.some((preview) => Number(preview.priceBps) > 10_000)).toBe(false);
+  expect(calls.previews.some((preview) => Number(preview.priceBps) > 10_200)).toBe(false);
 
-  // Exactly par is fine again.
-  typePrice(dialog, "6000");
-  expect(within(dialog).queryByText(/at most the investment value/)).not.toBeInTheDocument();
+  // Exactly 102% is fine: 2% of 6,120 would be 122.40, the fee is capped at 2% of 6,000.
+  typePrice(dialog, "6120");
+  expect(within(dialog).queryByText(/Maximum selling price/)).not.toBeInTheDocument();
+  await waitFor(() => expect(within(dialog).getByText("2,0% premium", { selector: ".s106-adjustment" })).toBeInTheDocument());
+  await waitFor(() => expect(reviewValue("Selling fee")).toMatch(/CHF 120,00/));
+  expect(calls.previews.at(-1)).toEqual({ priceBps: 10_200 });
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review listing" })).toBeEnabled());
+
+  // A principal price of zero is allowed: no fee, the buyer pays the accrued interest.
+  typePrice(dialog, "0");
+  await waitFor(() => expect(within(dialog).getByText("100,0% discount", { selector: ".s106-adjustment" })).toBeInTheDocument());
+  await waitFor(() => expect(reviewValue("You receive if sold")).toMatch(/CHF 7,89/));
+  expect(calls.previews.at(-1)).toEqual({ priceBps: 0 });
 }, 30_000);
 
 test("A-36: a new price after a failed confirm gets a new acceptance for that price and new keys", async () => {

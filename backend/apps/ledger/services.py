@@ -7451,7 +7451,8 @@ def settle_secondary_market_purchase_ledger(
         currency.code,
         "Secondary-market current principal",
     )
-    transfer_price_minor = _validate_money(
+    # U33-DEC-06: a principal price of zero is allowed; the buyer then pays the accrued interest.
+    transfer_price_minor = _validate_nonnegative_money(
         command.transfer_price_minor,
         currency.code,
         "Secondary-market transfer price",

@@ -154,7 +154,7 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
 
 class SecondaryMarketListingPricingPreviewQuerySerializer(serializers.Serializer[Any]):
     holding_id = serializers.UUIDField()
-    price_bps = serializers.IntegerField(min_value=1)
+    price_bps = serializers.IntegerField(min_value=0)
 
 
 class SecondaryMarketListingPricingPreviewSerializer(serializers.Serializer[Any]):
@@ -252,7 +252,7 @@ class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSer
 
 class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any]):
     holding_id = serializers.UUIDField()
-    price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
+    price_bps = serializers.IntegerField(min_value=0, max_value=1_000_000)
     document_acceptance_id = serializers.UUIDField()
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
@@ -262,7 +262,7 @@ class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any])
 
 
 class SecondaryMarketListingEditRequestSerializer(serializers.Serializer[Any]):
-    price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
+    price_bps = serializers.IntegerField(min_value=0, max_value=1_000_000)
     document_acceptance_id = serializers.UUIDField()
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
@@ -299,7 +299,7 @@ class SecondaryMarketPurchaseRequestSerializer(serializers.Serializer[Any]):
     # The economics shown in the buyer's review. The purchase settles only when
     # the current price still matches them exactly (409 secondary_price_changed).
     expected_buyer_total_cost_minor = serializers.IntegerField(min_value=1)
-    expected_price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
+    expected_price_bps = serializers.IntegerField(min_value=0, max_value=1_000_000)
     expected_current_principal_minor = serializers.IntegerField(min_value=1)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)

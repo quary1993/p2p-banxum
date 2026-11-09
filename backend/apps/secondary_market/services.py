@@ -94,11 +94,17 @@ class SecondaryMarketSwissInvestorLimitError(SecondaryMarketValidationError):
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
-# Owner decision 2026-10-16 (row 4): a sale price is par or a discount, never a premium.
+# U33-DEC-06: the principal price is 0-102% of the outstanding principal (discount allowed,
+# premium at most 2%); accrued interest is added separately.
 PAR_PRICE_BPS = 10_000
-SALE_PRICE_ABOVE_PAR_MESSAGE = "The sale price can be at most 100% (par)."
-# Owner decision 2026-10-16 (rows 2 and 3): seller fee 2% of the price, no buyer fee.
-# The platform settings hold the live values; these are the code defaults.
+MAX_PRICE_BPS = 10_200
+SALE_PRICE_ABOVE_PAR_MESSAGE = "The sale price can be at most 102% of the outstanding principal."
+ZERO_TOTAL_SALE_MESSAGE = (
+    "Nothing would be paid for this sale: at 0% there is no accrued interest to pay today. "
+    "Choose a price above 0%."
+)
+# U33-DEC-07: seller fee = min(2% x principal price, 2% x outstanding principal); no fee on
+# accrued interest and no buyer fee. The platform settings hold the live rates.
 DEFAULT_MAKER_FEE_BPS = 200
 DEFAULT_TAKER_FEE_BPS = 0
 LISTING_CONTEXT_TYPE = "secondary_market_listing"
@@ -343,10 +349,9 @@ def _is_originator_claim_loan(loan: Model) -> bool:
 def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
     """Every listing sells at par or a discount, Direct and Loan Originator alike.
 
-    Repeated at purchase, so a listing priced above par before the rule (migration 0011
-    cancelled those) can never settle.
+    Repeated at purchase. U33-DEC-06 allows up to 102% of the outstanding principal.
     """
-    if price_bps > PAR_PRICE_BPS:
+    if price_bps > MAX_PRICE_BPS:
         raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
 
 
@@ -468,6 +473,25 @@ def _minimum_fee_minor(setting_key: str, currency_code: str) -> int:
 def _fee_minor(transfer_price_minor: int, fee_bps: int, minimum_fee_minor: int) -> int:
     calculated = _round_minor(Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000))
     return max(calculated, minimum_fee_minor)
+
+
+def _seller_fee_minor(
+    *,
+    transfer_price_minor: int,
+    current_principal_minor: int,
+    fee_bps: int,
+    minimum_fee_minor: int,
+) -> int:
+    """U33-DEC-07: min(rate x principal price, rate x outstanding principal).
+
+    The minimum is the one an older listing accepted (MKT-DEC-017); new and edited listings
+    store 0, so a principal price of zero has no fee.
+    """
+    on_price = _round_minor(Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000))
+    on_principal = _round_minor(
+        Decimal(current_principal_minor) * Decimal(fee_bps) / Decimal(10_000)
+    )
+    return max(min(on_price, on_principal), minimum_fee_minor)
 
 
 def _transfer_price_minor(current_principal_minor: int, price_bps: int) -> int:
@@ -745,15 +769,14 @@ def _pricing_snapshot(
         "Current holding principal",
     )
     transfer_price_minor = _transfer_price_minor(current_principal_minor, price_bps)
-    _validate_money(transfer_price_minor, currency_code, "Transfer price")
+    if transfer_price_minor < 0:
+        raise SecondaryMarketValidationError("Transfer price cannot be negative.")
     if listing_maker_fee is None:
         maker_fee_bps = _platform_int_setting(
             "secondary_market.maker_fee_bps", DEFAULT_MAKER_FEE_BPS
         )
-        minimum_maker_fee_minor = _minimum_fee_minor(
-            "secondary_market.minimum_maker_fee_minor_by_currency",
-            currency_code,
-        )
+        # U33-DEC-07 has no minimum seller fee: a principal price of zero has no fee.
+        minimum_maker_fee_minor = 0
     else:
         # A sale charges the seller fee the seller accepted for the listing (MKT-DEC-017).
         maker_fee_bps, minimum_maker_fee_minor = listing_maker_fee
@@ -762,7 +785,12 @@ def _pricing_snapshot(
         "secondary_market.minimum_taker_fee_minor_by_currency",
         currency_code,
     )
-    maker_fee_minor = _fee_minor(transfer_price_minor, maker_fee_bps, minimum_maker_fee_minor)
+    maker_fee_minor = _seller_fee_minor(
+        transfer_price_minor=transfer_price_minor,
+        current_principal_minor=current_principal_minor,
+        fee_bps=maker_fee_bps,
+        minimum_fee_minor=minimum_maker_fee_minor,
+    )
     taker_fee_minor = _fee_minor(transfer_price_minor, taker_fee_bps, minimum_taker_fee_minor)
     default_last_payment_date = (
         _originator_last_payment_date(str(loan_ref.id))
@@ -789,6 +817,8 @@ def _pricing_snapshot(
     if seller_net < 0:
         raise SecondaryMarketValidationError("Seller fee exceeds listing proceeds.")
     buyer_total = transfer_price_minor + accrued_interest_minor + taker_fee_minor
+    if buyer_total <= 0:
+        raise SecondaryMarketValidationError(ZERO_TOTAL_SALE_MESSAGE)
     status = str(loan_ref.status)
     return SecondaryMarketListingPricing(
         current_principal_minor=current_principal_minor,
@@ -876,12 +906,12 @@ def _apply_current_buyer_pricing(
 
 
 def _validate_listing_price_bps(price_bps: int) -> int:
-    """More than 0% and at most 100% (par) of the current principal."""
+    """0% to 102% of the current principal (U33-DEC-06)."""
     if type(price_bps) is not int:
         raise SecondaryMarketValidationError("Sale price percentage must be an integer bps value.")
-    if price_bps <= 0:
-        raise SecondaryMarketValidationError("Sale price percentage must be positive.")
-    if price_bps > PAR_PRICE_BPS:
+    if price_bps < 0:
+        raise SecondaryMarketValidationError("Sale price percentage cannot be negative.")
+    if price_bps > MAX_PRICE_BPS:
         raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
     return price_bps
 
@@ -1106,13 +1136,17 @@ def purchase_terms_acceptance_snapshot(
 def _validate_expected_purchase_values(command: PurchaseSecondaryMarketListingCommand) -> None:
     for value, label in (
         (command.expected_buyer_total_cost_minor, "Expected buyer total cost"),
-        (command.expected_price_bps, "Expected sale price"),
         (command.expected_current_principal_minor, "Expected principal"),
     ):
         if type(value) is not int or value <= 0:
             raise SecondaryMarketValidationError(
                 f"{label} must be the positive amount shown in the purchase review."
             )
+    # U33-DEC-06: a principal price of 0% is allowed (the buyer pays the accrued interest).
+    if type(command.expected_price_bps) is not int or command.expected_price_bps < 0:
+        raise SecondaryMarketValidationError(
+            "Expected sale price must be the amount shown in the purchase review."
+        )
 
 
 def _require_reviewed_purchase_economics(

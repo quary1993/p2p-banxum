@@ -1590,10 +1590,16 @@ test("resale market shows the offers table and explains how resale works", () =>
   expect(within(table).getByText("CHF 5.147,00")).toBeInTheDocument();
   expect(within(table).getAllByRole("button", { name: /^View offer / }).length).toBeGreaterThan(0);
 
-  // "How resale works": par or discount (no premium since 2026-10-16), and a listing is not a sale.
+  // "How resale works" (U33-DEC-06/07): a premium of up to 2%, the capped 2% fee, and a listing is not a sale.
   fireEvent.click(screen.getByRole("button", { name: "How resale works" }));
   const help = screen.getByRole("dialog", { name: "How resale works" });
-  expect(within(help).getByText(/A premium is not possible today\./)).toBeInTheDocument();
+  expect(within(help).getByText("New listings can have a premium of up to 2%.")).toBeInTheDocument();
+  expect(within(help).getByText(/^The seller pays 2% of the selling price, capped at 2% of the remaining investment value\./)).toBeInTheDocument();
+  const example = within(help).getByRole("slider", { name: "Discount or premium" });
+  expect(example).toHaveAttribute("max", "2");
+  fireEvent.change(example, { target: { value: "2" } });
+  expect(within(help).getByText("2% premium", { selector: "strong" })).toBeInTheDocument();
+  expect(within(help).getByText("The premium increases the price by EUR 20.")).toBeInTheDocument();
   expect(within(help).getByText("Accrued interest is excluded from the fee. Buyers pay no fee.")).toBeInTheDocument();
   expect(within(help).getByText("A listing is not a completed sale. A buyer must purchase the investment.")).toBeInTheDocument();
 });
@@ -1824,7 +1830,7 @@ test("Sell investment separates the price from the review with the email code", 
     fireEvent.click(within(page).getByRole("button", { name: "Sell investment" }));
 
     const dialog = screen.getByRole("dialog", { name: "Sell investment" });
-    expect(within(dialog).getByText("Up to 100% of the investment value")).toBeInTheDocument();
+    expect(within(dialog).getByText("Up to 2% premium")).toBeInTheDocument();
     expect(within(dialog).getByText("You receive if sold")).toBeInTheDocument();
     expect(within(dialog).queryByRole("textbox", { name: "Email confirmation code" })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Review listing" }));

@@ -4204,7 +4204,7 @@ paths:
         name: price_bps
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
         required: true
       tags:
       - v1
@@ -16406,7 +16406,7 @@ components:
         price_bps:
           type: integer
           maximum: 1000000
-          minimum: 1
+          minimum: 0
         document_acceptance_id:
           type: string
           format: uuid
@@ -16439,7 +16439,7 @@ components:
         price_bps:
           type: integer
           maximum: 1000000
-          minimum: 1
+          minimum: 0
         document_acceptance_id:
           type: string
           format: uuid
@@ -16716,7 +16716,7 @@ components:
         expected_price_bps:
           type: integer
           maximum: 1000000
-          minimum: 1
+          minimum: 0
         expected_current_principal_minor:
           type: integer
           minimum: 1

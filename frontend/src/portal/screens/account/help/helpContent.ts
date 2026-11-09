@@ -3,8 +3,8 @@
 // and tone). Every answer is written for today's platform, not the prototype: magic-link sign-in and
 // PIN + email code (Phase 17.3 brings password + second factor, U33-DEC-01); repayments credited to the
 // Banxum balance (U33-DEC-02); the holding time from the balances API; the minimum shown per
-// opportunity; resale at par or a discount with the seller fee shown before confirming (U33-DEC-06/07
-// come with Phase 17.2); late/default status as the servicing process sets it today (U33-DEC-09 comes
+// opportunity; resale at 0-102% of the outstanding principal with the capped 2% seller fee and no fee on
+// accrued interest (U33-DEC-06/07; the prototype's "95% to 105%" text is corrected); late/default status as the servicing process sets it today (U33-DEC-09 comes
 // with Phase 17.2); no ratings (U33-DEC-16); support by email (U33-DEC-35).
 import type { RouteName } from "../../../../investorPortal/types";
 import type { t as translate } from "../../../../i18n";
@@ -116,7 +116,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       answer: t("If the loan's payments are on time, open the investment in My investments and offer it on the Resale market. You sell your whole position. A sale needs a buyer and is not guaranteed."),
       more: {
         title: t("Price, interest and selling fees"),
-        text: t("You set the price as a percentage of the outstanding principal, at most 100%. The buyer also pays the interest accrued since the last payment. The seller fee and the amount you receive are shown before you confirm. A listing ends if the loan becomes late.")
+        text: t("You set the price between 0% and 102% of the outstanding principal. The buyer also pays the interest accrued since the last payment, with no fee on it. The seller pays 2% of the price, at most 2% of the outstanding principal. The fee and the amount you receive are shown before you confirm. A listing ends if the loan becomes late.")
       },
       links: [
         { label: t("My investments"), to: "portfolio" },

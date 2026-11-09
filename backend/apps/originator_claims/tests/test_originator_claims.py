@@ -3351,10 +3351,10 @@ def test_par_subscription_rejects_quotes_and_secondary_market_premiums(
             )
         )
     secondary = import_module("backend.apps.secondary_market.services")
-    # Since 2026-10-16 every listing (Direct and Loan Originator) is at par or a discount.
-    with pytest.raises(secondary.SecondaryMarketValidationError, match=r"at most 100% \(par\)"):
-        secondary._validate_loan_listing_price(result.loan, 10_001)
-    secondary._validate_loan_listing_price(result.loan, 10_000)
+    # U33-DEC-06: every listing (Direct and Loan Originator) is at most 102% of the principal.
+    with pytest.raises(secondary.SecondaryMarketValidationError, match=r"at most 102%"):
+        secondary._validate_loan_listing_price(result.loan, 10_201)
+    secondary._validate_loan_listing_price(result.loan, 10_200)
 
 
 @pytest.mark.django_db

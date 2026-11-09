@@ -1,9 +1,10 @@
 // IP of Webby-Soft SRL.
 // "Sell investment" (design data-action="market-sell", dialog .s106-modal), "Edit listing" and "Cancel
-// listing". Today's rules (U33-DEC-06/07 change them in Phase 17.2): the whole position, a price of at
-// most 100% of the outstanding principal (par or a discount, MKT-DEC-007), in whole basis points; the
-// seller fee, accrued interest and the net come from the server's quote. Discount warnings above 10% and
-// from 20% never block. The seller accepts the listing terms and confirms with the email code + PIN.
+// listing". U33-DEC-06/07: the whole position, a price of 0-102% of the outstanding principal (a premium of
+// at most 2%), in whole basis points; the seller fee is min(2% x price, 2% x outstanding principal) and
+// accrued interest has no fee ("No fees" next to it). Fee, accrued interest and the net come from the
+// server's quote. Discount warnings above 10% and from 20% never block. The seller accepts the listing
+// terms and confirms with the email code + PIN.
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 
@@ -28,7 +29,7 @@ import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
 import { errorMessage, idempotencyKey, templateLabels } from "./parts/errors";
-import { discountTone, MAX_PRICE_BPS, MIN_PRICE_BPS, PREVIEW_FEE_BPS, priceBpsForAmount, SLIDER_STEP_BPS } from "./parts/sellPricing";
+import { discountTone, MAX_PRICE_BPS, MIN_PRICE_BPS, PAR_PRICE_BPS, PREVIEW_FEE_BPS, previewSellerFee, priceBpsForAmount, priceMinorForBps, SLIDER_STEP_BPS } from "./parts/sellPricing";
 
 type Pricing = Pick<SecondaryMarketListingPricingPreview, "price_bps" | "transfer_price_minor" | "accrued_interest_minor" | "maker_fee_bps" | "minimum_maker_fee_minor" | "maker_fee_minor" | "seller_net_proceeds_minor">;
 
@@ -40,8 +41,8 @@ function usePricing(holding: Holding, priceBps: number) {
   );
   if (!valid) return { pricing: null, query };
   if (isFixturePreview) {
-    const transfer = Math.round((holding.current_principal_minor * priceBps) / 10_000);
-    const fee = Math.round((transfer * PREVIEW_FEE_BPS) / 10_000);
+    const transfer = priceMinorForBps(holding.current_principal_minor, priceBps);
+    const fee = previewSellerFee(transfer, holding.current_principal_minor);
     return {
       pricing: { price_bps: priceBps, transfer_price_minor: transfer, accrued_interest_minor: 0, maker_fee_bps: PREVIEW_FEE_BPS, minimum_maker_fee_minor: 0, maker_fee_minor: fee, seller_net_proceeds_minor: transfer - fee } satisfies Pricing,
       query
@@ -51,14 +52,17 @@ function usePricing(holding: Holding, priceBps: number) {
 }
 
 function adjustmentText(priceBps: number, t: ReturnType<typeof useT>) {
-  if (priceBps >= MAX_PRICE_BPS) return t("No discount or premium");
-  return t("{percent} discount", { percent: formatRateBps(MAX_PRICE_BPS - priceBps) });
+  if (priceBps === PAR_PRICE_BPS) return t("No discount or premium");
+  if (priceBps > PAR_PRICE_BPS) return t("{percent} premium", { percent: formatRateBps(priceBps - PAR_PRICE_BPS) });
+  return t("{percent} discount", { percent: formatRateBps(PAR_PRICE_BPS - priceBps) });
 }
 
 function feeExplanation(pricing: Pricing, currency: string, t: ReturnType<typeof useT>) {
+  const rate = formatRateBps(pricing.maker_fee_bps);
+  // A listing made before U33-DEC-07 keeps the minimum fee it accepted until it is edited.
   const base = pricing.minimum_maker_fee_minor > 0
-    ? t("{rate} of the selling price, at least {minimum}.", { rate: formatRateBps(pricing.maker_fee_bps), minimum: `${currency} ${formatMoneyMinor(pricing.minimum_maker_fee_minor, currency)}` })
-    : t("{rate} of the selling price.", { rate: formatRateBps(pricing.maker_fee_bps) });
+    ? t("{rate} of the selling price, capped at {rate} of the remaining investment value, at least {minimum}.", { rate, minimum: `${currency} ${formatMoneyMinor(pricing.minimum_maker_fee_minor, currency)}` })
+    : t("{rate} of the selling price, capped at {rate} of the remaining investment value.", { rate });
   return [base, t("Accrued interest is excluded. The fee is charged only when sold.")];
 }
 
@@ -78,7 +82,7 @@ function Breakdown({ pricing, currency, t }: { pricing: Pricing | null; currency
       <dl className="s106-breakdown">
         <div>
           <dt>
-            {t("Accrued interest")}
+            {t("Accrued interest")} <span>· {t("No fees")}</span>
             <InfoDetails label={t("About accrued interest")} paragraphs={[t("Interest earned since the last payment. Paid separately by the buyer, on top of the selling price. No fee is charged on it.")]} />
           </dt>
           <dd className="s106-interest">{pricing ? `+ ${money(pricing.accrued_interest_minor)}` : "…"}</dd>
@@ -104,7 +108,7 @@ function Breakdown({ pricing, currency, t }: { pricing: Pricing | null; currency
 function DiscountWarning({ priceBps, holding, t }: { priceBps: number; holding: Holding; t: ReturnType<typeof useT> }) {
   const tone = discountTone(priceBps);
   if (tone === "none") return null;
-  const transfer = Math.round((holding.current_principal_minor * priceBps) / 10_000);
+  const transfer = priceMinorForBps(holding.current_principal_minor, priceBps);
   const below = `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor - transfer, holding.currency)}`;
   return (
     <aside className={`s106-warning ${tone}`} role="status">
@@ -135,10 +139,10 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
   const isEdit = listing !== null;
   const currency = holding.currency;
   const principal = holding.current_principal_minor;
-  const initialBps = Math.min(MAX_PRICE_BPS, listing?.price_bps ?? MAX_PRICE_BPS);
+  const initialBps = Math.min(MAX_PRICE_BPS, listing?.price_bps ?? PAR_PRICE_BPS);
   const [step, setStep] = useState<"price" | "review" | "done">("price");
   const [priceBps, setPriceBps] = useState(initialBps);
-  const [priceText, setPriceText] = useState(() => formatMoneyMinor(Math.round((principal * initialBps) / 10_000), currency));
+  const [priceText, setPriceText] = useState(() => formatMoneyMinor(priceMinorForBps(principal, initialBps), currency));
   const [priceError, setPriceError] = useState("");
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
@@ -180,12 +184,13 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
       setPriceError(parsed.error);
       return;
     }
-    if (parsed.amountMinor > principal) {
-      setPriceError(t("Today the selling price can be at most the investment value ({amount}), with no premium.", { amount: `${currency} ${formatMoneyMinor(principal, currency)}` }));
+    const maximum = priceMinorForBps(principal, MAX_PRICE_BPS);
+    if (parsed.amountMinor > maximum) {
+      setPriceError(t("Maximum selling price: {amount} (2% premium).", { amount: `${currency} ${formatMoneyMinor(maximum, currency)}` }));
       return;
     }
-    if (parsed.amountMinor <= 0) {
-      setPriceError(t("Enter a selling price above zero."));
+    if (parsed.amountMinor < 0) {
+      setPriceError(t("Enter a valid price of zero or more."));
       return;
     }
     choosePrice(priceBpsForAmount(parsed.amountMinor, principal));
@@ -312,7 +317,7 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
     );
   }
 
-  const tone = priceBps >= MAX_PRICE_BPS ? "none" : discountTone(priceBps);
+  const tone = priceBps > PAR_PRICE_BPS ? "premium" : discountTone(priceBps);
   return (
     <Dialog bodyClassName="s106-body" className="s106-modal" onClose={onClose} title={isEdit ? t("Edit listing") : t("Sell investment")}>
       <p className="s106-project">{holding.loan.loan_title}</p>
@@ -338,7 +343,7 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
         <section className="s106-price" data-tone={tone}>
           <div className="s106-price-heading">
             <label htmlFor={priceId}>{t("Selling price")}</label>
-            <span>{t("Up to 100% of the investment value")}</span>
+            <span>{t("Up to 2% premium")}</span>
           </div>
           <div className="s106-price-field">
             <span>{currency}</span>
@@ -376,21 +381,22 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
           <div className="s106-slider" style={{ "--fill": `${fillPercent}%` } as CSSProperties}>
             <input
               aria-label={t("Selling price")}
-              aria-valuetext={`${currency} ${formatMoneyMinor(pricing?.transfer_price_minor ?? Math.round((principal * priceBps) / 10_000), currency)}, ${adjustmentText(priceBps, t)}`}
+              aria-valuetext={`${currency} ${formatMoneyMinor(pricing?.transfer_price_minor ?? priceMinorForBps(principal, priceBps), currency)}, ${adjustmentText(priceBps, t)}`}
               max={MAX_PRICE_BPS / 100}
-              min={SLIDER_STEP_BPS / 100}
+              min={MIN_PRICE_BPS / 100}
               onChange={(event) => {
                 editingText.current = false;
                 choosePrice(Number(event.target.value) * 100);
               }}
               step={SLIDER_STEP_BPS / 100}
               type="range"
-              value={Math.max(SLIDER_STEP_BPS, priceBps) / 100}
+              value={priceBps / 100}
             />
+            <i aria-hidden="true" className="s106-par" style={{ left: `${(PAR_PRICE_BPS / MAX_PRICE_BPS) * 100}%` }} />
           </div>
           <div className="s106-range-labels">
-            <span>{t("{percent} discount", { percent: formatRateBps(MAX_PRICE_BPS - SLIDER_STEP_BPS) })}</span>
-            <span>{t("No premium")}</span>
+            <span>{t("100% discount")}</span>
+            <span>{t("2% premium")}</span>
           </div>
           {priceError ? <p className="s106-error" role="alert">{priceError}</p> : null}
           {pricingFailed ? <p className="s106-error" role="alert">{t("The price could not be calculated: {reason}", { reason: errorMessage(pricingQuery.error) })}</p> : null}
