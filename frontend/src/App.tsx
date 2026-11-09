@@ -16,7 +16,6 @@ import {
   useV1AuthMagicLinkRequestCreate,
   useV1AuthPhoneConfirmCreate,
   useV1AuthPhoneRequestCreate,
-  useV1AuthPreferencesMarketingPartialUpdate,
   useV1AuthRegisterNaturalPersonCreate,
   useV1AuthSensitiveActionCodeRequestCreate,
   useV1DocumentsAcceptancesCreate,
@@ -139,7 +138,7 @@ import {
   type MkListKey
 } from "./investorPortal/smartInvestCriteria";
 import { onboardingStepForUser } from "./onboarding";
-import { CreatePinForm, SensitivePinField, SettingsPinPanel } from "./investorPortal/pin";
+import { CreatePinForm, SensitivePinField } from "./investorPortal/pin";
 import { pinApiError } from "./investorPortal/pinRules";
 import { usePinStatus, useSensitivePin } from "./investorPortal/pinState";
 import { SitePages } from "./site/SitePages";
@@ -176,6 +175,8 @@ import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
 import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
+import { SettingsScreen } from "./portal/screens/account/SettingsScreen";
+import { isSettingsPathSegment } from "./portal/screens/account/settings/settingsTabs";
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
@@ -240,7 +241,7 @@ const U33_SCREENS_PORTFOLIO: RouteName[] = [];
 const U33_SCREENS_WALLET: RouteName[] = ["transactions", "reports"];
 
 // S5 profile and settings, help, verification (portal/screens/account).
-const U33_SCREENS_ACCOUNT: RouteName[] = [];
+const U33_SCREENS_ACCOUNT: RouteName[] = ["settings"];
 
 const U33_SCREENS = new Set<RouteName>([
   ...U33_SCREENS_INVEST,
@@ -486,6 +487,9 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
+  // Profile & Settings tabs (/settings/security...).
+  const settingsMatch = normalized.match(/^\/settings\/([a-z-]+)$/);
+  if (settingsMatch && isSettingsPathSegment(settingsMatch[1])) return { name: "settings", params: { tab: settingsMatch[1] } };
   const investmentMatch = normalized.match(/^\/portfolio\/([^/]+)$/);
   if (investmentMatch) {
     try {
@@ -533,7 +537,7 @@ function routePath(route: AppRoute) {
     fx: "/fx",
     documents: "/documents",
     notifications: "/notifications",
-    settings: "/settings",
+    settings: route.params?.tab && isSettingsPathSegment(route.params.tab) ? `/settings/${route.params.tab}` : "/settings",
     faq: "/portal/help"
   };
   return paths[route.name];
@@ -2608,7 +2612,7 @@ function InvestorShell({
       case "notifications":
         return <NotificationsScreen setRoute={setRoute} />;
       case "settings":
-        return <SettingsScreen setRoute={setRoute} />;
+        return <SettingsScreen previewProfile={isFixturePreview ? displayProfile() : undefined} tab={route.params?.tab} />;
       case "kyc":
         return <KycStatusScreen setRoute={setRoute} />;
       case "faq":
@@ -11019,249 +11023,6 @@ function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void
           </div>
         )}
       </Card>
-    </main>
-  );
-}
-
-function kycChipTone(status: string) {
-  if (status === "approved") return "ok" as const;
-  if (status === "pending" || status === "not_started") return "neutral" as const;
-  if (status === "manual_review" || status === "expired" || status === "reverification_required") return "warn" as const;
-  return "bad" as const;
-}
-
-type SettingsSection = "profile" | "verification" | "pin" | "payout" | "communication" | "support";
-
-function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const queryClient = useQueryClient();
-  const [section, setSection] = useState<SettingsSection>("profile");
-  const [marketing, setMarketing] = useState(false);
-  const [marketingError, setMarketingError] = useState("");
-  const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
-  });
-  const kycStatusQuery = useV1KycStatusRetrieve({
-    query: { enabled: !isFixturePreview && !isReadonlyImpersonationActive(), retry: false, staleTime: 0 }
-  });
-  const fixtureProfile = displayProfile();
-  const account = authMeQuery.data?.user;
-  const marketingMutation = useV1AuthPreferencesMarketingPartialUpdate();
-  const name = isFixturePreview ? fixtureProfile.name : account?.full_name ?? "";
-  const email = isFixturePreview ? fixtureProfile.email : account?.email ?? "";
-  const country = isFixturePreview ? fixtureProfile.country : "";
-  const memberSince = isFixturePreview ? fixtureProfile.memberSince : "";
-  const phone = isFixturePreview ? fixtureProfile.phone : "";
-  const kycStatus = isFixturePreview ? "approved" : kycStatusQuery.data?.status;
-  const phoneVerified = isFixturePreview
-    ? true
-    : kycStatusQuery.data?.phone_verified ?? account?.phone_verified;
-  const balances = useBalancesData();
-  const payoutInstructions = balances.data?.payout_instructions ?? [];
-  useEffect(() => {
-    if (account) setMarketing(account.marketing_consent);
-  }, [account]);
-
-  const changeMarketingConsent = (nextValue: boolean) => {
-    setMarketingError("");
-    if (isFixturePreview) {
-      setMarketing(nextValue);
-      return;
-    }
-    marketingMutation.mutate(
-      { data: { marketing_consent: nextValue } },
-      {
-        onSuccess: (response) => {
-          setMarketing(response.user.marketing_consent);
-          void queryClient.invalidateQueries();
-        },
-        onError: (mutationError) => {
-          setMarketing(account?.marketing_consent ?? false);
-          setMarketingError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-  const readonly = isReadonlyImpersonationActive();
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || fixtureProfile.initials;
-  const summaries = balances.data?.summaries ?? [];
-  const identityRows = [
-    name ? { label: "Name", value: name } : null,
-    country ? { label: "Country", value: country } : null,
-    memberSince ? { label: "Member since", value: formatDate(memberSince) } : null
-  ].filter((row): row is { label: string; value: string } => row !== null);
-  const sections: Array<{ key: SettingsSection; label: string; icon: IconName; description: string }> = [
-    { key: "profile", label: "Profile", icon: "user", description: "The details of your investor account." },
-    { key: "verification", label: "Verification", icon: "shield", description: "Identity and phone checks for your account." },
-    { key: "pin", label: "PIN", icon: "lock", description: "Your 6-digit PIN confirms investments, withdrawals and bank changes with the email code." },
-    { key: "payout", label: "Payout accounts", icon: "building", description: "Bank accounts in your name for withdrawals and forced returns." },
-    { key: "communication", label: "Communication", icon: "mail", description: "Choose the optional emails you receive." },
-    { key: "support", label: "Support & account", icon: "help", description: "Answers to common questions and how to reach support." }
-  ];
-  const current = sections.find((item) => item.key === section) ?? sections[0];
-
-  return (
-    <main className="content acct-page acct-settings">
-      <PageHead description="Profile, verification, payout accounts and preferences." title="Profile & Settings" />
-      <div className="card acct-settings-card">
-        <aside className="acct-settings-aside">
-          <div className="acct-settings-user">
-            <span aria-hidden="true" className="acct-settings-avatar">{initials}</span>
-            <div className="acct-settings-who">
-              {name ? <div className="acct-settings-name">{name}</div> : null}
-              {email ? <div className="acct-settings-email">{email}</div> : null}
-            </div>
-          </div>
-          {summaries.length > 0 ? (
-            <div className="acct-settings-balance">
-              <div className="bxm-label">Account balance</div>
-              {summaries.map((item, index) => (
-                <div className={index === 0 ? "acct-settings-balance-main num" : "acct-settings-balance-sub num"} key={item.currency}>
-                  {formatMoneyMinor(item.total_available_minor, item.currency)} <span className="acct-settings-ccy">{item.currency}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <nav aria-label="Settings sections" className="acct-settings-menu">
-            {sections.map((item) => (
-              <button
-                aria-current={section === item.key ? "true" : undefined}
-                className={section === item.key ? "on" : ""}
-                key={item.key}
-                onClick={() => {
-                  setSection(item.key);
-                  // On narrow screens the section opens below the menu; bring it into view.
-                  if (window.matchMedia?.("(max-width: 991px)").matches) {
-                    document.getElementById("acct-settings-title")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-                  }
-                }}
-                type="button"
-              >
-                <Icon className="acct-settings-menu-icon" name={item.icon} size={17} />
-                <span>{item.label}</span>
-                <Icon className="acct-settings-menu-chev" name="chevR" size={15} />
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        <section aria-labelledby="acct-settings-title" className="acct-settings-main">
-          <div className="acct-settings-head">
-            <div>
-              <h2 id="acct-settings-title">{current.label}</h2>
-              <p>{current.description}</p>
-            </div>
-            {section === "payout" ? (
-              <Button disabled={readonly} size="sm" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button>
-            ) : null}
-          </div>
-
-          {section === "profile" ? (
-            <>
-              {identityRows.length > 0 ? (
-                <div className="acct-data-group">
-                  <div className="acct-data-head">Identity</div>
-                  <dl className="acct-data-list">
-                    {identityRows.map((row) => (
-                      <div className="acct-data-item" key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
-                    ))}
-                  </dl>
-                </div>
-              ) : null}
-              {email ? (
-                <div className="acct-data-group">
-                  <div className="acct-data-head">Contact</div>
-                  <dl className="acct-data-list">
-                    <div className="acct-data-item"><dt>Email</dt><dd>{email}</dd></div>
-                  </dl>
-                </div>
-              ) : null}
-              <p className="acct-settings-note">Name or email changes are handled through support after identity re-verification.</p>
-            </>
-          ) : null}
-
-          {section === "verification" ? (
-            <div className="acct-box">
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="shield" size={16} /><span className="acct-row-title">Identity (KYC/AML)</span></div>
-                <div className="acct-row-actions">{kycStatus ? <Chip tone={kycChipTone(kycStatus)}>{humanizeToken(kycStatus)}</Chip> : <span className="muted">-</span>}</div>
-              </div>
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="phone" size={16} /><span className="acct-row-title">{phone ? `Phone ${phone}` : "Phone"}</span></div>
-                <div className="acct-row-actions">{phoneVerified === undefined ? <span className="muted">-</span> : <Chip status={phoneVerified ? "verified" : "pending"} tone={phoneVerified ? "ok" : "neutral"} />}</div>
-              </div>
-            </div>
-          ) : null}
-
-          {section === "pin" ? <SettingsPinPanel readonly={readonly} /> : null}
-
-          {section === "payout" ? (
-            <div className="col gap-16">
-              {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
-              {payoutInstructions.length === 0 ? (
-                <p className="acct-settings-note">No payout IBAN is on file yet. Add one so Garanta can review it for withdrawals and forced-return handling.</p>
-              ) : (
-                <div className="acct-box">
-                  {payoutInstructions.map((instruction) => (
-                    <div className="acct-row" key={instruction.id}>
-                      <div className="acct-row-text">
-                        <span>
-                          <span className="acct-iban num">{instruction.destination_iban}</span>
-                          <span className="acct-row-sub">{instruction.currency} · {instruction.destination_account_name}</span>
-                        </span>
-                      </div>
-                      <div className="acct-row-actions">
-                        <Chip tone={instruction.is_verified_usable ? "ok" : "warn"}>
-                          {instruction.is_verified_usable ? "Verified usable" : "Pending Garanta verification"}
-                        </Chip>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <Banner tone="info" title="Verification required">Submitting a new payout IBAN does not make it usable automatically. Garanta must verify the account before it can be used for withdrawals or forced returns.</Banner>
-            </div>
-          ) : null}
-
-          {section === "communication" ? (
-            <div className="col gap-16">
-              <div className="acct-box">
-                <label className="acct-row acct-toggle-row" style={{ cursor: readonly ? "not-allowed" : "pointer" }}>
-                  <span className="acct-row-text">
-                    <span>
-                      <span className="acct-row-title">Product updates and newsletter</span>
-                      <span className="acct-row-sub">Transactional emails are mandatory.</span>
-                    </span>
-                  </span>
-                  <span className="acct-row-actions">
-                    <input checked={marketing} className="acct-checkbox" disabled={readonly || marketingMutation.isPending} onChange={(event) => changeMarketingConsent(event.target.checked)} type="checkbox" />
-                  </span>
-                </label>
-              </div>
-              {marketingError ? <Banner tone="bad" title="Could not update preference">{marketingError}</Banner> : null}
-            </div>
-          ) : null}
-
-          {section === "support" ? (
-            <div className="acct-box">
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="info" size={16} /><span className="acct-row-title">Help & FAQ</span></div>
-                <div className="acct-row-actions"><Button size="sm" onClick={() => goTo(setRoute, "faq")}>Open</Button></div>
-              </div>
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="mail" size={16} /><span className="acct-row-title">Email support</span></div>
-                <div className="acct-row-actions"><a className="acct-mail" href={`mailto:${supportEmail}`}>{supportEmail}</a></div>
-              </div>
-            </div>
-          ) : null}
-        </section>
-      </div>
-      {showPayoutModal ? <PayoutIbanModal onClose={() => setShowPayoutModal(false)} /> : null}
     </main>
   );
 }
