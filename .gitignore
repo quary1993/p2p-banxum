@@ -30,3 +30,6 @@ db.sqlite3
 /Archive.zip
 /QA/Archive.zip
 /tmp/
+
+# U33 stylesheet generators: design snapshots and intermediate files (tools/u33-design/README.md).
+/tools/u33-design/work/

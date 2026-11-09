@@ -1,9 +1,9 @@
 /* IP of Webby-Soft SRL. */
 /* GENERATED FILE: do not edit by hand. Put fixes in public-overrides.css.
  * Generated from the U33 public site design ("Banxum unified U33", site/dist, EN desktop pages
- * and the mobile edition dist/mobile) by s6/tools/build-public-css.mjs (slice S6 scratch folder):
+ * and the mobile edition dist/mobile) by tools/u33-design/public/build.sh (build-public-css.mjs):
  * per page bundle (home, about, business, contact, legal, project) the design's stylesheets in the design's order,
- * PurgeCSS on the rendered design pages (s6/harness/capture-design.js) and the design JS, every
+ * PurgeCSS on the rendered design pages (capture-design.js) and the design JS, every
  * selector scoped to html.bxp (plus :where(.bxp-<bundle>) for files that only some page types
  * load), the mobile edition's extra layer under @media (max-width:1119px), Archivo replaced by
  * "Archivo Variable" (@fontsource-variable/archivo), Nioicon as "Bxp Nioicon" subset
