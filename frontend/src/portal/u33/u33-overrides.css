@@ -59,9 +59,6 @@ html.bxu[data-theme="dark"] .bxu-legacy.app {
   background: #fff;
   color-scheme: light;
 }
-html.bxu[data-theme="dark"] .u33-shell-notices > .bxu-legacy.app {
-  padding: 12px;
-}
 
 /* The old screens are laid out for the old shell's content column: no second page padding inside
    the U33 content area (.nk-content already has the design's gutter). */
@@ -71,10 +68,6 @@ html.bxu .bxu-legacy.app > main.content {
   padding: 0 0 48px;
 }
 
-/* Banners above the screen (sign-out error, preview data, read-only view, frozen account). */
-html.bxu .u33-shell-notices {
-  margin-bottom: 24px;
-}
 
 /* 2. Old global rules reaching the U33 shell ----------------------------------------------------- */
 /* Found with tools/leaks.js (computed styles of the shell with and without the old stylesheets).
@@ -208,6 +201,44 @@ html.bxu .p30-language-toggle:disabled {
   cursor: default;
   opacity: 1;
 }
+
+/* Shell notices (portal/shell/ShellNotices.tsx: sign-out error, preview data, read-only view, frozen
+   account) use the design's alert list (.ov-updates > .alert, rose background, 24px below). The design
+   has one tone; warning takes its late-payment amber and info a neutral grey. Dark follows the
+   design's dark alert colours (amber text on #30271c; the default/danger text #ed9892). */
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-warning { background: #fff7e8 !important; }
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-info { background: #f1f3f5 !important; }
+html.bxu .u33-shell-notice.alert-warning > .icon,
+html.bxu .u33-shell-notice.alert-warning .bxm-signal-text { color: #956117; }
+html.bxu .u33-shell-notice.alert-danger > .icon,
+html.bxu .u33-shell-notice.alert-danger .bxm-signal-text { color: #b42318; }
+/* The design's dark alert colours are !important inside @layer bxm-dark, which beats any unlayered
+   !important rule; these two overrides therefore live in the same layer (higher specificity wins). */
+@layer bxm-dark {
+  html.bxu[data-edition][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-danger { color: #ed9892 !important; }
+  html.bxu[data-edition][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-info { background: #23272c !important; color: #c9ced3 !important; }
+  html.bxu[data-visual-study="ars"][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice + .alert.u33-shell-notice { border-top-color: #343a40 !important; }
+}
+/* The list separator is the design's (3px, page colour); .alert-danger would colour it red. */
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice + .alert.u33-shell-notice { border-top-color: #f5f6f7 !important; }
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-danger > .icon,
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-danger .bxm-signal-text { color: #ed9892; }
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-warning > .icon,
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-warning .bxm-signal-text { color: #e5b66c; }
+/* Inline actions: the design's alert links, as buttons. */
+html.bxu .u33-shell-notice-actions { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; margin-left: 8px; }
+html.bxu .u33-shell-notice .alert-link {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html.bxu .u33-shell-notice .alert-link:disabled { cursor: default; opacity: .6; }
 
 /* 4. Preview mode only (fixture data): the reviewers' floating controls ------------------------- */
 html.bxu .u33-preview-controls {

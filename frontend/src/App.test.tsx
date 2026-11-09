@@ -2021,9 +2021,9 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   setUxState("frozen");
 
-  expect(screen.getByText(/Financial actions are frozen/i)).toBeInTheDocument();
-  expect(screen.getByText(/portfolio, documents, statements and notices remain available/i)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
+  const frozenNotice = screen.getByText(/Financial actions are frozen/i).closest(".alert") as HTMLElement;
+  expect(frozenNotice).toHaveTextContent(/Your investments, documents and statements remain available/i);
+  expect(within(frozenNotice).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Documents" })).toBeInTheDocument();
 });
 

@@ -1,7 +1,7 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -85,7 +85,6 @@ import {
   frozenActionReason,
   useFrozenAccount,
 } from "./investorPortal/accountState";
-import { FrozenAccountBanner } from "./investorPortal/AccountStatus";
 import { isSignedOutError, retryTransientSessionError } from "./investorPortal/session";
 import { handleTabListKeyDown, useDialog } from "./investorPortal/dialog";
 import { platformTodayKey, platformTodayLocalDate, rememberPlatformBusinessDate } from "./investorPortal/platformClock";
@@ -138,6 +137,7 @@ import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
 import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
+import { FrozenAccountNotice, ShellNotice, ShellNotices } from "./portal/shell/ShellNotices";
 import { AccountBlockedScreen } from "./portal/screens/account/AccountBlockedScreen";
 import { AuthLoading } from "./portal/screens/account/auth/AuthLayout";
 import { loginFlowStorageKey, registerFlowStorageKey } from "./portal/screens/account/auth/authState";
@@ -1413,39 +1413,40 @@ function InvestorShell({
   const isU33Screen = gatedScreen !== screen || U33_SCREENS.has(route.name);
   const notices = [
     signOutError ? (
-      <Banner
-        actions={<Button disabled={logoutMutation.isPending} size="sm" variant="primary" onClick={signOut}>{logoutMutation.isPending ? "Signing out..." : "Retry sign out"}</Button>}
-        icon="alert"
+      <ShellNotice
+        actions={
+          <button className="alert-link" disabled={logoutMutation.isPending} onClick={signOut} type="button">
+            {logoutMutation.isPending ? t("Signing out...") : t("Retry sign out")}
+          </button>
+        }
+        icon="alert-circle"
         key="sign-out"
-        tone="bad"
-        title="Sign out failed"
+        title={t("Sign out failed")}
+        tone="danger"
       >
         {signOutError}
-      </Banner>
+      </ShellNotice>
     ) : null,
     isFixturePreview ? (
-      <Banner icon="alert" key="preview" tone="warn" title="Preview data">
-        This investor portal is running with local fixture data for UX review. Balances,
-        holdings, activity, FX history, and documents shown here are not real account data.
-      </Banner>
+      <ShellNotice icon="alert" key="preview" title={t("Preview data")} tone="warning">
+        {t("This investor portal is running with local fixture data for UX review. Balances, holdings, activity and documents shown here are not real account data.")}
+      </ShellNotice>
     ) : null,
     readonlyImpersonation.active ? (
-      <Banner icon="lock" key="read-only" tone="info" title="Superadmin read-only view">
-        Viewing the portal as {readonlyImpersonation.label || "selected user"}. Mutating
-        actions are disabled and generated/downloaded evidence is audited to the superadmin,
-        not recorded as user activity.
-      </Banner>
+      <ShellNotice icon="eye" key="read-only" title={t("Superadmin read-only view")} tone="info">
+        {t("Viewing the portal as {name}. Actions that change data are disabled, and generated or downloaded evidence is audited to the superadmin, not recorded as user activity.", { name: readonlyImpersonation.label || t("selected user") })}
+      </ShellNotice>
     ) : null,
     frozenAccount.frozen && financialAccessAllowed && !blockedAccountStatus ? (
-      <div className="frozen-account-notice" key="frozen">
-        <FrozenAccountBanner
-          account={frozenAccount}
-          onAddIban={readonlyImpersonation.active ? undefined : () => openBankAccountDialog()}
-          onOpenAccount={route.name === "balances" ? undefined : () => goTo(setRoute, "balances")}
-        />
-      </div>
+      <FrozenAccountNotice
+        account={frozenAccount}
+        fxEnabled={fxFeature.enabled}
+        key="frozen"
+        onAddBankAccount={readonlyImpersonation.active ? undefined : () => openBankAccountDialog()}
+        onOpenAccount={route.name === "balances" ? undefined : () => goTo(setRoute, "balances")}
+      />
     ) : null
-  ].filter(Boolean);
+  ].filter((notice): notice is ReactElement => Boolean(notice));
 
   return (
     <UserSkin>
@@ -1472,7 +1473,7 @@ function InvestorShell({
             ) : null}
             extraNavItems={fxFeature.enabled ? { Wallet: [FX_NAV_ITEM] } : undefined}
             markers={accountMarker ? { balances: accountMarker } : undefined}
-            notices={notices.length > 0 ? <LegacyBody><div className="col gap-12">{notices}</div></LegacyBody> : null}
+            notices={notices.length > 0 ? <ShellNotices>{notices}</ShellNotices> : null}
             notifications={notifications}
             onAddFunds={() => setAddFundsOpen(true)}
             onMarkAllRead={() => void notificationReadActions.markAllRead().catch(() => undefined)}

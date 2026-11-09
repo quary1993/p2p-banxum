@@ -100,11 +100,11 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   renderLiveApp(App, "/dashboard");
 
   const banner = await screen.findByText("Financial actions are frozen", {}, { timeout: 5000 });
-  const bannerBox = banner.closest(".banner") as HTMLElement;
+  const bannerBox = banner.closest(".alert") as HTMLElement;
   expect(bannerBox).toHaveTextContent("EUR 4.898.036,89 passed the 60-day holding limit");
   expect(bannerBox).toHaveTextContent("A penalty of 1,0% of this money is taken every day");
-  expect(bannerBox).toHaveTextContent("add a payout IBAN for EUR");
-  expect(within(bannerBox).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
+  expect(bannerBox).toHaveTextContent("add a bank account in your name for EUR");
+  expect(within(bannerBox).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   // The nav marks the Account entry; Add funds (account menu) is disabled.
   expect(screen.getByLabelText("Account frozen")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
