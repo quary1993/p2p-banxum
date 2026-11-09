@@ -22,6 +22,7 @@ import {
   useV1MarketplacePrimaryOrdersAllocateBalanceCreate,
   useV1MarketplacePrimaryOrdersCreate,
   type MarketplaceLoanDetail,
+  type OriginatorClaimPurchaseResponse,
   type OriginatorClaimQuoteResponse,
   type PrimaryInvestmentOrder
 } from "../../../api/generated/banxumApi";
@@ -307,7 +308,8 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
         amountMinor={allocated}
         lastStepLabel={t("Reserved")}
         loan={loan}
-        reference={placedOrder ? `${placedOrder.id.slice(0, 8).toUpperCase()} · ${formatDate(new Date().toISOString())}` : undefined}
+        // The order's own reference and time from the server (the platform clock, not the browser's).
+        reference={placedOrder ? `${placedOrder.id.slice(0, 8).toUpperCase()} · ${formatDate(placedOrder.allocated_at ?? placedOrder.created_at)}` : undefined}
         refused={outcome.kind === "refused"}
         showNext={outcome.kind === "reserved" || outcome.kind === "partial"}
         text={outcome.text}
@@ -475,6 +477,8 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
   const amountMinor = amount.appliedMinor ?? 0;
   const quoteMutation = useOriginatorClaimsLoansQuoteCreate();
   const purchaseMutation = useOriginatorClaimsQuotesPurchaseCreate();
+  // The purchase as the server booked it (reference, time and amount paid on the result page).
+  const [purchase, setPurchase] = useState<OriginatorClaimPurchaseResponse | null>(null);
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const { useCode, useAutoRequest } = kit;
   const codeRequest = useCode(ActionEnum.primary_investment);
@@ -584,7 +588,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
           });
       current = { ...current, acceptanceId: acceptance.id };
       setClaimAttempt(current);
-      await purchaseMutation.mutateAsync({
+      const booked = await purchaseMutation.mutateAsync({
         quoteId: quote.quote_id,
         data: {
           document_acceptance_id: acceptance.id,
@@ -594,6 +598,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
           idempotency_key: current.purchaseKey
         }
       });
+      setPurchase(booked);
       void queryClient.invalidateQueries();
       setConfirmOpen(false);
       setDone(true);
@@ -608,10 +613,10 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
     return (
       <ResultPage
         amountLabel={t("Amount paid")}
-        amountMinor={quote.executable_cash_minor}
+        amountMinor={purchase ? purchase.cash_consideration_minor : quote.executable_cash_minor}
         lastStepLabel={t("Purchased")}
         loan={loan}
-        reference={formatDateTime(new Date().toISOString())}
+        reference={purchase ? `${purchase.purchase_id.slice(0, 8).toUpperCase()} · ${formatDateTime(purchase.purchased_at)}` : undefined}
         refused={false}
         showNext={false}
         text={t("The assigned claim is now in your portfolio. Repayments are credited to your Banxum balance. Your acceptance record is in Documents.")}
