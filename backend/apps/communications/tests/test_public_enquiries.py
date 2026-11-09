@@ -37,35 +37,29 @@ URL = "/api/v1/public/enquiries/"
 YEAR = business_date(now_utc()).year
 HQ = "enquiries@banxum.test"
 
+# The U33 forms (2026-11-09): For borrowers, For loan originators, Contact.
 COMPANY_FIELDS: dict[str, Any] = {
     "company_name": "Muster Bau AG",
     "country": "Switzerland",
-    "company_number": "CHE-123.456.789",
+    "currency": "CHF",
     "amount": "250,000.00",
-    "term": "24 months",
-    "purpose": "Real estate",
-    "security": "Mortgage note",
-    "revenue": "1'200'000",
-    "founded": "1998",
-    "about": "Family firm since 1998.\nSecond line.",
+    "purpose": "Completion of a residential building",
+    "collateral": "First-rank mortgage note on the building.\nSecond line.",
     "contact_name": "Anna Muster",
-    "role": "CFO",
     "email": "Anna.Muster@Example.test",
-    "phone": "+41 44 123 45 67",
 }
 ORIGINATOR_FIELDS: dict[str, Any] = {
     "company_name": "Lease Partner GmbH",
     "country": "Germany",
-    "licence": "BaFin 32 KWG",
-    "product": "Invoices (factoring)",
-    "loan_book": "12000000",
     "contact_name": "Max Mustermann",
     "email": "max@example.test",
+    "proposal": "Refinancing of existing loans",
+    "about": "Equipment leasing for SMEs, secured by the leased machines.",
 }
 CONTACT_FIELDS: dict[str, Any] = {
     "name": "Eva Example",
     "email": "eva@example.test",
-    "topic": "Press",
+    "topic": "An opportunity",
     "message": "Hello, a question about BANXUM.",
 }
 FIELDS_BY_KIND = {
@@ -126,7 +120,7 @@ def test_values_are_trimmed_normalised_and_unknown_keys_dropped(api_client: APIC
             "company",
             company_name="  Muster\tBau\nAG  ",
             amount=" 250,000.00 ",
-            revenue="",
+            currency=" EUR ",
             country=" Switzerland ",
             unexpected="dropped",
         ),
@@ -136,7 +130,7 @@ def test_values_are_trimmed_normalised_and_unknown_keys_dropped(api_client: APIC
     fields = PublicEnquiry.objects.get().payload["fields"]
     assert fields["company_name"] == "Muster Bau AG"
     assert fields["amount"] == "250000.00"
-    assert fields["revenue"] == ""
+    assert fields["currency"] == "EUR"
     assert fields["country"] == "Switzerland"
     assert "unexpected" not in fields
 
@@ -190,23 +184,16 @@ def test_references_stay_unique_after_enquiries_are_deleted(api_client: APIClien
             [
                 "company_name",
                 "country",
-                "company_number",
+                "currency",
                 "amount",
-                "term",
                 "purpose",
-                "security",
-                "founded",
+                "collateral",
                 "contact_name",
-                "role",
                 "email",
-                "phone",
             ],
         ),
-        (
-            "originator",
-            ["company_name", "country", "licence", "product", "loan_book", "contact_name", "email"],
-        ),
-        ("contact", ["name", "email", "topic", "message"]),
+        ("originator", ["company_name", "country", "contact_name", "email", "proposal"]),
+        ("contact", ["name", "email"]),
     ],
 )
 def test_required_fields_are_reported_under_fields(
@@ -224,11 +211,22 @@ def test_required_fields_are_reported_under_fields(
 
 
 @pytest.mark.django_db
-def test_optional_company_fields_may_be_left_out(api_client: APIClient) -> None:
-    fields = {k: v for k, v in COMPANY_FIELDS.items() if k not in {"revenue", "about"}}
-    response = _post(api_client, {"kind": "company", "fields": fields, "consent": True})
-
+@pytest.mark.parametrize(
+    ("kind", "optional"),
+    [("originator", {"about"}), ("contact", {"topic", "message"})],
+)
+def test_optional_fields_may_be_left_out_or_blank(
+    api_client: APIClient, kind: str, optional: set[str]
+) -> None:
+    fields = {k: v for k, v in FIELDS_BY_KIND[kind].items() if k not in optional}
+    response = _post(api_client, {"kind": kind, "fields": fields, "consent": True})
     assert response.status_code == 201, response.content
+
+    blank = {**fields, **{name: "" for name in optional}}
+    response = _post(api_client, {"kind": kind, "fields": blank, "consent": True})
+    assert response.status_code == 201, response.content
+    stored = PublicEnquiry.objects.get(reference=response.json()["reference"]).payload["fields"]
+    assert all(stored[name] == "" for name in optional)
 
 
 @pytest.mark.django_db
@@ -236,11 +234,12 @@ def test_optional_company_fields_may_be_left_out(api_client: APIClient) -> None:
     ("kind", "field", "limit"),
     [
         ("company", "company_name", 200),
-        ("company", "company_number", 200),
-        ("company", "role", 200),
-        ("originator", "licence", 200),
+        ("company", "country", 200),
+        ("company", "purpose", 200),
+        ("originator", "country", 200),
         ("contact", "name", 200),
-        ("company", "about", 4000),
+        ("company", "collateral", 4000),
+        ("originator", "about", 4000),
         ("contact", "message", 4000),
     ],
 )
@@ -253,31 +252,23 @@ def test_text_length_limits(api_client: APIClient, kind: str, field: str, limit:
 
 
 @pytest.mark.django_db
-def test_email_and_phone_limits_and_format(api_client: APIClient) -> None:
+def test_email_limit_and_format(api_client: APIClient) -> None:
     long_email = "a" * 64 + "@" + ".".join(["b" * 60, "c" * 60, "d" * 60, "eee"]) + ".test"
     assert len(long_email) == 256
     errors = _field_errors(_post(api_client, _body("contact", email=long_email)))
     assert "email" in errors
     errors = _field_errors(_post(api_client, _body("contact", email="not-an-email")))
     assert "email" in errors
-    errors = _field_errors(_post(api_client, _body("company", phone="+41 " + "1" * 40)))
-    assert "phone" in errors
-    errors = _field_errors(_post(api_client, _body("company", phone="call me maybe")))
-    assert "phone" in errors
-    errors = _field_errors(_post(api_client, _body("company", phone="123")))
-    assert "phone" in errors
+    errors = _field_errors(_post(api_client, _body("company", email="not-an-email")))
+    assert "email" in errors
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ("kind", "field"),
     [
-        ("company", "country"),
-        ("company", "term"),
-        ("company", "purpose"),
-        ("company", "security"),
-        ("originator", "country"),
-        ("originator", "product"),
+        ("company", "currency"),
+        ("originator", "proposal"),
         ("contact", "topic"),
     ],
 )
@@ -329,38 +320,12 @@ def test_amounts_accept_grouped_or_plain_decimals(
 def test_amounts_must_be_positive_two_decimals_and_capped(api_client: APIClient, raw: str) -> None:
     errors = _field_errors(_post(api_client, _body("company", amount=raw)))
     assert "amount" in errors
-    errors = _field_errors(_post(api_client, _body("company", revenue=raw)))
-    assert "revenue" in errors
-    errors = _field_errors(_post(api_client, _body("originator", loan_book=raw)))
-    assert "loan_book" in errors
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("founded", "ok"),
-    [
-        ("1800", True),
-        (str(YEAR), True),
-        (1998, True),
-        ("1799", False),
-        (str(YEAR + 1), False),
-        ("98", False),
-        ("19a8", False),
-    ],
+    "kind,field", [("company", "collateral"), ("originator", "about"), ("contact", "message")]
 )
-def test_founded_is_a_year_from_1800_to_this_year(
-    api_client: APIClient, founded: Any, ok: bool
-) -> None:
-    response = _post(api_client, _body("company", founded=founded))
-
-    if ok:
-        assert response.status_code == 201, response.content
-    else:
-        assert "founded" in _field_errors(response)
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("kind,field", [("company", "about"), ("contact", "message")])
 def test_at_most_five_links_in_free_text(api_client: APIClient, kind: str, field: str) -> None:
     five = "see https://a.test and http://b.test, www.c.test, HTTPS://d.test www.e.test"
     assert _post(api_client, _body(kind, **{field: five})).status_code == 201
@@ -589,28 +554,27 @@ def test_the_email_goes_to_the_setting_only_and_shows_every_field(api_client: AP
     rendered = render_public_enquiry_email(message, redact=False)
 
     assert rendered.recipient_email == HQ
-    assert rendered.subject == f"New company application {reference}"
+    assert rendered.subject == f"New financing request {reference}"
     assert rendered.reply_to == "anna.muster@example.test"
     for label, value in [
+        ("Form", "For borrowers"),
         ("Company name", "Muster Bau AG"),
-        ("Country", "Switzerland"),
-        ("Company number", "CHE-123.456.789"),
-        ("Amount", "250,000.00"),
-        ("Term", "24 months"),
-        ("Purpose", "Real estate"),
-        ("Security", "Mortgage note"),
-        ("Annual revenue", "1,200,000.00"),
-        ("Founded", "1998"),
-        ("Contact name", "Anna Muster"),
-        ("Role", "CFO"),
+        ("Country of registration", "Switzerland"),
+        ("Amount requested", "CHF 250,000.00"),
+        ("Purpose of financing", "Completion of a residential building"),
+        ("Name", "Anna Muster"),
         ("Email", "Anna.Muster@Example.test"),
-        ("Phone", "+41 44 123 45 67"),
     ]:
         assert label in rendered.body_html
         assert value in rendered.body_html
         assert f"{label}: {value}" in rendered.body_text
-    assert "Family firm since 1998.<br>Second line." in rendered.body_html
-    assert "About the company:\n  Family firm since 1998.\n  Second line." in rendered.body_text
+    # The currency is shown with the amount, not on a row of its own.
+    assert "Currency" not in rendered.body_text
+    assert "First-rank mortgage note on the building.<br>Second line." in rendered.body_html
+    assert (
+        "Available collateral:\n  First-rank mortgage note on the building.\n  Second line."
+        in rendered.body_text
+    )
     assert "<!DOCTYPE html>" in rendered.body_html
     assert "brand/banxum-email-logo.png" in rendered.body_html
 
@@ -619,7 +583,7 @@ def test_the_email_goes_to_the_setting_only_and_shows_every_field(api_client: AP
     assert result.sent_count == 1
     record = EmailDeliveryRecord.objects.get()
     assert record.recipient_email == HQ
-    assert record.subject == f"New company application {reference}"
+    assert record.subject == f"New financing request {reference}"
     # Exactly one email, and never one to the person who filled the form.
     assert EmailDeliveryRecord.objects.filter(recipient_email__icontains="muster").count() == 0
     assert OutboxMessage.objects.count() == 1
@@ -632,9 +596,9 @@ def test_the_email_goes_to_the_setting_only_and_shows_every_field(api_client: AP
 @pytest.mark.parametrize(
     ("kind", "subject"),
     [
-        ("company", "New company application"),
-        ("originator", "New loan originator request"),
-        ("contact", "New contact message"),
+        ("company", "New financing request"),
+        ("originator", "New partnership request"),
+        ("contact", "New conversation request"),
     ],
 )
 def test_subject_is_fixed_text_and_reference_only(
@@ -683,7 +647,12 @@ def test_the_stored_copy_keeps_no_personal_details(api_client: APIClient) -> Non
     dispatch_due_email_outbox_messages()
 
     record = EmailDeliveryRecord.objects.get()
-    for secret in ("Muster Bau AG", "anna.muster@example.test", "+41 44 123 45 67", "Family firm"):
+    for secret in (
+        "Muster Bau AG",
+        "anna.muster@example.test",
+        "250,000.00",
+        "First-rank mortgage",
+    ):
         assert secret not in record.body_html
         assert secret not in record.body_text
     assert REDACTED_SECRET in record.body_html
@@ -702,6 +671,30 @@ def test_reply_to_is_left_out_when_the_address_is_not_safe(api_client: APIClient
 
     assert rendered.reply_to == ""
     assert "eva@example.test" in rendered.body_text
+
+
+@pytest.mark.django_db
+@override_settings(PUBLIC_ENQUIRY_EMAIL=HQ, PUBLIC_APP_BASE_URL="https://banxum.test")
+def test_an_enquiry_of_the_earlier_form_still_shows_every_value(api_client: APIClient) -> None:
+    _post(api_client, _body("company"))
+    enquiry = PublicEnquiry.objects.get()
+    # Sent with the October form, its email still queued when the form changed.
+    legacy = {
+        "company_name": "Muster Bau AG",
+        "country": "Switzerland",
+        "amount": "250000.00",
+        "term": "24 months",
+        "loan_book": "12000000.00",
+        "contact_name": "Anna Muster",
+        "email": "anna.muster@example.test",
+    }
+    PublicEnquiry.objects.filter(pk=enquiry.pk).update(payload={"fields": legacy})
+
+    text = render_public_enquiry_email(OutboxMessage.objects.get(), redact=False).body_text
+
+    assert "Amount requested: 250,000.00" in text
+    assert "Term: 24 months" in text
+    assert "Loan book: 12,000,000.00" in text
 
 
 class _FakeProviderResponse:

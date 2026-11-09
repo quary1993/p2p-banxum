@@ -4710,7 +4710,7 @@ paths:
   /api/v1/public/enquiries/:
     post:
       operationId: v1_public_enquiries_create
-      description: 'The For companies, For loan originators and Contact forms: one
+      description: 'The For borrowers, For loan originators and Contact forms: one
         email to BANXUM.'
       tags:
       - v1
@@ -6778,6 +6778,9 @@ components:
       - status
       - updated_at
       - value_date
+    BlankEnum:
+      enum:
+      - ''
     BorrowerDisbursementFinalizeRequest:
       type: object
       properties:
@@ -7576,59 +7579,43 @@ components:
       - qr_iban
     CompanyEnquiryFields:
       type: object
+      description: 'For borrowers: the financing request.'
       properties:
         company_name:
           type: string
           maxLength: 200
         country:
-          $ref: '#/components/schemas/PublicEnquiryCountryEnum'
-        company_number:
           type: string
+          description: Country of registration, as typed.
           maxLength: 200
+        currency:
+          $ref: '#/components/schemas/PublicEnquiryCurrencyEnum'
         amount:
           type: string
           maxLength: 200
-        term:
-          $ref: '#/components/schemas/PublicEnquiryTermEnum'
         purpose:
-          $ref: '#/components/schemas/PublicEnquiryPurposeEnum'
-        security:
-          $ref: '#/components/schemas/PublicEnquirySecurityEnum'
-        revenue:
           type: string
           maxLength: 200
-        founded:
+        collateral:
           type: string
-          maxLength: 4
-        about:
-          type: string
+          description: The collateral or guarantees available.
           maxLength: 4000
         contact_name:
-          type: string
-          maxLength: 200
-        role:
           type: string
           maxLength: 200
         email:
           type: string
           format: email
           maxLength: 254
-        phone:
-          type: string
-          maxLength: 40
       required:
       - amount
+      - collateral
       - company_name
-      - company_number
       - contact_name
       - country
+      - currency
       - email
-      - founded
-      - phone
       - purpose
-      - role
-      - security
-      - term
     CompanyEnquiryRequest:
       type: object
       properties:
@@ -7652,6 +7639,7 @@ components:
       - kind
     ContactEnquiryFields:
       type: object
+      description: 'Contact: request a conversation (topic and message optional).'
       properties:
         name:
           type: string
@@ -7661,15 +7649,15 @@ components:
           format: email
           maxLength: 254
         topic:
-          $ref: '#/components/schemas/PublicEnquiryTopicEnum'
+          oneOf:
+          - $ref: '#/components/schemas/PublicEnquiryTopicEnum'
+          - $ref: '#/components/schemas/BlankEnum'
         message:
           type: string
           maxLength: 4000
       required:
       - email
-      - message
       - name
-      - topic
     ContactEnquiryRequest:
       type: object
       properties:
@@ -12568,23 +12556,15 @@ components:
       - target_yield_bps
     OriginatorEnquiryFields:
       type: object
+      description: 'For loan originators: the partnership request.'
       properties:
         company_name:
           type: string
           maxLength: 200
         country:
-          $ref: '#/components/schemas/PublicEnquiryCountryEnum'
-        licence:
           type: string
+          description: Country of registration, as typed.
           maxLength: 200
-        product:
-          $ref: '#/components/schemas/PublicEnquiryProductEnum'
-        loan_book:
-          type: string
-          maxLength: 200
-        about:
-          type: string
-          maxLength: 4000
         contact_name:
           type: string
           maxLength: 200
@@ -12592,14 +12572,17 @@ components:
           type: string
           format: email
           maxLength: 254
+        proposal:
+          $ref: '#/components/schemas/PublicEnquiryProposalEnum'
+        about:
+          type: string
+          maxLength: 4000
       required:
       - company_name
       - contact_name
       - country
       - email
-      - licence
-      - loan_book
-      - product
+      - proposal
     OriginatorEnquiryRequest:
       type: object
       properties:
@@ -14694,24 +14677,6 @@ components:
       - contact
       type: string
       description: '* `contact` - contact'
-    PublicEnquiryCountryEnum:
-      enum:
-      - Switzerland
-      - Germany
-      - Austria
-      - Italy
-      - Romania
-      - France
-      - Other EU country
-      type: string
-      description: |-
-        * `Switzerland` - Switzerland
-        * `Germany` - Germany
-        * `Austria` - Austria
-        * `Italy` - Italy
-        * `Romania` - Romania
-        * `France` - France
-        * `Other EU country` - Other EU country
     PublicEnquiryCreated:
       type: object
       properties:
@@ -14719,41 +14684,29 @@ components:
           type: string
       required:
       - reference
+    PublicEnquiryCurrencyEnum:
+      enum:
+      - EUR
+      - CHF
+      type: string
+      description: |-
+        * `EUR` - EUR
+        * `CHF` - CHF
     PublicEnquiryOriginatorKindEnum:
       enum:
       - originator
       type: string
       description: '* `originator` - originator'
-    PublicEnquiryProductEnum:
+    PublicEnquiryProposalEnum:
       enum:
-      - Leasing
-      - Invoices (factoring)
-      - Business loans
-      - Real estate loans
-      - Other
+      - New loans
+      - Refinancing of existing loans
+      - Both new and existing loans
       type: string
       description: |-
-        * `Leasing` - Leasing
-        * `Invoices (factoring)` - Invoices (factoring)
-        * `Business loans` - Business loans
-        * `Real estate loans` - Real estate loans
-        * `Other` - Other
-    PublicEnquiryPurposeEnum:
-      enum:
-      - Extension or construction
-      - Machines and equipment
-      - Real estate
-      - Stock and working capital
-      - Refinancing
-      - Other
-      type: string
-      description: |-
-        * `Extension or construction` - Extension or construction
-        * `Machines and equipment` - Machines and equipment
-        * `Real estate` - Real estate
-        * `Stock and working capital` - Stock and working capital
-        * `Refinancing` - Refinancing
-        * `Other` - Other
+        * `New loans` - New loans
+        * `Refinancing of existing loans` - Refinancing of existing loans
+        * `Both new and existing loans` - Both new and existing loans
     PublicEnquiryRequest:
       oneOf:
       - $ref: '#/components/schemas/CompanyEnquiryRequest'
@@ -14765,58 +14718,16 @@ components:
           company: '#/components/schemas/CompanyEnquiryRequest'
           originator: '#/components/schemas/OriginatorEnquiryRequest'
           contact: '#/components/schemas/ContactEnquiryRequest'
-    PublicEnquirySecurityEnum:
-      enum:
-      - Mortgage note
-      - Pledge on equipment
-      - Receivables
-      - Guarantee of the owners
-      - Not sure yet
-      type: string
-      description: |-
-        * `Mortgage note` - Mortgage note
-        * `Pledge on equipment` - Pledge on equipment
-        * `Receivables` - Receivables
-        * `Guarantee of the owners` - Guarantee of the owners
-        * `Not sure yet` - Not sure yet
-    PublicEnquiryTermEnum:
-      enum:
-      - 1 month
-      - 3 months
-      - 6 months
-      - 12 months
-      - 18 months
-      - 24 months
-      - 36 months
-      - 48 months
-      - 60 months
-      type: string
-      description: |-
-        * `1 month` - 1 month
-        * `3 months` - 3 months
-        * `6 months` - 6 months
-        * `12 months` - 12 months
-        * `18 months` - 18 months
-        * `24 months` - 24 months
-        * `36 months` - 36 months
-        * `48 months` - 48 months
-        * `60 months` - 60 months
     PublicEnquiryTopicEnum:
       enum:
-      - Investing
-      - My account
-      - A loan for my company
-      - Loan originators
-      - Press
-      - Other
+      - How investing works
+      - An opportunity
+      - Another question
       type: string
       description: |-
-        * `Investing` - Investing
-        * `My account` - My account
-        * `A loan for my company` - A loan for my company
-        * `Loan originators` - Loan originators
-        * `Press` - Press
-        * `Other` - Other
+        * `How investing works` - How investing works
+        * `An opportunity` - An opportunity
+        * `Another question` - Another question
     PublicError:
       type: object
       properties:

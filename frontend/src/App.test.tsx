@@ -16,6 +16,27 @@ import { siteDesignProjectIds } from "./site/siteFixtures";
 import { formatMoneyMinor, formatRateBps } from "./investorPortal/format";
 import { enterPin } from "./test/pin";
 
+/** The U33 home page's heading. */
+const HOME_HEADING = "Invest in business loans. Secured by collateral or guarantees.";
+
+/** jsdom has no matchMedia: the public site's layout below 1120 px (its mobile edition). */
+function emulateNarrowLayout() {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes("max-width:1119px"),
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false
+  })) as unknown as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
 function renderApp(path = "/") {
   window.history.pushState({}, "", path);
   const queryClient = new QueryClient();
@@ -71,18 +92,22 @@ test("renders the public site shell on the projects page", () => {
   expect(document.body).toHaveClass("bxm-site");
 });
 
-test("public project URLs open the project, and the crumbs lead back to the projects", () => {
+test("public project URLs open the project, and the crumbs lead back to the opportunities", () => {
   renderApp("/");
-  const card = screen.getAllByRole("link", { name: /Packaging factory extension/ }).find((link) => link.classList.contains("site-project"));
-  expect(card).toBeDefined();
-  fireEvent.click(card as HTMLElement);
+  fireEvent.click(screen.getByRole("link", { name: "View details: Packaging factory extension" }));
   expect(window.location.pathname).toBe(`/projects/${siteDesignProjectIds["bx-1046"]}`);
   expect(screen.getByRole("heading", { level: 1, name: "Packaging factory extension" })).toBeInTheDocument();
   expect(document.title).toBe("Packaging factory extension · Banxum");
+  // U33 skin: html.bxp with the project bundle, not the October skin.
+  expect(document.documentElement).toHaveClass("bxp", "bxp-project");
+  expect(document.documentElement).not.toHaveClass("bxs");
 
-  fireEvent.click(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Projects" }));
-  expect(window.location.pathname).toBe("/projects");
-  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("link", { name: "All opportunities" }));
+  expect(window.location.pathname).toBe("/");
+  expect(window.location.hash).toBe("#opportunities");
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
+  expect(document.documentElement).toHaveClass("bxp-home");
+  expect(document.documentElement).not.toHaveClass("bxp-project");
 });
 
 test("page titles follow public routes and reset after sign out", () => {
@@ -97,31 +122,53 @@ test("page titles follow public routes and reset after sign out", () => {
   expect(document.title).toBe("Banxum · Lend to real companies");
 });
 
-test("public home page shows the open projects and links to the projects page", () => {
+test("public home page shows three open projects, the calculator and links to all projects", () => {
   renderApp();
 
-  expect(screen.getByRole("heading", { level: 1, name: "Your capital. Your choice." })).toBeInTheDocument();
-  const carousel = screen.getByRole("region", { name: "Projects funding now" });
-  expect(within(carousel).getAllByText("Funding now")).toHaveLength(7);
-  expect(within(carousel).getByText("1 / 7")).toBeInTheDocument();
-  fireEvent.click(within(carousel).getByRole("button", { name: "Next project" }));
-  expect(within(carousel).getByText("2 / 7")).toBeInTheDocument();
-  expect(within(carousel).getByRole("button", { name: /^Project 2: / })).toHaveAttribute("aria-current", "true");
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
+  // U33-DEC-38: no "real assets" claim and no "Your investment is protected".
+  expect(screen.queryByText(/real assets/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/investment is protected/i)).not.toBeInTheDocument();
+  expect(screen.getByText("Every loan is secured by collateral or guarantees.")).toBeInTheDocument();
+  // The hero rate is the highest rate of the open projects.
+  expect(screen.getByLabelText("Annual interest up to 10.5 percent")).toBeInTheDocument();
 
-  expect(screen.getByRole("heading", { name: "Projects looking for investors" })).toBeInTheDocument();
-  expect(screen.getByText("2 more opening soon: Truck fleet renewal, Co-working space fit-out.")).toBeInTheDocument();
-  // The design's figures line, from the statistics, without "sample figures".
-  expect(screen.getByText(/^7 loans funded · CHF 300k and EUR 735k lent · 8\.1% average interest\.$/)).toBeInTheDocument();
-  expect(screen.queryByText(/sample figures/)).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Choose. Build. Follow." }).closest("section")).toHaveAttribute("id", "start");
-  expect(screen.getByRole("heading", { name: "Frequently asked questions" })).toBeInTheDocument();
-  expect(screen.getByText("Is Banxum regulated?").closest("details")).toHaveAttribute("open");
-  expect(screen.getByText("Can I lose money?").closest("details")).not.toHaveAttribute("open");
-  expect(screen.getByText(/Lending to companies puts your capital at risk: a borrower can pay late/)).toBeInTheDocument();
+  // U33-DEC-39: three open projects (closing soonest first), from the public projects API.
+  const opportunities = screen.getByRole("region", { name: "Investment opportunities" });
+  const cards = within(opportunities).getAllByRole("article");
+  expect(cards).toHaveLength(3);
+  expect(cards.map((card) => within(card).getByRole("heading", { level: 3 }).textContent)).toEqual([
+    "Dental practice equipment",
+    "Packaging factory extension",
+    "Wine cellar expansion"
+  ]);
+  expect(within(cards[1]).getByText("Loan-to-value: 58%")).toBeInTheDocument();
+  // No risk rating on the public site (U33-DEC-16).
+  expect(within(opportunities).queryByText(/Risk/)).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("link", { name: "All 7 open projects" }));
+  // The calculator uses the same open projects.
+  const choices = within(opportunities).getByRole("radiogroup", { name: "Choose an opportunity" });
+  expect(within(choices).getAllByRole("radio")).toHaveLength(3);
+  fireEvent.click(within(choices).getByRole("radio", { name: /Packaging factory extension/ }));
+  expect(within(choices).getByRole("radio", { name: /Packaging factory extension/ })).toHaveAttribute("aria-checked", "true");
+  const amount = within(opportunities).getByLabelText("Your investment");
+  fireEvent.change(amount, { target: { value: "5" } });
+  expect(within(opportunities).getByRole("status")).toHaveTextContent(/^The minimum for this opportunity is CHF /);
+  fireEvent.change(amount, { target: { value: "50,000" } });
+  expect(within(opportunities).getByText("CHF 50,000.00")).toBeInTheDocument();
+
+  // How it works: confirmation with the PIN (U33-DEC-01), no authenticator code.
+  expect(screen.getByText("Confirm with your PIN")).toBeInTheDocument();
+  expect(screen.queryByText(/authenticator/i)).not.toBeInTheDocument();
+  expect(screen.getByText("What can I review before investing?").closest("details")).toHaveAttribute("open");
+  expect(screen.getByText("What fees will I pay?").closest("details")).not.toHaveAttribute("open");
+  expect(within(screen.getByRole("contentinfo")).getByText(/^Banxum is a brand of Garanta Finanzgruppe AG, Schauplatzgasse 26/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("link", { name: "All projects, including funded and repaid loans" }));
   expect(window.location.pathname).toBe("/projects");
   expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
+  expect(document.documentElement).toHaveClass("bxs");
+  expect(document.documentElement).not.toHaveClass("bxp");
 });
 
 test("the old FAQ address opens Help for logged-out visitors", () => {
@@ -132,17 +179,19 @@ test("the old FAQ address opens Help for logged-out visitors", () => {
   expect(document.title).toBe("Help · Banxum");
 });
 
-test("site routing: design pages, backend legal templates, unknown addresses", () => {
+test("site routing: U33 pages, backend legal templates, unknown addresses", () => {
   const legal = renderApp("/legal/terms");
-  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
-  expect(document.title).toBe("Terms of use · Banxum");
+  expect(screen.getByRole("heading", { level: 1, name: "Terms & conditions" })).toBeInTheDocument();
+  expect(document.title).toBe("Terms & conditions · Banxum");
   legal.unmount();
 
   // The investor flows link to the published templates: the same address is the site's terms
-  // page (the published "registration" template live, the design outline in preview).
+  // page (the published "registration" template live, the content outline in preview).
   const template = renderApp("/legal/registration");
-  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
-  expect(within(screen.getByRole("list", { name: "Legal pages" })).getByRole("link", { name: "Terms of use" })).toHaveClass("active");
+  expect(screen.getByRole("heading", { level: 1, name: "Terms & conditions" })).toBeInTheDocument();
+  const others = within(screen.getByRole("list", { name: "Legal pages" }));
+  expect(others.queryByRole("link", { name: "Terms & conditions" })).not.toBeInTheDocument();
+  expect(others.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/legal/privacy");
   expect(window.location.pathname).toBe("/legal/registration");
   template.unmount();
 
@@ -152,7 +201,7 @@ test("site routing: design pages, backend legal templates, unknown addresses", (
   expect(document.title).toBe("Not found · Banxum");
   fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Home" }));
   expect(window.location.pathname).toBe("/");
-  expect(screen.getByRole("heading", { level: 1, name: "Your capital. Your choice." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
   unknown.unmount();
 
   renderApp("/how-it-works");
@@ -163,38 +212,47 @@ test("site routing: design pages, backend legal templates, unknown addresses", (
 });
 
 test("the phone menu opens and closes like the design", () => {
-  renderApp("/");
-  const burger = screen.getByRole("button", { name: "Menu" });
-  expect(burger).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("navigation", { name: "Menu" })).not.toBeInTheDocument();
+  const restore = emulateNarrowLayout();
+  try {
+    renderApp("/");
+    const toggle = screen.getByRole("button", { name: "Open menu" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("main")).not.toHaveAttribute("inert");
 
-  fireEvent.click(burger);
-  expect(burger).toHaveAttribute("aria-expanded", "true");
-  expect(document.body).toHaveClass("site-menu-open");
-  const menu = screen.getByRole("navigation", { name: "Menu" });
-  expect(within(menu).getByRole("link", { name: "For loan originators" })).toHaveAttribute("href", "/originators");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Close menu");
+    expect(document.body).toHaveClass("mobile-menu-open");
+    expect(screen.getByRole("banner")).toHaveClass("header", "menu-open");
+    expect(screen.getByRole("main")).toHaveAttribute("inert");
+    const menu = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(menu).getByRole("link", { name: "For loan originators" })).toHaveAttribute("href", "/originators");
+    // The mobile edition moves Contact into the menu.
+    expect(within(menu).getByRole("link", { name: "Contact" })).toHaveClass("mobile-contact");
 
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(burger).toHaveAttribute("aria-expanded", "false");
-  expect(document.body).not.toHaveClass("site-menu-open");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.body).not.toHaveClass("mobile-menu-open");
 
-  fireEvent.click(burger);
-  fireEvent.click(within(screen.getByRole("navigation", { name: "Menu" })).getByRole("link", { name: "About" }));
-  expect(window.location.pathname).toBe("/about");
-  expect(document.body).not.toHaveClass("site-menu-open");
-  expect(screen.getByRole("heading", { level: 1, name: "Swiss-regulated financial platform" })).toBeInTheDocument();
+    fireEvent.click(toggle);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "About Banxum" }));
+    expect(window.location.pathname).toBe("/about");
+    expect(document.body).not.toHaveClass("mobile-menu-open");
+    expect(screen.getByRole("heading", { level: 1, name: /An international/ })).toBeInTheDocument();
+  } finally {
+    restore();
+  }
 });
 
 test("the cookie choice is stored and can be changed from the footer", () => {
   renderApp("/");
   const notice = screen.getByRole("dialog", { name: "Cookies" });
-  expect(document.body).not.toHaveClass("site-has-cta");
+  expect(within(notice).getByRole("link", { name: "Cookie policy" })).toHaveAttribute("href", "/legal/cookies");
 
   fireEvent.click(within(notice).getByRole("button", { name: "Necessary only" }));
   expect(screen.queryByRole("dialog", { name: "Cookies" })).not.toBeInTheDocument();
   expect(JSON.parse(window.localStorage.getItem("bxm-site-cookies") ?? "{}")).toMatchObject({ necessary: true, measure: false });
   expect(screen.getByText("Cookie choice saved.")).toBeInTheDocument();
-  expect(document.body).toHaveClass("site-has-cta");
 
   fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Cookie settings" }));
   const settings = screen.getByRole("dialog", { name: "Cookies" });
@@ -210,13 +268,20 @@ test("the language menu announces German and French with a toast", () => {
   const toggle = within(header).getByRole("button", { name: "Language: English" });
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
-  fireEvent.click(within(header).getByRole("link", { name: /^Deutsch/ }));
+  const menu = within(header).getByRole("menu", { name: "Language" });
+  expect(within(menu).getByRole("menuitemradio", { name: /^English/ })).toHaveAttribute("aria-checked", "true");
+  const german = within(menu).getByRole("menuitemradio", { name: /^Deutsch/ });
+  expect(german).toHaveAttribute("aria-disabled", "true");
+  expect(german).toHaveTextContent("Soon");
+  fireEvent.click(german);
+  expect(screen.getByText("The German version of the site follows. It is not available yet.")).toBeInTheDocument();
+  fireEvent.keyDown(document, { key: "Escape" });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
-  expect(screen.getByText("The German version follows once the English texts are approved.")).toBeInTheDocument();
 });
 
-test("the home newsletter checks the address and shows the double opt-in note", async () => {
-  renderApp("/");
+test("the projects page newsletter checks the address and shows the double opt-in note", async () => {
+  // U33 home has no newsletter block; the sign-up stays on the October pages (U33-DEC-39).
+  renderApp("/projects");
   const input = screen.getByLabelText("Email address");
   const submit = screen.getByRole("button", { name: "Get new projects" });
 
@@ -267,7 +332,7 @@ test("direct registration and login URLs render the requested public flow", () =
 test("client navigation writes a stable URL and browser history restores the screen", () => {
   renderApp("/");
 
-  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Open account" }));
+  fireEvent.click(screen.getByRole("link", { name: "Open an account" }));
   expect(window.location.pathname).toBe("/register");
   expect(screen.getByRole("heading", { name: "Create your lender account" })).toBeInTheDocument();
 
@@ -894,7 +959,7 @@ test("logos on public, sign-in and registration screens lead back to the home pa
   const projects = renderApp("/projects");
   fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Banxum home" }));
   expect(window.location.pathname).toBe("/");
-  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
   expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Banxum home" })).toHaveAttribute("href", "/");
   projects.unmount();
 
@@ -904,13 +969,13 @@ test("logos on public, sign-in and registration screens lead back to the home pa
   loginLogos.forEach((logo) => expect(logo).toHaveAttribute("href", "/"));
   fireEvent.click(loginLogos[1]);
   expect(window.location.pathname).toBe("/");
-  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
   login.unmount();
 
   renderApp("/register");
   fireEvent.click(screen.getByRole("link", { name: "BANXUM home" }));
   expect(window.location.pathname).toBe("/");
-  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
 });
 
 test("published primary-market loans appear in dashboard and marketplace open views", () => {
@@ -2201,7 +2266,7 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
 test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
   renderApp();
 
-  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "Open account" }));
+  fireEvent.click(screen.getByRole("link", { name: "Open an account" }));
   // Checkbox labels embed new-tab document links, so the text spans elements.
   fireEvent.click(
     screen.getByLabelText((label) => label.includes("I accept the") && label.includes("platform terms"))

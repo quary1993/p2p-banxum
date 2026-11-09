@@ -83,7 +83,7 @@ test("a returning visitor whose session ended sees the public home page at /", a
   server.use(http.get("*/api/v1/auth/me/", signedOut));
   renderLiveApp(App, "/");
 
-  expect(await screen.findByRole("heading", { level: 1, name: /Your capital/ }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: /Invest in business loans/ }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
   expect(window.location.pathname).toBe("/");
 }, 15_000);

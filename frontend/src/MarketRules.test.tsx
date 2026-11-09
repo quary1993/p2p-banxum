@@ -125,10 +125,13 @@ test("the public home page reads only the anonymous public projects and shows ti
 
   expect(await screen.findByRole("heading", { level: 3, name: "Machining centre purchase" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 3, name: "Invoice financing, logistics" })).toBeInTheDocument();
-  // No city in the API: "Country · Sector", or the country alone without a public sector.
-  expect(screen.getByText("Switzerland · Manufacturing")).toBeInTheDocument();
-  expect(screen.getByText("Netherlands")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "All 2 open projects" })).toBeInTheDocument();
+  // The card shows the country's flag and the public sector, or the country without a sector.
+  const machining = screen.getByRole("heading", { level: 3, name: "Machining centre purchase" }).closest("article") as HTMLElement;
+  expect(within(machining).getByRole("img", { name: "Switzerland" })).toBeInTheDocument();
+  expect(within(machining).getByText("Manufacturing")).toBeInTheDocument();
+  const invoices = screen.getByRole("heading", { level: 3, name: "Invoice financing, logistics" }).closest("article") as HTMLElement;
+  expect(within(invoices).getByText("Netherlands", { selector: "span" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "All projects, including funded and repaid loans" })).toHaveAttribute("href", "/projects");
   expect(screen.queryByText(/Sample Originator BV/)).not.toBeInTheDocument();
   expect(calls.publicList).toBeGreaterThan(0);
   expect(calls.oldPublicList).toBe(0);
@@ -144,11 +147,12 @@ test("a public project page opens from its URL with the loan title", async () =>
   expect(calls.investorList).toBe(0);
 }, 30_000);
 
-test("an unknown public project shows the site's not-found page", async () => {
+test("an unknown public project shows the project's not-available notice", async () => {
   useAnonymousApi();
   renderAt("/projects/44444444-4444-4444-8444-444444444444");
 
-  expect(await screen.findByRole("heading", { level: 1, name: "This page does not exist" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "This project is not available." }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See all projects" })).toHaveAttribute("href", "/projects");
 }, 30_000);
 
 function holdingWith(base: Holding, overrides: Partial<Holding>, loan: Partial<Holding["loan"]>): Holding {

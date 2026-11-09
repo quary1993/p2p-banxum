@@ -117,11 +117,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "How are projects selected?",
-        a: "<p>Each company is analysed before it is listed: financial statements of at least two years, credit reports, the value of the security, the owners and the management. Loan originators are checked the same way, and so are the claims they offer. Only projects that pass are listed, with a rating from AAA to D.</p>"
-      },
-      {
-        q: "What do the risk classes mean?",
-        a: "<p>They are our opinion of the borrower's ability to repay and of the security, with ratings from AAA to D: AAA is the lowest risk, D the highest. Higher risk usually comes with a higher rate. A rating is not a guarantee: a loan rated AAA can also be repaid late or not at all.</p>"
+        a: "<p>Each company is analysed before it is listed: financial statements of at least two years, credit reports, the value of the security, the owners and the management. Loan originators are checked the same way, and so are the claims they offer. Only projects that pass are listed.</p>"
       },
       {
         q: "When is my investment final?",
@@ -245,14 +241,14 @@ export const siteGuides: SiteGuide[] = [
     date: "2026-09-12",
     icon: "ni-file-text",
     title: "How to read a project page",
-    summary: "Rate, term, security, risk class and the minimum: what each figure means and what to check before you invest.",
+    summary: "Rate, term, security and the minimum: what each figure means and what to check before you invest.",
     body: `<p>Every project on Banxum has the same page, so you can compare loans on the same points. Here is what to look at, in the order we would.</p>
         <h2>1. The company and the purpose</h2>
         <p>Who borrows, since when the company exists, what it does and what the money is for. A clear purpose (a machine, a building, invoices from named customers) is easier to follow than "working capital".</p>
         <h2>2. The security</h2>
         <p>What investors can enforce if the company stops paying: a mortgage note, a pledge on equipment, a personal guarantee, assigned receivables. Look at the loan-to-value ratio when there is one: the lower it is, the more room there is if the asset sells for less than its value.</p>
-        <h2>3. The rate and the rating</h2>
-        <p>The rate is what the borrower owes you each year on the principal. The rating, from AAA to D, is our opinion of the borrower and the security. A higher rate is payment for a higher risk, not a better deal.</p>
+        <h2>3. The rate</h2>
+        <p>The rate is what the borrower owes you each year on the principal. A higher rate is payment for a higher risk, not a better deal.</p>
         <h2>4. The term and the repayment</h2>
         <p>Monthly instalments give your money back step by step. With monthly interest and the principal at the end, or everything at the end, more of your money depends on the last payment.</p>
         <h2>5. The minimum</h2>
@@ -285,7 +281,7 @@ export const siteGuides: SiteGuide[] = [
     icon: "ni-pie",
     title: "Spreading your money across loans",
     summary: "Why several smaller amounts in different companies, sectors and countries protect you better than one large amount.",
-    body: `<p>Every loan can go wrong, whatever its rate or risk class. What you can control is how much depends on a single company.</p>
+    body: `<p>Every loan can go wrong, whatever its rate. What you can control is how much depends on a single company.</p>
         <h2>Different companies</h2>
         <p>If one borrower stops paying, the others keep paying. With ten loans of equal size, one default touches a tenth of your money.</p>
         <h2>Different sectors and countries</h2>

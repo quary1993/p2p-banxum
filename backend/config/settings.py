@@ -37,7 +37,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
-# The public site forms (For companies, For loan originators, Contact) send one email to
+# The public site forms (For borrowers, For loan originators, Contact) send one email to
 # this address. Nothing is sent to the person who filled the form (COMMS-DEC-009).
 PUBLIC_ENQUIRY_EMAIL = env("PUBLIC_ENQUIRY_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
@@ -415,13 +415,12 @@ SPECTACULAR_SETTINGS = {
         "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
         "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
         "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
-        "PublicEnquiryCountryEnum": "backend.apps.communications.api.serializers.COUNTRY_CHOICES",
-        "PublicEnquiryTermEnum": "backend.apps.communications.api.serializers.TERM_CHOICES",
-        "PublicEnquiryPurposeEnum": "backend.apps.communications.api.serializers.PURPOSE_CHOICES",
-        "PublicEnquirySecurityEnum": (
-            "backend.apps.communications.api.serializers.SECURITY_CHOICES"
+        "PublicEnquiryCurrencyEnum": (
+            "backend.apps.communications.api.serializers.CURRENCY_CHOICES"
         ),
-        "PublicEnquiryProductEnum": "backend.apps.communications.api.serializers.PRODUCT_CHOICES",
+        "PublicEnquiryProposalEnum": (
+            "backend.apps.communications.api.serializers.PROPOSAL_CHOICES"
+        ),
         "PublicEnquiryTopicEnum": "backend.apps.communications.api.serializers.TOPIC_CHOICES",
         "PublicEnquiryCompanyKindEnum": ["company"],
         "PublicEnquiryOriginatorKindEnum": ["originator"],

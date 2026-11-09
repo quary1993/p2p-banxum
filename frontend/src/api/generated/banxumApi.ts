@@ -813,6 +813,13 @@ export interface BankOperation {
   updated_at: string;
 }
 
+export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
+
+
+export const BlankEnum = {
+  '': '',
+} as const;
+
 export interface BorrowerDisbursementFinalizeRequest {
   loan_id: string;
   borrower_id: string;
@@ -1266,116 +1273,42 @@ export interface CollectionAccount {
 }
 
 /**
- * * `Switzerland` - Switzerland
- * * `Germany` - Germany
- * * `Austria` - Austria
- * * `Italy` - Italy
- * * `Romania` - Romania
- * * `France` - France
- * * `Other EU country` - Other EU country
+ * * `EUR` - EUR
+ * * `CHF` - CHF
  */
-export type PublicEnquiryCountryEnum = typeof PublicEnquiryCountryEnum[keyof typeof PublicEnquiryCountryEnum];
+export type PublicEnquiryCurrencyEnum = typeof PublicEnquiryCurrencyEnum[keyof typeof PublicEnquiryCurrencyEnum];
 
 
-export const PublicEnquiryCountryEnum = {
-  Switzerland: 'Switzerland',
-  Germany: 'Germany',
-  Austria: 'Austria',
-  Italy: 'Italy',
-  Romania: 'Romania',
-  France: 'France',
-  Other_EU_country: 'Other EU country',
+export const PublicEnquiryCurrencyEnum = {
+  EUR: 'EUR',
+  CHF: 'CHF',
 } as const;
 
 /**
- * * `1 month` - 1 month
- * * `3 months` - 3 months
- * * `6 months` - 6 months
- * * `12 months` - 12 months
- * * `18 months` - 18 months
- * * `24 months` - 24 months
- * * `36 months` - 36 months
- * * `48 months` - 48 months
- * * `60 months` - 60 months
+ * For borrowers: the financing request.
  */
-export type PublicEnquiryTermEnum = typeof PublicEnquiryTermEnum[keyof typeof PublicEnquiryTermEnum];
-
-
-export const PublicEnquiryTermEnum = {
-  '1_month': '1 month',
-  '3_months': '3 months',
-  '6_months': '6 months',
-  '12_months': '12 months',
-  '18_months': '18 months',
-  '24_months': '24 months',
-  '36_months': '36 months',
-  '48_months': '48 months',
-  '60_months': '60 months',
-} as const;
-
-/**
- * * `Extension or construction` - Extension or construction
- * * `Machines and equipment` - Machines and equipment
- * * `Real estate` - Real estate
- * * `Stock and working capital` - Stock and working capital
- * * `Refinancing` - Refinancing
- * * `Other` - Other
- */
-export type PublicEnquiryPurposeEnum = typeof PublicEnquiryPurposeEnum[keyof typeof PublicEnquiryPurposeEnum];
-
-
-export const PublicEnquiryPurposeEnum = {
-  Extension_or_construction: 'Extension or construction',
-  Machines_and_equipment: 'Machines and equipment',
-  Real_estate: 'Real estate',
-  Stock_and_working_capital: 'Stock and working capital',
-  Refinancing: 'Refinancing',
-  Other: 'Other',
-} as const;
-
-/**
- * * `Mortgage note` - Mortgage note
- * * `Pledge on equipment` - Pledge on equipment
- * * `Receivables` - Receivables
- * * `Guarantee of the owners` - Guarantee of the owners
- * * `Not sure yet` - Not sure yet
- */
-export type PublicEnquirySecurityEnum = typeof PublicEnquirySecurityEnum[keyof typeof PublicEnquirySecurityEnum];
-
-
-export const PublicEnquirySecurityEnum = {
-  Mortgage_note: 'Mortgage note',
-  Pledge_on_equipment: 'Pledge on equipment',
-  Receivables: 'Receivables',
-  Guarantee_of_the_owners: 'Guarantee of the owners',
-  Not_sure_yet: 'Not sure yet',
-} as const;
-
 export interface CompanyEnquiryFields {
   /** @maxLength 200 */
   company_name: string;
-  country: PublicEnquiryCountryEnum;
-  /** @maxLength 200 */
-  company_number: string;
+  /**
+     * Country of registration, as typed.
+     * @maxLength 200
+     */
+  country: string;
+  currency: PublicEnquiryCurrencyEnum;
   /** @maxLength 200 */
   amount: string;
-  term: PublicEnquiryTermEnum;
-  purpose: PublicEnquiryPurposeEnum;
-  security: PublicEnquirySecurityEnum;
   /** @maxLength 200 */
-  revenue?: string;
-  /** @maxLength 4 */
-  founded: string;
-  /** @maxLength 4000 */
-  about?: string;
+  purpose: string;
+  /**
+     * The collateral or guarantees available.
+     * @maxLength 4000
+     */
+  collateral: string;
   /** @maxLength 200 */
   contact_name: string;
-  /** @maxLength 200 */
-  role: string;
   /** @maxLength 254 */
   email: string;
-  /** @maxLength 40 */
-  phone: string;
 }
 
 export type CompanyEnquiryRequestKind = typeof CompanyEnquiryRequestKind[keyof typeof CompanyEnquiryRequestKind];
@@ -1400,33 +1333,31 @@ export interface CompanyEnquiryRequest {
 }
 
 /**
- * * `Investing` - Investing
- * * `My account` - My account
- * * `A loan for my company` - A loan for my company
- * * `Loan originators` - Loan originators
- * * `Press` - Press
- * * `Other` - Other
+ * * `How investing works` - How investing works
+ * * `An opportunity` - An opportunity
+ * * `Another question` - Another question
  */
 export type PublicEnquiryTopicEnum = typeof PublicEnquiryTopicEnum[keyof typeof PublicEnquiryTopicEnum];
 
 
 export const PublicEnquiryTopicEnum = {
-  Investing: 'Investing',
-  My_account: 'My account',
-  A_loan_for_my_company: 'A loan for my company',
-  Loan_originators: 'Loan originators',
-  Press: 'Press',
-  Other: 'Other',
+  How_investing_works: 'How investing works',
+  An_opportunity: 'An opportunity',
+  Another_question: 'Another question',
 } as const;
 
+export const ContactEnquiryFieldsTopic = {...PublicEnquiryTopicEnum,...BlankEnum,} as const
+/**
+ * Contact: request a conversation (topic and message optional).
+ */
 export interface ContactEnquiryFields {
   /** @maxLength 200 */
   name: string;
   /** @maxLength 254 */
   email: string;
-  topic: PublicEnquiryTopicEnum;
+  topic?: typeof ContactEnquiryFieldsTopic[keyof typeof ContactEnquiryFieldsTopic];
   /** @maxLength 4000 */
-  message: string;
+  message?: string;
 }
 
 export type ContactEnquiryRequestKind = typeof ContactEnquiryRequestKind[keyof typeof ContactEnquiryRequestKind];
@@ -3764,38 +3695,37 @@ export interface OriginatorClaimQuoteResponse {
 }
 
 /**
- * * `Leasing` - Leasing
- * * `Invoices (factoring)` - Invoices (factoring)
- * * `Business loans` - Business loans
- * * `Real estate loans` - Real estate loans
- * * `Other` - Other
+ * * `New loans` - New loans
+ * * `Refinancing of existing loans` - Refinancing of existing loans
+ * * `Both new and existing loans` - Both new and existing loans
  */
-export type PublicEnquiryProductEnum = typeof PublicEnquiryProductEnum[keyof typeof PublicEnquiryProductEnum];
+export type PublicEnquiryProposalEnum = typeof PublicEnquiryProposalEnum[keyof typeof PublicEnquiryProposalEnum];
 
 
-export const PublicEnquiryProductEnum = {
-  Leasing: 'Leasing',
-  'Invoices_(factoring)': 'Invoices (factoring)',
-  Business_loans: 'Business loans',
-  Real_estate_loans: 'Real estate loans',
-  Other: 'Other',
+export const PublicEnquiryProposalEnum = {
+  New_loans: 'New loans',
+  Refinancing_of_existing_loans: 'Refinancing of existing loans',
+  Both_new_and_existing_loans: 'Both new and existing loans',
 } as const;
 
+/**
+ * For loan originators: the partnership request.
+ */
 export interface OriginatorEnquiryFields {
   /** @maxLength 200 */
   company_name: string;
-  country: PublicEnquiryCountryEnum;
-  /** @maxLength 200 */
-  licence: string;
-  product: PublicEnquiryProductEnum;
-  /** @maxLength 200 */
-  loan_book: string;
-  /** @maxLength 4000 */
-  about?: string;
+  /**
+     * Country of registration, as typed.
+     * @maxLength 200
+     */
+  country: string;
   /** @maxLength 200 */
   contact_name: string;
   /** @maxLength 254 */
   email: string;
+  proposal: PublicEnquiryProposalEnum;
+  /** @maxLength 4000 */
+  about?: string;
 }
 
 export type OriginatorEnquiryRequestKind = typeof OriginatorEnquiryRequestKind[keyof typeof OriginatorEnquiryRequestKind];
@@ -19836,7 +19766,7 @@ export const getV1PublicEnquiriesCreateUrl = () => {
 }
 
 /**
- * The For companies, For loan originators and Contact forms: one email to BANXUM.
+ * The For borrowers, For loan originators and Contact forms: one email to BANXUM.
  */
 export const v1PublicEnquiriesCreate = async (publicEnquiryRequest: PublicEnquiryRequest, options?: Parameters<typeof httpClient>[1]): Promise<PublicEnquiryCreated> => {
 
