@@ -14,7 +14,7 @@ import { useT } from "../../../i18n";
 import { useDocumentsData } from "../../../investorPortal/data";
 import { formatDate } from "../../../investorPortal/format";
 import { ButtonLink, EmptyState, NiIcon, PageHead, Tabs } from "../../components";
-import { documentTab, documentYears, newestFirst, periodLabel, reportSubtitle, reportTitle, type DocumentTab } from "./documentsModel";
+import { DESIGN_TYPES, documentGroup, documentTab, documentTitle, documentYears, newestFirst, type DocumentTab } from "./documentsModel";
 import { documentDownloadRequest, useDocumentDownload, type OutputFormat } from "./parts/downloads";
 import "./wallet.css";
 
@@ -50,18 +50,6 @@ function DownloadButtons({
         <NiIcon name="download" />
         <span>{busyKey === pdfKey ? t("Preparing...") : t("Download")}</span>
       </button>
-      {document.output_formats.includes("csv") ? (
-        <button
-          aria-label={t("Download {title} as CSV", { title })}
-          className="dp-download wl-download-csv"
-          disabled={Boolean(busyKey)}
-          onClick={() => onDownload(document, "csv")}
-          title={t("Download CSV")}
-          type="button"
-        >
-          <span>{busyKey === `${document.id}:csv` ? t("Preparing...") : t("CSV")}</span>
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -77,14 +65,15 @@ export function DocumentsScreen() {
   const documents = documentsQuery.data;
   const all = [...(documents?.documents ?? [])].sort(newestFirst);
   const inTab = all.filter((document) => documentTab(document) === tab);
-  const types = [...new Set(inTab.map((document) => document.document_type).filter(Boolean))];
+  // The design's types first, then any other type the platform has documents for.
+  const types = [...new Set([...DESIGN_TYPES, ...inTab.map(documentGroup)])];
   const years = [...new Set(inTab.flatMap(documentYears))].sort((a, b) => b - a);
   const query = search.trim().toLowerCase();
   const rows = inTab.filter((document) => {
-    if (type && document.document_type !== type) return false;
+    if (type && documentGroup(document) !== type) return false;
     if (year && !documentYears(document).includes(year)) return false;
     if (!query) return true;
-    return [document.title, document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
+    return [documentTitle(document), document.title, document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
   });
   const filtering = Boolean(query || type || year);
   const onDownload = (document: InvestorDocument, format: OutputFormat) => void download(documentDownloadRequest(document, format), `${document.id}:${format}`);
@@ -96,16 +85,13 @@ export function DocumentsScreen() {
   };
   const tabs = [
     { value: "investment" as const, label: t("Investment documents") },
-    { value: "statements" as const, label: t("Statements") },
     { value: "platform" as const, label: t("Platform documents") }
   ];
   const emptyText = filtering
     ? t("No documents match your search or filters.")
     : tab === "investment"
       ? t("Your investment documents will appear here after you confirm an investment.")
-      : tab === "statements"
-        ? t("Statements and tax information will appear here.")
-        : t("No accepted platform documents yet.");
+      : t("No accepted platform documents yet.");
   const metaNote = tab === "platform" ? t("Accepted platform agreements") : t("Most recent first");
 
   return (
@@ -173,25 +159,6 @@ export function DocumentsScreen() {
               </thead>
               <tbody>
                 {rows.map((document) => {
-                  if (tab === "statements") {
-                    const title = t(reportTitle(document));
-                    const period = periodLabel(document);
-                    return (
-                      <tr key={document.id}>
-                        <td data-mobile-label={t("Document")}>
-                          <div className="tr-item">
-                            <span className="tr-icon tr-document"><NiIcon name="file-pdf" /></span>
-                            <div>
-                              <button className="rss-document-title" disabled={Boolean(busyKey)} onClick={() => onDownload(document, "pdf")} type="button">{title}</button>
-                              <small className="dp-reference">{[t(reportSubtitle(document)), period].filter(Boolean).join(" · ")}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="dp-date" data-mobile-label={t("Date")}><span>{period}</span><small>{t("Generated on request")}</small></td>
-                        <td data-mobile-label={t("Actions")}><DownloadButtons busyKey={busyKey} document={document} onDownload={onDownload} title={`${title} ${period}`} /></td>
-                      </tr>
-                    );
-                  }
                   const version = versionLabel(document.version);
                   const accepted = formatDate(document.date);
                   return (
@@ -200,11 +167,11 @@ export function DocumentsScreen() {
                         <div className="tr-item">
                           <span className="tr-icon tr-document"><NiIcon name={tab === "platform" ? "file-text" : "file-pdf"} /></span>
                           <div>
-                            <button className="rss-document-title" disabled={Boolean(busyKey)} onClick={() => onDownload(document, "pdf")} type="button">{document.title}</button>
+                            <button className="rss-document-title" disabled={Boolean(busyKey)} onClick={() => onDownload(document, "pdf")} type="button">{tab === "investment" ? t(documentTitle(document)) : document.title}</button>
                             {tab === "investment" ? (
                               <>
-                                {document.context_label ? <span className="dp-investment">{document.context_label}</span> : null}
-                                <small className="dp-reference">{[t(document.document_type), version ? t("Version {version}", { version }) : ""].filter(Boolean).join(" · ")}</small>
+                                <span className="dp-investment">{document.title}</span>
+                                {document.context_label ? <small className="dp-reference">{document.context_label}</small> : null}
                               </>
                             ) : (
                               <small>{version ? t("Version {version}", { version }) : t(document.document_type)}</small>
@@ -223,7 +190,6 @@ export function DocumentsScreen() {
               </tbody>
             </table>
           )}
-          {tab === "statements" && documents.disclaimer ? <p className="wl-list-note">{documents.disclaimer}</p> : null}
         </>
       )}
     </main>

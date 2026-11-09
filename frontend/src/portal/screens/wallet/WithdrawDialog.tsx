@@ -4,7 +4,7 @@
  * balance, a verified bank account of the currency, review, then today's confirmation (email code +
  * PIN, ACC-DEC-009 until U33-DEC-01) and the result. Same request as before: POST
  * /ledger/withdrawal-requests/ with one idempotency key per withdrawal intent (audit A-41).
- * Texts: "usually 1–3 business days" and "No Banxum fee" (U33-DEC-35); "Verified" / "Pending
+ * Texts: "usually 1–3 business days" and "No Banxum fees" (U33-DEC-35); "Verified" / "Pending
  * verification" (U33-DEC-05). Reservations are never part of the withdrawable amount.
  */
 import { useQueryClient } from "@tanstack/react-query";
@@ -124,7 +124,8 @@ export function WithdrawDialog({
     if (verified.length === 0 && onAddBankAccount) onAddBankAccount(currency);
     else nav.go("settings");
   };
-  const timing = t("Usually 1–3 business days · No Banxum fee");
+  // U33-DEC-35: 1–3 business days (the design writes 1–2).
+  const timing = t("Usually 1–3 business days · No Banxum fees");
   const amountLabel = formatMoneyLabel(currency, amountMinor);
 
   if (step === "done") {
@@ -158,7 +159,6 @@ export function WithdrawDialog({
             </div>
             <div className="p73-confirm-bank">
               <strong>{account.destination_account_name}</strong>
-              <span>{t("Verified bank account")}</span>
               <b>{groupIban(account.destination_iban)}</b>
             </div>
           </div>
@@ -239,7 +239,6 @@ export function WithdrawDialog({
           {account ? (
             <div className="p73-destination">
               <strong className="p73-holder">{account.destination_account_name} <NiIcon label={t("Verified")} name="check" /></strong>
-              <span>{t("Verified bank account")}</span>
               <b>{groupIban(account.destination_iban)}</b>
             </div>
           ) : (

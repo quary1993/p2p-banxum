@@ -31,12 +31,6 @@ html.bxu .wl-rules-link { margin: 16px 0 0; font-size: 13px; }
 html.bxu .p73-modal .wl-dialog-state { margin: 18px 0 4px; }
 html.bxu .p73-modal .wl-alert { margin: 0 0 16px; font-size: 13px; }
 
-/* Add funds: the Swiss QR-bill of the CHF account (the design offers a download button only). */
-html.bxu .wl-qr-body { display: flex; gap: 18px; align-items: flex-start; }
-html.bxu .wl-qr-body p { margin: 0 0 12px; }
-html.bxu .wl-qr-image { width: 148px; height: 148px; flex: none; border: 1px solid #e6e6e6; border-radius: 8px; }
-html.bxu .wl-qr-placeholder { width: 148px; flex: none; font-size: 12px; color: #6b7076; }
-
 /* Withdraw: holder check mark (the design's .p73-holder rule is not in the generated sheet). */
 html.bxu .p73-destination .p73-holder .icon { color: #39704b; margin-left: 4px; }
 html.bxu .wl-account-select { margin-bottom: 12px; }

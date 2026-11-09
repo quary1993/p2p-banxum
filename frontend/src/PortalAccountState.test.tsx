@@ -171,7 +171,6 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
   fireEvent.click(within(eurDialog).getByRole("button", { name: "CHF" }));
   expect(within(eurDialog).getByText("Available CHF 12.896,30")).toBeInTheDocument();
   expect(within(eurDialog).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
-  expect(within(eurDialog).getByText("Verified bank account")).toBeInTheDocument();
   await waitFor(() => expect(eurDialog.contains(document.activeElement)).toBe(true));
 
   // Without a verified EUR account, "Add a bank account" opens the EUR bank-account dialog.

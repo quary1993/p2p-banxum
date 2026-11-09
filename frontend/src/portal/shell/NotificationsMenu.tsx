@@ -42,6 +42,10 @@ function destinationLabel(route: AppRoute) {
       return "View investment";
     case "balances":
       return "View account";
+    case "transactions":
+      return "View transactions";
+    case "reports":
+      return "View reports";
     case "secondary":
       return "View resale market";
     default:

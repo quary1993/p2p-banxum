@@ -10,7 +10,7 @@
 import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { useT } from "../../../i18n";
-import { useActivityData } from "../../../investorPortal/data";
+import { useActivityData, usePortfolioData, usePrimaryOrdersData } from "../../../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyLabel, formatMoneyMinor, useNumberFormat } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { Dialog, EmptyState, NiIcon, PageHead, PortalLink } from "../../components";
@@ -58,6 +58,12 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
   const t = useT();
   const entry = row.entry;
   const currency = entry.currency;
+  const holdings = usePortfolioData(true).data?.holdings;
+  const orders = usePrimaryOrdersData().data?.orders;
+  const orderId = metadataText(entry, "order_id") || (entry.activity_type === "primary_order" ? entry.id : "");
+  const investmentId = row.group === "reservation"
+    ? orders?.find((order) => order.id === orderId)?.id ?? ""
+    : entry.loan_id ? holdings?.find((holding) => holding.loan.loan_id === entry.loan_id)?.id ?? "" : "";
   const money = (minor: number | null) => (minor === null || !currency ? null : formatMoneyLabel(currency, minor));
   const principal = metadataNumber(entry, "principal_minor");
   const interest = metadataNumber(entry, "interest_minor") ?? metadataNumber(entry, "contractual_interest_minor");
@@ -76,7 +82,7 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
   ];
   const note =
     row.group === "reservation" && row.pending
-      ? t("This amount is reserved from your available balance until the funding closes.")
+      ? t("This amount is reserved from your available balance.")
       : row.group === "repayment" || row.group === "recovery"
         ? t("Credited to your Banxum balance. You can invest it again or withdraw it.")
         : (row.group === "withdrawal" || row.group === "return") && entry.status === "requested"
@@ -91,7 +97,10 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
         ))}
       </dl>
       {note ? <p className="r75-transaction-note"><NiIcon name="info" /><span>{note}</span></p> : null}
-      {entry.loan_id ? (
+      {investmentId ? (
+        // The design's link to the investment (a holding, or the reservation of an open order).
+        <PortalLink className="btn btn-outline-light mt-4" onNavigate={onClose} params={{ holdingId: investmentId }} to="investment">{t("Open investment {reference}", { reference: investmentId })}</PortalLink>
+      ) : entry.loan_id ? (
         <PortalLink className="btn btn-outline-light mt-4" onNavigate={onClose} params={{ loanId: entry.loan_id }} to="loan">{t("View loan")}</PortalLink>
       ) : null}
     </Dialog>
@@ -170,7 +179,8 @@ export function TransactionsScreen() {
           <NiIcon name="download" /><span>{t("Export CSV")}</span>
         </button>
       }
-      subtitle={t("Movements on your Banxum account: deposits, investments, repayments and withdrawals.")}
+      // U33-DEC-02: repayments are credited to the Banxum account, not paid to the bank account.
+      subtitle={t("Movements on your Banxum account and repayments credited to it.")}
       title={t("Transactions")}
     />
   );
@@ -294,7 +304,7 @@ export function TransactionsScreen() {
               <dl>
                 <div><dt>{t("Deposited")}</dt><dd>{formatMoneyMinor(item.deposited, item.currency)}</dd></div>
                 <div><dt>{t("Invested")}</dt><dd>{formatMoneyMinor(item.invested, item.currency)}</dd></div>
-                <div><dt>{t("Repayments credited")}</dt><dd>{formatMoneyMinor(item.credited, item.currency)}</dd></div>
+                <div><dt>{t("Repaid to Banxum account")}</dt><dd>{formatMoneyMinor(item.credited, item.currency)}</dd></div>
                 <div><dt>{t("Withdrawn")}</dt><dd>{formatMoneyMinor(item.withdrawn, item.currency)}</dd></div>
               </dl>
             </section>

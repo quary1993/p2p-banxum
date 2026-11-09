@@ -15,6 +15,8 @@ import { useDocumentsData } from "../../../investorPortal/data";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { EmptyState, NiIcon, PageHead } from "../../components";
 import { documentYears, isReport, newestFirst, periodLabel, reportSubtitle, reportTitle } from "./documentsModel";
+import { periodRange, type Period } from "./transactionsModel";
+import { zurichDateKey } from "../../../investorPortal/format";
 import { documentDownloadRequest, reportDownloadRequest, useDocumentDownload, type OutputFormat } from "./parts/downloads";
 import { Toast } from "./parts/Toast";
 import { WalletDialog } from "./parts/WalletDialog";
@@ -83,7 +85,7 @@ function CreateReportDialog({
                 <input checked={type === "statement"} name="type" onChange={() => setType("statement")} type="radio" value="statement" />
                 <span>
                   <strong>{t("Account statement")}</strong>
-                  <small>{t("Movements on your Banxum account in a period, including repayments credited to your balance.")}</small>
+                  <small>{t("Banxum account transactions and repayments credited to it.")}</small>
                 </span>
               </label>
               <label className="tr-report-option">
@@ -135,7 +137,7 @@ function CreateReportDialog({
             </div>
             <div />
           </div>
-          <div className="tr-form-note"><NiIcon name="info" /><span>{t("EUR and CHF amounts stay in their own currency. Nothing is converted.")}</span></div>
+          <div className="tr-form-note"><NiIcon name="info" /><span>{t("EUR and CHF are reported separately.")}</span></div>
           <p className="tr-form-error" hidden={!message} id="wl-report-error" role="alert">{message}</p>
         </div>
         <footer className="tr-form-footer">
@@ -177,7 +179,8 @@ function ReportRow({ document, busyKey, onDownload }: { document: InvestorDocume
                 onClick={() => onDownload(document, format)}
                 type="button"
               >
-                {busyKey === key ? t("Preparing...") : format.toUpperCase()} <NiIcon name="download" />
+                {/* The design's "View" opens the PDF; the CSV of the same statement stays available. */}
+                {busyKey === key ? t("Preparing...") : format === "pdf" ? t("View") : format.toUpperCase()} <NiIcon name="download" />
               </button>
             );
           })}
@@ -187,10 +190,28 @@ function ReportRow({ document, busyKey, onDownload }: { document: InvestorDocume
   );
 }
 
+type PeriodChoice = "all" | "30" | "90" | "custom" | `y${number}`;
+
+function choiceToPeriod(choice: PeriodChoice, custom: { from: string; to: string }): Period {
+  if (choice === "30" || choice === "90") return { kind: "days", days: Number(choice) };
+  if (choice === "custom") return custom.from && custom.to ? { kind: "custom", ...custom } : { kind: "all" };
+  if (choice.startsWith("y")) return { kind: "year", year: Number(choice.slice(1)) };
+  return { kind: "all" };
+}
+
+/** A report matches when its period overlaps the selected dates (the design's period help). */
+function overlaps(document: InvestorDocument, range: { from: string; to: string }) {
+  if (!range.from && !range.to) return true;
+  const start = document.period_start ?? zurichDateKey(document.date);
+  const end = document.period_end ?? zurichDateKey(document.date);
+  return (!range.to || start <= range.to) && (!range.from || end >= range.from);
+}
+
 export function ReportsScreen() {
   const t = useT();
   const documentsQuery = useDocumentsData();
-  const [year, setYear] = useState<number | 0>(0);
+  const [choice, setChoice] = useState<PeriodChoice>("all");
+  const [custom, setCustom] = useState({ from: "", to: "" });
   const [type, setType] = useState<"" | "account_statement" | "annual_tax_information">("");
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState("");
@@ -200,7 +221,8 @@ export function ReportsScreen() {
   const reports = (documents?.documents ?? []).filter(isReport).sort(newestFirst);
   const years = [...new Set(reports.flatMap(documentYears))].sort((a, b) => b - a);
   const taxYears = reports.filter((document) => document.document_kind === "annual_tax_information").map((document) => Number((document.period_start ?? "").slice(0, 4))).filter(Boolean).sort((a, b) => b - a);
-  const rows = reports.filter((document) => (!type || document.document_kind === type) && (!year || documentYears(document).includes(year)));
+  const range = periodRange(choiceToPeriod(choice, custom), platformTodayKey());
+  const rows = reports.filter((document) => (!type || document.document_kind === type) && overlaps(document, range));
   const onDownload = (document: InvestorDocument, format: OutputFormat) => void download(documentDownloadRequest(document, format), `${document.id}:${format}`);
 
   return (
@@ -231,19 +253,34 @@ export function ReportsScreen() {
               <label htmlFor="rr-period">{t("Period")}</label>
               <details className="r31m-period-help">
                 <summary aria-label={t("How the period filter works")}><NiIcon name="info" /></summary>
-                <div>{t("Shows reports covering any part of the selected year. Each statement keeps its full period.")}</div>
+                <div>{t("Shows reports covering any of your selected dates. Each statement keeps its full original period.")}</div>
               </details>
-              <select className="form-select tr-period" id="rr-period" onChange={(event) => setYear(Number(event.target.value))} value={year}>
-                <option value={0}>{t("All time")}</option>
-                {years.map((item) => <option key={item} value={item}>{item}</option>)}
+              <select className="form-select tr-period" id="rr-period" onChange={(event) => setChoice(event.target.value as PeriodChoice)} value={choice}>
+                <option value="all">{t("All time")}</option>
+                <option value="30">{t("Last 30 days")}</option>
+                <option value="90">{t("Last 90 days")}</option>
+                {years.map((item) => <option key={item} value={`y${item}`}>{item}</option>)}
+                <option value="custom">{t("Custom dates")}</option>
               </select>
             </div>
             <select aria-label={t("Report type")} className="form-select tr-type" onChange={(event) => setType(event.target.value as typeof type)} value={type}>
               <option value="">{t("All report types")}</option>
-              <option value="account_statement">{t("Account statements")}</option>
+              <option value="account_statement">{t("Account statement")}</option>
               <option value="annual_tax_information">{t("Tax information")}</option>
             </select>
           </div>
+          {choice === "custom" ? (
+            <div className="r30-date-range">
+              <div className="r30-date-field">
+                <label htmlFor="rr-from">{t("From")}</label>
+                <input className="form-control" id="rr-from" onChange={(event) => setCustom({ ...custom, from: event.target.value })} type="date" value={custom.from} />
+              </div>
+              <div className="r30-date-field">
+                <label htmlFor="rr-to">{t("To")}</label>
+                <input className="form-control" id="rr-to" onChange={(event) => setCustom({ ...custom, to: event.target.value })} type="date" value={custom.to} />
+              </div>
+            </div>
+          ) : null}
           {error ? (
             <div className="alert alert-danger alert-icon wl-alert" role="alert">
               <NiIcon name="alert-circle" />

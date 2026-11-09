@@ -1994,7 +1994,7 @@ test("admin loans distinguish annual borrower interest from investor yield", () 
   }
 });
 
-test("deposit instructions explain how to use the required payment reference", () => {
+test("deposit instructions explain how to use the required payment reference", async () => {
   renderApp();
 
   fireEvent.click(screen.getByRole("link", { name: "Log in" }));
@@ -2011,13 +2011,13 @@ test("deposit instructions explain how to use the required payment reference", (
   expect(within(dialog).getByText("BX-LBR-CHF-4471")).toBeInTheDocument();
   expect(within(dialog).getByText("Use your reference with every transfer so we can identify your payment.")).toBeInTheDocument();
   expect(within(dialog).getByText(/must be included unchanged in the bank transfer reference/i)).toBeInTheDocument();
-  // U33-DEC-05 and U33-DEC-34: own-name accounts, unclear deposits checked by hand, the operator named.
-  expect(within(dialog).getByText("Transfer from a bank account in your name.")).toBeInTheDocument();
+  // The design's line; U33-DEC-05: unclear deposits checked by hand; U33-DEC-34: the operator named.
+  expect(within(dialog).getByText("Transfer from your verified bank account.")).toBeInTheDocument();
   expect(within(dialog).getByText(/checked by hand before they become available/)).toBeInTheDocument();
   expect(within(dialog).queryByText(/other accounts are returned/i)).not.toBeInTheDocument();
   expect(within(dialog).getByText("Banxum is a brand of Garanta Finanzgruppe AG.")).toBeInTheDocument();
-  // CHF has a Swiss QR-bill; there are no simulated deposits.
-  expect(within(dialog).getByText("Show the QR code")).toBeInTheDocument();
+  // CHF has the design's QR-bill download; there are no simulated deposits.
+  expect(await within(dialog).findByRole("link", { name: "Download QR-bill" })).toBeInTheDocument();
   expect(within(dialog).queryByText(/simulate|prototype/i)).not.toBeInTheDocument();
 });
 
@@ -2481,7 +2481,7 @@ test("withdrawal review shows the destination IBAN and account name before the c
   fireEvent.click(within(screen.getByRole("region", { name: "CHF account" })).getByRole("button", { name: "Withdraw" }));
   const dialog = screen.getByRole("dialog", { name: "Withdraw" });
   // The verified account is chosen; timing and fee follow U33-DEC-35.
-  expect(within(dialog).getByText("Usually 1–3 business days · No Banxum fee")).toBeInTheDocument();
+  expect(within(dialog).getByText("Usually 1–3 business days · No Banxum fees")).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
   expect(within(dialog).getByText("Enter the amount to withdraw.")).toBeInTheDocument();
   fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: "250" } });

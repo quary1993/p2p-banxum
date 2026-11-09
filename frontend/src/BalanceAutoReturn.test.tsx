@@ -121,8 +121,9 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   // The account rules name the same 58 days and today's 60-day limit.
   fireEvent.click(screen.getByRole("button", { name: "How your account works" }));
   const rules = screen.getByRole("dialog", { name: "How your account works" });
-  expect(rules).toHaveTextContent("goes back automatically to your verified bank account (IBAN) after 58 days");
-  expect(rules).toHaveTextContent("Loan repayments and recoveries are credited to your Banxum balance.");
+  expect(rules).toHaveTextContent("return automatically to your verified bank account (IBAN) after 58 days");
+  // U33-DEC-02: repayments go to the Banxum account.
+  expect(rules).toHaveTextContent("Loan repayments go to your Banxum account.");
 
   // Both the last-day lot and the money due back need action.
   expect(screen.getAllByLabelText("2 balances need action").length).toBeGreaterThan(0);

@@ -58,3 +58,25 @@ export function newestFirst(a: InvestorDocument, b: InvestorDocument) {
   const key = (document: InvestorDocument) => document.period_end ?? zurichDateKey(document.date);
   return key(b).localeCompare(key(a)) || b.date.localeCompare(a.date);
 }
+
+/** The design's investment document types (filter options), in the design's order. */
+export const DESIGN_TYPES = ["Purchase and transfer", "Assignment declarations", "Sale agreements"];
+
+/**
+ * The design's type of an investment document: an accepted investment or resale purchase is a
+ * purchase agreement ("Purchase and transfer"), accepted seller listing terms a sale agreement.
+ * Assignment declarations signed by Banxum come with the QES of U33-DEC-13. Other documents keep the
+ * platform's type.
+ */
+export function documentGroup(document: Pick<InvestorDocument, "category" | "document_type">) {
+  if (document.category === "primary_market_investment" || document.category === "secondary_market_purchase") return "Purchase and transfer";
+  if (document.category === "secondary_market_listing") return "Sale agreements";
+  return document.document_type;
+}
+
+/** The design's row title of an investment document. */
+export function documentTitle(document: Pick<InvestorDocument, "category" | "document_type" | "title">) {
+  if (document.category === "primary_market_investment" || document.category === "secondary_market_purchase") return "Purchase agreement";
+  if (document.category === "secondary_market_listing") return "Sale agreement";
+  return document.document_type || document.title;
+}

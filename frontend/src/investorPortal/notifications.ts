@@ -31,6 +31,8 @@ export function notificationRoute(notification: NotificationNavigation): AppRout
     case "fx":
       return { name: "fx" };
     default:
+      // The design's "View transactions" for money that left the account (withdrawals, automatic returns).
+      if (notification.topic === "email.withdrawal_status" || notification.topic === "email.balance_forced_return") return { name: "transactions" };
       return { name: "notifications" };
   }
 }

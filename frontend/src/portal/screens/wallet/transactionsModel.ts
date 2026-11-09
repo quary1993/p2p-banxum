@@ -29,8 +29,8 @@ export const TRANSACTION_GROUPS: Array<{ value: TransactionGroup; label: string 
   { value: "recovery", label: "Recoveries" },
   { value: "withdrawal", label: "Withdrawals" },
   { value: "return", label: "Automatic returns" },
-  { value: "purchase", label: "Resale purchases" },
-  { value: "sale", label: "Resale sales" },
+  { value: "purchase", label: "Secondary purchases" },
+  { value: "sale", label: "Secondary sales" },
   { value: "fee", label: "Fees and penalties" },
   { value: "fx", label: "Currency exchange" },
   { value: "other", label: "Other" }
@@ -88,7 +88,7 @@ function humanize(value: string) {
 
 const balanceSources: Record<string, { label: string; group: TransactionGroup; icon: string }> = {
   deposit: { label: "Deposit", group: "deposit", icon: "arrow-down-left" },
-  secondary_market_proceeds: { label: "Resale proceeds", group: "sale", icon: "exchange" },
+  secondary_market_proceeds: { label: "Secondary sale", group: "sale", icon: "exchange" },
   fx_proceeds: { label: "Currency exchange proceeds", group: "fx", icon: "exchange" },
   refund: { label: "Refund", group: "other", icon: "arrow-down-left" },
   correction: { label: "Balance correction", group: "other", icon: "edit" },
@@ -139,6 +139,7 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
     case "originator_claim_purchase":
       return { ...base, group: "investment", label: "Investment", status: "Completed", icon: "growth" };
     case "repayment_distribution":
+    case "interest_distribution":
     case "originator_repayment_distribution":
       // U33-DEC-02: repayments are credited to the Banxum balance.
       return { ...base, group: "repayment", label: "Repayment", status: "Credited to your balance", icon: "arrow-up-right" };
@@ -167,11 +168,11 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
     case "secondary_market_fee":
       return { ...base, group: "fee", label: "Resale fee", status: humanize(status) || "Charged", icon: "coins" };
     case "secondary_purchase":
-      return { ...base, group: "purchase", label: "Resale purchase", status: "Completed", icon: "exchange" };
+      return { ...base, group: "purchase", label: "Secondary purchase", status: "Completed", icon: "exchange" };
     case "secondary_sale":
-      return { ...base, group: "sale", label: "Resale sale", status: "Completed", icon: "exchange" };
+      return { ...base, group: "sale", label: "Secondary sale", status: "Completed", icon: "exchange" };
     case "secondary_listing":
-      return { ...base, group: "sale", label: "Resale listing", status: humanize(status), icon: "tag", sign: "none" };
+      return { ...base, group: "sale", label: "Secondary listing", status: humanize(status), icon: "tag", sign: "none" };
     case "fx_exchange": {
       const source = metadataText(entry, "source_currency");
       const target = metadataText(entry, "target_currency");

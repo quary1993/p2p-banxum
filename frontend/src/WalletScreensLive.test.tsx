@@ -258,7 +258,7 @@ test("Transactions summarise the rows in view and export them as CSV in the inve
   expect(totals).not.toHaveAttribute("hidden");
   const chf = within(totals).getByRole("heading", { name: /^CHF/ }).closest("section") as HTMLElement;
   expect(within(chf).getByText("Deposited").nextSibling).toHaveTextContent("12.000,00");
-  expect(within(chf).getByText("Repayments credited").nextSibling).toHaveTextContent("412,35");
+  expect(within(chf).getByText("Repaid to Banxum account").nextSibling).toHaveTextContent("412,35");
   expect(within(chf).getByText("Withdrawn").nextSibling).toHaveTextContent("500,00");
 
   fireEvent.click(within(main).getByRole("button", { name: "Export CSV" }));
@@ -330,11 +330,13 @@ test("Documents sort the investor's documents into tabs and download them on req
   const main = screen.getByRole("main");
   const tabs = within(main).getByRole("navigation", { name: "Document categories" });
 
-  // Investment documents: accepted with the email code and PIN, never "signed" (U33-DEC-13).
+  // Investment documents: the design's names (an accepted investment is a purchase agreement),
+  // accepted with the email code and PIN, never "signed" (U33-DEC-13).
   expect(within(tabs).getByRole("button", { name: "Investment documents" })).toHaveAttribute("aria-pressed", "true");
-  const row = within(table).getByRole("button", { name: "Loan Helvetia Logistik AG CHF 6,500.00 agreement" }).closest("tr") as HTMLElement;
+  const row = within(table).getByRole("button", { name: "Purchase agreement" }).closest("tr") as HTMLElement;
   expect(within(row).getByText("Accepted by you")).toBeInTheDocument();
-  expect(within(row).getByText("Investment agreement · Version 3")).toBeInTheDocument();
+  expect(within(row).getByText("Loan Helvetia Logistik AG CHF 6,500.00 agreement")).toBeInTheDocument();
+  expect(within(row).getByText("Order 4f1a")).toBeInTheDocument();
   expect(main).not.toHaveTextContent(/Signed by/);
   fireEvent.click(within(row).getByRole("button", { name: /as PDF$/ }));
   await waitFor(() => expect(downloads).toHaveLength(1));
@@ -345,11 +347,9 @@ test("Documents sort the investor's documents into tabs and download them on req
   fireEvent.click(within(main).getByRole("button", { name: "Clear filters" }));
   expect(within(main).getByText("1 document")).toBeInTheDocument();
 
-  fireEvent.click(within(tabs).getByRole("button", { name: "Statements" }));
-  expect(within(main).getByText("3 documents")).toBeInTheDocument();
-  fireEvent.click(within(main).getAllByRole("button", { name: /as CSV$/ })[0]);
-  await waitFor(() => expect(downloads).toHaveLength(2));
-  expect(downloads[1]).toMatchObject({ document_kind: "account_statement", output_format: "csv", start_date: "2026-01-01", end_date: "2026-12-10" });
+  // Statements are on the Reports page (the design's header link), not in a Documents tab.
+  expect(within(tabs).queryByRole("button", { name: "Statements" })).not.toBeInTheDocument();
+  expect(within(main).getByRole("link", { name: "Reports" })).toBeInTheDocument();
 
   fireEvent.click(within(tabs).getByRole("button", { name: "Platform documents" }));
   const platform = within(main).getByRole("table");

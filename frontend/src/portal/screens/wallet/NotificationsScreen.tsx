@@ -4,8 +4,8 @@
  * open the screen they are about (investorPortal/notifications.ts) and mark themselves read, and the
  * empty states. Rows use the design's .nd-row like the header menu (portal/shell/NotificationsMenu,
  * whose row is not exported: same markup and mapping here; the main session can merge them). Tone:
- * neutral, amber only for failed deliveries (the API has no category for other tones). Each row keeps
- * its human topic label (audit A-46).
+ * neutral, amber only for failed deliveries (the API has no category for other tones). Rows show the
+ * design's title, text, time and destination; the topic label of audit A-46 is left out (not in U33).
  */
 import { useState, type MouseEvent } from "react";
 
@@ -51,6 +51,10 @@ function destinationLabel(route: AppRoute) {
       return "View investment";
     case "balances":
       return "View account";
+    case "transactions":
+      return "View transactions";
+    case "reports":
+      return "View reports";
     case "secondary":
       return "View resale market";
     case "fx":
@@ -75,10 +79,8 @@ function NotificationRow({ item, onOpen }: { item: InvestorNotification; onOpen:
           {item.unread ? <span aria-label={t("Unread")} className="nd-unread-dot" role="img" /> : null}
         </span>
         {item.body ? <span className="nd-description">{item.body}</span> : null}
-        <span className="wl-nd-topic">
-          {item.topic_label}
-          {isFailed(item) ? <> · {t("Email not delivered")}</> : null}
-        </span>
+        {/* A failed email is a state the design does not have (U33-DEC-29). */}
+        {isFailed(item) ? <span className="wl-nd-topic">{t("Email not delivered")}</span> : null}
       </span>
       <span className="nd-row-meta">
         <time dateTime={item.created_at}>{formatDateTime(item.created_at)}</time>

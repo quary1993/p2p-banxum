@@ -18,7 +18,6 @@ import { NiIcon } from "../../components";
 import { CopyButton } from "./parts/CopyButton";
 import { groupIban } from "./parts/iban";
 import { useQrDataUrl } from "./parts/qrBill";
-import { QrBillImage } from "./parts/QrBillImage";
 import { WalletDialog } from "./parts/WalletDialog";
 import { currencyRank } from "./accountModel";
 import "./wallet.css";
@@ -36,33 +35,25 @@ function BankRow({ label, value, copyLabel, primary = false, note, copyable = tr
   );
 }
 
-// The design's "Download QR-bill" button, plus the code itself for scanning from the screen.
+// The design's "Download QR-bill" button (the Swiss QR code of the deposit account, as an image).
 function QrBill({ payload, currency }: { payload: string; currency: string }) {
   const t = useT();
   const dataUrl = useQrDataUrl(payload);
+  if (!dataUrl) return null;
   return (
-    <>
-      {dataUrl ? (
-        <a className="p73-download" download={`qr-bill-${currency.toLowerCase()}.png`} href={dataUrl}>
-          <NiIcon name="qr" />
-          <span>{t("Download QR code")}</span>
-        </a>
-      ) : null}
-      <details className="p73-more wl-qr">
-        <summary>{t("Show the QR code")} <NiIcon name="chevron-down" /></summary>
-        <div className="wl-qr-body">
-          <QrBillImage src={dataUrl} />
-          <p>{t("Scan this code in your banking app for {currency} transfers. If your app does not fill in the reference, enter it unchanged.", { currency })}</p>
-        </div>
-      </details>
-    </>
+    <a className="p73-download" download={`qr-bill-${currency.toLowerCase()}.png`} href={dataUrl}>
+      <NiIcon name="qr" />
+      <span>{t("Download QR-bill")}</span>
+    </a>
   );
 }
 
-function InstructionBody({ instruction, returnDays, referenceRule }: { instruction: DepositInstruction; returnDays: number; referenceRule: string }) {
+function InstructionBody({ instruction, returnDays, referenceRule, verifiedIban }: { instruction: DepositInstruction; returnDays: number; referenceRule: string; verifiedIban?: string }) {
   const t = useT();
   const brandLine = t("{brand} is a brand of {operator}.", { brand: brandDisplayName(), operator: operatorName });
   const missing = t("Not configured yet");
+  // The design's transfer method: SEPA for EUR, the Swiss QR-bill for CHF when the account has one.
+  const method = instruction.currency === "EUR" ? t("SEPA credit transfer") : instruction.qr_bill_payload ? t("QR-bill (QR reference)") : "";
   return (
     <>
       {instruction.is_configured ? null : (
@@ -85,13 +76,15 @@ function InstructionBody({ instruction, returnDays, referenceRule }: { instructi
         <summary>{t("Transfer details")} <NiIcon name="chevron-down" /></summary>
         <div>
           <dl>
+            {method ? <div><dt>{t("Method")}</dt><dd>{method}</dd></div> : null}
             {instruction.bank_name ? <div><dt>{t("Bank")}</dt><dd>{instruction.bank_name}</dd></div> : null}
-            <div><dt>{t("Currency")}</dt><dd>{instruction.currency}</dd></div>
+            {verifiedIban ? <div><dt>{t("Your verified IBAN")}</dt><dd>{groupIban(verifiedIban)}</dd></div> : null}
           </dl>
-          <p>{t("Transfer only from a bank account in your name. Deposits we cannot match to you are checked by hand before they become available.")}</p>
+          {/* U33-DEC-05: deposits we cannot match are checked by hand (the design returns them). */}
+          <p>{t("Transfer only from your verified bank account. Deposits we cannot match to you are checked by hand before they become available.")}</p>
           {referenceRule ? <p>{referenceRule}</p> : null}
           {instruction.notes ? <p>{instruction.notes}</p> : null}
-          <p>{t("Money that is not invested goes back to your bank account after {days} days. Money held here earns no interest.", { days: returnDays })}</p>
+          <p>{t("Uninvested funds return after {days} days. Money held here earns no interest.", { days: returnDays })}</p>
         </div>
       </details>
     </>
@@ -102,7 +95,10 @@ export function AddFundsDialog({ currency: initialCurrency, onClose }: { currenc
   const t = useT();
   const titleId = useId();
   const instructionsQuery = useDepositInstructionsData();
-  const returnDays = autoReturnDays(useBalancesData().data?.auto_return_after_days);
+  const balances = useBalancesData().data;
+  const returnDays = autoReturnDays(balances?.auto_return_after_days);
+  const verifiedIbanFor = (currency: string) =>
+    balances?.payout_instructions.find((item) => item.currency === currency && item.is_verified_usable)?.destination_iban;
   const [chosen, setChosen] = useState(initialCurrency);
   const payload = instructionsQuery.data;
   const instructions = [...(payload?.instructions ?? [])].sort((a, b) => currencyRank(a.currency) - currencyRank(b.currency));
@@ -112,7 +108,7 @@ export function AddFundsDialog({ currency: initialCurrency, onClose }: { currenc
     <WalletDialog className="p73-modal" labelledBy={titleId} onClose={onClose}>
       <div className="modal-body modal-body-md">
         <h2 id={titleId}>{t("Add funds")}</h2>
-        <p className="p73-intro">{t("Transfer from a bank account in your name.")}</p>
+        <p className="p73-intro">{t("Transfer from your verified bank account.")}</p>
         {instructionsQuery.isError && !payload ? (
           <div className="bxm-empty wl-dialog-state" role="alert">
             <NiIcon name="alert-circle" />
@@ -133,7 +129,7 @@ export function AddFundsDialog({ currency: initialCurrency, onClose }: { currenc
               </div>
             ) : null}
             {instruction ? (
-              <InstructionBody instruction={instruction} referenceRule={payload.reference_rule} returnDays={returnDays} />
+              <InstructionBody instruction={instruction} referenceRule={payload.reference_rule} returnDays={returnDays} verifiedIban={verifiedIbanFor(instruction.currency)} />
             ) : (
               <div className="bxm-empty wl-dialog-state"><NiIcon name="info" /><p>{t("Deposits in {currency} are not open yet.", { currency })}</p></div>
             )}

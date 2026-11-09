@@ -308,15 +308,13 @@ export function AccountRulesDialog({ days, fxEnabled, onClose }: { days: number;
   return (
     <Dialog onClose={onClose} title={t("How your account works")}>
       <ul className="bxm-rules mt-3">
-        <li>{t("Your Banxum account holds money for investment. Money that is not invested earns no interest and goes back automatically to your verified bank account (IBAN) after {days} days.", { days })}</li>
-        <li>{t("To invest, the money must have enough time left to cover the loan's remaining funding period. The oldest money is used first.")}</li>
+        {/* The design's three rules; the return deadline is today's platform value (U33-DEC-03 changes it). */}
+        <li>{t("Your Banxum account holds funds for investment. Uninvested funds earn no interest and return automatically to your verified bank account (IBAN) after {days} days.", { days })}</li>
+        {/* U33-DEC-02: repayments go to the Banxum balance, not directly to the bank account. */}
+        <li>{t("Loan repayments go to your Banxum account.")}</li>
         {fxEnabled ? <li>{t("A currency exchange does not restart this count.")}</li> : null}
-        <li>{t("Loan repayments and recoveries are credited to your Banxum balance. You can invest them again or withdraw them.")}</li>
-        <li>{t("Transfers must come from and go to bank accounts in your name.")}</li>
-        <li>{t("Withdrawals usually reach your bank in 1–3 business days. There is no Banxum fee.")}</li>
-        <li>{t("Without a verified bank account we cannot return the money. After 60 days (the legal limit) it enters penalty mode.")}</li>
+        <li>{t("Transfers must use bank accounts in your name.")}</li>
       </ul>
-      <p className="wl-rules-link"><PortalLink className="link" onNavigate={onClose} to="settings">{t("Manage your bank accounts in Profile & Settings")}</PortalLink></p>
     </Dialog>
   );
 }

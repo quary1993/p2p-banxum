@@ -101,7 +101,7 @@ test("withdrawals show their outcome and destination; automatic returns are thei
 
 test("balance credits are named by their source, never by a raw key", () => {
   expect(transactionRow(entry({ activity_type: "balance_deposit", title: "Deposit" }))).toMatchObject({ group: "deposit", label: "Deposit", status: "Received" });
-  expect(transactionRow(entry({ activity_type: "balance_secondary_market_proceeds" })).label).toBe("Resale proceeds");
+  expect(transactionRow(entry({ activity_type: "balance_secondary_market_proceeds" })).label).toBe("Secondary sale");
   expect(transactionRow(entry({ activity_type: "balance_penalty_charge", direction: "out" }))).toMatchObject({ group: "fee", label: "Penalty" });
   expect(transactionRow(entry({ activity_type: "balance_deposit", title: "QA opening balance" })).label).toBe("Opening balance");
 });
