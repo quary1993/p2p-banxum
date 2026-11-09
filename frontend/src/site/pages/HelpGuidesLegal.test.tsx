@@ -129,21 +129,26 @@ test("an unknown guide or legal page shows the 404", () => {
   expect(document.title).toBe("Not found · Banxum");
 });
 
-test("legal pages: the six design documents and the backend template addresses", () => {
-  const nav = () => within(screen.getByRole("list", { name: "Legal pages" }));
-  const active = () => nav().queryAllByRole("link").filter((link) => link.classList.contains("active")).map((link) => link.textContent);
+test("legal pages: the real documents in the U33 layout and the backend template addresses", () => {
+  const others = () => within(screen.getByRole("list", { name: "Legal pages" }));
+  const contents = () => within(screen.getByRole("navigation", { name: /contents$/ }));
 
   const risk = renderSite("/legal/risk");
-  expect(screen.getByRole("heading", { level: 1, name: "Risk information" })).toBeInTheDocument();
-  expect(active()).toEqual(["Risk information"]);
+  // The design's risk hero; the text is the real risk information (content.ts), not the design's.
+  expect(screen.getByRole("heading", { level: 1, name: /Understand the risks/ })).toBeInTheDocument();
+  expect(document.title).toBe("Risk information · Banxum");
+  expect(others().queryByRole("link", { name: "Risk information" })).not.toBeInTheDocument();
   expect(screen.getByText("Version 1.0")).toBeInTheDocument();
   expect(screen.getByText("Valid from 1 Sep 2026")).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 2, name: "No deposit protection" })).toBeInTheDocument();
+  expect(contents().getByRole("link", { name: "07 No deposit protection" })).toHaveAttribute("href", "#risk-section-7");
+  expect(screen.queryByRole("heading", { name: "The borrower" })).not.toBeInTheDocument();
   risk.unmount();
 
   const privacy = renderSite("/legal/privacy");
-  expect(screen.getByText("Outline of the privacy notice. The text follows from the lawyers.")).toBeInTheDocument();
-  expect(screen.getByText("Transfers abroad")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Privacy policy" })).toBeInTheDocument();
+  expect(screen.getByText("Outline. The full text follows from the lawyers.")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Transfers abroad" })).toBeInTheDocument();
   privacy.unmount();
 
   const imprint = renderSite("/legal/imprint");
@@ -152,23 +157,24 @@ test("legal pages: the six design documents and the backend template addresses",
   expect(screen.getByRole("heading", { level: 2, name: "Bank" })).toBeInTheDocument();
   expect(screen.getByText("UBS Switzerland AG")).toBeInTheDocument();
   expect(screen.getByText("CH83 0020 6206 9567 6601 M")).toBeInTheDocument();
-  // Owner decision 2026-10-15: the closing paragraph stays exactly as the design.
+  // Owner decision 2026-10-15: the closing paragraph stays exactly as before.
   expect(screen.getByText(/The sample figures of this prototype are invented\.$/)).toBeInTheDocument();
+  // U33-DEC-34: the operator identification in the footer.
+  expect(within(screen.getByRole("contentinfo")).getByText(/^Banxum is a brand of Garanta Finanzgruppe AG/)).toBeInTheDocument();
   imprint.unmount();
 
   // The investor flows' addresses: registration is the terms page, risk-disclosure the risk page.
   const registration = renderSite("/legal/registration");
-  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
-  expect(active()).toEqual(["Terms of use"]);
-  expect(screen.getByText("Scope and parties")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Terms & conditions" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Scope and parties" })).toBeInTheDocument();
   registration.unmount();
 
   const riskDisclosure = renderSite("/legal/risk-disclosure");
-  expect(screen.getByRole("heading", { level: 1, name: "Risk information" })).toBeInTheDocument();
-  expect(active()).toEqual(["Risk information"]);
+  expect(screen.getByRole("heading", { level: 1, name: /Understand the risks/ })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Credit risk" })).toBeInTheDocument();
   riskDisclosure.unmount();
 
-  // The other templates: their own title, no active item (preview mode does not load them).
+  // The other templates: their own title (preview mode does not load them).
   for (const [path, title] of [
     ["/legal/primary-market-investment", "Investment terms and loan claim assignment"],
     ["/legal/secondary-market-listing", "Secondary-market seller/listing terms"],
@@ -177,16 +183,16 @@ test("legal pages: the six design documents and the backend template addresses",
     const view = renderSite(path);
     expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     expect(document.title).toBe(`${title} · Banxum`);
-    expect(active()).toEqual([]);
     expect(screen.getByText(/Preview mode: the text of this document loads from the published server template\./)).toBeInTheDocument();
     view.unmount();
   }
 
-  // Side navigation stays in the site.
+  // "Other documents" stays in the site.
   renderSite("/legal/terms");
-  fireEvent.click(nav().getByRole("link", { name: "Complaints" }));
+  fireEvent.click(others().getByRole("link", { name: "Complaints" }));
   expect(window.location.pathname).toBe("/legal/complaints");
   expect(screen.getByRole("heading", { level: 1, name: "Complaints" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "How to complain" })).toBeInTheDocument();
 });
 
 test("newsletter links: confirm, unsubscribe and a link without a token", async () => {
@@ -210,6 +216,6 @@ test("newsletter links: confirm, unsubscribe and a link without a token", async 
     fireEvent.click(screen.getByRole("link", { name: "Subscribe again" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(window.location.pathname).toBe("/");
+  expect(window.location.pathname).toBe("/projects");
   expect(document.activeElement).toBe(screen.getByLabelText("Email address"));
 });

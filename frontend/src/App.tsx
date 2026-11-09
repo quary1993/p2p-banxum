@@ -144,7 +144,6 @@ import { CreatePinForm, SensitivePinField, SettingsPinPanel } from "./investorPo
 import { pinApiError } from "./investorPortal/pinRules";
 import { usePinStatus, useSensitivePin } from "./investorPortal/pinState";
 import { SitePages } from "./site/SitePages";
-import { SiteSkin } from "./site/SiteSkin";
 import { captureMagicLinkTokenFromLocation, takePendingMagicLinkToken } from "./magicLinkToken";
 import {
   formatDate,
@@ -680,7 +679,7 @@ const navActiveRoute: Partial<Record<RouteName, RouteName>> = {
 };
 
 // The published template of a category, shown by the public site's legal page
-// (site/pages/Legal.tsx: /legal/registration, /legal/risk-disclosure...).
+// (site/u33/pages/Legal.tsx: /legal/registration, /legal/risk-disclosure...).
 function legalDocumentPath(category: string) {
   return `/legal/${category.replace(/_/g, "-")}`;
 }
@@ -1195,16 +1194,15 @@ export function App() {
     return <UserSkin><KycReturnScreen setRoute={setRoute} /></UserSkin>;
   }
 
-  // The public site (logged-out pages): its own skin (html.bxs), shell and router.
+  // The public site (logged-out pages): its own router, which picks the skin and shell per page
+  // (U33 pages html.bxp, the October pages html.bxs).
   if (route.name === "public" || route.name === "site") {
     return (
-      <SiteSkin>
-        <SitePages
-          navigate={navigateSite}
-          path={route.name === "public" ? "/" : route.params?.path ?? "/"}
-          search={route.name === "public" ? "" : route.params?.search ?? ""}
-        />
-      </SiteSkin>
+      <SitePages
+        navigate={navigateSite}
+        path={route.name === "public" ? "/" : route.params?.path ?? "/"}
+        search={route.name === "public" ? "" : route.params?.search ?? ""}
+      />
     );
   }
 

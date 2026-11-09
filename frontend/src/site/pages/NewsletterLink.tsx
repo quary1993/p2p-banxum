@@ -35,15 +35,18 @@ function isInvalidToken(error: unknown) {
   return payload?.code === "invalid_token" || Boolean(fieldErrors(error).token);
 }
 
-/** To the newsletter block of the home page (its email field), from any page. */
+/**
+ * To the newsletter block of the projects page (its email field), from any page. The U33 home
+ * page has no newsletter block; the sign-up stays on the October pages (U33-DEC-39).
+ */
 function useSubscribeAgain() {
   const { navigate } = useSiteNav();
   return (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    navigate("/");
+    navigate("/projects");
     window.setTimeout(() => {
-      const input = document.getElementById("site-sub-home");
+      const input = document.getElementById("site-sub-projects");
       input?.scrollIntoView({ block: "center" });
       input?.focus({ preventScroll: true });
     }, 0);
@@ -83,7 +86,7 @@ export function NewsletterLinkPage({ kind }: { kind: Kind }) {
       <>
         <h2 className="site-h4">This link is not valid or has expired.</h2>
         <p className="site-text mb-0">
-          <a href="/#site-sub-home" onClick={subscribeAgain}>
+          <a href="/projects#site-sub-projects" onClick={subscribeAgain}>
             Subscribe again
           </a>
         </p>

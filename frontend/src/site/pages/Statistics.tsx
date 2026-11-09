@@ -219,7 +219,8 @@ function FundedTable({ projects }: { projects: PublicProject[] }) {
                 <td>
                   <SiteLink href={`/projects/${encodeURIComponent(p.loan_id)}`}>{p.title}</SiteLink>
                   <span className="site-table-sub">
-                    {funded ? `Funded ${date(funded)} · risk ${p.risk_rating}` : `Risk ${p.risk_rating}`}
+                    {/* No risk rating on the public site (U33-DEC-16). */}
+                    {funded ? `Funded ${date(funded)}` : ""}
                   </span>
                 </td>
                 <td className="site-hide-sm">{countryName(p.borrower_country)}</td>

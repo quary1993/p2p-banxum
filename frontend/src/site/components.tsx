@@ -211,7 +211,8 @@ export function ProjectCard({ view }: { view: ProjectView }) {
     <SiteLink className={`site-project${isOpen ? " is-open" : ""}`} href={`/projects/${encodeURIComponent(p.loan_id)}`}>
       <div className="site-project-top">
         <div className="site-project-tags">
-          <Tag cls={st.cls} label={st.label} /> <Tag cls="is-muted" label={`Risk ${p.risk_rating}`} />
+          {/* No risk rating on the public site (U33-DEC-16). */}
+          <Tag cls={st.cls} label={st.label} />
         </div>
         <span className="site-project-country">
           <Flag code={p.borrower_country} label={view.countryName} />
