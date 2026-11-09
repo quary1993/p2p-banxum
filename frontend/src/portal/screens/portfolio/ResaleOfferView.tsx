@@ -27,6 +27,7 @@ import { TermsLink } from "./parts/documents";
 import { errorMessage, idempotencyKey, isPriceChangedError, isReadonlyView, templateLabels } from "./parts/errors";
 import { investmentTypeText, priceAdjustmentText, repaymentText, tileIcon } from "./parts/labels";
 import { SecuritySection } from "./parts/SecuritySection";
+import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { InfoButton } from "./parts/ui";
 
 const PAGE_CLASS = "bxm-invest-desktop ip-page l8-opportunity r34-project-entry r36-opportunity r69-page";
@@ -75,6 +76,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
   const scheduleId = useId();
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [buying, setBuying] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const balances = useBalancesData().data;
   const frozenAccount = useFrozenAccount();
   const currency = detail.currency;
@@ -176,7 +178,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
             <div className="r69-total">
               <strong><small>{currency}</small> {formatMoneyMinor(detail.buyer_total_cost_minor, currency)}</strong>
               <InfoButton
-                className={`r69-discount${detail.discount_premium_bps === 0 ? " is-neutral" : ""}`}
+                className={`r69-discount p99-price-trigger${detail.discount_premium_bps === 0 ? " is-neutral" : ""}`}
                 content={<p>{t("Discount or premium applies to the outstanding principal.")} {t("The total price includes accrued interest.")}</p>}
                 label={t("About the price")}
                 title={t("Total price")}
@@ -293,7 +295,14 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
             </div>
           </details>
         ) : null}
+        <div className="l8-resources">
+          <button aria-haspopup="dialog" className="l8-how p99-market-help" onClick={() => setHelpOpen(true)} type="button">
+            <NiIcon name="info" />
+            <span>{t("How resale works")}</span>
+          </button>
+        </div>
       </section>
+      {helpOpen ? <ResaleHelpDialog buyerFeeFree={detail.taker_fee_bps === 0 && detail.taker_fee_minor === 0} onClose={() => setHelpOpen(false)} /> : null}
       {buying ? <PurchaseDialog detail={detail} onClose={() => setBuying(false)} refetch={refetch} refreshing={refreshing} /> : null}
     </main>
   );
