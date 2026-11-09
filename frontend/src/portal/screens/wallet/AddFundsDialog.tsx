@@ -23,7 +23,7 @@ import { WalletDialog } from "./parts/WalletDialog";
 import { currencyRank } from "./accountModel";
 import "./wallet.css";
 
-function BankRow({ label, value, copyLabel, primary = false, note }: { label: string; value: string; copyLabel?: string; primary?: boolean; note?: string }) {
+function BankRow({ label, value, copyLabel, primary = false, note, copyable = true }: { label: string; value: string; copyLabel?: string; primary?: boolean; note?: string; copyable?: boolean }) {
   return (
     <div className="p73-bank-row">
       <div>
@@ -31,7 +31,7 @@ function BankRow({ label, value, copyLabel, primary = false, note }: { label: st
         <strong className={primary ? "p73-primary-iban" : ""}>{value}</strong>
         {note ? <small className="p79-brand-identity">{note}</small> : null}
       </div>
-      {value ? <CopyButton label={copyLabel ?? label} value={value} /> : null}
+      {value && copyable ? <CopyButton label={copyLabel ?? label} value={value} /> : null}
     </div>
   );
 }
@@ -73,11 +73,11 @@ function InstructionBody({ instruction, returnDays, referenceRule }: { instructi
         </div>
       )}
       <div className="p73-bank-data">
-        <BankRow copyLabel={t("Beneficiary")} label={t("Beneficiary")} note={brandLine} value={instruction.account_holder_name || missing} />
-        <BankRow label={t("IBAN")} primary value={instruction.iban ? groupIban(instruction.iban) : missing} />
+        <BankRow copyable={Boolean(instruction.account_holder_name)} copyLabel={t("beneficiary")} label={t("Beneficiary")} note={brandLine} value={instruction.account_holder_name || missing} />
+        <BankRow copyable={Boolean(instruction.iban)} label={t("IBAN")} primary value={instruction.iban ? groupIban(instruction.iban) : missing} />
         {instruction.qr_iban ? <BankRow label={t("QR-IBAN")} value={groupIban(instruction.qr_iban)} /> : null}
         {instruction.bic ? <BankRow label={t("BIC")} value={instruction.bic} /> : null}
-        <BankRow label={t("Your personal reference")} value={instruction.payment_reference} />
+        <BankRow copyLabel={t("your personal reference")} label={t("Your personal reference")} value={instruction.payment_reference} />
       </div>
       <p className="p73-transfer-note">{t("Use your reference with every transfer so we can identify your payment.")}</p>
       {instruction.qr_bill_payload ? <QrBill currency={instruction.currency} payload={instruction.qr_bill_payload} /> : null}

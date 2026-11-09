@@ -61,11 +61,13 @@ export type NextReturn = { date: string; amountMinor: number | null; lastDay: bo
 
 /**
  * The next automatic return of a currency: the earliest return date of money that can still be
- * invested; when only money on its last day is left, that money's return. Falls back to the
- * summary's next_return_date (amount unknown) when the lots are not loaded.
+ * invested; when only money on its last day is left, that money's return. Without lots of the
+ * currency it falls back to the summary's next_return_date (amount unknown); money already due back
+ * or frozen has no upcoming return (the account notices cover it).
  */
 export function nextReturn(summary: BalanceSummary, lots: BalanceLot[]): NextReturn | null {
-  const own = liveLots(lots, summary.currency).filter((lot) => !isFrozenLot(lot));
+  const live = liveLots(lots, summary.currency);
+  const own = live.filter((lot) => !isFrozenLot(lot));
   for (const bucket of ["investable", "withdraw_only"]) {
     const candidates = own.filter((lot) => lot.bucket === bucket && lot.return_date);
     if (candidates.length === 0) continue;
@@ -73,6 +75,7 @@ export function nextReturn(summary: BalanceSummary, lots: BalanceLot[]): NextRet
     const amountMinor = candidates.filter((lot) => lot.return_date === date).reduce((total, lot) => total + lot.available_amount_minor, 0);
     return { date, amountMinor, lastDay: bucket === "withdraw_only" };
   }
+  if (live.length > 0) return null;
   return summary.next_return_date ? { date: summary.next_return_date, amountMinor: null, lastDay: false } : null;
 }
 

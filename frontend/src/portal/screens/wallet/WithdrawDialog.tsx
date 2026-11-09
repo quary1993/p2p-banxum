@@ -163,6 +163,8 @@ export function WithdrawDialog({
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
+              // Submits of the PIN dialogs (create / forgot PIN) bubble here through the React tree.
+              if (event.target !== event.currentTarget) return;
               if (sensitiveReady(sensitive, code) && !mutation.isPending) submit();
             }}
           >

@@ -37,7 +37,7 @@ export function downloadPortalArtifact(artifact: InvestorDocumentDownloadRespons
 
 /** Saves text built in the browser (the Transactions CSV), with a BOM so spreadsheet apps read UTF-8. */
 export function downloadTextFile(content: string, filename: string, contentType = "text/csv;charset=utf-8") {
-  saveBlob(new Blob(["﻿", content], { type: contentType }), filename);
+  saveBlob(new Blob(["\uFEFF", content], { type: contentType }), filename);
 }
 
 const formatEnum: Record<OutputFormat, InvestorDocumentDownloadRequestOutputFormatEnum> = {
