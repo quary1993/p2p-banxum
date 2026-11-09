@@ -113,7 +113,10 @@ const documentsFixture: InvestorDocuments = {
     content_hash:
       document.type === "Agreement" || document.type === "Risk"
         ? "preview-content-hash"
-        : undefined
+        : undefined,
+    category: document.category,
+    period_start: document.periodStart,
+    period_end: document.periodEnd
   }))
 };
 
@@ -123,11 +126,11 @@ const notificationsFixture: InvestorNotifications = {
     notification_source: "preview",
     topic: "email.preview",
     topic_label: notification.label,
-    status: "sent",
+    status: notification.status ?? "sent",
     title: notification.title,
     body: notification.body,
-    created_at: `${portalFixture.today}T00:00:00Z`,
-    sent_at: `${portalFixture.today}T00:00:00Z`,
+    created_at: notification.createdAt ?? `${portalFixture.today}T00:00:00Z`,
+    sent_at: notification.createdAt ?? `${portalFixture.today}T00:00:00Z`,
     unread: notification.unread,
     navigation_target: notification.target ?? "none",
     navigation_target_id: notification.targetId ?? ""

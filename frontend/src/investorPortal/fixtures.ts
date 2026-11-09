@@ -115,7 +115,9 @@ export const portalFixture: InvestorPortalFixture = {
       version: "-",
       date: "2026-04-02",
       context: "Quarterly",
-      size: "312 KB"
+      size: "312 KB",
+      periodStart: "2026-01-01",
+      periodEnd: "2026-06-05"
     },
     {
       id: "D-9500",
@@ -124,7 +126,40 @@ export const portalFixture: InvestorPortalFixture = {
       version: "-",
       date: "2026-02-15",
       context: "Annual",
-      size: "276 KB"
+      size: "276 KB",
+      periodStart: "2025-01-01",
+      periodEnd: "2025-12-31"
+    },
+    {
+      id: "D-9401",
+      title: "Investor account statement - 2025",
+      type: "Statement",
+      version: "-",
+      date: "2026-01-02",
+      context: "Annual",
+      size: "298 KB",
+      periodStart: "2025-01-01",
+      periodEnd: "2025-12-31"
+    },
+    {
+      id: "D-9140",
+      title: "Loan Helvetia Logistik AG CHF 6,500.00 agreement",
+      type: "Investment agreement",
+      version: "v3",
+      date: "2026-06-02",
+      context: "Order O-58102",
+      size: "198 KB",
+      category: "primary_market_investment"
+    },
+    {
+      id: "D-9150",
+      title: "Loan Rhône Vignobles SA EUR 2,480.00 transfer agreement",
+      type: "Transfer agreement",
+      version: "v2",
+      date: "2026-02-18",
+      context: "Resale purchase SM-3290",
+      size: "164 KB",
+      category: "secondary_market_purchase"
     }
   ],
   notifications: [
@@ -148,6 +183,39 @@ export const portalFixture: InvestorPortalFixture = {
       unread: true,
       target: "holding",
       targetId: "H-2201"
+    },
+    {
+      id: "N3",
+      tone: "ok",
+      label: "Repayment",
+      title: "Loan repayment credited",
+      body: "CHF 412.35 from Helvetia Logistik AG was credited to your Banxum balance.",
+      time: "2 weeks ago",
+      unread: false,
+      target: "portfolio",
+      createdAt: "2026-05-21T08:05:00Z"
+    },
+    {
+      id: "N4",
+      tone: "ok",
+      label: "Deposit",
+      title: "Deposit credited: CHF 12,000.00",
+      body: "Your bank transfer was booked to your Banxum balance.",
+      time: "4 weeks ago",
+      unread: false,
+      target: "balances",
+      createdAt: "2026-05-09T09:30:00Z"
+    },
+    {
+      id: "N5",
+      tone: "warn",
+      label: "Withdrawal",
+      title: "Withdrawal requested: CHF 1,500.00",
+      body: "Delivery status only. Message contents are not shown in the portal for this notification type.",
+      time: "8 weeks ago",
+      unread: false,
+      status: "failed",
+      createdAt: "2026-04-08T07:12:00Z"
     }
   ],
   recoverySplit: {
@@ -1919,6 +1987,98 @@ export const activityFixture: InvestorActivity = {
       loan_id: null,
       loan_title: "",
       metadata: { is_forced: false, finalized_at: "2026-04-09T11:00:00+02:00", cancelled_at: "" }
+    },
+    // Wallet preview (Transactions): the backend's own activity types.
+    {
+      id: "A-5",
+      activity_type: "primary_order",
+      occurred_at: "2026-06-02T10:10:00+02:00",
+      direction: "internal",
+      title: "Primary-market investment order",
+      amount_minor: amount(6500),
+      currency: "CHF",
+      status: "partially_allocated",
+      loan_id: "GA-2401",
+      loan_title: "Helvetia Logistik AG",
+      metadata: {}
+    },
+    {
+      id: "A-6",
+      activity_type: "repayment_distribution",
+      occurred_at: "2026-05-21T08:00:00+02:00",
+      direction: "in",
+      title: "Loan repayment credited",
+      amount_minor: amount(412.35),
+      currency: "CHF",
+      status: "",
+      loan_id: "GA-2380",
+      loan_title: "Helvetia Logistik AG",
+      metadata: { principal_minor: amount(354.1), interest_minor: amount(58.25), fee_minor: 0 }
+    },
+    {
+      id: "A-7",
+      activity_type: "balance_deposit",
+      occurred_at: "2026-05-09T09:20:00+02:00",
+      direction: "in",
+      title: "Deposit",
+      amount_minor: amount(12000),
+      currency: "CHF",
+      status: "available",
+      loan_id: null,
+      loan_title: "",
+      metadata: {}
+    },
+    {
+      id: "A-8",
+      activity_type: "recovery_distribution",
+      occurred_at: "2026-04-09T10:00:00+02:00",
+      direction: "in",
+      title: "Recovery payment credited",
+      amount_minor: amount(980),
+      currency: "CHF",
+      status: "",
+      loan_id: "GA-2150",
+      loan_title: "Alpen Holzbau GmbH",
+      metadata: { principal_minor: amount(612), contractual_interest_minor: amount(188), default_interest_minor: amount(96), penalties_minor: 0, other_costs_minor: -amount(42) }
+    },
+    {
+      id: "A-9",
+      activity_type: "primary_order",
+      occurred_at: "2026-03-12T15:40:00+01:00",
+      direction: "internal",
+      title: "Primary-market investment order",
+      amount_minor: amount(6000),
+      currency: "EUR",
+      status: "closed_invested",
+      loan_id: "GA-2201",
+      loan_title: "Lago Maggiore Hotels SA",
+      metadata: {}
+    },
+    {
+      id: "A-10",
+      activity_type: "secondary_purchase",
+      occurred_at: "2026-02-18T11:25:00+01:00",
+      direction: "out",
+      title: "Secondary-market purchase",
+      amount_minor: amount(2480),
+      currency: "EUR",
+      status: "completed",
+      loan_id: "GA-2287",
+      loan_title: "Rhône Vignobles SA",
+      metadata: {}
+    },
+    {
+      id: "A-11",
+      activity_type: "balance_deposit",
+      occurred_at: "2026-02-10T09:00:00+01:00",
+      direction: "in",
+      title: "Deposit",
+      amount_minor: amount(8500),
+      currency: "EUR",
+      status: "invested",
+      loan_id: null,
+      loan_title: "",
+      metadata: {}
     }
   ]
 };

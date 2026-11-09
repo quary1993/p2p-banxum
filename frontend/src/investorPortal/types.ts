@@ -55,11 +55,16 @@ export interface DepositInstruction {
 export interface InvestorDocument {
   id: string;
   title: string;
-  type: "Agreement" | "Risk" | "Assignment" | "Confirmation" | "Statement" | "Tax";
+  type: "Agreement" | "Risk" | "Assignment" | "Confirmation" | "Statement" | "Tax" | "Investment agreement" | "Transfer agreement";
   version: string;
   date: string;
   context: string;
   size: string;
+  /** Acceptance category of the documents API (registration, primary_market_investment...). */
+  category?: string;
+  /** Period of a statement or tax document (YYYY-MM-DD). */
+  periodStart?: string;
+  periodEnd?: string;
 }
 
 export interface NotificationItem {
@@ -72,6 +77,10 @@ export interface NotificationItem {
   unread: boolean;
   target?: "loan" | "holding" | "portfolio" | "balances" | "secondary_market" | "fx";
   targetId?: string;
+  /** Creation time (ISO); the fixture's "today" when missing. */
+  createdAt?: string;
+  /** Email delivery status; "sent" when missing. */
+  status?: string;
 }
 
 export interface RecoverySplit {
