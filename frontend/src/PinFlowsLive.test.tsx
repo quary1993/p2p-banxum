@@ -256,14 +256,14 @@ test("after login an account without a PIN creates it before anything else", asy
   );
   renderLiveApp(App, "/dashboard");
 
-  expect(await screen.findByRole("heading", { name: "Create your PIN" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Create your security PIN" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.queryByRole("navigation", { name: "Investor portal navigation" })).not.toBeInTheDocument();
   await waitFor(() => expect(calls.codes).toEqual([{ action: "pin_setup" }]));
-  const save = screen.getByRole("button", { name: "Save PIN" });
-  enterPin("111111");
+  const save = screen.getByRole("button", { name: "Save PIN & continue" });
+  enterPin("111111", "6-digit PIN");
   expect(screen.getByText("Choose a PIN that does not repeat one digit, like 111111.")).toBeInTheDocument();
-  enterPin();
-  enterPin(TEST_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "6-digit PIN");
+  enterPin(TEST_PIN, "Confirm PIN");
   expect(save).toBeDisabled();
   fireEvent.change(screen.getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "777888" } });
   expect(save).toBeEnabled();
@@ -297,23 +297,23 @@ test("registration asks for the PIN after the phone and before identity verifica
   );
   renderLiveApp(App, "/register");
 
-  expect(await screen.findByRole("heading", { name: "Create your PIN" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Create your security PIN" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText("Step 3 of 4")).toBeInTheDocument();
-  expect(screen.getByText("You will enter it with the email code for every investment, withdrawal and bank change.")).toBeInTheDocument();
-  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByLabelText("PIN")).toHaveAttribute("aria-current", "step");
+  expect(screen.getByText("Use your PIN and an email code to confirm investments, withdrawals and bank account changes.")).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByText("Security PIN").closest("li")).toHaveAttribute("aria-current", "step");
   // No email code at registration: the user just proved the email and the phone.
   expect(screen.queryByRole("textbox", { name: "Email confirmation code" })).not.toBeInTheDocument();
-  const save = screen.getByRole("button", { name: "Save PIN" });
-  enterPin("123456");
+  const save = screen.getByRole("button", { name: "Save PIN & continue" });
+  enterPin("123456", "6-digit PIN");
   expect(screen.getByText("Choose a PIN that is not a straight run of digits, like 123456 or 654321.")).toBeInTheDocument();
-  enterPin();
-  enterPin(NEW_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "6-digit PIN");
+  enterPin(NEW_PIN, "Confirm PIN");
   expect(screen.getByText("The two PINs do not match.")).toBeInTheDocument();
   expect(save).toBeDisabled();
-  enterPin(TEST_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "Confirm PIN");
   fireEvent.click(save);
 
-  expect(await screen.findByRole("heading", { name: "Identity verification" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Verify your identity" }, { timeout: 5000 })).toBeInTheDocument();
   expect(calls.pinSet).toEqual([{ new_pin: TEST_PIN, new_pin_confirmation: TEST_PIN }]);
   expect(calls.codes).toEqual([]);
 }, 30_000);
@@ -326,9 +326,8 @@ test("Settings: Change PIN needs the current PIN, an email code and the new PIN 
     ...investorShellHandlers(calls),
     ...pinHandlers()
   );
-  renderLiveApp(App, "/settings");
-  fireEvent.click(await screen.findByRole("button", { name: "PIN" }, { timeout: 5000 }));
-  expect(await screen.findByText("Set")).toBeInTheDocument();
+  renderLiveApp(App, "/settings/security");
+  expect(await screen.findByText("Set", {}, { timeout: 5000 })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Change PIN" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Change PIN" });

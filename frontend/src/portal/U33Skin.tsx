@@ -6,6 +6,8 @@
  *   data-responsive, data-visual-study="ars", data-language (from the i18n locale) and
  *   data-theme ("light" | "dark", from useAppearance);
  * and <body> gets the design's body classes (nk-body bg-white has-sidebar bxm-app).
+ * layout="auth" (sign-in, registration, PIN gate, Didit return; slice S5) gives the body the design's
+ * classes for the screens outside the app layout (nk-body bg-white bxm-app, no has-sidebar).
  * Everything is removed on unmount, so the public site (html.bxs) and the admin console keep their
  * look. During the migration UserSkin (html.bxm, the old skin) stays mounted as well; old screen
  * bodies are wrapped in <LegacyBody> (shell/LegacyBody.tsx). A mount counter keeps this correct
@@ -21,11 +23,13 @@ const ROOT_ATTRIBUTES: Record<string, string> = {
   "data-responsive": "true",
   "data-visual-study": "ars"
 };
-const BODY_CLASSES = ["nk-body", "bg-white", "has-sidebar", "bxm-app"];
+const BODY_CLASSES = ["nk-body", "bg-white", "bxm-app"];
+// The app layout with its sidebar; the auth screens leave it out (design: #bxm-screen).
+const PORTAL_BODY_CLASS = "has-sidebar";
 
 let u33SkinMounts = 0;
 
-export function U33Skin({ children }: { children: ReactNode }) {
+export function U33Skin({ children, layout = "portal" }: { children: ReactNode; layout?: "portal" | "auth" }) {
   const { appearance } = useAppearance();
   useT(); // re-render on a language change so data-language follows
   const locale = getLocale();
@@ -43,9 +47,15 @@ export function U33Skin({ children }: { children: ReactNode }) {
       u33SkinMounts = 0;
       html.classList.remove("bxu", "bxm-theme-switching", "mobile-menu-open");
       for (const name of [...Object.keys(ROOT_ATTRIBUTES), "data-theme", "data-language"]) html.removeAttribute(name);
-      document.body.classList.remove(...BODY_CLASSES, "nav-shown");
+      document.body.classList.remove(...BODY_CLASSES, PORTAL_BODY_CLASS, "nav-shown");
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (layout !== "portal") return undefined;
+    document.body.classList.add(PORTAL_BODY_CLASS);
+    return () => document.body.classList.remove(PORTAL_BODY_CLASS);
+  }, [layout]);
 
   useLayoutEffect(() => {
     const html = document.documentElement;

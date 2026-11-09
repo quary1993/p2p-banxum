@@ -21,7 +21,6 @@ import "./skin/investments.css";
 import "./skin/account.css";
 import "./skin/auth.css";
 import "./skin/pin.css";
-import "./skin/help.css";
 // The public site: the October design CSS scoped to html.bxs (SiteSkin) and the U33 design CSS
 // scoped to html.bxp (PublicSkin), each followed by its hand-made fixes.
 import "./site/site.css";

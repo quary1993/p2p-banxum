@@ -1,9 +1,8 @@
 // IP of Webby-Soft SRL.
-// The investor's 6-digit PIN (ACC-DEC-009): the six-box input, the create, change and
-// forgot flows, and the PIN part of every sensitive action (email code + PIN).
-import { useQueryClient } from "@tanstack/react-query";
+// The investor's 6-digit PIN (ACC-DEC-009) in the old skin: the six-box input, the create and
+// forgot dialogs, and the PIN part of every sensitive action (email code + PIN). The flow logic is in
+// pinFlows.ts; the U33 screens (portal/screens/account) render their own fields on the same hooks.
 import {
-  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -14,33 +13,11 @@ import {
   type ReactNode
 } from "react";
 
-import {
-  ActionEnum,
-  getV1AuthMeRetrieveQueryKey,
-  getV1AuthPinStatusRetrieveQueryKey,
-  useV1AuthPinChangeCreate,
-  useV1AuthPinResetConfirmCreate,
-  useV1AuthPinResetStartCreate,
-  useV1AuthPinSetCreate,
-  useV1AuthSensitiveActionCodeRequestCreate
-} from "../api/generated/banxumApi";
-import { ApiClientError } from "../api/client/httpClient";
 import { isFixturePreview } from "./data";
-import {
-  PIN_LENGTH,
-  formatPinLockTime,
-  isRepeatedDigit,
-  isStraightRun,
-  pinApiError,
-  pinWeakness
-} from "./pinRules";
+import { useCreatePinFlow, useForgotPinFlow, type FlowEmailCode } from "./pinFlows";
+import { PIN_LENGTH, formatPinLockTime, isRepeatedDigit, isStraightRun } from "./pinRules";
 import { usePinStatus, type SensitivePin } from "./pinState";
-import { Banner, Button, Chip, Field, Icon, Modal } from "./ui";
-
-function errorText(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return "Request failed. Retry once the connection is restored.";
-}
+import { Banner, Button, Field, Icon, Modal } from "./ui";
 
 // ---- Six-box input ------------------------------------------------------------------------
 
@@ -239,61 +216,6 @@ export function PinRules({ pin, confirmation }: { pin: string; confirmation: str
 
 // ---- Email code for the PIN flows ---------------------------------------------------------
 
-function useSecondsLeft(untilMs: number) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    setNowMs(Date.now());
-    if (untilMs <= Date.now()) return undefined;
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [untilMs]);
-  return Math.max(0, Math.ceil((untilMs - nowMs) / 1000));
-}
-
-function retryAfter(error: unknown) {
-  if (!(error instanceof ApiClientError) || !error.payload || typeof error.payload !== "object") return undefined;
-  const payload = error.payload as Record<string, unknown>;
-  if (typeof payload.retry_after_seconds === "number") return payload.retry_after_seconds;
-  const match = (typeof payload.detail === "string" ? payload.detail : "").match(/(\d+)\s+seconds?/i);
-  return match ? Number.parseInt(match[1], 10) : undefined;
-}
-
-function useFlowEmailCode(action: ActionEnum) {
-  const request = useV1AuthSensitiveActionCodeRequestCreate();
-  const [codeId, setCodeId] = useState<string | null>(null);
-  const [cooldownUntil, setCooldownUntil] = useState(0);
-  const [error, setError] = useState("");
-  const cooldown = useSecondsLeft(cooldownUntil);
-  const send = useCallback(() => {
-    setError("");
-    if (isFixturePreview) {
-      setCodeId("00000000-0000-0000-0000-000000000000");
-      setCooldownUntil(Date.now() + 60_000);
-      return;
-    }
-    request.mutate(
-      { data: { action } },
-      {
-        onSuccess: (response) => {
-          setCodeId(response.code_id);
-          setCooldownUntil(Date.now() + 60_000);
-        },
-        onError: (mutationError) => {
-          const wait = retryAfter(mutationError);
-          if (wait) setCooldownUntil(Date.now() + wait * 1000);
-          setError(errorText(mutationError));
-        }
-      }
-    );
-  }, [action, request]);
-  const label = request.isPending
-    ? "Sending code..."
-    : cooldown > 0
-      ? codeId ? `Code sent. Send new in ${cooldown}s` : `Send new in ${cooldown}s`
-      : codeId ? "Send a new email code" : "Send email code";
-  return { codeId, send, label, disabled: request.isPending || cooldown > 0, error, isSending: request.isPending };
-}
-
 function EmailCodeInput({
   label = "Email confirmation code",
   value,
@@ -303,7 +225,7 @@ function EmailCodeInput({
   label?: string;
   value: string;
   onChange: (value: string) => void;
-  code: ReturnType<typeof useFlowEmailCode>;
+  code: FlowEmailCode;
 }) {
   return (
     <Field error={code.error || undefined} hint={isFixturePreview ? "Demo: any 6 digits" : undefined} label={label}>
@@ -326,23 +248,6 @@ function EmailCodeInput({
   );
 }
 
-function useAutoSend(send: () => void, active: boolean) {
-  const sent = useRef(false);
-  useEffect(() => {
-    if (!active || sent.current || isFixturePreview) return;
-    sent.current = true;
-    send();
-  }, [active, send]);
-}
-
-function useInvalidatePinQueries() {
-  const queryClient = useQueryClient();
-  return useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: getV1AuthMeRetrieveQueryKey() });
-    void queryClient.invalidateQueries({ queryKey: getV1AuthPinStatusRetrieveQueryKey() });
-  }, [queryClient]);
-}
-
 // ---- Create -------------------------------------------------------------------------------
 
 type CreatePinFormProps = {
@@ -356,64 +261,9 @@ type CreatePinFormProps = {
 };
 
 export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", autoFocus = true, footer }: CreatePinFormProps) {
-  const [pin, setPin] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [confirmationError, setConfirmationError] = useState("");
-  const setMutation = useV1AuthPinSetCreate();
-  const emailCode = useFlowEmailCode(ActionEnum.pin_setup);
-  const invalidate = useInvalidatePinQueries();
-  useAutoSend(emailCode.send, requiresEmailCode);
-  const weakness = pin.length === PIN_LENGTH ? pinWeakness(pin) : null;
-  const ready =
-    pin.length === PIN_LENGTH &&
-    !weakness &&
-    confirmation === pin &&
-    (!requiresEmailCode || (code.length === 6 && (isFixturePreview || Boolean(emailCode.codeId))));
-
-  const save = () => {
-    setError("");
-    setConfirmationError("");
-    if (weakness) {
-      setError(weakness);
-      return;
-    }
-    if (confirmation !== pin) {
-      setConfirmationError("The two PINs do not match. Enter the same PIN twice.");
-      return;
-    }
-    if (isFixturePreview) {
-      onSaved(pin);
-      return;
-    }
-    setMutation.mutate(
-      {
-        data: {
-          new_pin: pin,
-          new_pin_confirmation: confirmation,
-          ...(requiresEmailCode && emailCode.codeId
-            ? { sensitive_action_code_id: emailCode.codeId, sensitive_action_code: code }
-            : {})
-        }
-      },
-      {
-        onSuccess: () => {
-          invalidate();
-          onSaved(pin);
-        },
-        onError: (mutationError) => {
-          const pinError = pinApiError(mutationError);
-          if (pinError?.code === "pin_already_set") {
-            invalidate();
-            onSaved(pin);
-            return;
-          }
-          setError(pinError?.detail ?? errorText(mutationError));
-        }
-      }
-    );
-  };
+  const flow = useCreatePinFlow({ requiresEmailCode, onSaved });
+  const { pin, confirmation, code, weakness, error, confirmationError, ready } = flow;
+  const save = flow.save;
 
   const entry = (
     <div className="pin-create-entry">
@@ -422,23 +272,17 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
         error={weakness ?? undefined}
         label="PIN"
         value={pin}
-        onChange={(next) => {
-          setPin(next);
-          setError("");
-        }}
+        onChange={flow.setPin}
       />
       <PinInput
-        error={confirmationError || (confirmation.length === PIN_LENGTH && confirmation !== pin ? "The two PINs do not match." : undefined)}
+        error={confirmationError || (flow.mismatch ? "The two PINs do not match." : undefined)}
         label="Repeat PIN"
         value={confirmation}
-        onChange={(next) => {
-          setConfirmation(next);
-          setConfirmationError("");
-        }}
+        onChange={flow.setConfirmation}
       />
       {requiresEmailCode ? (
         <div className="pin-email-code auth-code">
-          <EmailCodeInput code={emailCode} value={code} onChange={setCode} />
+          <EmailCodeInput code={flow.emailCode} value={code} onChange={flow.setCode} />
         </div>
       ) : null}
     </div>
@@ -450,7 +294,7 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        if (ready && !setMutation.isPending) save();
+        if (ready && !flow.saving) save();
       }}
     >
       <div className="pin-create-body">
@@ -459,8 +303,8 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
       </div>
       {error ? <Banner tone="bad" title="Could not save your PIN">{error}</Banner> : null}
       <div className="pin-create-actions">
-        <Button disabled={!ready || setMutation.isPending} size="lg" type="submit" variant="primary">
-          {setMutation.isPending ? "Saving PIN..." : "Save PIN"}
+        <Button disabled={!ready || flow.saving} size="lg" type="submit" variant="primary">
+          {flow.saving ? "Saving PIN..." : "Save PIN"}
         </Button>
         {footer}
       </div>
@@ -482,219 +326,11 @@ export function CreatePinDialog({ onClose, onSaved, intro }: { onClose: () => vo
   );
 }
 
-// ---- Change -------------------------------------------------------------------------------
-
-export function ChangePinDialog({ onClose, onChanged, onForgot }: { onClose: () => void; onChanged: () => void; onForgot: () => void }) {
-  const [current, setCurrent] = useState("");
-  const [pin, setPin] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [code, setCode] = useState("");
-  const [currentError, setCurrentError] = useState("");
-  const [error, setError] = useState("");
-  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const mutation = useV1AuthPinChangeCreate();
-  const emailCode = useFlowEmailCode(ActionEnum.pin_change);
-  const invalidate = useInvalidatePinQueries();
-  useAutoSend(emailCode.send, !done);
-  const weakness = pin.length === PIN_LENGTH ? pinWeakness(pin) : null;
-  const sameAsCurrent = pin.length === PIN_LENGTH && pin === current;
-  const ready =
-    current.length === PIN_LENGTH &&
-    pin.length === PIN_LENGTH &&
-    !weakness &&
-    !sameAsCurrent &&
-    confirmation === pin &&
-    code.length === 6 &&
-    (isFixturePreview || Boolean(emailCode.codeId)) &&
-    !lockedUntil;
-
-  const submit = () => {
-    setError("");
-    setCurrentError("");
-    if (isFixturePreview) {
-      if (pinWeakness(current)) {
-        setCurrentError("Wrong PIN. 4 attempts left before your PIN is locked.");
-        return;
-      }
-      setDone(true);
-      return;
-    }
-    if (!emailCode.codeId) return;
-    mutation.mutate(
-      {
-        data: {
-          pin: current,
-          new_pin: pin,
-          new_pin_confirmation: confirmation,
-          sensitive_action_code_id: emailCode.codeId,
-          sensitive_action_code: code
-        }
-      },
-      {
-        onSuccess: () => {
-          invalidate();
-          setDone(true);
-        },
-        onError: (mutationError) => {
-          const pinError = pinApiError(mutationError);
-          if (pinError?.code === "pin_invalid") {
-            setCurrent("");
-            setCurrentError(pinError.detail);
-            return;
-          }
-          if (pinError?.code === "pin_locked") {
-            setLockedUntil(pinError.lockedUntil ?? "");
-            invalidate();
-            return;
-          }
-          setError(pinError?.detail ?? errorText(mutationError));
-        }
-      }
-    );
-  };
-
-  if (done) {
-    return (
-      <Modal footer={<Button variant="primary" onClick={() => { onChanged(); onClose(); }}>Done</Button>} onClose={() => { onChanged(); onClose(); }} title="PIN changed">
-        <Banner icon="checkCircle" tone="ok" title="Your new PIN is active">
-          Use it with the email code from now on. We sent you an email about this change.
-        </Banner>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ready || mutation.isPending} variant="primary" onClick={submit}>{mutation.isPending ? "Saving PIN..." : "Save new PIN"}</Button></>}
-      onClose={onClose}
-      title="Change PIN"
-    >
-      <div className="col gap-16 pin-dialog">
-        {lockedUntil !== null ? (
-          <PinLockedBanner lockedUntil={lockedUntil} onForgot={onForgot} />
-        ) : null}
-        <PinInput
-          autoFocus
-          error={currentError || undefined}
-          label="Current PIN"
-          value={current}
-          onChange={(next) => {
-            setCurrent(next);
-            setCurrentError("");
-          }}
-        />
-        <PinInput
-          error={weakness ?? (sameAsCurrent ? "Your new PIN must be different from your current PIN." : undefined)}
-          label="New PIN"
-          value={pin}
-          onChange={setPin}
-        />
-        <PinInput
-          error={confirmation.length === PIN_LENGTH && confirmation !== pin ? "The two PINs do not match." : undefined}
-          label="Repeat new PIN"
-          value={confirmation}
-          onChange={setConfirmation}
-        />
-        <PinRules confirmation={confirmation} pin={pin} />
-        <EmailCodeInput code={emailCode} value={code} onChange={setCode} />
-        {error ? <Banner tone="bad" title="Could not change your PIN">{error}</Banner> : null}
-      </div>
-    </Modal>
-  );
-}
-
 // ---- Forgot -------------------------------------------------------------------------------
 
 export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onReset: (pin: string) => void }) {
-  const { status } = usePinStatus();
-  const [started, setStarted] = useState(false);
-  const [challengeId, setChallengeId] = useState<string | null>(null);
-  const [smsCooldownUntil, setSmsCooldownUntil] = useState(0);
-  const smsCooldown = useSecondsLeft(smsCooldownUntil);
-  const [code, setCode] = useState("");
-  const [smsCode, setSmsCode] = useState("");
-  const [pin, setPin] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [smsError, setSmsError] = useState("");
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
-  const emailCode = useFlowEmailCode(ActionEnum.pin_reset);
-  const startMutation = useV1AuthPinResetStartCreate();
-  const confirmMutation = useV1AuthPinResetConfirmCreate();
-  const invalidate = useInvalidatePinQueries();
-  const lastDigits = status?.phone_last_digits ?? "";
-  const resetAvailable = status ? status.reset_available : true;
-  const weakness = pin.length === PIN_LENGTH ? pinWeakness(pin) : null;
-  const ready =
-    code.length === 6 &&
-    smsCode.length === 6 &&
-    pin.length === PIN_LENGTH &&
-    !weakness &&
-    confirmation === pin &&
-    (isFixturePreview || (Boolean(emailCode.codeId) && Boolean(challengeId)));
-
-  const sendSms = () => {
-    setSmsError("");
-    if (isFixturePreview) {
-      setChallengeId("fixture-pin-reset");
-      setSmsCooldownUntil(Date.now() + 60_000);
-      return;
-    }
-    startMutation.mutate(undefined, {
-      onSuccess: (response) => {
-        setChallengeId(response.phone_challenge_id);
-        setSmsCooldownUntil(Date.now() + 60_000);
-      },
-      onError: (mutationError) => {
-        const wait = retryAfter(mutationError);
-        if (wait) setSmsCooldownUntil(Date.now() + wait * 1000);
-        setSmsError(pinApiError(mutationError)?.detail ?? errorText(mutationError));
-      }
-    });
-  };
-
-  const start = () => {
-    setStarted(true);
-    emailCode.send();
-    sendSms();
-  };
-
-  const submit = () => {
-    setError("");
-    setSmsError("");
-    if (isFixturePreview) {
-      setDone(true);
-      return;
-    }
-    if (!emailCode.codeId || !challengeId) return;
-    confirmMutation.mutate(
-      {
-        data: {
-          sensitive_action_code_id: emailCode.codeId,
-          sensitive_action_code: code,
-          phone_challenge_id: challengeId,
-          phone_code: smsCode,
-          new_pin: pin,
-          new_pin_confirmation: confirmation
-        }
-      },
-      {
-        onSuccess: () => {
-          invalidate();
-          setDone(true);
-        },
-        onError: (mutationError) => {
-          const pinError = pinApiError(mutationError);
-          if (pinError?.code === "phone_code_invalid" || pinError?.code === "phone_code_attempts_exceeded") {
-            setSmsError(pinError.detail);
-            return;
-          }
-          setError(pinError?.detail ?? errorText(mutationError));
-        }
-      }
-    );
-  };
+  const flow = useForgotPinFlow();
+  const { started, start, lastDigits, resetAvailable, code, smsCode, pin, confirmation, weakness, error, done, ready } = flow;
 
   if (done) {
     return (
@@ -730,13 +366,13 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
 
   return (
     <Modal
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ready || confirmMutation.isPending} variant="primary" onClick={submit}>{confirmMutation.isPending ? "Saving PIN..." : "Save new PIN"}</Button></>}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ready || flow.saving} variant="primary" onClick={flow.submit}>{flow.saving ? "Saving PIN..." : "Save new PIN"}</Button></>}
       onClose={onClose}
       title="Forgot PIN"
     >
       <div className="col gap-16 pin-dialog">
-        <EmailCodeInput code={emailCode} value={code} onChange={setCode} />
-        <Field error={smsError || undefined} hint={isFixturePreview ? "Demo: any 6 digits" : lastDigits ? `Sent to your phone number ending in ${lastDigits}.` : undefined} label="SMS code">
+        <EmailCodeInput code={flow.emailCode} value={code} onChange={flow.setCode} />
+        <Field error={flow.smsError || undefined} hint={isFixturePreview ? "Demo: any 6 digits" : lastDigits ? `Sent to your phone number ending in ${lastDigits}.` : undefined} label="SMS code">
           <div className="code-request-row">
             <input
               aria-label="SMS code"
@@ -744,21 +380,21 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
               className="input mono"
               inputMode="numeric"
               maxLength={6}
-              onChange={(event) => setSmsCode(event.target.value.replace(/\D/g, ""))}
+              onChange={(event) => flow.setSmsCode(event.target.value.replace(/\D/g, ""))}
               placeholder="000000"
               value={smsCode}
             />
-            <Button className="code-request-button" disabled={startMutation.isPending || smsCooldown > 0} variant="ghost" onClick={sendSms}>
-              {startMutation.isPending ? "Sending..." : smsCooldown > 0 ? `Resend in ${smsCooldown}s` : challengeId ? "Resend SMS" : "Send SMS"}
+            <Button className="code-request-button" disabled={flow.smsDisabled} variant="ghost" onClick={flow.sendSms}>
+              {flow.smsLabel}
             </Button>
           </div>
         </Field>
-        <PinInput error={weakness ?? undefined} label="New PIN" value={pin} onChange={setPin} />
+        <PinInput error={weakness ?? undefined} label="New PIN" value={pin} onChange={flow.setPin} />
         <PinInput
-          error={confirmation.length === PIN_LENGTH && confirmation !== pin ? "The two PINs do not match." : undefined}
+          error={flow.mismatch ? "The two PINs do not match." : undefined}
           label="Repeat new PIN"
           value={confirmation}
-          onChange={setConfirmation}
+          onChange={flow.setConfirmation}
         />
         <PinRules confirmation={confirmation} pin={pin} />
         {error ? <Banner tone="bad" title="Could not reset your PIN">{error}</Banner> : null}
@@ -824,59 +460,6 @@ export function SensitivePinField({ pin, onContinue }: { pin: SensitivePin; onCo
         />
       ) : null}
       {pin.forgotOpen ? <ForgotPinDialog onClose={pin.closeDialogs} onReset={pin.afterReset} /> : null}
-    </div>
-  );
-}
-
-// ---- Settings -----------------------------------------------------------------------------
-
-export function SettingsPinPanel({ readonly = false }: { readonly?: boolean }) {
-  const { status, isLoading, query } = usePinStatus(!readonly);
-  const [dialog, setDialog] = useState<"create" | "change" | "forgot" | null>(null);
-  const [notice, setNotice] = useState("");
-  const lockedUntil = status?.locked_until ?? null;
-  const chip = !status
-    ? null
-    : lockedUntil
-      ? <Chip tone="bad">{`Locked until ${formatPinLockTime(lockedUntil)}`}</Chip>
-      : status.pin_set
-        ? <Chip tone="ok">Set</Chip>
-        : <Chip tone="warn">Not set</Chip>;
-  const close = () => setDialog(null);
-  return (
-    <div className="col gap-16">
-      <div className="acct-box">
-        <div className="acct-row">
-          <div className="acct-row-text">
-            <Icon className="acct-row-icon" name="lock" size={16} />
-            <span>
-              <span className="acct-row-title">PIN</span>
-              <span className="acct-row-sub">Needed with the email code for every investment, withdrawal and bank change.</span>
-            </span>
-          </div>
-          <div className="acct-row-actions">{isLoading ? <span className="muted">-</span> : chip}</div>
-        </div>
-        <div className="acct-row pin-settings-actions">
-          {status && !status.pin_set ? (
-            <Button disabled={readonly} size="sm" variant="primary" onClick={() => setDialog("create")}>Create PIN</Button>
-          ) : (
-            <Button disabled={readonly || !status || Boolean(lockedUntil)} size="sm" onClick={() => setDialog("change")}>Change PIN</Button>
-          )}
-          <Button disabled={readonly || !status} size="sm" variant="ghost" onClick={() => setDialog("forgot")}>Forgot PIN?</Button>
-        </div>
-      </div>
-      {query.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load your PIN status">Reload the page to try again.</Banner> : null}
-      {notice ? <Banner tone="ok" title={notice} /> : null}
-      <p className="acct-settings-note">{"We never ask for your PIN by email, SMS or phone. Do not share it with anyone."}</p>
-      {dialog === "create" ? (
-        <CreatePinDialog onClose={close} onSaved={() => { close(); setNotice("Your PIN is saved."); }} />
-      ) : null}
-      {dialog === "change" ? (
-        <ChangePinDialog onChanged={() => setNotice("Your PIN was changed.")} onClose={close} onForgot={() => setDialog("forgot")} />
-      ) : null}
-      {dialog === "forgot" ? (
-        <ForgotPinDialog onClose={close} onReset={() => { close(); setNotice("Your new PIN is saved."); }} />
-      ) : null}
     </div>
   );
 }

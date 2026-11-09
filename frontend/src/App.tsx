@@ -2,7 +2,7 @@
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -13,11 +13,6 @@ import {
   getV1MarketplaceSecondaryListingsListQueryKey,
   useV1AuthMeRetrieve,
   useV1AuthLogoutCreate,
-  useV1AuthMagicLinkRequestCreate,
-  useV1AuthPhoneConfirmCreate,
-  useV1AuthPhoneRequestCreate,
-  useV1AuthPreferencesMarketingPartialUpdate,
-  useV1AuthRegisterNaturalPersonCreate,
   useV1AuthSensitiveActionCodeRequestCreate,
   useV1DocumentsAcceptancesCreate,
   useV1DocumentsTemplatesCurrentRetrieve,
@@ -25,7 +20,6 @@ import {
   useV1FxQuotesCreate,
   useV1FxQuotesExecuteCreate,
   useV1InvestorPortalDocumentsDownloadCreate,
-  useV1KycSessionCreate,
   useV1KycStatusRetrieve,
   useV1LedgerPayoutInstructionsCreate,
   useV1LedgerWithdrawalRequestsCreate,
@@ -42,8 +36,7 @@ import {
   originatorClaimsLoansQuoteCreate,
   v1AuthMeRetrieve,
   useOriginatorClaimsLoansQuoteCreate,
-  useOriginatorClaimsQuotesPurchaseCreate,
-  v1AuthMagicLinkConsumeCreate
+  useOriginatorClaimsQuotesPurchaseCreate
 } from "./api/generated/banxumApi";
 import { ApiClientError } from "./api/client/httpClient";
 import { intentIdempotencyKey } from "./api/client/idempotency";
@@ -54,7 +47,6 @@ import {
 } from "./api/client/impersonation";
 import {
   clearSessionExpiredNotice,
-  hasSessionExpiredNotice,
   onSessionExpired
 } from "./api/client/sessionExpiry";
 import type {
@@ -81,8 +73,7 @@ import type {
   SecondaryMarketLoanInstallment,
   SmartInvestOpportunity,
   SmartInvestResponse,
-  SmartInvestRule,
-  UserSummary
+  SmartInvestRule
 } from "./api/generated/banxumApi";
 import {
   useActivityData,
@@ -138,12 +129,10 @@ import {
   type MkFilters,
   type MkListKey
 } from "./investorPortal/smartInvestCriteria";
-import { onboardingStepForUser } from "./onboarding";
-import { CreatePinForm, SensitivePinField, SettingsPinPanel } from "./investorPortal/pin";
-import { pinApiError } from "./investorPortal/pinRules";
-import { usePinStatus, useSensitivePin } from "./investorPortal/pinState";
+import { SensitivePinField } from "./investorPortal/pin";
+import { useSensitivePin } from "./investorPortal/pinState";
 import { SitePages } from "./site/SitePages";
-import { captureMagicLinkTokenFromLocation, takePendingMagicLinkToken } from "./magicLinkToken";
+import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
 import {
   formatAmountInput,
   formatDate,
@@ -176,6 +165,18 @@ import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
 import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
+import { AccountBlockedScreen } from "./portal/screens/account/AccountBlockedScreen";
+import { AuthLoading } from "./portal/screens/account/auth/AuthLayout";
+import { loginFlowStorageKey, registerFlowStorageKey } from "./portal/screens/account/auth/authState";
+import { KycReturnScreen } from "./portal/screens/account/auth/KycReturnScreen";
+import { LoginScreen } from "./portal/screens/account/auth/LoginScreen";
+import { PinGateScreen } from "./portal/screens/account/auth/PinGateScreen";
+import { RegisterScreen } from "./portal/screens/account/auth/RegisterScreen";
+import { HelpScreen } from "./portal/screens/account/HelpScreen";
+import { KycStatusScreen, VerificationLoading } from "./portal/screens/account/KycStatusScreen";
+import { BankAccountDialog } from "./portal/screens/account/parts/BankAccountDialog";
+import { SettingsScreen } from "./portal/screens/account/SettingsScreen";
+import { isSettingsPathSegment } from "./portal/screens/account/settings/settingsTabs";
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
@@ -240,7 +241,7 @@ const U33_SCREENS_PORTFOLIO: RouteName[] = [];
 const U33_SCREENS_WALLET: RouteName[] = ["transactions", "reports"];
 
 // S5 profile and settings, help, verification (portal/screens/account).
-const U33_SCREENS_ACCOUNT: RouteName[] = [];
+const U33_SCREENS_ACCOUNT: RouteName[] = ["settings", "faq", "kyc"];
 
 const U33_SCREENS = new Set<RouteName>([
   ...U33_SCREENS_INVEST,
@@ -252,12 +253,6 @@ const U33_SCREENS = new Set<RouteName>([
 const reportDocumentKinds = ["account_statement", "annual_tax_information"];
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
-const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
-const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL ?? "support@banxum.com";
-const registrationTermsVersion = import.meta.env.VITE_REGISTRATION_TERMS_VERSION ?? "registration-v1";
-const registrationTermsHash =
-  import.meta.env.VITE_REGISTRATION_TERMS_HASH ??
-  "3b0ba70e0b1d68a6acd2135c832cf114f6db2fb5c8896625c1f28f3ba7bd8dca";
 
 // Labels of the loan repayment types (backend loans.RepaymentType), word for word.
 const repaymentTypeLabels: Record<string, string> = {
@@ -302,77 +297,7 @@ function RefinancedTag({ full = false }: { full?: boolean }) {
   return <span className="tag">{full ? "Refinanced loan" : "Refinanced"}</span>;
 }
 
-const loginFlowStorageKey = "banxum:login-flow:v1";
-const registerFlowStorageKey = "banxum:register-flow:v3";
 const appRouteStorageKey = "banxum:app-route:v1";
-
-type LoginFlowState = {
-  email: string;
-  sent: boolean;
-  linkExpired: boolean;
-  resendCooldownUntil: number;
-  // True while the expired-link screen asks for an address (none known yet, or
-  // "Use a different email address"); the field must stay while the user types.
-  editingEmail: boolean;
-};
-
-type RegisterFlowState = {
-  step: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phoneCountryCode: string;
-  phoneNationalNumber: string;
-  residenceCountry: string;
-  terms: boolean;
-  registrationAcceptedLabels: string[];
-  risk: boolean;
-  marketing: boolean;
-  emailLoginSent: boolean;
-  emailCooldownUntil: number;
-  phoneChallengeId: string | null;
-  phoneCooldownUntil: number;
-};
-
-type RegistrationCountry = {
-  name: string;
-  iso2: string;
-  callingCode: string;
-};
-
-const registrationCountries: RegistrationCountry[] = [
-  { name: "Switzerland", iso2: "CH", callingCode: "+41" },
-  { name: "Austria", iso2: "AT", callingCode: "+43" },
-  { name: "Belgium", iso2: "BE", callingCode: "+32" },
-  { name: "Bulgaria", iso2: "BG", callingCode: "+359" },
-  { name: "Croatia", iso2: "HR", callingCode: "+385" },
-  { name: "Cyprus", iso2: "CY", callingCode: "+357" },
-  { name: "Czechia", iso2: "CZ", callingCode: "+420" },
-  { name: "Denmark", iso2: "DK", callingCode: "+45" },
-  { name: "Estonia", iso2: "EE", callingCode: "+372" },
-  { name: "Finland", iso2: "FI", callingCode: "+358" },
-  { name: "France", iso2: "FR", callingCode: "+33" },
-  { name: "Germany", iso2: "DE", callingCode: "+49" },
-  { name: "Greece", iso2: "GR", callingCode: "+30" },
-  { name: "Hungary", iso2: "HU", callingCode: "+36" },
-  { name: "Iceland", iso2: "IS", callingCode: "+354" },
-  { name: "Ireland", iso2: "IE", callingCode: "+353" },
-  { name: "Italy", iso2: "IT", callingCode: "+39" },
-  { name: "Latvia", iso2: "LV", callingCode: "+371" },
-  { name: "Liechtenstein", iso2: "LI", callingCode: "+423" },
-  { name: "Lithuania", iso2: "LT", callingCode: "+370" },
-  { name: "Luxembourg", iso2: "LU", callingCode: "+352" },
-  { name: "Malta", iso2: "MT", callingCode: "+356" },
-  { name: "Netherlands", iso2: "NL", callingCode: "+31" },
-  { name: "Norway", iso2: "NO", callingCode: "+47" },
-  { name: "Poland", iso2: "PL", callingCode: "+48" },
-  { name: "Portugal", iso2: "PT", callingCode: "+351" },
-  { name: "Romania", iso2: "RO", callingCode: "+40" },
-  { name: "Slovakia", iso2: "SK", callingCode: "+421" },
-  { name: "Slovenia", iso2: "SI", callingCode: "+386" },
-  { name: "Spain", iso2: "ES", callingCode: "+34" },
-  { name: "Sweden", iso2: "SE", callingCode: "+46" }
-];
 
 function readStoredObject<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -486,6 +411,9 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
+  // Profile & Settings tabs (/settings/security...).
+  const settingsMatch = normalized.match(/^\/settings\/([a-z-]+)$/);
+  if (settingsMatch && isSettingsPathSegment(settingsMatch[1])) return { name: "settings", params: { tab: settingsMatch[1] } };
   const investmentMatch = normalized.match(/^\/portfolio\/([^/]+)$/);
   if (investmentMatch) {
     try {
@@ -533,76 +461,10 @@ function routePath(route: AppRoute) {
     fx: "/fx",
     documents: "/documents",
     notifications: "/notifications",
-    settings: "/settings",
+    settings: route.params?.tab && isSettingsPathSegment(route.params.tab) ? `/settings/${route.params.tab}` : "/settings",
     faq: "/portal/help"
   };
   return paths[route.name];
-}
-
-function e164PhoneNumber(callingCode: string, nationalNumber: string) {
-  const digits = nationalNumber.replace(/\D/g, "").replace(/^0+/, "");
-  return digits ? `${callingCode}${digits}` : "";
-}
-
-function normalizedEmail(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function defaultRegisterFlowState(): RegisterFlowState {
-  return {
-    step: 0,
-    firstName: isFixturePreview ? "Lukas" : "",
-    lastName: isFixturePreview ? "Brunner" : "",
-    email: isFixturePreview ? portalFixture.profile.email : "",
-    phoneCountryCode: "+41",
-    phoneNationalNumber: isFixturePreview ? "79 000 00 00" : "",
-    residenceCountry: "Switzerland",
-    terms: false,
-    registrationAcceptedLabels: [],
-    risk: false,
-    marketing: false,
-    emailLoginSent: false,
-    emailCooldownUntil: 0,
-    phoneChallengeId: null,
-    phoneCooldownUntil: 0
-  };
-}
-
-function splitDisplayName(fullName: string) {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
-}
-
-function resumedRegisterStateForUser(user: UserSummary): RegisterFlowState | null {
-  const nextStep = onboardingStepForUser(user);
-  if (nextStep === null) return null;
-
-  const fallback = defaultRegisterFlowState();
-  const stored = readStoredObject<RegisterFlowState>(registerFlowStorageKey, fallback);
-  const storedMatchesUser = normalizedEmail(stored.email) === normalizedEmail(user.email);
-  const nameParts = splitDisplayName(user.full_name);
-  return {
-    ...fallback,
-    ...(storedMatchesUser ? stored : {}),
-    step: nextStep,
-    firstName: storedMatchesUser && stored.firstName ? stored.firstName : nameParts.firstName,
-    lastName: storedMatchesUser && stored.lastName ? stored.lastName : nameParts.lastName,
-    email: user.email,
-    marketing: user.marketing_consent,
-    emailLoginSent: true,
-    phoneChallengeId: null,
-    phoneCooldownUntil: 0
-  };
-}
-
-function resumeOnboardingForUser(user: UserSummary, setRoute: (route: AppRoute) => void) {
-  const registerState = resumedRegisterStateForUser(user);
-  if (!registerState) return false;
-  writeStoredObject(registerFlowStorageKey, registerState);
-  goTo(setRoute, "register");
-  return true;
 }
 
 function retryAfterSeconds(error: unknown) {
@@ -1180,7 +1042,7 @@ export function App() {
   }
 
   if (window.location.pathname.startsWith("/kyc/callback")) {
-    return <UserSkin><KycReturnScreen setRoute={setRoute} /></UserSkin>;
+    return <PortalNavProvider value={authNavFor(route, setRoute)}><KycReturnScreen /></PortalNavProvider>;
   }
 
   // The public site (logged-out pages): its own router, which picks the skin and shell per page
@@ -1195,12 +1057,19 @@ export function App() {
     );
   }
 
+  // Sign-in and registration (S5): U33 auth layout, outside the investor shell.
   if (route.name === "login") {
-    return <UserSkin><LoginFlow setRoute={setRoute} /></UserSkin>;
+    return <PortalNavProvider value={authNavFor(route, setRoute)}><LoginScreen /></PortalNavProvider>;
   }
 
   if (route.name === "register") {
-    return <UserSkin><RegisterFlow setRoute={setRoute} /></UserSkin>;
+    return (
+      <PortalNavProvider value={authNavFor(route, setRoute)}>
+        <RegisterScreen
+          previewDefaults={isFixturePreview ? { firstName: "Lukas", lastName: "Brunner", email: portalFixture.profile.email, phoneNationalNumber: "79 000 00 00" } : undefined}
+        />
+      </PortalNavProvider>
+    );
   }
 
   return (
@@ -1213,1136 +1082,13 @@ export function App() {
   );
 }
 
-function Wordmark({ compact = false, inverse = false }: { compact?: boolean; inverse?: boolean }) {
-  const isBanxum = platformName.toUpperCase() === "BANXUM";
-  return (
-    <span className={`investor-brand bxm-wordmark ${compact ? "compact" : ""} ${inverse ? "inverse" : ""}`}>
-      {isBanxum ? (
-        <img
-          alt={platformName}
-          className="bxm-wordmark-img"
-          src={inverse ? "/brand/banxum-logo-white.svg" : "/brand/banxum-logo.svg"}
-        />
-      ) : (
-        <span className="investor-brand-word">
-          {platformName}
-        </span>
-      )}
-    </span>
-  );
-}
-
-// The logo leads to the main page: the Overview for a signed-in investor, the
-// public home page otherwise. "Signed in" comes from the shared /auth/me query.
-function BrandHomeLink({
-  children,
-  className,
-  onNavigate,
-  setRoute
-}: {
-  children: ReactNode;
-  className?: string;
-  onNavigate?: () => void;
-  setRoute: (route: AppRoute) => void;
-}) {
-  // Read the session the page already has. Never refetch a failed check on mount: the login
-  // screen shows this link too, and a refetch there resets the portal's session gate, which
-  // then remounts the login screen and this link in a loop (audit A-03).
-  const authMeQuery = useV1AuthMeRetrieve({
-    query: {
-      enabled: !isFixturePreview,
-      retry: false,
-      retryOnMount: false,
-      refetchOnMount: false,
-      refetchOnWindowFocus: false,
-      staleTime: 60_000
-    }
-  });
-  const user = authMeQuery.data?.user;
-  const signedIn = Boolean(user) && !["admin", "superadmin"].includes(user?.account_type ?? "");
-  const target: RouteName = signedIn ? "dashboard" : "public";
-  return (
-    <a
-      aria-label={signedIn ? `${platformName} overview` : `${platformName} home`}
-      className={className}
-      href={routePath({ name: target })}
-      onClick={(event) => {
-        if (!isPlainLeftClick(event)) return;
-        event.preventDefault();
-        onNavigate?.();
-        goTo(setRoute, target);
-      }}
-    >
-      {children}
-    </a>
-  );
-}
-
-// A plain left click (no new tab, no modifier): the only click the app handles itself.
-function isPlainLeftClick(event: React.MouseEvent<HTMLAnchorElement>) {
-  return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
-}
-
-function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const [initialLoginState] = useState(() =>
-    readStoredObject<LoginFlowState>(loginFlowStorageKey, {
-      email: "",
-      sent: false,
-      linkExpired: false,
-      resendCooldownUntil: 0,
-      editingEmail: false
-    })
-  );
-  const [email, setEmail] = useState(initialLoginState.email);
-  const [sent, setSent] = useState(initialLoginState.sent);
-  const [linkExpired, setLinkExpired] = useState(initialLoginState.linkExpired);
-  const [resendCooldownUntil, setResendCooldownUntil] = useState(
-    initialLoginState.resendCooldownUntil
-  );
-  const [editingEmail, setEditingEmail] = useState(
-    initialLoginState.editingEmail || !initialLoginState.email
-  );
-  const [focusEmailField, setFocusEmailField] = useState(false);
-  const [sessionExpired, setSessionExpired] = useState(hasSessionExpiredNotice);
-  const [isConsuming, setIsConsuming] = useState(false);
-  const [blockedAccountStatus, setBlockedAccountStatus] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const magicLinkRequest = useV1AuthMagicLinkRequestCreate();
-  const resendCooldownSeconds = useSecondsUntil(resendCooldownUntil);
-
-  useEffect(() => {
-    writeStoredObject(loginFlowStorageKey, {
-      email,
-      sent,
-      linkExpired,
-      resendCooldownUntil,
-      editingEmail
-    });
-  }, [editingEmail, email, linkExpired, resendCooldownUntil, sent]);
-
-  const consumeAttemptedRef = useRef(false);
-  const loginFlowMountedRef = useRef(false);
-
-  useEffect(() => {
-    loginFlowMountedRef.current = true;
-    // The token arrives in the URL fragment (/login#token=...) or, in older emails, the
-    // query; App has already removed it from the address bar (audit A-49).
-    const token = consumeAttemptedRef.current ? null : takePendingMagicLinkToken();
-    if (!token || isFixturePreview) {
-      return () => {
-        loginFlowMountedRef.current = false;
-      };
-    }
-    // The token is single-use: never fire a second consume request even if
-    // the effect re-runs (e.g. StrictMode's development effect replay).
-    if (consumeAttemptedRef.current) {
-      return () => {
-        loginFlowMountedRef.current = false;
-      };
-    }
-    consumeAttemptedRef.current = true;
-    setIsConsuming(true);
-    void v1AuthMagicLinkConsumeCreate({ token })
-      .then((response) => {
-        if (!loginFlowMountedRef.current) return;
-        removeStoredObject(loginFlowStorageKey);
-        clearSessionExpiredNotice();
-        window.history.replaceState({}, "", "/");
-        if (resumeOnboardingForUser(response.user, setRoute)) return;
-        removeStoredObject(registerFlowStorageKey);
-        goTo(setRoute, "dashboard");
-      })
-      .catch((mutationError: unknown) => {
-        if (!loginFlowMountedRef.current) return;
-        const blockedStatus = blockedAccountStatusFromError(mutationError);
-        if (blockedStatus || (mutationError instanceof ApiClientError && mutationError.status === 400)) {
-          const url = new URL(window.location.href);
-          url.searchParams.delete("token");
-          window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-          setError("");
-          if (blockedStatus) {
-            // A valid link of a restricted or locked account: say why login is refused.
-            setBlockedAccountStatus(blockedStatus);
-            return;
-          }
-          setLinkExpired(true);
-          return;
-        }
-        setError(apiErrorMessage(mutationError));
-      })
-      .finally(() => {
-        if (loginFlowMountedRef.current) setIsConsuming(false);
-      });
-
-    return () => {
-      loginFlowMountedRef.current = false;
-    };
-  }, [setRoute]);
-
-  const markLinkSent = () => {
-    setSent(true);
-    setLinkExpired(false);
-    setEditingEmail(false);
-    setResendCooldownUntil(Date.now() + 60_000);
-    clearSessionExpiredNotice();
-    setSessionExpired(false);
+/** Navigation for the screens outside the investor shell (sign-in, registration, PIN gate, Didit return). */
+function authNavFor(route: AppRoute, setRoute: (route: AppRoute) => void): PortalNav {
+  return {
+    hrefFor: (name, params) => routePath({ name, params }),
+    go: (name, params) => goTo(setRoute, name, params),
+    route
   };
-
-  const requestMagicLink = () => {
-    if (!email.includes("@") || magicLinkRequest.isPending || resendCooldownSeconds > 0) return;
-    setError("");
-    if (isFixturePreview) {
-      markLinkSent();
-      return;
-    }
-    magicLinkRequest.mutate(
-      { data: { email } },
-      {
-        onSuccess: markLinkSent,
-        onError: (mutationError) => {
-          const waitSeconds = retryAfterSeconds(mutationError);
-          if (waitSeconds) {
-            setResendCooldownUntil(Date.now() + waitSeconds * 1000);
-          }
-          setError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-
-  const resetLoginFlow = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("token");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-    removeStoredObject(loginFlowStorageKey);
-    setEmail("");
-    setSent(false);
-    setLinkExpired(false);
-    setEditingEmail(false);
-    setResendCooldownUntil(0);
-    setError("");
-  };
-
-  // On the expired-link screen: keep the screen and ask for another address.
-  const switchToDifferentEmail = () => {
-    setEmail("");
-    setEditingEmail(true);
-    setFocusEmailField(true);
-    setResendCooldownUntil(0);
-    setError("");
-  };
-
-  const resendLabel = magicLinkRequest.isPending
-    ? "Sending..."
-    : resendCooldownSeconds > 0
-      ? `Link sent. Send new in ${resendCooldownSeconds}s`
-      : "Send a new magic link";
-  const resendDisabled =
-    !email.includes("@") || magicLinkRequest.isPending || resendCooldownSeconds > 0;
-
-  function submitMagicLink(event: FormEvent) {
-    event.preventDefault();
-    requestMagicLink();
-  }
-
-  if (isConsuming) {
-    return (
-      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
-        <div className="auth-card"><Empty icon="clock" title="Signing you in">Verifying your one-time login link.</Empty></div>
-      </AuthShell>
-    );
-  }
-
-  if (blockedAccountStatus) {
-    const statusWord = blockedAccountStatus === "locked" ? "locked" : "restricted";
-    return (
-      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
-        <div className="auth-card">
-          <div className="auth-form">
-            <AuthStatusIcon name="lock" />
-            <div className="auth-head">
-              <h2>Your account is {statusWord}</h2>
-              <p>
-                You cannot log in while your account is {statusWord}. Please contact support at{" "}
-                <a href={`mailto:${supportEmail}`}>{supportEmail}</a> for further details.
-              </p>
-            </div>
-            <a className="btn btn-primary btn-lg btn-block" href={`mailto:${supportEmail}`}>
-              Contact support
-            </a>
-          </div>
-        </div>
-      </AuthShell>
-    );
-  }
-
-  return (
-    <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
-      <div className="auth-card">
-        {linkExpired ? (
-          <form className="auth-form" data-testid="login-expired-form" onSubmit={submitMagicLink}>
-            <AuthStatusIcon name="clock" />
-            <div className="auth-head">
-              <h2>Login link expired</h2>
-              <p>
-                This login link has expired or is no longer valid. Request a new link to continue.
-              </p>
-              {editingEmail ? null : (
-                <p>
-                  We will send the new link to <b>{email}</b>.
-                </p>
-              )}
-            </div>
-            {editingEmail ? (
-              <Field label="Email address">
-                <input
-                  autoFocus={focusEmailField}
-                  className="input"
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@example.com"
-                  type="email"
-                  value={email}
-                />
-              </Field>
-            ) : null}
-            {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
-            <Button block disabled={resendDisabled} size="lg" type="submit" variant="primary">
-              {resendLabel}
-            </Button>
-            {editingEmail ? null : (
-              <div className="auth-alt">
-                <Button variant="link" onClick={switchToDifferentEmail}>
-                  Use a different email address
-                </Button>
-              </div>
-            )}
-            <p className="auth-note">
-              Lost access to your email is handled through support after identity re-verification.
-            </p>
-          </form>
-        ) : !sent ? (
-          <form className="auth-form" data-testid="login-magic-link-form" onSubmit={submitMagicLink}>
-            <div className="auth-head">
-              <h2>Log in</h2>
-              <p>
-                We will email a secure magic link. No password is required for investor access.
-              </p>
-            </div>
-            {sessionExpired ? (
-              <Banner icon="clock" tone="warn" title="Your session has expired">
-                Please log in again to continue.
-              </Banner>
-            ) : null}
-            <Field label="Email address">
-              <input className="input" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />
-            </Field>
-            {error ? <Banner tone="bad" title="Could not continue">{error}</Banner> : null}
-            <Button block disabled={!email.includes("@") || magicLinkRequest.isPending} size="lg" type="submit" variant="primary">
-              {magicLinkRequest.isPending ? "Sending..." : "Send magic link"}
-            </Button>
-            <p className="auth-alt">
-              New to {platformName}? <a href="/register" onClick={(event) => { event.preventDefault(); goTo(setRoute, "register"); }}>Register as a lender</a>
-            </p>
-          </form>
-        ) : (
-          <div className="auth-form">
-            <AuthStatusIcon name="bell" />
-            <div className="auth-head">
-              <h2>Check your inbox</h2>
-              <p>
-                We sent a magic link to <b>{email}</b>. It expires in 15 minutes.
-              </p>
-            </div>
-            {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
-            <div className="auth-actions">
-              <Button block disabled={resendDisabled} size="lg" onClick={requestMagicLink}>
-                {resendLabel}
-              </Button>
-              {isFixturePreview ? <Button block size="lg" variant="primary" onClick={() => goTo(setRoute, "dashboard")}>
-                Open link in demo
-              </Button> : null}
-            </div>
-            <div className="auth-alt">
-              <Button variant="link" onClick={resetLoginFlow}>
-                Use a different email address
-              </Button>
-            </div>
-            <p className="auth-note">
-              Lost access to your email is handled through support after identity re-verification.
-            </p>
-          </div>
-        )}
-      </div>
-    </AuthShell>
-  );
-}
-
-// The magic-link consume API answers 403 { code: "account_restricted" | "account_locked" }
-// when a valid link belongs to an account an admin has blocked.
-function blockedAccountStatusFromError(error: unknown) {
-  if (!(error instanceof ApiClientError) || error.status !== 403) return null;
-  const code = (error.payload as { code?: unknown } | undefined)?.code;
-  if (code === "account_restricted") return "restricted";
-  if (code === "account_locked") return "locked";
-  return null;
-}
-
-function AuthStatusIcon({ name }: { name: IconName }) {
-  return (
-    <div aria-hidden="true" className="auth-status-icon">
-      <Icon name={name} size={20} />
-    </div>
-  );
-}
-
-function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
-  });
-  const sessionUser = authMeQuery.data?.user;
-
-  // The Didit redirect lands on /kyc/callback, which the SPA router does not
-  // know; every exit must first restore the root path.
-  const leaveTo = (name: RouteName) => {
-    window.history.replaceState({}, "", "/");
-    goTo(setRoute, name);
-  };
-
-  useEffect(() => {
-    if (!sessionUser) return;
-    // This browser holds the investor session, so verification was completed
-    // on the same device: continue straight to the live verification status.
-    removeStoredObject(registerFlowStorageKey);
-    window.history.replaceState({}, "", "/");
-    goTo(setRoute, "kyc");
-  }, [sessionUser, setRoute]);
-
-  if (!isFixturePreview && (authMeQuery.isPending || sessionUser)) {
-    return (
-      <AuthShell onClose={() => leaveTo("public")} setRoute={setRoute}>
-        <div className="auth-card">
-          <Empty icon="clock" title="Finishing identity verification">
-            Returning you to your verification status.
-          </Empty>
-        </div>
-      </AuthShell>
-    );
-  }
-
-  // No session in this browser: the identity capture happened on a secondary
-  // device (QR hand-off). The originating device keeps the session and picks
-  // up the result automatically.
-  return (
-    <AuthShell onClose={() => leaveTo("public")} setRoute={setRoute}>
-      <div className="auth-card">
-        <div className="auth-form">
-          <AuthStatusIcon name="checkCircle" />
-          <div className="auth-head">
-            <h2>Identity check submitted</h2>
-            <p>
-              You can close this tab and return to the device where you started
-              registration. It will continue automatically as soon as the
-              verification result arrives.
-            </p>
-          </div>
-          <p className="auth-alt is-start">
-            Want to continue on this device instead?{" "}
-            <a href="/login" onClick={(event) => { event.preventDefault(); leaveTo("login"); }}>Log in here</a>.
-          </p>
-        </div>
-      </div>
-    </AuthShell>
-  );
-}
-
-function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const defaultRegisterState = defaultRegisterFlowState();
-  const [initialRegisterState] = useState(() =>
-    readStoredObject<RegisterFlowState>(registerFlowStorageKey, defaultRegisterState)
-  );
-  const [step, setStep] = useState(initialRegisterState.step);
-  const [firstName, setFirstName] = useState(initialRegisterState.firstName);
-  const [lastName, setLastName] = useState(initialRegisterState.lastName);
-  const [email, setEmail] = useState(initialRegisterState.email);
-  const [phoneCountryCode, setPhoneCountryCode] = useState(initialRegisterState.phoneCountryCode);
-  const [phoneNationalNumber, setPhoneNationalNumber] = useState(initialRegisterState.phoneNationalNumber);
-  const [residenceCountry, setResidenceCountry] = useState(initialRegisterState.residenceCountry);
-  const [terms, setTerms] = useState(initialRegisterState.terms);
-  const [registrationAcceptedLabels, setRegistrationAcceptedLabels] = useState(
-    initialRegisterState.registrationAcceptedLabels
-  );
-  const [risk, setRisk] = useState(initialRegisterState.risk);
-  const [marketing, setMarketing] = useState(initialRegisterState.marketing);
-  const [emailLoginSent, setEmailLoginSent] = useState(initialRegisterState.emailLoginSent);
-  const [phoneCode, setPhoneCode] = useState("");
-  const [error, setError] = useState("");
-  const registerMutation = useV1AuthRegisterNaturalPersonCreate();
-  const registrationMagicLinkMutation = useV1AuthMagicLinkRequestCreate();
-  const phoneRequestMutation = useV1AuthPhoneRequestCreate();
-  const phoneConfirmMutation = useV1AuthPhoneConfirmCreate();
-  const authMeQuery = useV1AuthMeRetrieve({
-    query: {
-      enabled: !isFixturePreview && step >= 1,
-      retry: false,
-      staleTime: 0
-    }
-  });
-  const [phoneChallengeId, setPhoneChallengeId] = useState<string | null>(
-    initialRegisterState.phoneChallengeId
-  );
-  const [phoneCooldownUntil, setPhoneCooldownUntil] = useState(initialRegisterState.phoneCooldownUntil);
-  const [emailCooldownUntil, setEmailCooldownUntil] = useState(initialRegisterState.emailCooldownUntil);
-  const [nowMs, setNowMs] = useState(Date.now());
-  const kycSessionMutation = useV1KycSessionCreate();
-  const registrationTermsQuery = useV1DocumentsTemplatesCurrentRetrieve(
-    {
-      category: CategoryEnum.registration,
-      template_key: "default",
-      language: "en"
-    },
-    {
-      query: {
-        enabled: !isFixturePreview,
-        retry: false,
-        staleTime: 0
-      }
-    }
-  );
-  const riskDisclosureQuery = useV1DocumentsTemplatesCurrentRetrieve(
-    {
-      category: CategoryEnum.risk_disclosure,
-      template_key: "default",
-      language: "en"
-    },
-    {
-      query: {
-        enabled: !isFixturePreview,
-        retry: false,
-        staleTime: 0
-      }
-    }
-  );
-  const phoneNumber = e164PhoneNumber(phoneCountryCode, phoneNationalNumber);
-  const phoneNumberLabel = phoneNumber || "your registered mobile number";
-  const phoneCooldownSeconds = Math.max(0, Math.ceil((phoneCooldownUntil - nowMs) / 1000));
-  const phoneRequestDisabled = phoneRequestMutation.isPending || phoneCooldownSeconds > 0;
-  const emailCooldownSeconds = Math.max(0, Math.ceil((emailCooldownUntil - nowMs) / 1000));
-  const registrationLabels = templateLabels(registrationTermsQuery.data);
-  const riskLabels = templateLabels(riskDisclosureQuery.data);
-  const allRegistrationTermsAccepted = isFixturePreview
-    ? terms
-    : registrationLabels.length > 0 &&
-      registrationLabels.every((label) => registrationAcceptedLabels.includes(label));
-
-  useEffect(() => {
-    writeStoredObject(registerFlowStorageKey, {
-      step,
-      firstName,
-      lastName,
-      email,
-      phoneCountryCode,
-      phoneNationalNumber,
-      residenceCountry,
-      terms,
-      registrationAcceptedLabels,
-      risk,
-      marketing,
-      emailLoginSent,
-      emailCooldownUntil,
-      phoneChallengeId,
-      phoneCooldownUntil
-    } satisfies RegisterFlowState);
-  }, [
-    email,
-    emailCooldownUntil,
-    emailLoginSent,
-    firstName,
-    lastName,
-    marketing,
-    phoneChallengeId,
-    phoneCooldownUntil,
-    phoneCountryCode,
-    phoneNationalNumber,
-    registrationAcceptedLabels,
-    residenceCountry,
-    risk,
-    step,
-    terms
-  ]);
-
-  useEffect(() => {
-    if (phoneCooldownSeconds <= 0 && emailCooldownSeconds <= 0) return;
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [emailCooldownSeconds, phoneCooldownSeconds]);
-
-  const sessionUser = authMeQuery.data?.user;
-  const hasMatchingSession =
-    isFixturePreview ||
-    (Boolean(sessionUser) && normalizedEmail(sessionUser?.email ?? "") === normalizedEmail(email));
-  const hasDifferentSession =
-    !isFixturePreview &&
-    Boolean(sessionUser) &&
-    normalizedEmail(sessionUser?.email ?? "") !== normalizedEmail(email);
-
-  const kycStatusQuery = useV1KycStatusRetrieve({
-    query: {
-      enabled: !isFixturePreview && step === 3 && hasMatchingSession,
-      retry: false,
-      // Identity capture can happen on another device (QR hand-off), so keep
-      // polling until the provider reports a result.
-      refetchInterval: (query) => {
-        const caseStatus = query.state.data?.status;
-        return !caseStatus || caseStatus === "not_started" || caseStatus === "pending"
-          ? 4000
-          : false;
-      }
-    }
-  });
-  const kycCaseStatus = kycStatusQuery.data?.status;
-
-  useEffect(() => {
-    if (isFixturePreview || step !== 3 || !kycCaseStatus) return;
-    if (kycCaseStatus === "not_started" || kycCaseStatus === "pending") return;
-    // The provider produced a result: registration hand-off is complete, so
-    // continue inside the account on this (already signed-in) device.
-    removeStoredObject(registerFlowStorageKey);
-    goTo(setRoute, kycCaseStatus === "approved" ? "dashboard" : "kyc");
-  }, [kycCaseStatus, setRoute, step]);
-
-  useEffect(() => {
-    if (
-      step === 1 &&
-      sessionUser?.phone_verified &&
-      normalizedEmail(sessionUser.email) === normalizedEmail(email)
-    ) {
-      setStep(2);
-      setPhoneChallengeId(null);
-      setPhoneCooldownUntil(0);
-    }
-    // The PIN step (ACC-DEC-009) is done once the account has a PIN.
-    if (
-      step === 2 &&
-      sessionUser?.pin_set === true &&
-      normalizedEmail(sessionUser.email) === normalizedEmail(email)
-    ) {
-      setStep(3);
-    }
-  }, [email, sessionUser, step]);
-
-  const requestRegistrationMagicLink = () => {
-    if (!email.includes("@")) {
-      setError("Enter a valid email address before requesting the sign-in link.");
-      return;
-    }
-    setError("");
-    if (isFixturePreview) {
-      setEmailLoginSent(true);
-      return;
-    }
-    registrationMagicLinkMutation.mutate(
-      { data: { email } },
-      {
-        onSuccess: () => {
-          setEmailLoginSent(true);
-          setEmailCooldownUntil(Date.now() + 60_000);
-          setNowMs(Date.now());
-        },
-        onError: (mutationError) => {
-          const waitSeconds = retryAfterSeconds(mutationError);
-          if (waitSeconds) {
-            setEmailCooldownUntil(Date.now() + waitSeconds * 1000);
-            setNowMs(Date.now());
-          }
-          if (waitSeconds && emailLoginSent) {
-            // A link is already on its way; the button countdown tells the
-            // user when resend unlocks, so no error banner is needed.
-            return;
-          }
-          setError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-
-  const submitRegistration = () => {
-    setError("");
-    if (isFixturePreview) {
-      setStep(1);
-      setEmailLoginSent(true);
-      return;
-    }
-    if (!registrationTermsQuery.data || registrationLabels.length === 0) {
-      setError("The current lender user agreement is not available. Retry once it loads.");
-      return;
-    }
-    if (!riskDisclosureQuery.data || riskLabels.length === 0) {
-      setError("The current lender risk disclosure is not available. Retry once it loads.");
-      return;
-    }
-    registerMutation.mutate(
-      {
-        data: {
-          email,
-          full_name: `${firstName} ${lastName}`.trim(),
-          phone_number: phoneNumber,
-          terms_version: registrationTermsVersion,
-          terms_hash: registrationTermsHash,
-          registration_document_template_version_id: registrationTermsQuery.data?.id,
-          accepted_checkbox_labels: registrationLabels,
-          document_idempotency_key: idempotencyKey("registration-document"),
-          risk_document_template_version_id: riskDisclosureQuery.data.id,
-          accepted_risk_checkbox_labels: riskLabels,
-          risk_document_idempotency_key: idempotencyKey("registration-risk-disclosure"),
-          marketing_consent: marketing
-        }
-      },
-      {
-        onSuccess: (response) => {
-          setStep(1);
-          setPhoneCode("");
-          setPhoneChallengeId(null);
-          setPhoneCooldownUntil(0);
-          setEmailLoginSent(response.email_login_sent);
-          setEmailCooldownUntil(response.email_login_sent ? Date.now() + 60_000 : 0);
-          setNowMs(Date.now());
-        },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
-      }
-    );
-  };
-
-  const requestPhoneCode = () => {
-    setError("");
-    if (isFixturePreview) {
-      setPhoneChallengeId("fixture-phone-challenge");
-      setPhoneCooldownUntil(Date.now() + 60_000);
-      setNowMs(Date.now());
-      return;
-    }
-    if (!hasMatchingSession) {
-      setError("Open your magic-link email in this browser before requesting the SMS code.");
-      return;
-    }
-    // Send the number typed at registration: the signed-in owner may correct an
-    // unverified number this way (a repeated registration never changes stored data).
-    phoneRequestMutation.mutate(phoneNumber ? { data: { phone_number: phoneNumber } } : {}, {
-      onSuccess: (response) => {
-        if (response.phone_verified) {
-          setStep(2);
-          return;
-        }
-        setPhoneChallengeId(response.challenge_id);
-        setPhoneCooldownUntil(Date.now() + 60_000);
-        setNowMs(Date.now());
-      },
-      onError: (mutationError) => {
-        const waitSeconds = retryAfterSeconds(mutationError);
-        if (waitSeconds) {
-          setPhoneCooldownUntil(Date.now() + waitSeconds * 1000);
-          setNowMs(Date.now());
-        }
-        if (mutationError instanceof ApiClientError && mutationError.status === 403) {
-          setError("Sign in with your magic-link email before requesting the SMS code.");
-          return;
-        }
-        setError(apiErrorMessage(mutationError));
-      }
-    });
-  };
-
-  const confirmPhone = () => {
-    setError("");
-    if (isFixturePreview) {
-      setStep(2);
-      return;
-    }
-    if (!phoneChallengeId) {
-      setError("Request an SMS code first.");
-      return;
-    }
-    phoneConfirmMutation.mutate(
-      { data: { challenge_id: phoneChallengeId, code: phoneCode } },
-      {
-        onSuccess: () => {
-          setStep(2);
-          setPhoneCooldownUntil(0);
-        },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
-      }
-    );
-  };
-
-  const startKyc = () => {
-    setError("");
-    if (isFixturePreview) {
-      goTo(setRoute, "kyc");
-      return;
-    }
-    kycSessionMutation.mutate(undefined, {
-      onSuccess: (response) => {
-        if (response.verification_url) {
-          window.location.assign(response.verification_url);
-          return;
-        }
-        goTo(setRoute, "kyc");
-      },
-      onError: (mutationError) => {
-        // Identity verification needs the PIN first (ACC-DEC-009): back to the PIN step.
-        if (pinApiError(mutationError)?.code === "pin_required") {
-          setStep(2);
-          return;
-        }
-        setError(apiErrorMessage(mutationError));
-      }
-    });
-  };
-
-  return (
-    <RegisterShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute} step={step}>
-      {step === 0 ? (
-        <>
-          <PageHead
-            description={<>Individual lenders only. Legal entities are onboarded by {operatorName} off-platform.</>}
-            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
-            title="Create your lender account"
-          />
-          <div className="card auth-onb-card">
-            <div className="auth-onb-grid">
-              <Field label="First name"><input className="input" onChange={(event) => setFirstName(event.target.value)} value={firstName} /></Field>
-              <Field label="Last name"><input className="input" onChange={(event) => setLastName(event.target.value)} value={lastName} /></Field>
-              <div className="auth-onb-span">
-                <Field label="Email address"><input className="input" onChange={(event) => setEmail(event.target.value)} type="email" value={email} /></Field>
-              </div>
-              <Field hint={phoneNumber ? `Stored as ${phoneNumber}` : "Use the mobile number you will keep available for SMS verification."} label="Mobile phone number">
-                <div className="phone-number-row">
-                  <select
-                    aria-label="Phone country prefix"
-                    className="select phone-prefix-select"
-                    onChange={(event) => setPhoneCountryCode(event.target.value)}
-                    value={phoneCountryCode}
-                  >
-                    {registrationCountries.map((country) => (
-                      <option key={`${country.iso2}-${country.callingCode}`} value={country.callingCode}>
-                        {country.iso2} {country.callingCode}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="input mono"
-                    inputMode="tel"
-                    onChange={(event) => setPhoneNationalNumber(event.target.value.replace(/[^\d\s().-]/g, ""))}
-                    placeholder="79 000 00 00"
-                    value={phoneNationalNumber}
-                  />
-                </div>
-              </Field>
-              <Field label="Country of residence">
-                <select className="select" onChange={(event) => setResidenceCountry(event.target.value)} value={residenceCountry}>
-                  {registrationCountries.map((country) => (
-                    <option key={country.iso2} value={country.name}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <div className="auth-consents">
-              {isFixturePreview || registrationLabels.length === 0 ? (
-                <Check checked={terms} id="register-terms" onChange={setTerms}>
-                  I accept the{" "}
-                  <LegalDocLink category="registration">
-                    platform terms and registration documents
-                  </LegalDocLink>
-                  .
-                </Check>
-              ) : (
-                registrationLabels.map((label, index) => (
-                  <Check
-                    checked={registrationAcceptedLabels.includes(label)}
-                    id={`register-terms-${index}`}
-                    key={label}
-                    onChange={(checked) =>
-                      setRegistrationAcceptedLabels((current) =>
-                        checked
-                          ? Array.from(new Set([...current, label]))
-                          : current.filter((item) => item !== label)
-                      )
-                    }
-                  >
-                    {label} <LegalDocLink category="registration">read &amp; download</LegalDocLink>
-                  </Check>
-                ))
-              )}
-              <Check checked={risk} id="register-risk" onChange={setRisk}>
-                {riskLabels.length === 1 ? riskLabels[0] : "I acknowledge the P2P lending risk disclosure."}{" "}
-                <LegalDocLink category="risk_disclosure">
-                  read &amp; download
-                </LegalDocLink>
-              </Check>
-              <Check checked={marketing} id="register-marketing" onChange={setMarketing}>I agree to optional marketing communications.</Check>
-            </div>
-            <p className="auth-note">
-              Documents open in a new tab where you can read and download them.{" "}
-              {!isFixturePreview && registrationTermsQuery.data ? (
-                <>
-                  Acceptance is recorded against server-published v
-                  {registrationTermsQuery.data.version_number} (hash{" "}
-                  <span className="mono">{registrationTermsQuery.data.content_hash.slice(0, 12)}</span>)
-                  with timestamp and context. You can generate the accepted version from My Documents.
-                </>
-              ) : (
-                <>Acceptance is recorded with document version, timestamp and context.</>
-              )}
-            </p>
-            {!isFixturePreview && registrationTermsQuery.isError ? (
-              <Banner tone="bad" title="Agreement unavailable">
-                The current server-published lender agreement could not be loaded.
-              </Banner>
-            ) : null}
-            {!isFixturePreview && riskDisclosureQuery.isError ? (
-              <Banner tone="bad" title="Risk disclosure unavailable">
-                The current server-published risk disclosure could not be loaded. Retry before registering.
-              </Banner>
-            ) : null}
-            {error ? <Banner tone="bad" title="Could not register">{error}</Banner> : null}
-            <div className="auth-onb-actions">
-              <Button disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && (!registrationTermsQuery.data || !riskDisclosureQuery.data))} size="lg" variant="primary" onClick={submitRegistration}>
-                {registerMutation.isPending ? "Creating account..." : "Continue"}
-              </Button>
-            </div>
-          </div>
-        </>
-      ) : step === 1 ? (
-        <>
-          {!hasMatchingSession ? (
-            <>
-              <PageHead
-                description="We need your magic-link email opened in this browser before SMS verification."
-                eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
-                title="Confirm your email"
-              />
-              <div className="card auth-onb-card">
-                {hasDifferentSession ? (
-                  <Banner tone="warn" title="Different account signed in">
-                    This browser is signed in as <b>{sessionUser?.email}</b>. Open the magic link
-                    sent to <b>{email}</b> in this browser to continue this registration.
-                  </Banner>
-                ) : emailLoginSent ? (
-                  <Banner tone="ok" title="Magic link sent">
-                    Open the email sent to <b>{email}</b>. After sign-in, BANXUM will return you to
-                    phone verification.
-                  </Banner>
-                ) : (
-                  <Banner tone="info" title="Email confirmation required">
-                    Send a secure magic link to <b>{email}</b>, then open it in this browser.
-                  </Banner>
-                )}
-                <div className="auth-onb-actions">
-                  <Button
-                    disabled={
-                      !email.includes("@") ||
-                      registrationMagicLinkMutation.isPending ||
-                      emailCooldownSeconds > 0
-                    }
-                    size="lg"
-                    variant="primary"
-                    onClick={requestRegistrationMagicLink}
-                  >
-                    {registrationMagicLinkMutation.isPending
-                      ? "Sending..."
-                      : emailCooldownSeconds > 0
-                        ? emailLoginSent
-                          ? `Resend in ${emailCooldownSeconds}s`
-                          : `Try again in ${emailCooldownSeconds}s`
-                        : emailLoginSent
-                          ? "Resend magic link"
-                          : "Send magic link"}
-                  </Button>
-                </div>
-                {error ? <Banner tone="bad" title="Could not send magic link">{error}</Banner> : null}
-              </div>
-            </>
-          ) : (
-            <>
-              <PageHead
-                description={
-                  <>
-                    Request an SMS code for {phoneNumberLabel}. Phone verification is required before
-                    financial access.
-                  </>
-                }
-                eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
-                title="Verify your phone"
-              />
-              <div className="card auth-onb-card">
-                <div className="auth-code">
-                  <CodeRequestField
-                    hint={previewHint("Demo: enter any 6 digits")}
-                    label="SMS code"
-                    requestDisabled={phoneRequestDisabled}
-                    requestLabel={
-                      !isFixturePreview
-                        ? phoneRequestMutation.isPending
-                          ? "Sending..."
-                          : phoneCooldownSeconds > 0
-                            ? `Resend in ${phoneCooldownSeconds}s`
-                            : phoneChallengeId
-                              ? "Resend SMS"
-                              : "Send SMS"
-                        : undefined
-                    }
-                    value={phoneCode}
-                    onChange={setPhoneCode}
-                    onRequest={requestPhoneCode}
-                  />
-                </div>
-                {error ? <Banner tone="bad" title="Could not verify phone">{error}</Banner> : null}
-                <div className="auth-onb-actions">
-                  <Button disabled={phoneCode.length < 6 || (!isFixturePreview && !phoneChallengeId) || phoneConfirmMutation.isPending} size="lg" variant="primary" onClick={confirmPhone}>
-                    {phoneConfirmMutation.isPending ? "Verifying..." : "Verify phone"}
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </>
-      ) : step === 2 ? (
-        <>
-          <PageHead
-            description="You will enter it with the email code for every investment, withdrawal and bank change."
-            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
-            title="Create your PIN"
-          />
-          <div className="card auth-onb-card">
-            <CreatePinForm layout="split" requiresEmailCode={false} onSaved={() => setStep(3)} />
-          </div>
-        </>
-      ) : (
-        <>
-          <PageHead
-            description={
-              <>
-                We will redirect you to Didit for identity capture and verification. Garanta retains
-                the required compliance evidence and provider references for audit and regulatory
-                access. If you verify on another device (for example via QR code), this page
-                continues automatically once the result arrives.
-              </>
-            }
-            eyebrow={`Step ${step + 1} of ${registerStepLabels.length}`}
-            title="Identity verification"
-          />
-          <div className="card auth-onb-card">
-            <KycTimeline current="pending" />
-            <Banner tone="neutral" title="Provider handoff">
-              Didit verifies your identity and returns provider evidence/status to {operatorName}. If
-              the provider routes your case to review, financial access stays locked until Garanta
-              compliance resolves it.
-            </Banner>
-            {error ? <Banner tone="bad" title="Could not start KYC">{error}</Banner> : null}
-            <div className="auth-onb-actions">
-              <Button disabled={kycSessionMutation.isPending} size="lg" variant="primary" onClick={startKyc}>
-                {kycSessionMutation.isPending ? "Starting Didit..." : "Start KYC"}
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-    </RegisterShell>
-  );
-}
-
-const registerStepLabels = ["Account", "Email and phone", "PIN", "KYC"];
-
-// Registration uses the onboarding layout: a slim top bar, the numbered step
-// bar and a centred column with the step content.
-function RegisterShell({
-  step,
-  onClose,
-  setRoute,
-  children
-}: {
-  step: number;
-  onClose: () => void;
-  setRoute: (route: AppRoute) => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="auth-wrap auth-onb">
-      <header className="auth-onb-head">
-        <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
-          <Wordmark />
-        </BrandHomeLink>
-        <button className="auth-onb-exit" onClick={onClose} type="button">
-          <Icon name="arrowL" size={16} />
-          <span>Back to investment opportunities preview</span>
-        </button>
-      </header>
-      <div className="auth-onb-body">
-        <ol aria-label="Registration steps" className="auth-stepbar">
-          {registerStepLabels.map((label, index) => (
-            <li
-              aria-current={index === step ? "step" : undefined}
-              aria-label={label}
-              className={`auth-stepbar-item ${index < step ? "is-done" : index === step ? "is-current" : ""}`}
-              key={label}
-            >
-              <span className="auth-stepbar-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className="auth-stepbar-label">{label}</span>
-            </li>
-          ))}
-        </ol>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// Short public claim for the dark side panel, taken from the public landing copy.
-const authClaim =
-  "Review project-specific business loans, their repayment schedules, risks, and any disclosed security before deciding whether to invest.";
-
-// Sign-in and status screens use the split layout: a dark panel with the logo
-// and claim on wide screens, and the form panel on the right.
-function AuthShell({
-  children,
-  onClose,
-  setRoute
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-  setRoute: (route: AppRoute) => void;
-}) {
-  return (
-    <div className="auth-wrap auth-split">
-      <aside className="auth-aside">
-        <span className="auth-aside-label">Investor area</span>
-        <div className="auth-aside-brand">
-          <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
-            <Wordmark inverse />
-          </BrandHomeLink>
-          <p className="auth-claim">{authClaim}</p>
-        </div>
-      </aside>
-      <div className="auth-main">
-        <div className="auth-panel">
-          <div className="auth-mobile-brand">
-            <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
-              <Wordmark />
-            </BrandHomeLink>
-          </div>
-          {children}
-        </div>
-        <p className="auth-foot">
-          <button className="btn-link" onClick={onClose} type="button">
-            Back to investment opportunities preview
-          </button>
-          <span aria-hidden="true" className="auth-foot-sep">·</span>
-          <span>{operatorName}</span>
-        </p>
-      </div>
-    </div>
-  );
 }
 
 function InvestorShell({
@@ -2527,20 +1273,14 @@ function InvestorShell({
       : displayProfile();
 
   if (!isFixturePreview && firstSessionCheck) {
-    return (
-      <UserSkin>
-        <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
-          <div className="auth-card"><ScreenLoading title="Checking your session" /></div>
-        </AuthShell>
-      </UserSkin>
-    );
+    return <PortalNavProvider value={authNavFor(route, setRoute)}><AuthLoading title={t("Checking your session")} /></PortalNavProvider>;
   }
   if (signedOutAtHome) {
     // The layout effect above switches to the public route before this is painted.
     return null;
   }
   if (!isFixturePreview && !sessionUser) {
-    return <UserSkin><LoginFlow setRoute={setRoute} /></UserSkin>;
+    return <PortalNavProvider value={authNavFor(route, setRoute)}><LoginScreen /></PortalNavProvider>;
   }
   if (!isFixturePreview && sessionUser && ["admin", "superadmin"].includes(sessionUser.account_type) && !readonlyImpersonation.active) {
     return <AdminApp />;
@@ -2608,11 +1348,11 @@ function InvestorShell({
       case "notifications":
         return <NotificationsScreen setRoute={setRoute} />;
       case "settings":
-        return <SettingsScreen setRoute={setRoute} />;
+        return <SettingsScreen previewProfile={isFixturePreview ? displayProfile() : undefined} tab={route.params?.tab} />;
       case "kyc":
-        return <KycStatusScreen setRoute={setRoute} />;
+        return <KycStatusScreen />;
       case "faq":
-        return <FaqScreen />;
+        return <HelpScreen />;
       default:
         return <Dashboard demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />;
     }
@@ -2629,8 +1369,8 @@ function InvestorShell({
       ? kycGateQuery.isPending && kycGateQuery.dataUpdatedAt === 0 && kycGateQuery.errorUpdatedAt === 0
         // Loading only before the first answer: a re-check after an error must not unmount
         // the status screen, whose own lookup would then restart the check in a loop.
-        ? <ScreenLoading title="Verification" />
-        : <KycStatusScreen setRoute={setRoute} />
+        ? <VerificationLoading />
+        : <KycStatusScreen />
       : screen;
 
   // Lots on their last day (withdraw-only), due back to the bank, or in penalty mode need action.
@@ -2678,16 +1418,17 @@ function InvestorShell({
       !blockedAccountStatuses.has(sessionUser.status);
   if (needsPin) {
     return (
-      <PinGateScreen
-        onCreated={() => {
-          if (isFixturePreview) setDemoState("active");
-          setPinJustCreated(true);
-        }}
-        onSignOut={signOut}
-        setRoute={setRoute}
-        signOutError={signOutError}
-        signOutLabel={signOutLabel}
-      />
+      <PortalNavProvider value={authNavFor(route, setRoute)}>
+        <PinGateScreen
+          onCreated={() => {
+            if (isFixturePreview) setDemoState("active");
+            setPinJustCreated(true);
+          }}
+          onSignOut={signOut}
+          signOutError={signOutError}
+          signOutLabel={signOutLabel}
+        />
+      </PortalNavProvider>
     );
   }
 
@@ -2702,7 +1443,8 @@ function InvestorShell({
       ? t("Verified investor")
       : t("Verification pending");
   // Rebuilt U33 screens bring their own layout; every other screen body stays in the old skin.
-  const isU33Screen = gatedScreen === screen && U33_SCREENS.has(route.name);
+  // The gate screens (account access, verification) are U33 screens of S5.
+  const isU33Screen = gatedScreen !== screen || U33_SCREENS.has(route.name);
   const notices = [
     signOutError ? (
       <Banner
@@ -2757,7 +1499,7 @@ function InvestorShell({
                     onClose={() => setAddFundsOpen(false)}
                   />
                 ) : null}
-                {payoutIbanOpen ? <PayoutIbanModal onClose={() => setPayoutIbanOpen(false)} /> : null}
+                {payoutIbanOpen ? <BankAccountDialog holderName={readonlyImpersonation.active ? "" : profile.name} onClose={() => setPayoutIbanOpen(false)} /> : null}
               </LegacyBody>
             ) : null}
             extraNavItems={fxFeature.enabled ? { Wallet: [FX_NAV_ITEM] } : undefined}
@@ -11023,249 +9765,6 @@ function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void
   );
 }
 
-function kycChipTone(status: string) {
-  if (status === "approved") return "ok" as const;
-  if (status === "pending" || status === "not_started") return "neutral" as const;
-  if (status === "manual_review" || status === "expired" || status === "reverification_required") return "warn" as const;
-  return "bad" as const;
-}
-
-type SettingsSection = "profile" | "verification" | "pin" | "payout" | "communication" | "support";
-
-function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const queryClient = useQueryClient();
-  const [section, setSection] = useState<SettingsSection>("profile");
-  const [marketing, setMarketing] = useState(false);
-  const [marketingError, setMarketingError] = useState("");
-  const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
-  });
-  const kycStatusQuery = useV1KycStatusRetrieve({
-    query: { enabled: !isFixturePreview && !isReadonlyImpersonationActive(), retry: false, staleTime: 0 }
-  });
-  const fixtureProfile = displayProfile();
-  const account = authMeQuery.data?.user;
-  const marketingMutation = useV1AuthPreferencesMarketingPartialUpdate();
-  const name = isFixturePreview ? fixtureProfile.name : account?.full_name ?? "";
-  const email = isFixturePreview ? fixtureProfile.email : account?.email ?? "";
-  const country = isFixturePreview ? fixtureProfile.country : "";
-  const memberSince = isFixturePreview ? fixtureProfile.memberSince : "";
-  const phone = isFixturePreview ? fixtureProfile.phone : "";
-  const kycStatus = isFixturePreview ? "approved" : kycStatusQuery.data?.status;
-  const phoneVerified = isFixturePreview
-    ? true
-    : kycStatusQuery.data?.phone_verified ?? account?.phone_verified;
-  const balances = useBalancesData();
-  const payoutInstructions = balances.data?.payout_instructions ?? [];
-  useEffect(() => {
-    if (account) setMarketing(account.marketing_consent);
-  }, [account]);
-
-  const changeMarketingConsent = (nextValue: boolean) => {
-    setMarketingError("");
-    if (isFixturePreview) {
-      setMarketing(nextValue);
-      return;
-    }
-    marketingMutation.mutate(
-      { data: { marketing_consent: nextValue } },
-      {
-        onSuccess: (response) => {
-          setMarketing(response.user.marketing_consent);
-          void queryClient.invalidateQueries();
-        },
-        onError: (mutationError) => {
-          setMarketing(account?.marketing_consent ?? false);
-          setMarketingError(apiErrorMessage(mutationError));
-        }
-      }
-    );
-  };
-  const readonly = isReadonlyImpersonationActive();
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || fixtureProfile.initials;
-  const summaries = balances.data?.summaries ?? [];
-  const identityRows = [
-    name ? { label: "Name", value: name } : null,
-    country ? { label: "Country", value: country } : null,
-    memberSince ? { label: "Member since", value: formatDate(memberSince) } : null
-  ].filter((row): row is { label: string; value: string } => row !== null);
-  const sections: Array<{ key: SettingsSection; label: string; icon: IconName; description: string }> = [
-    { key: "profile", label: "Profile", icon: "user", description: "The details of your investor account." },
-    { key: "verification", label: "Verification", icon: "shield", description: "Identity and phone checks for your account." },
-    { key: "pin", label: "PIN", icon: "lock", description: "Your 6-digit PIN confirms investments, withdrawals and bank changes with the email code." },
-    { key: "payout", label: "Payout accounts", icon: "building", description: "Bank accounts in your name for withdrawals and forced returns." },
-    { key: "communication", label: "Communication", icon: "mail", description: "Choose the optional emails you receive." },
-    { key: "support", label: "Support & account", icon: "help", description: "Answers to common questions and how to reach support." }
-  ];
-  const current = sections.find((item) => item.key === section) ?? sections[0];
-
-  return (
-    <main className="content acct-page acct-settings">
-      <PageHead description="Profile, verification, payout accounts and preferences." title="Profile & Settings" />
-      <div className="card acct-settings-card">
-        <aside className="acct-settings-aside">
-          <div className="acct-settings-user">
-            <span aria-hidden="true" className="acct-settings-avatar">{initials}</span>
-            <div className="acct-settings-who">
-              {name ? <div className="acct-settings-name">{name}</div> : null}
-              {email ? <div className="acct-settings-email">{email}</div> : null}
-            </div>
-          </div>
-          {summaries.length > 0 ? (
-            <div className="acct-settings-balance">
-              <div className="bxm-label">Account balance</div>
-              {summaries.map((item, index) => (
-                <div className={index === 0 ? "acct-settings-balance-main num" : "acct-settings-balance-sub num"} key={item.currency}>
-                  {formatMoneyMinor(item.total_available_minor, item.currency)} <span className="acct-settings-ccy">{item.currency}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <nav aria-label="Settings sections" className="acct-settings-menu">
-            {sections.map((item) => (
-              <button
-                aria-current={section === item.key ? "true" : undefined}
-                className={section === item.key ? "on" : ""}
-                key={item.key}
-                onClick={() => {
-                  setSection(item.key);
-                  // On narrow screens the section opens below the menu; bring it into view.
-                  if (window.matchMedia?.("(max-width: 991px)").matches) {
-                    document.getElementById("acct-settings-title")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-                  }
-                }}
-                type="button"
-              >
-                <Icon className="acct-settings-menu-icon" name={item.icon} size={17} />
-                <span>{item.label}</span>
-                <Icon className="acct-settings-menu-chev" name="chevR" size={15} />
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        <section aria-labelledby="acct-settings-title" className="acct-settings-main">
-          <div className="acct-settings-head">
-            <div>
-              <h2 id="acct-settings-title">{current.label}</h2>
-              <p>{current.description}</p>
-            </div>
-            {section === "payout" ? (
-              <Button disabled={readonly} size="sm" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button>
-            ) : null}
-          </div>
-
-          {section === "profile" ? (
-            <>
-              {identityRows.length > 0 ? (
-                <div className="acct-data-group">
-                  <div className="acct-data-head">Identity</div>
-                  <dl className="acct-data-list">
-                    {identityRows.map((row) => (
-                      <div className="acct-data-item" key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
-                    ))}
-                  </dl>
-                </div>
-              ) : null}
-              {email ? (
-                <div className="acct-data-group">
-                  <div className="acct-data-head">Contact</div>
-                  <dl className="acct-data-list">
-                    <div className="acct-data-item"><dt>Email</dt><dd>{email}</dd></div>
-                  </dl>
-                </div>
-              ) : null}
-              <p className="acct-settings-note">Name or email changes are handled through support after identity re-verification.</p>
-            </>
-          ) : null}
-
-          {section === "verification" ? (
-            <div className="acct-box">
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="shield" size={16} /><span className="acct-row-title">Identity (KYC/AML)</span></div>
-                <div className="acct-row-actions">{kycStatus ? <Chip tone={kycChipTone(kycStatus)}>{humanizeToken(kycStatus)}</Chip> : <span className="muted">-</span>}</div>
-              </div>
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="phone" size={16} /><span className="acct-row-title">{phone ? `Phone ${phone}` : "Phone"}</span></div>
-                <div className="acct-row-actions">{phoneVerified === undefined ? <span className="muted">-</span> : <Chip status={phoneVerified ? "verified" : "pending"} tone={phoneVerified ? "ok" : "neutral"} />}</div>
-              </div>
-            </div>
-          ) : null}
-
-          {section === "pin" ? <SettingsPinPanel readonly={readonly} /> : null}
-
-          {section === "payout" ? (
-            <div className="col gap-16">
-              {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
-              {payoutInstructions.length === 0 ? (
-                <p className="acct-settings-note">No payout IBAN is on file yet. Add one so Garanta can review it for withdrawals and forced-return handling.</p>
-              ) : (
-                <div className="acct-box">
-                  {payoutInstructions.map((instruction) => (
-                    <div className="acct-row" key={instruction.id}>
-                      <div className="acct-row-text">
-                        <span>
-                          <span className="acct-iban num">{instruction.destination_iban}</span>
-                          <span className="acct-row-sub">{instruction.currency} · {instruction.destination_account_name}</span>
-                        </span>
-                      </div>
-                      <div className="acct-row-actions">
-                        <Chip tone={instruction.is_verified_usable ? "ok" : "warn"}>
-                          {instruction.is_verified_usable ? "Verified usable" : "Pending Garanta verification"}
-                        </Chip>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <Banner tone="info" title="Verification required">Submitting a new payout IBAN does not make it usable automatically. Garanta must verify the account before it can be used for withdrawals or forced returns.</Banner>
-            </div>
-          ) : null}
-
-          {section === "communication" ? (
-            <div className="col gap-16">
-              <div className="acct-box">
-                <label className="acct-row acct-toggle-row" style={{ cursor: readonly ? "not-allowed" : "pointer" }}>
-                  <span className="acct-row-text">
-                    <span>
-                      <span className="acct-row-title">Product updates and newsletter</span>
-                      <span className="acct-row-sub">Transactional emails are mandatory.</span>
-                    </span>
-                  </span>
-                  <span className="acct-row-actions">
-                    <input checked={marketing} className="acct-checkbox" disabled={readonly || marketingMutation.isPending} onChange={(event) => changeMarketingConsent(event.target.checked)} type="checkbox" />
-                  </span>
-                </label>
-              </div>
-              {marketingError ? <Banner tone="bad" title="Could not update preference">{marketingError}</Banner> : null}
-            </div>
-          ) : null}
-
-          {section === "support" ? (
-            <div className="acct-box">
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="info" size={16} /><span className="acct-row-title">Help & FAQ</span></div>
-                <div className="acct-row-actions"><Button size="sm" onClick={() => goTo(setRoute, "faq")}>Open</Button></div>
-              </div>
-              <div className="acct-row">
-                <div className="acct-row-text"><Icon className="acct-row-icon" name="mail" size={16} /><span className="acct-row-title">Email support</span></div>
-                <div className="acct-row-actions"><a className="acct-mail" href={`mailto:${supportEmail}`}>{supportEmail}</a></div>
-              </div>
-            </div>
-          ) : null}
-        </section>
-      </div>
-      {showPayoutModal ? <PayoutIbanModal onClose={() => setShowPayoutModal(false)} /> : null}
-    </main>
-  );
-}
-
 function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [currency, setCurrency] = useState("CHF");
@@ -11350,612 +9849,6 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
 // Account statuses that block login and financial access (set by an admin).
 const blockedAccountStatuses = new Set(["restricted", "locked", "closed"]);
 const lenderAccountTypes = new Set(["natural_person_lender", "legal_entity_lender_representative"]);
-
-// After login, an account without a PIN (every account created before ACC-DEC-009)
-// creates it here before the portal opens. Outside registration this needs an email code.
-function PinGateScreen({
-  onCreated,
-  onSignOut,
-  setRoute,
-  signOutError,
-  signOutLabel
-}: {
-  onCreated: () => void;
-  onSignOut: () => void;
-  setRoute: (route: AppRoute) => void;
-  signOutError: string;
-  signOutLabel: string;
-}) {
-  const { status, isLoading, query } = usePinStatus();
-  return (
-    <UserSkin>
-      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
-        <div className="auth-card">
-          <div className="auth-form pin-gate">
-            <AuthStatusIcon name="lock" />
-            <div className="auth-head">
-              <h2>Create your PIN</h2>
-              <p>
-                Before you continue: you will enter this 6-digit PIN with the email code for every
-                investment, withdrawal and bank change.
-              </p>
-            </div>
-            {isLoading ? (
-              <ScreenLoading title="Loading" />
-            ) : query.isError && !isFixturePreview ? (
-              <Banner actions={<Button size="sm" onClick={() => void query.refetch()}>Retry</Button>} tone="bad" title="Could not load your account">
-                Check your connection and try again.
-              </Banner>
-            ) : (
-              <CreatePinForm
-                footer={<Button variant="link" onClick={onSignOut}>{signOutLabel}</Button>}
-                requiresEmailCode={status?.setup_requires_email_code ?? true}
-                onSaved={onCreated}
-              />
-            )}
-            {signOutError ? <Banner tone="bad" title="Could not sign out">{signOutError}</Banner> : null}
-          </div>
-        </div>
-      </AuthShell>
-    </UserSkin>
-  );
-}
-
-function AccountBlockedScreen({ status }: { status: string }) {
-  const statusWord = status === "locked" ? "locked" : status === "closed" ? "closed" : "restricted";
-  const supportLink = <a href={`mailto:${supportEmail}`}>{supportEmail}</a>;
-  return (
-    <main className="content narrow acct-page acct-blocked">
-      <PageHead description="Your balances, investments and loans are not available right now." title="Account access" />
-      <section aria-label="Account status" className="card acct-blocked-card">
-        <Banner icon="lock" tone="bad" title={`Your account is ${statusWord}`}>
-          {statusWord === "closed" ? (
-            <>This account has been closed. If you have questions, contact support at {supportLink}.</>
-          ) : (
-            <>
-              You cannot view or move money while your account is {statusWord}. Please contact support at{" "}
-              {supportLink} for further details.
-            </>
-          )}
-        </Banner>
-        <div className="acct-blocked-actions">
-          <a className="btn btn-primary" href={`mailto:${supportEmail}`}>
-            <Icon name="mail" size={15} />
-            Contact support
-          </a>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const statusQuery = useV1KycStatusRetrieve({
-    query: {
-      enabled: !isFixturePreview,
-      retry: false,
-      // The portal gate already asked; never re-run a failed lookup just because this screen mounted.
-      retryOnMount: false,
-      // While capture is still open (possibly on another device), poll until
-      // the provider reports a result.
-      refetchInterval: (query) => {
-        const caseStatus = query.state.data?.status;
-        return caseStatus === "not_started" || caseStatus === "pending" ? 4000 : false;
-      }
-    }
-  });
-  const sessionMutation = useV1KycSessionCreate();
-  const [error, setError] = useState("");
-  const kycStatus = isFixturePreview ? "manual_review" : statusQuery.data?.status;
-  const isApproved = kycStatus === "approved";
-  const isWaitingForProvider = kycStatus === "pending";
-  // A case that waits for an admin decision cannot be restarted by the investor; re-verification
-  // is open only when an admin requested it (the case is then no longer flagged for review).
-  const canStartKyc =
-    !isFixturePreview &&
-    !statusQuery.data?.manual_review_required &&
-    (kycStatus === "not_started" ||
-      kycStatus === "expired" ||
-      kycStatus === "reverification_required");
-
-  useEffect(() => {
-    if (!isFixturePreview && statusQuery.data?.financial_access_allowed) {
-      goTo(setRoute, "dashboard");
-    }
-  }, [setRoute, statusQuery.data?.financial_access_allowed]);
-
-  const startKyc = () => {
-    setError("");
-    if (isFixturePreview) return;
-    sessionMutation.mutate(undefined, {
-      onSuccess: (response) => {
-        if (response.verification_url) {
-          window.location.assign(response.verification_url);
-        }
-      },
-      onError: (mutationError) => setError(apiErrorMessage(mutationError))
-    });
-  };
-  const bannerTitle = isApproved
-    ? "Verification approved"
-    : canStartKyc
-      ? "Identity verification required"
-      : isWaitingForProvider
-        ? "Waiting for verification result"
-        : "Verification under review";
-  const bannerMessage = isApproved
-    ? "Financial access is available if phone verification and account status are also valid."
-    : canStartKyc
-      ? "Start identity verification with Didit. After you finish capture, this page will wait for the provider and compliance result."
-      : isWaitingForProvider
-        ? `Your identity capture has been submitted. We are waiting for Didit and ${operatorName} compliance to confirm the result. This page updates automatically. If it remains here for more than a few minutes, contact ${supportEmail}.`
-        : `Your verification is under review. We will contact you. Financial actions stay locked until ${operatorName} completes the review. Contact ${supportEmail} with any questions.`;
-
-  if (!isFixturePreview && statusQuery.isPending && statusQuery.dataUpdatedAt === 0 && statusQuery.errorUpdatedAt === 0) {
-    return <ScreenLoading title="Verification" />;
-  }
-
-  return (
-    <main className="content narrow acct-page acct-kyc">
-      <PageHead description="KYC provider handoff and Garanta compliance status." title="Verification" />
-      <section aria-labelledby="acct-kyc-status" className="card acct-kyc-card">
-        <h2 className="bxm-label acct-group-label" id="acct-kyc-status">Status</h2>
-        <div className="acct-box acct-kyc-steps">
-          <KycTimeline current={isApproved ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
-        </div>
-        <div className="col gap-12 acct-kyc-notes">
-          {statusQuery.isError && !isFixturePreview ? (
-            <Banner tone="bad" title="Could not load KYC status">
-              The verification service did not answer.{" "}
-              <button className="btn btn-sm" disabled={statusQuery.isFetching} onClick={() => void statusQuery.refetch()} type="button">
-                Retry
-              </button>
-            </Banner>
-          ) : null}
-          <Banner tone={isApproved ? "ok" : "info"} title={bannerTitle}>
-            {bannerMessage}
-          </Banner>
-        </div>
-        {canStartKyc || statusQuery.data?.financial_access_allowed || isFixturePreview ? (
-          <div className="acct-kyc-actions">
-            {canStartKyc ? (
-              <Button disabled={sessionMutation.isPending} onClick={startKyc}>
-                {sessionMutation.isPending ? "Starting Didit..." : "Start Didit verification"}
-              </Button>
-            ) : null}
-            {statusQuery.data?.financial_access_allowed || isFixturePreview ? (
-              <Button variant="primary" onClick={() => goTo(setRoute, "dashboard")}>Back to dashboard</Button>
-            ) : null}
-          </div>
-        ) : null}
-        {error ? <div className="acct-kyc-error"><Banner tone="bad" title="Could not start KYC">{error}</Banner></div> : null}
-      </section>
-    </main>
-  );
-}
-
-function KycTimeline({ current }: { current: "pending" | "manual_review" | "approved" }) {
-  const steps = [
-    { key: "account", title: "Account created", desc: "Registration terms accepted." },
-    { key: "phone", title: "Phone verified", desc: "SMS confirmation complete." },
-    { key: "kyc", title: "Didit verification", desc: current === "approved" ? "Approved." : "Provider review in progress." },
-    { key: "access", title: "Financial access", desc: "Deposits and investing unlock after approval." }
-  ];
-  const activeIndex = current === "approved" ? 3 : 2;
-  return (
-    <div className="timeline">
-      {steps.map((step, index) => (
-        <div className="tl-item" key={step.key}>
-          <div className="tl-rail"><div className={`tl-node ${index < activeIndex ? "done" : index === activeIndex ? "cur" : ""}`}>{index < activeIndex ? "✓" : index + 1}</div>{index < steps.length - 1 ? <div className={`tl-line ${index < activeIndex ? "done" : ""}`} /> : null}</div>
-          <div className="tl-content"><div className="tl-title">{step.title}</div><div className="tl-desc">{step.desc}</div></div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type FaqSection = {
-  title: string;
-  summary: string;
-  items: Array<{ question: string; answer: ReactNode }>;
-};
-
-// Texts that offer currency exchange follow the FX switch (fx.enabled, owner decision 2026-10-16).
-function faqSections(fxEnabled: boolean): FaqSection[] {
-  return [
-  {
-    title: "How BANXUM works",
-    summary: "The platform connects individual lenders with project-specific business-loan opportunities.",
-    items: [
-      {
-        question: `What is ${platformName}?`,
-        answer: (
-          <>
-            {platformName} is a peer-to-peer lending platform operated by {operatorName}. Individual
-            lenders can buy participations in loan claims originated, documented and serviced by the
-            operator.
-          </>
-        )
-      },
-      {
-        question: "Who are the parties in a typical loan?",
-        answer: (
-          <>
-            A borrower receives financing, lenders fund loan-claim participations, {operatorName} operates
-            the platform and servicing process, and Didit supports identity verification. The platform is
-            not a bank deposit product, fund, exchange, or guaranteed-return product.
-          </>
-        )
-      },
-      {
-        question: "Is every loan secured?",
-        answer: (
-          <>
-            Security is disclosed per project. A loan may have collateral, guarantees, other security, or an
-            expressly disclosed unsecured exception. Security can reduce loss risk but never guarantees repayment
-            or full recovery after borrower default.
-          </>
-        )
-      }
-    ]
-  },
-  {
-    title: "Account and verification",
-    summary: "Registration, phone verification and KYC must be complete before financial access unlocks.",
-    items: [
-      {
-        question: "Who can register online?",
-        answer: (
-          <>
-            The online flow is for individual lenders in Switzerland and EU/EEA countries. Legal entities are
-            onboarded by {operatorName} off-platform.
-          </>
-        )
-      },
-      {
-        question: "Why do I need phone verification and KYC?",
-        answer: (
-          <>
-            Phone verification confirms account contact details. KYC confirms identity and helps satisfy AML
-            and investor-protection controls. Until those checks are complete, deposits and investing remain
-            locked.
-          </>
-        )
-      },
-      {
-        question: "What happens if KYC is under review?",
-        answer: (
-          <>
-            Your verification screen updates automatically as soon as the provider returns a result. If the
-            case is routed to manual review, financial actions stay locked until {operatorName} approves the
-            account — no action is needed from you in the meantime.
-          </>
-        )
-      }
-    ]
-  },
-  {
-    title: "Balances and deadlines",
-    summary: `${autoReturnRuleText()} Investment eligibility depends on the loan funding window.`,
-    items: [
-      {
-        question: "How do I add funds?",
-        answer: (
-          <>
-            Open Balances and choose Add Funds. You will see the collection account (IBAN) for each enabled
-            currency together with your personal payment reference. Send a normal bank transfer from your own
-            account in the same currency and include the reference exactly as shown — it is how your payment
-            is matched to your account. Your balance is credited once {operatorName} reconciles the incoming
-            payment.
-          </>
-        )
-      },
-      {
-        question: "Are platform balances like a bank account?",
-        answer: (
-          <>
-            No. Platform balances are non-interest-bearing operational funds held for investing, FX or
-            withdrawal workflows. They are not bank deposits and are subject to ageing controls.
-          </>
-        )
-      },
-      {
-        question: "How long can money remain uninvested?",
-        answer: (
-          <>
-            Up to {AUTO_RETURN_AFTER_DAYS} days. Money that is not invested goes back to your bank automatically
-            after {AUTO_RETURN_AFTER_DAYS} days. To invest, the money must cover the full remaining funding period
-            of the loan you choose within those days. For example, a 30-day remaining subscription window needs
-            at least 30 days of holding time left; a 10-day window needs 10. Exchanging currency does not restart
-            this count.
-          </>
-        )
-      },
-      {
-        question: `What happens after ${AUTO_RETURN_AFTER_DAYS} days?`,
-        answer: (
-          <>
-            Day {AUTO_RETURN_AFTER_DAYS} is the last day: you can withdraw the money until the end of that day
-            (Europe/Zurich), but you can no longer invest{fxEnabled ? " or exchange" : ""} it. The next day we send it back
-            automatically to your verified payout IBAN. If there is no verified IBAN, the money stays on your
-            balance and we ask you to add one. Money may not stay longer than 60 days, the legal limit: after
-            day 60 it enters penalty mode and money-moving actions are blocked until a verified IBAN is on file.
-            The 60-day limit cannot be extended.
-          </>
-        )
-      }
-    ]
-  },
-  {
-    title: "Investing and orders",
-    summary: "Orders are intents first; they become effective only after funds are allocated.",
-    items: [
-      {
-        question: "Does placing an order reserve loan capacity?",
-        answer: (
-          <>
-            No. An order is an investment intent. It becomes effective only when eligible funds are allocated
-            and validated on a first-come, first-served basis.
-          </>
-        )
-      },
-      {
-        question: "Can an order be partially filled?",
-        answer: (
-          <>
-            Yes. If remaining capacity is lower than your requested amount, the platform may allocate only the
-            available part, subject to platform rules and available eligible balance.
-          </>
-        )
-      },
-      {
-        question: "What do I agree to when investing?",
-        answer: (
-          <>
-            Each investment requires current investment terms and risk acknowledgements. The accepted document
-            version, timestamp, checkbox labels and context are recorded as immutable evidence.
-          </>
-        )
-      },
-      {
-        question: "What fees do lenders pay?",
-        answer: (
-          <>
-            Every fee that applies to an action — for example the secondary-market seller fee
-            {fxEnabled ? " or the currency-exchange fee" : ""} — is shown in that flow before you confirm, together
-            with the exact amounts.
-            Nothing is charged without being displayed first.
-          </>
-        )
-      }
-    ]
-  },
-  {
-    title: "Repayments, portfolio and risk",
-    summary: "Repayments credit lender balances; borrower delay or default can reduce expected returns.",
-    items: [
-      {
-        question: "How do repayments reach me?",
-        answer: (
-          <>
-            Borrower repayments are distributed to current holders according to their outstanding principal.
-            Principal and interest credits appear in your balance and activity history.
-          </>
-        )
-      },
-      {
-        question: "Can I lose money?",
-        answer: (
-          <>
-            Yes. Borrowers can pay late, pay partially, default, or become subject to recovery proceedings.
-            Collateral, guarantees or security may not fully cover losses or may take time and cost to enforce.
-          </>
-        )
-      },
-      {
-        question: "Why do holdings sometimes show late or default status?",
-        answer: (
-          <>
-            Loan status follows the servicing process. Late/default statuses are based on overdue installments
-            and are shown so lenders can assess current risk before holding or selling.
-          </>
-        )
-      }
-    ]
-  },
-  {
-    title: fxEnabled ? "Secondary market and FX" : "Secondary market",
-    summary: fxEnabled
-      ? "Selling and currency conversion are available only under platform controls."
-      : "Selling is available only under platform controls.",
-    items: [
-      {
-        question: "Can I sell before maturity?",
-        answer: (
-          <>
-            You can list an entire holding on the secondary market when the loan is paid on time. Liquidity is
-            not guaranteed. Loans that are late or in default cannot be listed, and an open listing is cancelled
-            when its loan becomes late or defaulted.
-          </>
-        )
-      },
-      {
-        question: "Does a buyer see who the seller is?",
-        answer: (
-          <>
-            No. Buyer-facing secondary-market views are counterparty-redacted. Buyers see loan, price, fee,
-            risk and disclosure fields, not the seller identity.
-          </>
-        )
-      },
-      ...(fxEnabled
-        ? [
-          {
-            question: "Does converting currency reset the ageing clock?",
-            answer: (
-              <>
-                No. FX is a settlement function, not a way to restart deadlines. Converted balance inherits the
-                deadlines of the funds you converted — it never receives a fresh holding period.
-              </>
-            )
-          }
-          ]
-        : []),
-    ]
-  },
-  {
-    title: "Documents, reports and support",
-    summary: "Accepted documents and statements remain available from the portal.",
-    items: [
-      {
-        question: "Where can I find terms I accepted?",
-        answer: (
-          <>
-            Open Documents in the portal. The system lists historical accepted document versions, and the full
-            accepted PDF can be generated from immutable evidence when needed.
-          </>
-        )
-      },
-      {
-        question: "Can I download account statements or tax documents?",
-        answer: (
-          <>
-            Yes. Account statements and annual tax summaries can be downloaded from the Documents section once
-            they are available. Every download is scoped to your own account.
-          </>
-        )
-      },
-      {
-        question: "How do I contact support?",
-        answer: (
-          <>
-            Email <a href={`mailto:${supportEmail}`}>{supportEmail}</a>. Include your investor reference if
-            you have one, but do not send passwords, one-time codes or identity-document images by email unless
-            support explicitly instructs you.
-          </>
-        )
-      }
-    ]
-  }
-  ];
-}
-
-// Questions of the portal Help page (FaqScreen).
-function FaqContent() {
-  const [open, setOpen] = useState("0-0");
-  const fxEnabled = useFxFeature().enabled;
-  const faqTopics = faqSections(fxEnabled);
-  const title = "Help & FAQ";
-  const description = `Plain-English answers on onboarding, balances, orders, risk, ${fxEnabled ? "FX, " : ""}documents and the secondary market.`;
-  const sectionId = (index: number) => `faq-topic-${index + 1}`;
-
-  const intro = (
-    <div className="faq-intro">
-      <div>
-        <div className="eyebrow">Before investing</div>
-        <h2>Know the operating rules before moving money</h2>
-        <p>
-          {platformName} is built for peer-to-peer business lending. These answers summarize the user-facing
-          flow; the legally binding wording is the document version you accept in the platform.
-        </p>
-      </div>
-    </div>
-  );
-
-  const support = (
-    <div className="faq-support">
-      <div className="faq-support-title">Need help?</div>
-      <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
-    </div>
-  );
-
-  const sections = (
-    <div className="faq-sections">
-      {faqTopics.map((section, sectionIndex) => (
-        <section aria-labelledby={`${sectionId(sectionIndex)}-title`} className="faq-section" id={sectionId(sectionIndex)} key={section.title}>
-          <div className="faq-section-head">
-            <h2 id={`${sectionId(sectionIndex)}-title`}>{section.title}</h2>
-            <p>{section.summary}</p>
-          </div>
-          <div className="faq-rows">
-            {section.items.map((item, itemIndex) => {
-              const key = `${sectionIndex}-${itemIndex}`;
-              const isOpen = open === key;
-              const answerId = `faq-answer-${key}`;
-              return (
-                <div className={`faq-row ${isOpen ? "open" : ""}`} key={item.question}>
-                  <button
-                    aria-controls={isOpen ? answerId : undefined}
-                    aria-expanded={isOpen}
-                    className="faq-q"
-                    onClick={() => setOpen(isOpen ? "" : key)}
-                    type="button"
-                  >
-                    <span>{item.question}</span>
-                    <Icon className="faq-q-icon" name={isOpen ? "minus" : "plus"} size={18} />
-                  </button>
-                  {isOpen ? <div className="faq-a" id={answerId}>{item.answer}</div> : null}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-
-  const risk = (
-    <Banner tone="warn" title="Risk warning">
-      Investing through {platformName} involves risk of capital loss, borrower default, late payment,
-      illiquidity, enforcement cost and no guaranteed return.
-    </Banner>
-  );
-
-  return (
-    <div className="faq-v-portal">
-      <PageHead description={description} title={title} />
-      <div className="faq-layout">
-        <div className="faq-main">
-          {intro}
-          {sections}
-          {risk}
-        </div>
-        <aside className="faq-aside">{support}</aside>
-      </div>
-    </div>
-  );
-}
-
-// Portal Help page (design "help"): FaqContent is wrapped here and left unchanged. Its own
-// page head repeats this page head and is hidden inside the wrapper (see skin/account.css).
-function FaqScreen() {
-  const fxEnabled = useFxFeature().enabled;
-  return (
-    <main className="content acct-page portal-help">
-      <PageHead
-        description={`Plain-English answers on onboarding, balances, orders, risk, ${fxEnabled ? "FX, " : ""}documents and the secondary market.`}
-        title="Help"
-      />
-      <div className="portal-help-grid">
-        <section aria-labelledby="portal-help-questions" className="card portal-help-faq">
-          <div className="card-head"><h2 id="portal-help-questions">Questions</h2></div>
-          <div className="portal-help-faq-body">
-            <FaqContent />
-          </div>
-        </section>
-        <aside className="portal-help-aside">
-          <section aria-labelledby="portal-help-contact" className="card portal-help-contact">
-            <div className="card-head"><h2 id="portal-help-contact">Contact us</h2></div>
-            <dl className="portal-help-kv">
-              <div><dt>Email</dt><dd><a href={`mailto:${supportEmail}`}>{supportEmail}</a></dd></div>
-              <div><dt>Operator</dt><dd>{operatorName}</dd></div>
-            </dl>
-          </section>
-        </aside>
-      </div>
-    </main>
-  );
-}
 
 type InvestStep = "amount" | "review" | "confirm" | "done";
 
