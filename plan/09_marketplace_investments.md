@@ -693,6 +693,8 @@ Borrower principal repayments reduce investor and originator claims using the co
 ### MKT-DEC-026: Smart-Invest Is One Saved Alert Rule, Not Auto-Invest
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19 (with U33-DEC-16 and U33-DEC-30): criteria become currency, minimum interest, maximum term, security types, maximum LTV, repayment, country and originator (no ratings, purposes or new/refinancing); optional usual amount; Pause keeps the preferences; separate in-platform/email channel controls.
+>
+> Implemented 2026-11-09 (U33-DEC-19 part 1, Phase 17.2): the rule has `maximum_ltv_bps` (an opportunity without a loan-to-value figure does not match a limit), `countries` (borrower countries as the opportunities carry them, compared without letter case) and the optional `preferred_amount_minor` (one usual amount for each selected currency; it never limits the matches and is not an effective criterion). The risk-rating (U33-DEC-16), purpose and loan-kind criteria are removed; a data migration emptied them in saved rules with an append-only `retired_criteria_removed` event and paused an active rule left without a criterion. "Deactivate" is replaced by `pause/` (the preferences stay, no matches and no alerts) and `resume/` (the matches are calculated anew); saving a paused rule keeps it paused; the API gives `state` (`not_set_up` / `active` / `paused`). Still open: repayment groups (U33-DEC-11), security groups (U33-DEC-21) and the channel controls (U33-DEC-30).
 
 Status: Accepted.
 Date: 2026-08-06.
@@ -713,6 +715,8 @@ Smart-Invest is a discovery mechanism only. It does not rank credit quality, ass
 ### MKT-DEC-027: Explicit Multi-Currency Batch Placement
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19: batch approval is removed; each investment is confirmed individually with the PIN.
+>
+> Implemented 2026-11-09: the batch placement API (`POST /api/v1/marketplace/primary/orders/batch/`) and its service are removed. Batches placed before stay as append-only evidence.
 
 Status: Accepted.
 Date: 2026-08-08.

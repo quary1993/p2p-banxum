@@ -2548,9 +2548,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/SmartInvestResponse'
           description: ''
-  /api/v1/investor/smart-invest/deactivate/:
+  /api/v1/investor/smart-invest/pause/:
     post:
-      operationId: v1_investor_smart_invest_deactivate_create
+      operationId: v1_investor_smart_invest_pause_create
+      description: 'U33-DEC-19: pause keeps the preferences; no matches or alerts
+        until resumed.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartInvestResponse'
+          description: ''
+  /api/v1/investor/smart-invest/resume/:
+    post:
+      operationId: v1_investor_smart_invest_resume_create
+      description: 'U33-DEC-19: resume with the saved preferences; the matches are
+        calculated anew.'
       tags:
       - v1
       security:
@@ -3782,32 +3800,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PrimaryInvestmentOrder'
-          description: ''
-  /api/v1/marketplace/primary/orders/batch/:
-    post:
-      operationId: marketplace_primary_orders_batch_create
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PrimaryOrderBatchResponse'
           description: ''
   /api/v1/marketplace/primary/public/originators/:
     get:
@@ -5699,7 +5691,7 @@ components:
         destination_account_name:
           type: string
         state:
-          $ref: '#/components/schemas/StateEnum'
+          $ref: '#/components/schemas/AdminPayoutInstructionRowStateEnum'
         is_default_return:
           type: boolean
         origin:
@@ -5759,6 +5751,18 @@ components:
       - updated_at
       - verified_at
       - verified_by_admin_id
+    AdminPayoutInstructionRowStateEnum:
+      enum:
+      - pending
+      - verified
+      - revoked
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending verification
+        * `verified` - Verified
+        * `revoked` - Revoked
+        * `rejected` - Rejected
     AdminSecondaryMarketListingRow:
       type: object
       properties:
@@ -14606,132 +14610,6 @@ components:
       - scanned_count
       - skipped
       - skipped_count
-    PrimaryOrderBatchItem:
-      type: object
-      properties:
-        loan_id:
-          type: string
-          format: uuid
-        amount_minor:
-          type: integer
-          minimum: 1
-        quote_id:
-          type: string
-          format: uuid
-          nullable: true
-      required:
-      - amount_minor
-      - loan_id
-    PrimaryOrderBatchOriginatorPurchaseResponse:
-      type: object
-      properties:
-        purchase_id:
-          type: string
-          format: uuid
-        quote_id:
-          type: string
-          format: uuid
-        loan_id:
-          type: string
-          format: uuid
-        holding_id:
-          type: string
-          format: uuid
-        currency:
-          type: string
-        cash_consideration_minor:
-          type: integer
-        assigned_principal_minor:
-          type: integer
-        outstanding_principal_at_pricing_minor:
-          type: integer
-        share_ppm:
-          type: integer
-        target_yield_bps:
-          type: integer
-        purchased_at:
-          type: string
-          format: date-time
-      required:
-      - assigned_principal_minor
-      - cash_consideration_minor
-      - currency
-      - holding_id
-      - loan_id
-      - outstanding_principal_at_pricing_minor
-      - purchase_id
-      - purchased_at
-      - quote_id
-      - share_ppm
-      - target_yield_bps
-    PrimaryOrderBatchRequest:
-      type: object
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/PrimaryOrderBatchItem'
-        document_acceptance_id:
-          type: string
-          format: uuid
-        idempotency_key:
-          type: string
-          maxLength: 128
-        sensitive_action_code_id:
-          type: string
-          format: uuid
-        sensitive_action_code:
-          type: string
-          maxLength: 32
-        pin:
-          type: string
-          writeOnly: true
-          pattern: ^\d{6}$
-      required:
-      - document_acceptance_id
-      - idempotency_key
-      - items
-      - pin
-      - sensitive_action_code
-      - sensitive_action_code_id
-    PrimaryOrderBatchResponse:
-      type: object
-      properties:
-        batch_id:
-          type: string
-          format: uuid
-        currency:
-          type: string
-          nullable: true
-        currency_totals:
-          type: array
-          items:
-            type: object
-            additionalProperties: {}
-        orders:
-          type: array
-          items:
-            $ref: '#/components/schemas/PrimaryInvestmentOrder'
-        order_count:
-          type: integer
-        originator_purchases:
-          type: array
-          items:
-            $ref: '#/components/schemas/PrimaryOrderBatchOriginatorPurchaseResponse'
-        originator_purchase_count:
-          type: integer
-        total_amount_minor:
-          type: integer
-          nullable: true
-      required:
-      - batch_id
-      - currency
-      - currency_totals
-      - order_count
-      - orders
-      - originator_purchase_count
-      - originator_purchases
-      - total_amount_minor
     PrimaryOrderPortal:
       type: object
       properties:
@@ -17041,14 +16919,6 @@ components:
       description: |-
         * `CHF` - CHF
         * `EUR` - EUR
-    SmartInvestLoanKindEnum:
-      enum:
-      - new
-      - refinancing
-      type: string
-      description: |-
-        * `new` - New lending
-        * `refinancing` - Refinancing
     SmartInvestOpportunity:
       type: object
       properties:
@@ -17117,6 +16987,10 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        borrower_country:
+          type: string
+        borrower_city:
+          type: string
         skin_in_the_game_bps:
           type: integer
           default: 0
@@ -17124,6 +16998,8 @@ components:
           type: integer
           default: 5000
       required:
+      - borrower_city
+      - borrower_country
       - borrower_display_name
       - collateral_type
       - committed_principal_minor
@@ -17179,6 +17055,15 @@ components:
           format: uuid
         is_active:
           type: boolean
+        state:
+          allOf:
+          - $ref: '#/components/schemas/SmartInvestRuleStateEnum'
+          description: |-
+            U33-DEC-19: paused keeps the preferences and shows no matches or alerts until the investor resumes.
+
+            * `not_set_up` - Not set up
+            * `active` - Active
+            * `paused` - Paused
         revision:
           type: integer
         minimum_yield_bps:
@@ -17187,6 +17072,17 @@ components:
         maximum_term_months:
           type: integer
           nullable: true
+        maximum_ltv_bps:
+          type: integer
+          nullable: true
+          description: Maximum loan-to-value in basis points. An opportunity without
+            a loan-to-value figure does not match a limit.
+        preferred_amount_minor:
+          type: integer
+          nullable: true
+          description: 'U33-DEC-19: optional usual amount per investment, in minor
+            units of each selected currency. It prepares the amount on an opportunity
+            page and never excludes an opportunity.'
         originators:
           type: array
           items:
@@ -17204,14 +17100,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SmartInvestCurrencyEnum'
-        purposes:
+        countries:
           type: array
           items:
-            $ref: '#/components/schemas/PurposeEnum'
-        loan_kinds:
-          type: array
-          items:
-            $ref: '#/components/schemas/SmartInvestLoanKindEnum'
+            type: string
+          description: Borrower countries as the opportunities carry them (borrower_country).
+            Empty means any country.
         activated_at:
           type: string
           format: date-time
@@ -17229,17 +17123,19 @@ components:
       required:
       - activated_at
       - collateral
+      - countries
       - created_at
       - currencies
       - deactivated_at
       - id
       - is_active
-      - loan_kinds
+      - maximum_ltv_bps
       - maximum_term_months
       - minimum_yield_bps
       - originators
-      - purposes
+      - preferred_amount_minor
       - revision
+      - state
       - updated_at
     SmartInvestRuleSaveRequest:
       type: object
@@ -17254,6 +17150,22 @@ components:
           maximum: 1200
           minimum: 1
           nullable: true
+        maximum_ltv_bps:
+          type: integer
+          maximum: 10000
+          minimum: 1
+          nullable: true
+          description: Maximum loan-to-value in basis points. An opportunity without
+            a loan-to-value figure does not match a limit.
+        preferred_amount_minor:
+          type: integer
+          maximum: 1000000000000
+          minimum: 0
+          format: int64
+          nullable: true
+          description: 'U33-DEC-19: optional usual amount per investment, in minor
+            units of each selected currency. It prepares the amount on an opportunity
+            page and never excludes an opportunity.'
         originators:
           type: array
           items:
@@ -17275,28 +17187,24 @@ components:
           items:
             $ref: '#/components/schemas/SmartInvestCurrencyEnum'
           maxItems: 100
-        purposes:
+        countries:
           type: array
           items:
-            $ref: '#/components/schemas/PurposeEnum'
+            type: string
+            maxLength: 64
+          description: Borrower countries as the opportunities carry them (borrower_country).
+            Empty means any country.
           maxItems: 100
-        loan_kinds:
-          type: array
-          items:
-            $ref: '#/components/schemas/SmartInvestLoanKindEnum'
-          maxItems: 100
-    StateEnum:
+    SmartInvestRuleStateEnum:
       enum:
-      - pending
-      - verified
-      - revoked
-      - rejected
+      - not_set_up
+      - active
+      - paused
       type: string
       description: |-
-        * `pending` - Pending verification
-        * `verified` - Verified
-        * `revoked` - Revoked
-        * `rejected` - Rejected
+        * `not_set_up` - Not set up
+        * `active` - Active
+        * `paused` - Paused
     Status828Enum:
       enum:
       - active

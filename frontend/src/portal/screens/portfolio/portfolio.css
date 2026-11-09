@@ -259,8 +259,11 @@ html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app .alert.u33-resa
 html.bxu .s106-modal .s106-body > textarea {
   margin-bottom: 18px;
 }
-html.bxu .u33-retired-criteria {
-  margin: 0 0 16px;
+/* U33-DEC-19: the card line when the usual amount cannot be invested in a match. */
+html.bxu .si-amount-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #69737d;
 }
 html.bxu .u33-save-error {
   margin: 12px 0 0;

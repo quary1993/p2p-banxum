@@ -22,8 +22,9 @@ from backend.apps.smart_invest.services import (
     SaveSmartInvestRuleCommand,
     SmartInvestAuthorizationError,
     SmartInvestValidationError,
-    deactivate_smart_invest_rule,
     get_smart_invest,
+    pause_smart_invest_rule,
+    resume_smart_invest_rule,
     save_smart_invest_rule,
 )
 
@@ -68,13 +69,29 @@ class SmartInvestView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class SmartInvestDeactivateView(APIView):
+class SmartInvestPauseView(APIView):
+    """U33-DEC-19: pause keeps the preferences; no matches or alerts until resumed."""
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(request=None, responses={200: SmartInvestResponseSerializer})
     def post(self, request: Request) -> Response:
         try:
-            payload = deactivate_smart_invest_rule(actor=cast(Model, request.user))
+            payload = pause_smart_invest_rule(actor=cast(Model, request.user))
+        except (SmartInvestAuthorizationError, SmartInvestValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class SmartInvestResumeView(APIView):
+    """U33-DEC-19: resume with the saved preferences; the matches are calculated anew."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: SmartInvestResponseSerializer})
+    def post(self, request: Request) -> Response:
+        try:
+            payload = resume_smart_invest_rule(actor=cast(Model, request.user))
         except (SmartInvestAuthorizationError, SmartInvestValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

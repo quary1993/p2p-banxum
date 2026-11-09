@@ -12,7 +12,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import type { MarketplaceLoanDetail } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useFrozenAccount } from "../../../investorPortal/accountState";
-import { useBalancesData, useLoanDetailData, usePortfolioData } from "../../../investorPortal/data";
+import { useBalancesData, useLoanDetailData, usePortfolioData, useSmartInvestData } from "../../../investorPortal/data";
 import { formatAmountInput, formatDate, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
 import { swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
@@ -121,8 +121,17 @@ function OpportunityPage({
   const [scheduleOpen, setScheduleOpen] = useState(initialScheduleOpen);
   const [ltvOpen, setLtvOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
-  const [amountText, setAmountText] = useState("");
+  const [typedAmount, setTypedAmount] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; shortfall: boolean } | null>(null);
+  // U33-DEC-19: an active Smart Invest usual amount prepares the amount (never raised to the minimum);
+  // what the investor types replaces it. Without a usual amount nothing is pre-filled (U33-DEC-08).
+  const smartRule = useSmartInvestData().data?.rule;
+  const usualMinor =
+    smartRule?.state === "active" && smartRule.preferred_amount_minor && (smartRule.currencies.length === 0 || smartRule.currencies.includes(loan.currency as never))
+      ? smartRule.preferred_amount_minor
+      : null;
+  const usingUsual = typedAmount === null && usualMinor !== null;
+  const amountText = typedAmount ?? (usualMinor !== null ? formatAmountInput(usualMinor, loan.currency) : "");
 
   const open = isOpenLoan(loan);
   const claim = isOriginatorClaimLoan(loan);
@@ -301,7 +310,7 @@ function OpportunityPage({
                       inputMode="decimal"
                       name="amount"
                       onChange={(event) => {
-                        setAmountText(event.target.value);
+                        setTypedAmount(event.target.value);
                         setError(null);
                       }}
                       placeholder={t("Enter an amount")}
@@ -313,6 +322,13 @@ function OpportunityPage({
                   <p aria-live="polite" className="v107-error" id="iv-error">
                     {error?.message ?? (places?.fullForViewer ? swissInvestorLimitMessage(places.maxInvestors) : "")}
                   </p>
+                  {usingUsual ? (
+                    <p className="u33-invest-amount-hint u33-usual-amount">
+                      {usualMinor !== null && usualMinor < loan.minimum_investment_minor
+                        ? t("Your usual Smart Invest amount is below the minimum here. Enter at least the minimum to invest.")
+                        : t("Your usual Smart Invest amount. You can change it.")}
+                    </p>
+                  ) : null}
                   {/* Kept (audit A-39): the minimum, what the loan still takes and the balance usable for this
                       loan's funding window, which can differ from the available balance. */}
                   <p className="u33-invest-amount-hint">

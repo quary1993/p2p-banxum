@@ -31,13 +31,10 @@ from backend.apps.marketplace_primary.services import (
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimarySwissInvestorLimitError,
     MarketplacePrimaryValidationError,
-    PlacePrimaryOrderBatchCommand,
-    PrimaryOrderBatchItemCommand,
     allocate_primary_order_from_balance,
     create_primary_investment_order,
     get_full_marketplace_loan,
     list_investor_marketplace_loans,
-    place_primary_order_batch,
 )
 from backend.apps.marketplace_primary.tests.test_primary_marketplace import (
     _approve_financial_access,
@@ -539,105 +536,6 @@ def test_allocation_applies_the_minimum_of_now_to_a_new_investor(admin_user: Mod
     early_order.refresh_from_db()
     assert early_order.status == PrimaryInvestmentOrderStatus.PENDING
     assert _committed(other) == 40_000_00
-
-
-# Smart-Invest batch -----------------------------------------------------------------
-
-
-def _batch(investor: Model, items: list[tuple[Model, int]], key: str) -> Any:
-    batch_items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan.pk), amount_minor=amount)
-        for loan, amount in items
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key=f"{key}-accept",
-        context_type="primary_order_batch",
-        context_id=key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [
-                {"loan_id": item.loan_id, "amount_minor": item.amount_minor} for item in batch_items
-            ],
-        },
-    )
-    return place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=batch_items,
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
-    )
-
-
-@pytest.mark.django_db
-def test_batch_lines_use_the_new_investor_minimum_and_a_full_loan_refuses_the_batch(
-    client: Client,
-    admin_user: Model,
-) -> None:
-    swiss = _swiss_loan(admin_user, principal_minor=40_000_00)
-    german = cast(Any, _create_published_loan(admin_user, borrower_country="DE"))
-    investor = _lender("batch")
-    _declare_deposit(admin_user, investor, amount_minor=20_000_00, idempotency_key="swiss-batch")
-
-    # 40,000.00 / 20 = 2,000.00 for a new investor.
-    with pytest.raises(MarketplacePrimaryValidationError, match="CHF 2'000.00") as low:
-        _batch(investor, [(swiss, 1_500_00), (german, 1_000_00)], "swiss-batch-low")
-    assert "Real estate bridge loan: " in str(low.value)
-    assert "Nothing was committed" in str(low.value)
-    assert not PrimaryInvestmentOrder.objects.filter(investor_user_id=investor.pk).exists()
-
-    first, second = _lender("batch-1"), _lender("batch-2")
-    _invest(admin_user, first, swiss, 2_000_00, "swiss-batch-1")
-    _invest(admin_user, second, swiss, 2_000_00, "swiss-batch-2")
-    _set_limit(2)
-    with pytest.raises(MarketplacePrimarySwissInvestorLimitError) as full:
-        _batch(investor, [(swiss, 2_000_00), (german, 1_000_00)], "swiss-batch-full")
-    assert str(full.value) == f"Real estate bridge loan: {FULL_MESSAGE.format(2)}"
-    # Every line rolled back, also the one on the other loan.
-    assert not PrimaryInvestmentOrder.objects.filter(investor_user_id=investor.pk).exists()
-    assert _committed(german) == 0
-
-    # An existing investor's batch line keeps the normal minimum.
-    _declare_deposit(admin_user, first, amount_minor=1_000_00, idempotency_key="swiss-batch-1b")
-    placed = _batch(first, [(swiss, 1_000_00)], "swiss-batch-existing")
-    assert [order.allocated_amount_minor for order in placed.orders] == [1_000_00]
-
-
-@pytest.mark.django_db
-def test_batch_api_answers_409_for_a_full_swiss_loan(client: Client, admin_user: Model) -> None:
-    swiss = _swiss_loan(admin_user, principal_minor=40_000_00)
-    first, newcomer = _lender("batch-api-1"), _lender("batch-api-new")
-    _invest(admin_user, first, swiss, 2_000_00, "swiss-batch-api-1")
-    _set_limit(1)
-    key = "swiss-batch-api"
-    acceptance = _create_primary_acceptance(
-        newcomer,
-        order_id="",
-        idempotency_key=f"{key}-accept",
-        context_type="primary_order_batch",
-        context_id=key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [{"loan_id": str(swiss.pk), "amount_minor": 2_000_00}],
-        },
-    )
-    client.force_login(cast(Any, newcomer))
-    response = client.post(
-        "/api/v1/marketplace/primary/orders/batch/",
-        data={
-            "items": [{"loan_id": str(swiss.pk), "amount_minor": 2_000_00}],
-            "document_acceptance_id": str(acceptance.pk),
-            "idempotency_key": key,
-            **_sensitive_code_payload(newcomer, "primary_investment"),
-        },
-        content_type="application/json",
-    )
-    assert response.status_code == 409, response.content
-    assert response.json()["code"] == SWISS_INVESTOR_LIMIT_CODE
 
 
 # Loan Originator claims -------------------------------------------------------------

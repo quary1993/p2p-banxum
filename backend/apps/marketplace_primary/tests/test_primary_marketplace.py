@@ -32,8 +32,6 @@ from backend.apps.marketplace_primary.services import (
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryOrderNotPendingError,
     MarketplacePrimaryValidationError,
-    PlacePrimaryOrderBatchCommand,
-    PrimaryOrderBatchItemCommand,
     ReleasePrimaryInvestmentOrderCommand,
     ScanExpiredPrimaryFundingCommand,
     allocate_primary_order_from_balance,
@@ -41,7 +39,6 @@ from backend.apps.marketplace_primary.services import (
     close_primary_loan_funding,
     create_primary_investment_order,
     get_full_marketplace_loan,
-    place_primary_order_batch,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
@@ -2597,647 +2594,13 @@ def test_primary_loan_expiry_scan_api_is_admin_only(
 
 
 @pytest.mark.django_db
-def test_primary_order_batch_places_all_orders_behind_one_code(
+def test_historical_primary_order_batch_keeps_app_and_db_append_only_guards(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    _approve_financial_access(investor)
-    loan_a = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_b = _create_published_loan(admin_user, principal_minor=10_000_00)
-    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="batch-deposit")
-    batch_key = "primary-batch-1"
-    batch_items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_a.pk), amount_minor=2_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_b.pk), amount_minor=3_000_00),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [
-                {"loan_id": item.loan_id, "amount_minor": item.amount_minor} for item in batch_items
-            ],
-        },
-    )
-    result = place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=batch_items,
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=batch_key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
-    )
-    orders = result.orders
-    loan_a.refresh_from_db()
-    loan_b.refresh_from_db()
-    assert len(orders) == 2
-    assert all(order.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED for order in orders)
-    assert cast(Any, loan_a).committed_principal_minor == 2_000_00
-    assert cast(Any, loan_b).committed_principal_minor == 3_000_00
-    assert result.batch.total_amount_minor == 5_000_00
-    assert result.batch.currency_id == "CHF"
-    assert result.batch.currency_totals == [{"currency": "CHF", "amount_minor": 5_000_00}]
-    assert PrimaryInvestmentOrderBatch.objects.count() == 1
-    assert all(
-        cast(Any, order.document_acceptance).context_type == "primary_order" for order in orders
-    )
-    assert all(
-        cast(Any, order.document_acceptance).data_snapshot["loan"]["id"] == str(order.loan_id)
-        for order in orders
-    )
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_places_direct_and_originator_claim_atomically(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    direct_loan = _create_published_loan(admin_user, principal_minor=10_000_00)
-    originator_loan = _create_originator_batch_loan(admin_user, suffix="MIXED")
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=10_000_00,
-        idempotency_key="mixed-batch-deposit",
-    )
-    originator_services = import_module("backend.apps.originator_claims.services")
-    quote = originator_services.create_originator_claim_quote(
-        originator_services.CreateOriginatorClaimQuoteCommand(
-            actor=investor,
-            loan_id=str(originator_loan.pk),
-            requested_cash_minor=2_500_00,
-        )
-    )
-    batch_key = "primary-mixed-batch"
-    items = [
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(direct_loan.pk),
-            amount_minor=2_000_00,
-        ),
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(originator_loan.pk),
-            amount_minor=int(quote.executable_cash_minor),
-            quote_id=str(quote.id),
-        ),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="mixed-batch-acceptance",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "items": [
-                {
-                    "loan_id": item.loan_id,
-                    "amount_minor": item.amount_minor,
-                    "currency": "CHF",
-                    **({"quote_id": item.quote_id} if item.quote_id else {}),
-                }
-                for item in items
-            ]
-        },
-    )
-
-    result = place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=items,
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=batch_key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
-    )
-
-    assert len(result.orders) == 1
-    assert len(result.originator_purchases) == 1
-    assert result.batch.order_count == 1
-    assert result.batch.originator_purchase_count == 1
-    assert result.batch.originator_purchase_ids == [str(result.originator_purchases[0].id)]
-    assert result.batch.currency_totals == [
-        {
-            "currency": "CHF",
-            "amount_minor": 2_000_00 + int(quote.executable_cash_minor),
-        }
-    ]
-    assert result.orders[0].status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
-    assert cast(Any, result.originator_purchases[0].document_acceptance).context_type == (
-        "originator_claim_quote"
-    )
-    assert str(result.originator_purchases[0].quote_id) == str(quote.id)
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_purchases_multiple_originator_claims(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    first_loan = _create_originator_batch_loan(admin_user, suffix="MULTI-A")
-    second_loan = _create_originator_batch_loan(admin_user, suffix="MULTI-B")
-    originator_services = import_module("backend.apps.originator_claims.services")
-    first_quote = originator_services.create_originator_claim_quote(
-        originator_services.CreateOriginatorClaimQuoteCommand(
-            actor=investor,
-            loan_id=str(first_loan.pk),
-            requested_cash_minor=2_000_00,
-        )
-    )
-    second_quote = originator_services.create_originator_claim_quote(
-        originator_services.CreateOriginatorClaimQuoteCommand(
-            actor=investor,
-            loan_id=str(second_loan.pk),
-            requested_cash_minor=2_500_00,
-        )
-    )
-    total_cash_minor = int(first_quote.executable_cash_minor) + int(
-        second_quote.executable_cash_minor
-    )
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=total_cash_minor,
-        idempotency_key="multi-claim-batch-deposit",
-    )
-    batch_key = "primary-multi-claim-batch"
-    items = [
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(first_loan.pk),
-            amount_minor=int(first_quote.executable_cash_minor),
-            quote_id=str(first_quote.id),
-        ),
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(second_loan.pk),
-            amount_minor=int(second_quote.executable_cash_minor),
-            quote_id=str(second_quote.id),
-        ),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="multi-claim-batch-acceptance",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "items": [
-                {
-                    "loan_id": item.loan_id,
-                    "amount_minor": item.amount_minor,
-                    "currency": "CHF",
-                    "quote_id": item.quote_id,
-                }
-                for item in items
-            ]
-        },
-    )
-
-    result = place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=items,
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=batch_key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
-    )
-
-    assert result.orders == []
-    assert len(result.originator_purchases) == 2
-    assert result.batch.order_count == 0
-    assert result.batch.originator_purchase_count == 2
-    assert result.batch.originator_purchase_ids == [
-        str(purchase.id) for purchase in result.originator_purchases
-    ]
-    assert result.batch.currency_totals == [{"currency": "CHF", "amount_minor": total_cash_minor}]
-    assert not PrimaryInvestmentOrder.objects.filter(
-        loan_id__in=[first_loan.pk, second_loan.pk]
-    ).exists()
-
-
-@pytest.mark.django_db
-def test_mixed_primary_batch_rolls_back_direct_order_when_claim_balance_is_short(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    direct_loan = _create_published_loan(admin_user, principal_minor=10_000_00)
-    originator_loan = _create_originator_batch_loan(admin_user, suffix="ROLLBACK")
-    originator_services = import_module("backend.apps.originator_claims.services")
-    quote = originator_services.create_originator_claim_quote(
-        originator_services.CreateOriginatorClaimQuoteCommand(
-            actor=investor,
-            loan_id=str(originator_loan.pk),
-            requested_cash_minor=2_500_00,
-        )
-    )
-    direct_amount_minor = 2_000_00
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=direct_amount_minor + int(quote.executable_cash_minor) - 1,
-        idempotency_key="mixed-batch-short-deposit",
-    )
-    batch_key = "primary-mixed-batch-short"
-    items = [
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(direct_loan.pk),
-            amount_minor=direct_amount_minor,
-        ),
-        PrimaryOrderBatchItemCommand(
-            loan_id=str(originator_loan.pk),
-            amount_minor=int(quote.executable_cash_minor),
-            quote_id=str(quote.id),
-        ),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="mixed-batch-short-acceptance",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "items": [
-                {
-                    "loan_id": item.loan_id,
-                    "amount_minor": item.amount_minor,
-                    "currency": "CHF",
-                    **({"quote_id": item.quote_id} if item.quote_id else {}),
-                }
-                for item in items
-            ]
-        },
-    )
-
-    with pytest.raises(MarketplacePrimaryValidationError, match="Your available CHF balance is"):
-        place_primary_order_batch(
-            PlacePrimaryOrderBatchCommand(
-                actor=investor,
-                items=items,
-                document_acceptance_id=str(acceptance.pk),
-                idempotency_key=batch_key,
-                **_sensitive_code_payload(investor, "primary_investment"),
-            )
-        )
-
-    assert not PrimaryInvestmentOrder.objects.filter(loan_id=direct_loan.pk).exists()
-    assert not PrimaryInvestmentOrderBatch.objects.filter(idempotency_key=batch_key).exists()
-    purchase_model = apps.get_model("originator_claims", "OriginatorClaimPurchase")
-    assert not purchase_model.objects.filter(quote_id=quote.id).exists()
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_is_all_or_nothing(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan_a = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_b = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_b_ref = cast(Any, loan_b)
-    loan_b_ref.status = "draft"
-    loan_b_ref.published_at = None
-    loan_b_ref.save(update_fields=["status", "published_at"])
-    _declare_deposit(
-        admin_user, investor, amount_minor=10_000_00, idempotency_key="batch-deposit-2"
-    )
-    batch_key = "primary-batch-2"
-    batch_items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_a.pk), amount_minor=2_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_b.pk), amount_minor=3_000_00),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-accept-2",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [
-                {"loan_id": item.loan_id, "amount_minor": item.amount_minor} for item in batch_items
-            ],
-        },
-    )
-    with pytest.raises(MarketplacePrimaryValidationError):
-        place_primary_order_batch(
-            PlacePrimaryOrderBatchCommand(
-                actor=investor,
-                items=batch_items,
-                document_acceptance_id=str(acceptance.pk),
-                idempotency_key=batch_key,
-                **_sensitive_code_payload(investor, "primary_investment"),
-            )
-        )
-    loan_a.refresh_from_db()
-    assert cast(Any, loan_a).committed_principal_minor == 0
-    assert PrimaryInvestmentOrder.objects.filter(investor_user_id=investor.pk).count() == 0
-    assert PrimaryInvestmentOrderBatch.objects.count() == 0
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_replay_returns_existing_without_reusing_code(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan_a = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_b = _create_published_loan(admin_user, principal_minor=10_000_00)
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=10_000_00,
-        idempotency_key="batch-replay-deposit",
-    )
-    items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_b.pk), amount_minor=2_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_a.pk), amount_minor=1_500_00),
-    ]
-    batch_key = "primary-batch-replay"
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-replay-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [
-                {"loan_id": item.loan_id, "amount_minor": item.amount_minor}
-                for item in reversed(items)
-            ],
-        },
-    )
-    command = PlacePrimaryOrderBatchCommand(
-        actor=investor,
-        items=items,
-        document_acceptance_id=str(acceptance.pk),
-        idempotency_key=batch_key,
-        **_sensitive_code_payload(investor, "primary_investment"),
-    )
-
-    first = place_primary_order_batch(command)
-    replay = place_primary_order_batch(command)
-
-    assert replay.batch.id == first.batch.id
-    assert [order.id for order in replay.orders] == [order.id for order in first.orders]
-    assert PrimaryInvestmentOrderBatch.objects.count() == 1
-    assert PrimaryInvestmentOrder.objects.count() == 2
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_rejects_acceptance_payload_mismatch(
-    admin_user: Model,
-    investor: Model,
-) -> None:
+    # U33-DEC-19 removed batch placement; batches placed before stay as evidence.
     _approve_financial_access(investor)
     loan = _create_published_loan(admin_user, principal_minor=10_000_00)
-    batch_key = "primary-batch-mismatched-terms"
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-mismatch-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [{"loan_id": str(loan.pk), "amount_minor": 1_000_00}],
-        },
-    )
-
-    with pytest.raises(
-        MarketplacePrimaryValidationError,
-        match="does not match the requested loans and amounts",
-    ):
-        place_primary_order_batch(
-            PlacePrimaryOrderBatchCommand(
-                actor=investor,
-                items=[
-                    PrimaryOrderBatchItemCommand(
-                        loan_id=str(loan.pk),
-                        amount_minor=2_000_00,
-                    )
-                ],
-                document_acceptance_id=str(acceptance.pk),
-                idempotency_key=batch_key,
-                **_sensitive_code_payload(investor, "primary_investment"),
-            )
-        )
-
-    assert PrimaryInvestmentOrder.objects.count() == 0
-    assert PrimaryInvestmentOrderBatch.objects.count() == 0
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_places_mixed_currencies_atomically(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan_chf = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_eur = _create_published_loan(
-        admin_user,
-        principal_minor=10_000_00,
-        currency_code="EUR",
-    )
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=3_000_00,
-        currency="CHF",
-        idempotency_key="batch-mixed-chf-deposit",
-    )
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=4_000_00,
-        currency="EUR",
-        idempotency_key="batch-mixed-eur-deposit",
-    )
-    batch_key = "primary-batch-mixed-currency"
-    items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_chf.pk), amount_minor=2_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_eur.pk), amount_minor=3_000_00),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-mixed-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "items": [
-                {
-                    "loan_id": item.loan_id,
-                    "amount_minor": item.amount_minor,
-                    "currency": "CHF" if item.loan_id == str(loan_chf.pk) else "EUR",
-                }
-                for item in items
-            ],
-        },
-    )
-
-    result = place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=items,
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=batch_key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
-    )
-
-    loan_chf.refresh_from_db()
-    loan_eur.refresh_from_db()
-    assert len(result.orders) == 2
-    assert result.batch.currency_id is None
-    assert result.batch.total_amount_minor is None
-    assert result.batch.currency_totals == [
-        {"currency": "CHF", "amount_minor": 2_000_00},
-        {"currency": "EUR", "amount_minor": 3_000_00},
-    ]
-    assert cast(Any, loan_chf).committed_principal_minor == 2_000_00
-    assert cast(Any, loan_eur).committed_principal_minor == 3_000_00
-    assert PrimaryInvestmentOrder.objects.count() == 2
-    assert PrimaryInvestmentOrderBatch.objects.count() == 1
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_rolls_back_both_currencies_when_one_balance_is_short(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan_chf = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_eur = _create_published_loan(
-        admin_user,
-        principal_minor=10_000_00,
-        currency_code="EUR",
-    )
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=3_000_00,
-        currency="CHF",
-        idempotency_key="batch-mixed-rollback-chf-deposit",
-    )
-    batch_key = "primary-batch-mixed-rollback"
-    items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_chf.pk), amount_minor=2_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_eur.pk), amount_minor=2_000_00),
-    ]
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-mixed-rollback-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "items": [
-                {
-                    "loan_id": str(loan_chf.pk),
-                    "amount_minor": 2_000_00,
-                    "currency": "CHF",
-                },
-                {
-                    "loan_id": str(loan_eur.pk),
-                    "amount_minor": 2_000_00,
-                    "currency": "EUR",
-                },
-            ],
-        },
-    )
-
-    with pytest.raises(
-        MarketplacePrimaryValidationError,
-        match="You have no available EUR balance",
-    ):
-        place_primary_order_batch(
-            PlacePrimaryOrderBatchCommand(
-                actor=investor,
-                items=items,
-                document_acceptance_id=str(acceptance.pk),
-                idempotency_key=batch_key,
-                **_sensitive_code_payload(investor, "primary_investment"),
-            )
-        )
-
-    loan_chf.refresh_from_db()
-    loan_eur.refresh_from_db()
-    assert cast(Any, loan_chf).committed_principal_minor == 0
-    assert cast(Any, loan_eur).committed_principal_minor == 0
-    assert PrimaryInvestmentOrder.objects.count() == 0
-    assert PrimaryInvestmentOrderBatch.objects.count() == 0
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_api_returns_committed_amount_and_currency(
-    client: Client,
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=5_000_00,
-        idempotency_key="batch-api-deposit",
-    )
-    batch_key = "primary-batch-api"
-    amount_minor = 2_000_00
-    acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="batch-api-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [{"loan_id": str(loan.pk), "amount_minor": amount_minor}],
-        },
-    )
-    code = _sensitive_code_payload(investor, "primary_investment")
-    client.force_login(cast(Any, investor))
-
-    response = client.post(
-        "/api/v1/marketplace/primary/orders/batch/",
-        data={
-            "items": [{"loan_id": str(loan.pk), "amount_minor": amount_minor}],
-            "document_acceptance_id": str(acceptance.pk),
-            "idempotency_key": batch_key,
-            **code,
-        },
-        content_type="application/json",
-    )
-
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload["currency"] == "CHF"
-    assert payload["currency_totals"] == [{"currency": "CHF", "amount_minor": amount_minor}]
-    assert payload["order_count"] == 1
-    assert payload["total_amount_minor"] == amount_minor
-    assert payload["orders"][0]["allocated_amount_minor"] == amount_minor
-
-
-@pytest.mark.django_db
-def test_primary_order_batch_has_app_and_db_append_only_guards(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
-    _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=5_000_00,
-        idempotency_key="batch-append-only-deposit",
-    )
     batch_key = "primary-batch-append-only"
     amount_minor = 1_000_00
     acceptance = _create_primary_acceptance(
@@ -3251,34 +2614,31 @@ def test_primary_order_batch_has_app_and_db_append_only_guards(
             "items": [{"loan_id": str(loan.pk), "amount_minor": amount_minor}],
         },
     )
-    result = place_primary_order_batch(
-        PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=[
-                PrimaryOrderBatchItemCommand(
-                    loan_id=str(loan.pk),
-                    amount_minor=amount_minor,
-                )
-            ],
-            document_acceptance_id=str(acceptance.pk),
-            idempotency_key=batch_key,
-            **_sensitive_code_payload(investor, "primary_investment"),
-        )
+    batch = PrimaryInvestmentOrderBatch.objects.create(
+        investor_user_id=investor.pk,
+        currency_id="CHF",
+        document_acceptance=acceptance,
+        item_snapshot=[{"loan_id": str(loan.pk), "amount_minor": amount_minor}],
+        order_ids=[str(loan.pk)],
+        order_count=1,
+        currency_totals=[{"currency": "CHF", "amount_minor": amount_minor}],
+        total_amount_minor=amount_minor,
+        request_fingerprint="0" * 64,
+        idempotency_key=batch_key,
     )
-
     with pytest.raises(AppendOnlyViolation):
-        result.batch.save()
+        batch.save()
     with pytest.raises(AppendOnlyViolation):
-        PrimaryInvestmentOrderBatch.objects.filter(id=result.batch.id).update(order_count=2)
+        PrimaryInvestmentOrderBatch.objects.filter(id=batch.id).update(order_count=2)
     with pytest.raises(DatabaseError), transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute(
                 "UPDATE marketplace_primary_primaryinvestmentorderbatch "
                 "SET order_count = 2 WHERE id = %s",
                 [
-                    str(result.batch.id).replace("-", "")
+                    str(batch.id).replace("-", "")
                     if connection.vendor == "sqlite"
-                    else result.batch.id
+                    else batch.id
                 ],
             )
 
@@ -3448,7 +2808,7 @@ def test_openapi_schema_describes_the_public_site_payload() -> None:
 
 
 @pytest.mark.django_db
-def test_primary_allocation_and_batch_endpoints_need_the_pin(
+def test_primary_allocation_endpoint_needs_the_pin(
     client: Client,
     admin_user: Model,
     investor: Model,
@@ -3482,32 +2842,10 @@ def test_primary_allocation_and_batch_endpoints_need_the_pin(
         "primary_investment",
         success_status=200,
     )
-
-    batch_key = "pin-batch"
-    batch_acceptance = _create_primary_acceptance(
-        investor,
-        order_id="",
-        idempotency_key="pin-batch-accept",
-        context_type="primary_order_batch",
-        context_id=batch_key,
-        data_snapshot={
-            "currency": "CHF",
-            "items": [{"loan_id": str(loan.pk), "amount_minor": 1_000_00}],
-        },
+    # U33-DEC-19: no batch placement; each investment is confirmed on its own.
+    assert (
+        client.post(
+            "/api/v1/marketplace/primary/orders/batch/", data={}, content_type="application/json"
+        ).status_code
+        == 404
     )
-    assert_pin_guards_sensitive_action(
-        lambda fields: client.post(
-            "/api/v1/marketplace/primary/orders/batch/",
-            data={
-                "items": [{"loan_id": str(loan.pk), "amount_minor": 1_000_00}],
-                "document_acceptance_id": str(batch_acceptance.pk),
-                "idempotency_key": batch_key,
-                **fields,
-            },
-            content_type="application/json",
-        ),
-        investor,
-        "primary_investment",
-        success_status=201,
-    )
-    assert PrimaryInvestmentOrderBatch.objects.count() == 1

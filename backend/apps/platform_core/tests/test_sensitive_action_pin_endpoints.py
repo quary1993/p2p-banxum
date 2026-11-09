@@ -54,16 +54,6 @@ SENSITIVE_ENDPOINTS = [
         id="primary_investment",
     ),
     pytest.param(
-        "/api/v1/marketplace/primary/orders/batch/",
-        "primary_investment",
-        {
-            "items": [{"loan_id": _ID, "amount_minor": 100}],
-            "document_acceptance_id": _ID,
-            "idempotency_key": "pin-missing-batch",
-        },
-        id="primary_batch",
-    ),
-    pytest.param(
         f"/api/v1/originator-claims/quotes/{_ID}/purchase/",
         "primary_investment",
         {"document_acceptance_id": _ID, "idempotency_key": "pin-missing-claim"},

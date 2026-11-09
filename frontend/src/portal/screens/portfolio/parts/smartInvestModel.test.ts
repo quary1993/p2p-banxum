@@ -12,9 +12,11 @@ import {
   hasEffectiveCriterion,
   matchesPreferences,
   preferencesFromRule,
-  previewSwitchedOff,
+  previewPaused,
+  previewResponse,
+  previewResumed,
   requestFromPreferences,
-  retiredCriteria,
+  smartState,
   type SmartPreferences
 } from "./smartInvestModel";
 
@@ -28,7 +30,8 @@ const opportunity = {
   originator_id: null,
   collateral_type: "real_estate",
   ltv_bps: 5_000,
-  currency: "CHF"
+  currency: "CHF",
+  borrower_country: "CH"
 };
 
 function preferences(overrides: Partial<SmartPreferences>): SmartPreferences {
@@ -42,34 +45,42 @@ describe("rule mapping", () => {
       minRate: 8.5,
       maxTerm: 36,
       security: ALL_SECURED_TYPES,
-      originators: []
+      maxLtv: null,
+      originators: [],
+      countries: [],
+      preferredAmount: null
     });
     expect(preferencesFromRule(null)).toEqual(preferences({}));
+    // A paused rule keeps its preferences for editing (U33-DEC-19).
+    expect(preferencesFromRule({ ...rule, is_active: false, state: "paused" }).minRate).toBe(8.5);
   });
 
-  test("every secured type is saved as any_secured, and retired criteria are never sent", () => {
-    const request = requestFromPreferences(preferences({ minRate: 7.25, security: [...ALL_SECURED_TYPES], currencies: ["CHF"] }));
-    expect(request).toMatchObject({
+  test("every secured type is saved as any_secured; LTV, countries and the usual amount are sent", () => {
+    const request = requestFromPreferences(preferences({ minRate: 7.25, security: [...ALL_SECURED_TYPES], currencies: ["CHF"], maxLtv: 65, countries: ["CH"], preferredAmount: 1000.5 }));
+    expect(request).toEqual({
       minimum_yield_bps: 725,
       maximum_term_months: null,
+      originators: [],
       collateral: ["any_secured"],
       currencies: ["CHF"],
-      purposes: [],
-      loan_kinds: []
+      maximum_ltv_bps: 6500,
+      countries: ["CH"],
+      preferred_amount_minor: 100050
     });
     expect(requestFromPreferences(preferences({ security: ["real_estate", "corporate_guarantee"] })).collateral).toEqual(["real_estate", "corporate_guarantee"]);
   });
 
-  test("risk rating, purpose or loan type in an older rule are reported as retired", () => {
-    expect(retiredCriteria(rule)).toEqual([]);
-    expect(retiredCriteria({ ...rule, purposes: ["working_capital"] })).toEqual(["purpose"]);
-    expect(retiredCriteria({ ...rule, is_active: false, purposes: ["working_capital"] })).toEqual([]);
-  });
-
-  test("switching off clears the rule (no Pause today)", () => {
-    const response = previewSwitchedOff(rule, []);
-    expect(response.rule).toMatchObject({ is_active: false, minimum_yield_bps: null, maximum_term_months: null, collateral: [], currencies: [] });
-    expect(response.matches).toEqual([]);
+  test("pause keeps the preferences and shows no matches; resume calculates them again", () => {
+    const loan = { ...smartInvestFixture.matches[0] } as never;
+    const paused = previewPaused(rule, [loan]);
+    expect(paused.rule).toMatchObject({ is_active: false, state: "paused", minimum_yield_bps: 850, maximum_term_months: 36 });
+    expect(paused.matches).toEqual([]);
+    expect(smartState(paused.rule)).toBe("paused");
+    // Saving while paused stays paused, like the backend.
+    expect(previewResponse(preferences({ minRate: 9 }), [loan], paused.rule).rule?.state).toBe("paused");
+    const resumed = previewResumed(paused.rule, [loan]);
+    expect(resumed.rule).toMatchObject({ is_active: true, state: "active", minimum_yield_bps: 850 });
+    expect(smartState(null)).toBe("not_set_up");
   });
 });
 
@@ -79,7 +90,13 @@ describe("effective criterion", () => {
     expect(hasEffectiveCriterion(preferences({ currencies: ["CHF", "EUR"], security: null, originators: [] }))).toBe(false);
   });
 
-  test("one currency, a rate, a term, a security type or an originator is enough", () => {
+  test("the usual amount alone never limits the matches", () => {
+    expect(hasEffectiveCriterion(preferences({ preferredAmount: 500 }))).toBe(false);
+  });
+
+  test("one currency, a rate, a term, a security type, an LTV, a country or an originator is enough", () => {
+    expect(hasEffectiveCriterion(preferences({ maxLtv: 70 }))).toBe(true);
+    expect(hasEffectiveCriterion(preferences({ countries: ["CH"] }))).toBe(true);
     expect(hasEffectiveCriterion(preferences({ currencies: ["CHF"] }))).toBe(true);
     expect(hasEffectiveCriterion(preferences({ minRate: 6 }))).toBe(true);
     expect(hasEffectiveCriterion(preferences({ maxTerm: 12 }))).toBe(true);
@@ -105,5 +122,19 @@ describe("matching", () => {
     expect(matchesPreferences(opportunity, preferences({ security: ["equipment"] }))).toBe(false);
     expect(matchesPreferences(opportunity, preferences({ security: [...ALL_SECURED_TYPES] }))).toBe(true);
     expect(matchesPreferences({ ...opportunity, ltv_bps: null }, preferences({ security: [...ALL_SECURED_TYPES] }))).toBe(false);
+  });
+});
+
+describe("loan-to-value, country and usual amount", () => {
+  test("a loan above the LTV limit or without an LTV figure does not match", () => {
+    expect(matchesPreferences(opportunity, preferences({ maxLtv: 50 }))).toBe(true);
+    expect(matchesPreferences(opportunity, preferences({ maxLtv: 49.9 }))).toBe(false);
+    expect(matchesPreferences({ ...opportunity, ltv_bps: null }, preferences({ maxLtv: 80 }))).toBe(false);
+  });
+
+  test("countries compare without letter case; the usual amount never excludes a match", () => {
+    expect(matchesPreferences(opportunity, preferences({ countries: ["ch"] }))).toBe(true);
+    expect(matchesPreferences(opportunity, preferences({ countries: ["RO"] }))).toBe(false);
+    expect(matchesPreferences(opportunity, preferences({ preferredAmount: 1_000_000 }))).toBe(true);
   });
 });

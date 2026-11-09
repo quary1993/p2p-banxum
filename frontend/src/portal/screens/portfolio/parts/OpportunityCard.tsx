@@ -2,6 +2,8 @@
 // A Smart Invest match as the design's opportunity card (.bxm-project.r35-card), from the match data of
 // the Smart Invest API. No risk rating (U33-DEC-16) and no "Banxum co-investment" claim (U33-DEC-15).
 // "Review investment" opens the opportunity page; nothing is reserved or confirmed here (U33-DEC-19).
+// With a usual amount, a card says when that amount cannot be invested here (below the minimum or more
+// than is left); the opportunity stays a match (U33-DEC-19).
 // As in the design's Smart Invest page, the badge, funded amount and availability are .r31-discovery-hidden.
 // Slice S2 builds the same card for Investment opportunities; the main session merges the two.
 import type { SmartInvestOpportunity } from "../../../../api/generated/banxumApi";
@@ -9,6 +11,7 @@ import { useT } from "../../../../i18n";
 import { daysBetweenDateKeys, formatDecimal, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
 import { platformTodayKey } from "../../../../investorPortal/platformClock";
 import { NiIcon, PortalLink, usePortalNav } from "../../../components";
+import { placeName } from "../../invest/loanFacts";
 import { investmentTypeText, monthsText, securityLabel, tileIcon } from "./labels";
 
 /** "95k", "1,2M": the design's short loan amount; the exact amount is in the title. */
@@ -19,7 +22,7 @@ function shortAmount(amountMinor: number, currency: string) {
   return formatDecimal(units, 0);
 }
 
-export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity; asOf?: string }) {
+export function OpportunityCard({ match, asOf, preferredAmount = null }: { match: SmartInvestOpportunity; asOf?: string; preferredAmount?: number | null }) {
   const t = useT();
   useNumberFormat();
   const nav = usePortalNav();
@@ -28,6 +31,15 @@ export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity
   const money = (amount: number) => `${match.currency} ${formatMoneyMinor(amount, match.currency)}`;
   const subtitle = match.borrower_display_name || match.originator_name || "";
   const unsecured = /unsecured/i.test(match.collateral_type) || match.ltv_bps === null;
+  const location = placeName(match.borrower_city, match.borrower_country);
+  const usualMinor = preferredAmount === null ? null : Math.round(preferredAmount * 100);
+  const amountNote = usualMinor === null
+    ? ""
+    : usualMinor < match.minimum_investment_minor
+      ? t("Your usual amount of {amount} is below the minimum here.", { amount: money(usualMinor) })
+      : usualMinor > match.fillable_amount_minor
+        ? t("Your usual amount of {amount} is more than is still available here.", { amount: money(usualMinor) })
+        : "";
   return (
     <div className="col-md-6 col-xxl-4">
       <div className="card card-bordered h-100">
@@ -43,7 +55,7 @@ export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity
               </PortalLink>
             </div>
             <div className="r35-location">
-              <span className="r35-location-text" />
+              <span className="r35-location-text">{location ? <span>{location}</span> : null}</span>
               <span className="r35-location-badges">
                 <span className="bxm-tag si-match-label r31-discovery-hidden" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span>
               </span>
@@ -90,6 +102,7 @@ export function OpportunityCard({ match, asOf }: { match: SmartInvestOpportunity
                 <span className="r31-discovery-hidden">{t("{amount} available", { amount: money(match.fillable_amount_minor) })}</span>
                 <span className="r31-minimum">{t("Min. {amount}", { amount: money(match.minimum_investment_minor) })}</span>
               </div>
+              {amountNote ? <p className="si-amount-note">{amountNote}</p> : null}
             </div>
             <div className="project-meta mt-3">
               <span className="bxm-muted">

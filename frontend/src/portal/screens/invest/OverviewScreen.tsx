@@ -160,6 +160,8 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
 
   const smartInvest = smartInvestQuery.data;
   const ruleActive = smartInvest?.rule?.is_active === true;
+  // U33-DEC-19: a paused rule shows no matches or counters here, only the way back to Smart Invest.
+  const rulePaused = smartInvest?.rule?.state === "paused";
   const matches = (smartInvest?.matches ?? []).filter((match) => isOpenLoan(match));
 
   const interestHoldings = holdings.filter((holding) => holding.received_interest_minor > 0).sort((a, b) => b.received_interest_minor - a.received_interest_minor);
@@ -432,11 +434,13 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
                   <p>
                     {ruleActive
                       ? t("Smart Invest is on. No open opportunity matches your preferences right now.")
-                      : t("Find investments matching your preferences. You confirm each one.")}
+                      : rulePaused
+                        ? t("Smart Invest is paused. Your preferences are saved.")
+                        : t("Find investments matching your preferences. You confirm each one.")}
                   </p>
                 </div>
                 <PortalLink className="refined-smart-setup" to="smartInvest">
-                  {ruleActive ? t("Smart Invest preferences") : t("Set up Smart Invest")} <NiIcon name="arrow-right" />
+                  {ruleActive ? t("Smart Invest preferences") : rulePaused ? t("Resume Smart Invest") : t("Set up Smart Invest")} <NiIcon name="arrow-right" />
                 </PortalLink>
               </section>
             )}

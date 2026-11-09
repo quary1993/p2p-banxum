@@ -1,8 +1,8 @@
 // IP of Webby-Soft SRL.
-// Smart Invest preferences of the U33 wizard, limited to the criteria the backend applies today
-// (currency, minimum yield, maximum term, security types, originator). The rule never carries risk
-// ratings, purposes or loan kinds (U33-DEC-16/19): they are saved empty. LTV, repayment, country,
-// usual amount, channels and Pause come with Phase 17.2 (U33-DEC-19).
+// Smart Invest preferences of the U33 wizard (U33-DEC-19): currency, minimum yield, maximum term,
+// security types, maximum loan-to-value, borrower country, originator and the optional usual amount.
+// No risk ratings, purposes or loan kinds (U33-DEC-16/19). Repayment groups wait for U33-DEC-11 and
+// the app/email channels for U33-DEC-30. A paused rule keeps its preferences.
 import {
   SmartInvestCollateralEnum,
   type MarketplaceLoanPreview,
@@ -28,23 +28,37 @@ export type SmartPreferences = {
   maxTerm: number | null;
   /** Selected security types; null = no preference. "unsecured" only when an older rule had it. */
   security: string[] | null;
+  /** Maximum loan-to-value in percent, e.g. 65; null = no preference. */
+  maxLtv: number | null;
   /** Originator sources (BANXUM_SOURCE or Loan Originator ids); empty = no preference. */
   originators: string[];
+  /** Borrower countries as the opportunities carry them; empty = no preference. */
+  countries: string[];
+  /** Usual amount per investment in each selected currency (major units); null = choose each time. */
+  preferredAmount: number | null;
 };
 
-export const DEFAULT_PREFERENCES: SmartPreferences = { currencies: [...SMART_CURRENCIES], minRate: null, maxTerm: null, security: null, originators: [] };
+export const DEFAULT_PREFERENCES: SmartPreferences = {
+  currencies: [...SMART_CURRENCIES],
+  minRate: null,
+  maxTerm: null,
+  security: null,
+  maxLtv: null,
+  originators: [],
+  countries: [],
+  preferredAmount: null
+};
 
-/** Criteria the U33 preferences no longer offer, still saved in an older rule (saving removes them). */
-export function retiredCriteria(rule: SmartInvestRule | null | undefined) {
-  if (!rule?.is_active) return [];
-  return [
-    rule.purposes.length > 0 ? "purpose" : "",
-    rule.loan_kinds.length > 0 ? "kind" : ""
-  ].filter(Boolean);
+export type SmartState = "not_set_up" | "active" | "paused";
+
+/** U33-DEC-19 state of the saved rule: active, paused (preferences kept) or not set up. */
+export function smartState(rule: SmartInvestRule | null | undefined): SmartState {
+  if (!rule) return "not_set_up";
+  return rule.state;
 }
 
 export function preferencesFromRule(rule: SmartInvestRule | null | undefined): SmartPreferences {
-  if (!rule?.is_active) return { ...DEFAULT_PREFERENCES, currencies: [...SMART_CURRENCIES] };
+  if (smartState(rule) === "not_set_up" || !rule) return { ...DEFAULT_PREFERENCES, currencies: [...SMART_CURRENCIES] };
   const collateral = rule.collateral as string[];
   let security: string[] | null = null;
   if (collateral.length > 0) {
@@ -56,7 +70,10 @@ export function preferencesFromRule(rule: SmartInvestRule | null | undefined): S
     minRate: rule.minimum_yield_bps === null ? null : rule.minimum_yield_bps / 100,
     maxTerm: rule.maximum_term_months,
     security,
-    originators: [...rule.originators]
+    maxLtv: rule.maximum_ltv_bps === null ? null : rule.maximum_ltv_bps / 100,
+    originators: [...rule.originators],
+    countries: [...rule.countries],
+    preferredAmount: rule.preferred_amount_minor === null ? null : rule.preferred_amount_minor / 100
   };
 }
 
@@ -76,9 +93,9 @@ export function requestFromPreferences(preferences: SmartPreferences): SmartInve
     originators: [...preferences.originators],
     collateral: collateralList(preferences.security) as SmartInvestCollateralEnum[],
     currencies: [...preferences.currencies] as SmartInvestCurrencyEnum[],
-    // U33-DEC-19: never sent; an older rule's values are removed by saving.
-    purposes: [],
-    loan_kinds: []
+    maximum_ltv_bps: preferences.maxLtv === null ? null : Math.round(preferences.maxLtv * 100),
+    countries: [...preferences.countries],
+    preferred_amount_minor: preferences.preferredAmount === null ? null : Math.round(preferences.preferredAmount * 100)
   };
 }
 
@@ -92,13 +109,15 @@ export function hasEffectiveCriterion(preferences: SmartPreferences) {
   return (
     preferences.minRate !== null ||
     preferences.maxTerm !== null ||
+    preferences.maxLtv !== null ||
+    preferences.countries.length > 0 ||
     preferences.originators.length > 0 ||
     (collateral.length > 0 && !everyCollateralOption) ||
     (preferences.currencies.length > 0 && !SMART_CURRENCIES.every((code) => preferences.currencies.includes(code)))
   );
 }
 
-type Matchable = Pick<MarketplaceLoanPreview, "yield_bps" | "interest_rate_bps" | "term_months" | "product_type" | "originator_id" | "collateral_type" | "ltv_bps" | "currency">;
+type Matchable = Pick<MarketplaceLoanPreview, "yield_bps" | "interest_rate_bps" | "term_months" | "product_type" | "originator_id" | "collateral_type" | "ltv_bps" | "currency" | "borrower_country">;
 
 /** The backend's matching rule (opportunity_matches_criteria), for the live counts of the wizard. */
 export function matchesPreferences(opportunity: Matchable, preferences: SmartPreferences) {
@@ -115,7 +134,13 @@ export function matchesPreferences(opportunity: Matchable, preferences: SmartPre
     const matches = unsecured ? collateral.includes(UNSECURED) : collateral.includes(ANY_SECURED) || collateral.includes(opportunity.collateral_type);
     if (!matches) return false;
   }
+  // Without a loan-to-value figure the limit cannot be checked: no match (as the backend).
+  if (preferences.maxLtv !== null && (opportunity.ltv_bps === null || opportunity.ltv_bps > Math.round(preferences.maxLtv * 100))) return false;
   if (preferences.currencies.length > 0 && !preferences.currencies.includes(opportunity.currency)) return false;
+  if (preferences.countries.length > 0) {
+    const country = (opportunity.borrower_country ?? "").toLowerCase();
+    if (!preferences.countries.some((value) => value.toLowerCase() === country)) return false;
+  }
   return true;
 }
 
@@ -154,31 +179,38 @@ function asOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
     originator_id: loan.originator_id,
     originator_name: loan.originator_name,
     borrower_display_name: loan.borrower_display_name,
+    borrower_country: loan.borrower_country,
+    borrower_city: loan.borrower_city,
     skin_in_the_game_bps: loan.skin_in_the_game_bps,
     minimum_subscription_bps: loan.minimum_subscription_bps
   };
 }
 
-/** Preview mode only (no server): the answer the server would give after saving these preferences. */
-export function previewResponse(preferences: SmartPreferences, loans: MarketplaceLoanPreview[], previous: SmartInvestRule | null | undefined): SmartInvestResponse {
+/**
+ * Preview mode only (no server): the answer the server would give after saving these preferences.
+ * As the backend, saving keeps a paused rule paused (U33-DEC-19); a new set-up is active.
+ */
+export function previewResponse(preferences: SmartPreferences, loans: MarketplaceLoanPreview[], previous: SmartInvestRule | null | undefined, active = smartState(previous) !== "paused"): SmartInvestResponse {
   const open = loans.filter(isOpenOpportunity);
-  const matches = open.filter((loan) => matchesPreferences(loan, preferences)).map(asOpportunity);
+  const matches = active ? open.filter((loan) => matchesPreferences(loan, preferences)).map(asOpportunity) : [];
   const request = requestFromPreferences(preferences);
   const now = new Date().toISOString();
   return {
     rule: {
       id: previous?.id ?? "smart-invest-rule-preview",
-      is_active: true,
+      is_active: active,
+      state: active ? "active" : "paused",
       revision: (previous?.revision ?? 0) + 1,
       minimum_yield_bps: request.minimum_yield_bps ?? null,
       maximum_term_months: request.maximum_term_months ?? null,
+      maximum_ltv_bps: request.maximum_ltv_bps ?? null,
+      preferred_amount_minor: request.preferred_amount_minor ?? null,
       originators: request.originators ?? [],
       collateral: request.collateral ?? [],
       currencies: request.currencies ?? [],
-      purposes: [],
-      loan_kinds: [],
-      activated_at: previous?.activated_at ?? now,
-      deactivated_at: null,
+      countries: request.countries ?? [],
+      activated_at: active ? now : previous?.activated_at ?? null,
+      deactivated_at: active ? null : previous?.deactivated_at ?? now,
       created_at: previous?.created_at ?? now,
       updated_at: now
     },
@@ -188,15 +220,12 @@ export function previewResponse(preferences: SmartPreferences, loans: Marketplac
   };
 }
 
-/** Preview mode only: the answer after "Switch off" (the backend clears the rule). */
-export function previewSwitchedOff(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[]): SmartInvestResponse {
-  const now = new Date().toISOString();
-  return {
-    rule: previous
-      ? { ...previous, is_active: false, revision: previous.revision + 1, minimum_yield_bps: null, maximum_term_months: null, originators: [], collateral: [], currencies: [], purposes: [], loan_kinds: [], deactivated_at: now, updated_at: now }
-      : null,
-    match_count: 0,
-    open_opportunity_count: loans.filter(isOpenOpportunity).length,
-    matches: []
-  };
+/** Preview mode only: the answer after "Pause Smart Invest" (the preferences stay, no matches). */
+export function previewPaused(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[]): SmartInvestResponse {
+  return previewResponse(preferencesFromRule(previous), loans, previous, false);
+}
+
+/** Preview mode only: the answer after "Resume Smart Invest" (the matches are calculated anew). */
+export function previewResumed(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[]): SmartInvestResponse {
+  return previewResponse(preferencesFromRule(previous), loans, previous, true);
 }

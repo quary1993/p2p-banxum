@@ -2161,6 +2161,13 @@ Status 2026-11-09: S1-S6 are merged on branch `u33-redesign`. Every investor scr
 | U33-DEC-30 | Notification preferences: service emails fixed, marketing switch, Smart-Invest app/email channels. | Legal classification of messages. |
 | U33-DEC-38 | Publication guard: no new loan without collateral or guarantee; "unsecured exception" closed for new loans. | Proof-of-security checks with legal. |
 
+Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done.
+
+- U33-DEC-16: no risk rating in investor or public payloads, filters, exposure, documents or Smart Invest; saved rating criteria removed by a data migration (an active rule left without a criterion is deactivated). The admin console still records a rating on new loans, which the decision allows.
+- U33-DEC-23: borrower city and dated head count, originator founding year, city and sector; admin forms; shown on the cards, the opportunity page, the credit file and the Loan originators pages. The public projects API stays anonymous.
+- U33-DEC-05: one default return account per currency (first verified account, changeable with the email code and the PIN, forced returns go there); `verification_status` and `is_default_return` in the API; a deposit's source IBAN becomes a return account only after the admin's hand check that the account is in the investor's name.
+- U33-DEC-19 part 1: batch placement removed; Pause/Resume that keeps the preferences; maximum LTV, borrower country and the optional usual amount (prepares the amount, never raised to the minimum); purpose and loan-kind criteria removed by a data migration. Still open: repayment groups (after U33-DEC-11), security groups (after U33-DEC-21), app/email channels (U33-DEC-30).
+
 #### 17.3 Authentication and security (U33-DEC-01, -25, part of -29)
 
 - Password login with mandatory second factor (TOTP app or SMS, enrolled and verified); recovery flows as in U33-DEC-01; no magic link or passkeys.

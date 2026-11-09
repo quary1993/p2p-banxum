@@ -578,15 +578,36 @@ test("Smart-Invest matches open their opportunity page, where the investment is 
   expect(screen.getAllByText("Adriatic Marine d.o.o.").length).toBeGreaterThan(0);
 });
 
-test("Smart Invest uses the four U33 preference steps and never implies automatic investing", async () => {
+test("Smart Invest pauses with the preferences kept and resumes with the matches recalculated (U33-DEC-19)", async () => {
   renderApp();
   loginDemo();
   clickNav("Smart Invest");
 
-  // "Switch off" clears the preferences (today's behaviour; no Pause until Phase 17.2, U33-DEC-19).
-  fireEvent.click(screen.getByRole("button", { name: "Switch off Smart Invest" }));
-  const confirm = screen.getByRole("dialog", { name: "Switch off Smart Invest?" });
-  fireEvent.click(within(confirm).getByRole("button", { name: "Switch off" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pause Smart Invest" }));
+  expect(await screen.findByRole("heading", { name: "Smart Invest is paused." })).toBeInTheDocument();
+  expect(screen.getByText("Preferred investment amount").nextElementSibling).toHaveTextContent("Choose for each investment");
+  expect(screen.getByText("Minimum annual interest rate").nextElementSibling).toHaveTextContent("8,5% per year");
+  expect(screen.getByText("Maximum investment duration").nextElementSibling).toHaveTextContent("36 months");
+  // No matches, marks or counters while paused.
+  expect(screen.queryByRole("button", { name: /^Review investment in / })).not.toBeInTheDocument();
+  clickNav("Overview");
+  expect(screen.getByText("Smart Invest is paused. Your preferences are saved.")).toBeInTheDocument();
+  clickNav("Smart Invest");
+
+  fireEvent.click(screen.getByRole("button", { name: /Resume Smart Invest/ }));
+  expect(await screen.findByText("Your preferences")).toBeInTheDocument();
+  expect(screen.getByText("Active")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Pause Smart Invest" })).toBeInTheDocument();
+});
+
+test("Smart Invest uses the four U33 preference steps and never implies automatic investing", async () => {
+  const savedRule = smartInvestFixture.rule;
+  smartInvestFixture.rule = null;
+  try {
+  renderApp();
+  loginDemo();
+  clickNav("Smart Invest");
+
   expect(await screen.findByRole("heading", { name: "A simpler way to find investments." })).toBeInTheDocument();
   expect(screen.getByText("You review and confirm each investment.")).toBeInTheDocument();
   expect(screen.queryByText(/reinvest|automatic/i)).not.toBeInTheDocument();
@@ -618,6 +639,10 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
   expect(screen.getByRole("checkbox", { name: "No preference" })).toBeChecked();
   // No risk rating, purpose or loan type preference (U33-DEC-16/19).
   expect(screen.queryByText(/risk rating|purpose|loan type/i)).not.toBeInTheDocument();
+  // Maximum loan-to-value (U33-DEC-19).
+  const ltv = screen.getByRole("heading", { name: "Maximum loan-to-value" }).closest("section") as HTMLElement;
+  fireEvent.click(within(ltv).getByRole("button", { name: "Set a limit" }));
+  fireEvent.click(within(ltv).getByRole("button", { name: "70%" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
   expect(screen.getByRole("heading", { name: "Review & activate Smart Invest" })).toBeInTheDocument();
@@ -625,15 +650,54 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
   const rates = screen.getByText("Interest & duration", { selector: "dt" }).nextElementSibling;
   expect(rates).toHaveTextContent("Interest rate: no preference");
   expect(rates).toHaveTextContent("Term: no preference");
-  expect(screen.getByText("Security type: no preference")).toBeInTheDocument();
+  const security = screen.getByText("Security", { selector: "dt" }).nextElementSibling;
+  expect(security).toHaveTextContent("Security type: no preference");
+  expect(security).toHaveTextContent("Maximum loan-to-value 70%");
   for (const name of ["Edit currencies", "Edit interest & duration", "Edit security"]) {
     expect(screen.getByRole("button", { name })).toBeInTheDocument();
   }
+  // More preferences: borrower country, originator and the optional usual amount.
+  fireEvent.change(screen.getByLabelText("Borrower country"), { target: { value: "CH" } });
+  fireEvent.change(screen.getByLabelText(/Preferred investment amount/), { target: { value: "1000" } });
+  expect(screen.getByText(/A saved amount applies separately in each selected currency\./)).toBeInTheDocument();
   expect(screen.getByText("No money is invested or reserved when you activate Smart Invest. You confirm each investment.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Activate Smart Invest" }));
 
-  expect(await screen.findByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
+  expect(await screen.findByText("CHF 1.000,00 per investment · Any interest rate · Any duration · Loan-to-value up to 70% · Switzerland")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Edit preferences" })).toBeInTheDocument();
+  } finally {
+    smartInvestFixture.rule = savedRule;
+  }
+});
+
+test("the usual Smart Invest amount prepares the amount but is never raised to the minimum (U33-DEC-19)", () => {
+  const rule = smartInvestFixture.rule;
+  if (!rule) throw new Error("fixture rule missing");
+  const saved = rule.preferred_amount_minor;
+  rule.preferred_amount_minor = 250_000;
+  try {
+    renderApp();
+    loginDemo();
+    clickNav("Smart Invest");
+    expect(screen.getByText("Your preferences").nextElementSibling).toHaveTextContent("EUR 2.500,00 / CHF 2.500,00 per investment");
+    // The match stays; its card says why the usual amount does not fit.
+    const card = screen.getByRole("button", { name: "Review investment in Adriatic Marine d.o.o." }).closest(".r35-card") as HTMLElement;
+    expect(within(card).getByText("Your usual amount of EUR 2.500,00 is more than is still available here.")).toBeInTheDocument();
+
+    goToPath("/marketplace/GA-2401");
+    expect(screen.getByRole("textbox", { name: "Choose investment amount" })).toHaveValue("2500,00");
+    expect(screen.getByText("Your usual Smart Invest amount. You can change it.")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Choose investment amount" }), { target: { value: "1500" } });
+    expect(screen.getByRole("textbox", { name: "Choose investment amount" })).toHaveValue("1500");
+    expect(screen.queryByText("Your usual Smart Invest amount. You can change it.")).not.toBeInTheDocument();
+
+    rule.preferred_amount_minor = 50_000;
+    goToPath("/marketplace/GA-2399");
+    expect(screen.getByRole("textbox", { name: "Choose investment amount" })).toHaveValue("500,00");
+    expect(screen.getByText("Your usual Smart Invest amount is below the minimum here. Enter at least the minimum to invest.")).toBeInTheDocument();
+  } finally {
+    rule.preferred_amount_minor = saved;
+  }
 });
 
 test("Investment opportunities mark Smart Invest matches and can show only them", () => {
@@ -979,7 +1043,7 @@ test("Smart Invest preferences save several security types and an originator", a
   expect(screen.getByRole("checkbox", { name: "No preference" })).not.toBeChecked();
   fireEvent.click(within(screen.getByRole("list", { name: "Smart Invest setup" })).getByRole("button", { name: "Review & save" }));
 
-  expect(screen.getByText("Security type: Property mortgage, Company guarantee")).toBeInTheDocument();
+  expect(screen.getByText("Security", { selector: "dt" }).nextElementSibling).toHaveTextContent("Security type: Property mortgage, Company guarantee");
   fireEvent.change(screen.getByLabelText("Originator"), { target: { value: "banxum" } });
   fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
 
@@ -1271,7 +1335,7 @@ test("the credit file's Borrower & business chapter shows the published story, s
   expect(screen.getByRole("heading", { level: 3, name: "Meet the borrower" })).toBeInTheDocument();
   expect(screen.getByText("Established").nextElementSibling).toHaveTextContent("2011");
   // U33-DEC-23: the head count always shows its year; the city comes before the country.
-  expect(screen.getByText("Employees").nextElementSibling).toHaveTextContent("64 in 2025");
+  expect(screen.getByText("Employees").nextElementSibling).toHaveTextContent("118 in 2025");
   expect(screen.getByText("Location").nextElementSibling).toHaveTextContent("Basel, Switzerland");
   // Story blocks render as real elements built from the JSON document.
   expect(screen.getByRole("heading", { level: 2, name: "Moving Swiss goods since 1994" })).toBeInTheDocument();

@@ -1,15 +1,17 @@
 // IP of Webby-Soft SRL.
-// Smart Invest setup and edit (design: the guided steps of #/auto-invest, .si-wizard.si-guided). Steps
-// for the criteria the backend applies today: Currency, Interest & duration, Security, Review (with the
-// originator under "More preferences"). The design's Repayments step, loan-to-value, country, usual
-// amount and notification channels come with Phase 17.2 (U33-DEC-19); the step list is data so the
-// Repayments step can be added back. Editing starts from the saved preferences and saves at the end.
+// Smart Invest setup and edit (design: the guided steps of #/auto-invest, .si-wizard.si-guided, U33-DEC-19).
+// Steps: Currency, Interest & duration, Security (types and maximum loan-to-value), Review (with borrower
+// country, originator and the optional usual amount under "More preferences"). The design's Repayments
+// step waits for the repayment groups (U33-DEC-11) and the notification channels for U33-DEC-30; the step
+// list is data so Repayments can be added back. Editing starts from the saved preferences and saves at
+// the end.
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { formatDecimal, useNumberFormat } from "../../../investorPortal/format";
+import { formatDecimal, formatMoneyLabel, useNumberFormat } from "../../../investorPortal/format";
 import { Dialog, InfoTip, NiIcon } from "../../components";
+import { countryName } from "../invest/loanFacts";
 import { SECURITY_GROUPS, securityLabel, securityPreferenceText } from "./parts/labels";
 import { preferenceSummary } from "./parts/smartSummary";
 import { BANXUM_SOURCE, SMART_CURRENCIES, hasEffectiveCriterion, isOpenOpportunity, matchesPreferences, type SmartPreferences } from "./parts/smartInvestModel";
@@ -138,12 +140,73 @@ function RangeField({
   );
 }
 
+/** Design .rs65-ltv: "Maximum loan-to-value" with No preference / Set a limit, presets and a value. */
+function LtvField({ value, onChange }: { value: number | null; onChange: (value: number | null) => void }) {
+  const t = useT();
+  useNumberFormat();
+  const editorId = useId();
+  const [limit, setLimit] = useState(value !== null);
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? (value === null ? "" : formatDecimal(value, Number.isInteger(value) ? 0 : 1));
+  return (
+    <section aria-labelledby="rs65-ltv-title" className="rs65-ltv" data-ltv-mode={limit ? "limit" : "any"}>
+      <div className="rs65-ltv-heading">
+        <h5 id="rs65-ltv-title">{t("Maximum loan-to-value")}</h5>
+        <div aria-label={t("Loan-to-value preference")} className="rc-range-toggle" role="group">
+          <button aria-pressed={!limit} onClick={() => { setLimit(false); setText(null); onChange(null); }} type="button">{t("No preference")}</button>
+          <button aria-controls={editorId} aria-expanded={limit} aria-pressed={limit} onClick={() => setLimit(true)} type="button">{t("Set a limit")}</button>
+        </div>
+      </div>
+      <div className="rs65-ltv-editor" hidden={!limit} id={editorId}>
+        <div className="rs65-ltv-controls">
+          <div className="rs65-ltv-input-row">
+            <label htmlFor="rs65-ltv-value">{t("Loan amount up to")}</label>
+            <span className="rs65-ltv-value">
+              <input
+                aria-label={t("Maximum loan-to-value percent")}
+                id="rs65-ltv-value"
+                inputMode="decimal"
+                onBlur={() => setText(null)}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  const parsed = parseNumber(event.target.value);
+                  onChange(parsed === null || parsed <= 0 ? null : Math.min(parsed, 100));
+                }}
+                placeholder="—"
+                type="text"
+                value={shown}
+              />
+              <span>%</span>
+            </span>
+          </div>
+          <div aria-label={t("Loan-to-value limits")} className="rs65-ltv-presets" role="group">
+            {[60, 70, 80].map((preset) => (
+              <button aria-pressed={value === preset} key={preset} onClick={() => { setText(null); onChange(preset); }} type="button">{preset}%</button>
+            ))}
+          </div>
+          <input
+            aria-label={t("Maximum loan-to-value slider")}
+            aria-valuetext={value === null ? t("No limit selected") : `${formatDecimal(value, 0)}%`}
+            max={100}
+            min={1}
+            onChange={(event) => { setText(null); onChange(Number(event.target.value)); }}
+            step={1}
+            type="range"
+            value={value ?? 70}
+          />
+        </div>
+        <p className="rs65-ltv-note">{t("Only opportunities with a stated loan-to-value are shown.")}</p>
+        {value === null ? <p className="rc-range-pending">{t("Enter a value or choose a limit to apply it.")}</p> : null}
+      </div>
+    </section>
+  );
+}
+
 export function SmartInvestWizard({
   mode,
   initial,
   loans,
   originators,
-  retired,
   saving,
   error,
   onCancel,
@@ -153,8 +216,6 @@ export function SmartInvestWizard({
   initial: SmartPreferences;
   loans: MarketplaceLoanPreview[];
   originators: Array<{ id: string; name: string }>;
-  /** Criteria of the saved rule that saving removes (risk ratings, purposes, loan kinds). */
-  retired: string[];
   saving: boolean;
   error: string;
   onCancel: () => void;
@@ -167,6 +228,7 @@ export function SmartInvestWizard({
   const [currencyError, setCurrencyError] = useState(false);
   const [criterionError, setCriterionError] = useState(false);
   const [matchesOpen, setMatchesOpen] = useState(false);
+  const [amountText, setAmountText] = useState(initial.preferredAmount === null ? "" : formatDecimal(initial.preferredAmount, Number.isInteger(initial.preferredAmount) ? 0 : 2));
   const headingRef = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
   const step = STEPS[stepIndex];
@@ -220,6 +282,15 @@ export function SmartInvestWizard({
 
   const currencySummary = preferences.currencies.length === SMART_CURRENCIES.length ? SMART_CURRENCIES.join(" · ") : preferences.currencies.join(" · ");
   const securitySummary = security === null ? t("no preference") : securityPreferenceText(security);
+  // Borrower countries of the open opportunities, plus a saved one that is not listed now.
+  const countryValues = Array.from(new Set([...open.map((loan) => loan.borrower_country).filter(Boolean), ...preferences.countries]));
+  const countryOptions = countryValues.map((value) => ({ value, label: countryName(value) })).sort((left, right) => left.label.localeCompare(right.label));
+  const countryValue = preferences.countries.length === 0 ? "" : preferences.countries.length === 1 ? preferences.countries[0] : "__several__";
+  const moreSummary = [
+    preferences.countries.length > 0 ? preferences.countries.map(countryName).join(", ") : "",
+    preferences.originators.length > 0 ? t("Originator") : "",
+    preferences.preferredAmount !== null ? preferences.currencies.map((currency) => formatMoneyLabel(currency, Math.round((preferences.preferredAmount ?? 0) * 100))).join(" / ") : ""
+  ].filter(Boolean);
   const originatorValue = preferences.originators.length === 0 ? "" : preferences.originators.length === 1 ? preferences.originators[0] : "__several__";
   const originatorOptions = [
     { value: BANXUM_SOURCE, label: t("Banxum (direct loans)") },
@@ -350,18 +421,13 @@ export function SmartInvestWizard({
           </div>
           <p className="si-setup-note r53-security-rule">{t("An opportunity needs to match at least one selected security type. Every new loan is secured by collateral or guarantees.")}</p>
         </fieldset>
+        <LtvField onChange={(value) => update({ maxLtv: value })} value={preferences.maxLtv} />
       </>
     ),
     review: (
       <>
         <h4 id="si-step-heading" ref={headingRef} tabIndex={-1}>{mode === "edit" ? t("Review & save your preferences") : t("Review & activate Smart Invest")}</h4>
         <p className="si-setup-intro">{mode === "edit" ? t("Check your preferences before saving.") : t("Check your preferences before activating Smart Invest.")}</p>
-        {retired.length > 0 ? (
-          <div className="alert alert-warning alert-icon u33-retired-criteria" role="status">
-            <NiIcon name="alert-circle" />
-            {t("Your saved preferences also include risk rating, purpose or loan type. Smart Invest no longer uses them: saving your preferences removes them.")}
-          </div>
-        ) : null}
         <dl className="rs33-review">
           <div>
             <dt>{t("Currencies")}</dt>
@@ -379,7 +445,11 @@ export function SmartInvestWizard({
           </div>
           <div>
             <dt>{t("Security")}</dt>
-            <dd>{t("Security type: {types}", { types: securitySummary })}</dd>
+            <dd>
+              {t("Security type: {types}", { types: securitySummary })}
+              <br />
+              {preferences.maxLtv === null ? t("Loan-to-value: no preference") : t("Maximum loan-to-value {ratio}%", { ratio: formatDecimal(preferences.maxLtv, Number.isInteger(preferences.maxLtv) ? 0 : 1) })}
+            </dd>
             <button aria-label={t("Edit security")} className="si-link" onClick={() => setStepIndex(2)} type="button">{t("Edit")}</button>
           </div>
         </dl>
@@ -390,13 +460,28 @@ export function SmartInvestWizard({
             <p>{t("Your preferences also apply to future opportunities.")}</p>
           </div>
         </div>
-        <details className="si-setup-more" open={preferences.originators.length > 0 || undefined}>
+        <details className="si-setup-more" open={moreSummary.length > 0 || undefined}>
           <summary>
             <NiIcon name="chevron-down" />
             {t("More preferences")}
-            <small>{t("Originator")}</small>
+            <small>{t("Country · Originator · Preferred amount")}</small>
           </summary>
           <div className="si-setup-grid">
+            <div className="si-setup-field">
+              <div className="si-select-label">
+                <label htmlFor="si-country">{t("Borrower country")}</label>
+              </div>
+              <select
+                className="form-select"
+                id="si-country"
+                onChange={(event) => update({ countries: event.target.value === "" ? [] : event.target.value === "__several__" ? preferences.countries : [event.target.value] })}
+                value={countryValue}
+              >
+                <option value="">{t("No preference")}</option>
+                {countryValue === "__several__" ? <option value="__several__">{t("Several countries (saved)")}</option> : null}
+                {countryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
             <div className="si-setup-field">
               <div className="si-select-label">
                 <label htmlFor="si-originator">{t("Originator")}</label>
@@ -416,10 +501,35 @@ export function SmartInvestWizard({
               </select>
             </div>
           </div>
+          <div className="si-guided-amount">
+            <label className="si-setup-label" htmlFor="si-amount">
+              {t("Preferred investment amount")} <small>{t("Optional")}</small>
+            </label>
+            <input
+              className="form-control si-setup-amount"
+              id="si-amount"
+              inputMode="decimal"
+              name="amount"
+              onBlur={() => setAmountText(preferences.preferredAmount === null ? "" : formatDecimal(preferences.preferredAmount, Number.isInteger(preferences.preferredAmount) ? 0 : 2))}
+              onChange={(event) => {
+                setAmountText(event.target.value);
+                const parsed = parseNumber(event.target.value);
+                update({ preferredAmount: parsed === null || parsed <= 0 ? null : Math.round(parsed * 100) / 100 });
+              }}
+              placeholder={t("Choose later")}
+              type="text"
+              value={amountText}
+            />
+            <p className="si-setup-note">
+              {t("Leave blank to choose an amount for each investment.")}
+              <br />
+              {t("A saved amount applies separately in each selected currency.")}
+            </p>
+          </div>
         </details>
         {criterionError ? (
           <p className="si-validation" role="alert">
-            {t("Set at least one preference that limits the matches: one currency only, a minimum interest rate, a maximum duration, a security type or an originator.")}
+            {t("Set at least one preference that limits the matches: one currency only, a minimum interest rate, a maximum duration, a security type, a loan-to-value limit, a country or an originator. The preferred amount does not limit the matches.")}
           </p>
         ) : null}
       </>

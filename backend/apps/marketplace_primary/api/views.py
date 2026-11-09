@@ -27,8 +27,6 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryLoanCloseSerializer,
     PrimaryLoanExpiryScanRequestSerializer,
     PrimaryLoanExpiryScanResponseSerializer,
-    PrimaryOrderBatchRequestSerializer,
-    PrimaryOrderBatchResponseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
     PublicOriginatorSerializer,
     PublicProjectListQuerySerializer,
@@ -55,8 +53,6 @@ from backend.apps.marketplace_primary.services import (
     MarketplacePrimaryOrderNotPendingError,
     MarketplacePrimarySwissInvestorLimitError,
     MarketplacePrimaryValidationError,
-    PlacePrimaryOrderBatchCommand,
-    PrimaryOrderBatchItemCommand,
     ReleasePrimaryInvestmentOrderCommand,
     ScanExpiredPrimaryFundingCommand,
     allocate_primary_order_from_balance,
@@ -66,7 +62,6 @@ from backend.apps.marketplace_primary.services import (
     download_marketplace_borrower_document,
     get_full_marketplace_loan,
     list_investor_marketplace_loans,
-    place_primary_order_batch,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
@@ -325,81 +320,6 @@ class PrimaryInvestmentOrderAllocateView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_order(order), status=status.HTTP_200_OK)
-
-
-class PrimaryOrderBatchView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        operation_id="marketplace_primary_orders_batch_create",
-        request=PrimaryOrderBatchRequestSerializer,
-        responses={201: PrimaryOrderBatchResponseSerializer},
-    )
-    def post(self, request: Request) -> Response:
-        serializer = PrimaryOrderBatchRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        try:
-            result = place_primary_order_batch(
-                PlacePrimaryOrderBatchCommand(
-                    actor=cast(Model, request.user),
-                    items=[
-                        PrimaryOrderBatchItemCommand(
-                            loan_id=str(item["loan_id"]),
-                            amount_minor=int(item["amount_minor"]),
-                            quote_id=(
-                                str(item["quote_id"]) if item.get("quote_id") is not None else None
-                            ),
-                        )
-                        for item in data["items"]
-                    ],
-                    document_acceptance_id=str(data["document_acceptance_id"]),
-                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
-                    sensitive_action_code=data["sensitive_action_code"],
-                    pin=data["pin"],
-                    idempotency_key=data["idempotency_key"],
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except SensitiveActionPinError as exc:
-            return sensitive_action_pin_error_response(exc)
-        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
-            return _error_response(exc)
-        return Response(
-            {
-                "batch_id": str(result.batch.id),
-                "currency": result.batch.currency_id,
-                "currency_totals": result.batch.currency_totals,
-                "orders": [serialize_primary_order(order) for order in result.orders],
-                "order_count": len(result.orders),
-                "originator_purchases": [
-                    {
-                        "purchase_id": str(purchase.id),
-                        "quote_id": str(purchase.quote_id),
-                        "loan_id": str(purchase.loan_profile.loan_id),
-                        "holding_id": str(purchase.holding_id),
-                        "currency": purchase.currency_id,
-                        "cash_consideration_minor": purchase.cash_consideration_minor,
-                        "assigned_principal_minor": purchase.assigned_principal_minor,
-                        "outstanding_principal_at_pricing_minor": (
-                            purchase.outstanding_principal_at_pricing_minor
-                        ),
-                        "share_ppm": purchase.share_ppm,
-                        "target_yield_bps": purchase.target_yield_bps,
-                        "purchased_at": purchase.purchased_at,
-                    }
-                    for purchase in result.originator_purchases
-                ],
-                "originator_purchase_count": len(result.originator_purchases),
-                "total_amount_minor": (
-                    int(result.batch.total_amount_minor)
-                    if result.batch.total_amount_minor is not None
-                    else None
-                ),
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class PrimaryInvestmentOrderReleaseView(APIView):

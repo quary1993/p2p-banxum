@@ -1,21 +1,24 @@
 // IP of Webby-Soft SRL.
 // Smart Invest (design #/auto-invest, route /smart-invest, U33 slice S3): not set up, active with matches,
-// active with zero matches, and the setup/edit wizard. Matches come from the server's matching; each
-// "Review investment" opens the opportunity page, where the investor confirms each investment on its
-// own (U33-DEC-19: no batch approval, nothing reserved). "Switch off" is today's behaviour: the rule is
-// cleared (no Pause until Phase 17.2). No risk rating anywhere (U33-DEC-16).
+// active with zero matches, paused, and the setup/edit wizard. Matches come from the server's matching;
+// each "Review investment" opens the opportunity page, where the investor confirms each investment on
+// its own (U33-DEC-19: no batch approval, nothing reserved). "Pause Smart Invest" keeps the preferences
+// and removes the matches, marks and alerts; "Resume Smart Invest" calculates the matches again. Editing
+// a paused rule keeps it paused. No risk rating anywhere (U33-DEC-16).
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import {
   getV1InvestorSmartInvestRetrieveQueryKey,
-  useV1InvestorSmartInvestDeactivateCreate,
+  useV1InvestorSmartInvestPauseCreate,
+  useV1InvestorSmartInvestResumeCreate,
   useV1InvestorSmartInvestUpdate,
-  type SmartInvestOpportunity
+  type SmartInvestOpportunity,
+  type SmartInvestResponse
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { isFixturePreview, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
-import { useNumberFormat } from "../../../investorPortal/format";
+import { formatDecimal, formatMoneyLabel, useNumberFormat } from "../../../investorPortal/format";
 import { Button, Dialog, EmptyState, NiIcon, PageHead } from "../../components";
 import { SmartInvestWizard } from "./SmartInvestWizard";
 import { errorMessage, isReadonlyView } from "./parts/errors";
@@ -23,10 +26,11 @@ import { OpportunityCard } from "./parts/OpportunityCard";
 import {
   SMART_CURRENCIES,
   preferencesFromRule,
+  previewPaused,
   previewResponse,
-  previewSwitchedOff,
+  previewResumed,
   requestFromPreferences,
-  retiredCriteria,
+  smartState,
   type SmartPreferences
 } from "./parts/smartInvestModel";
 import { preferenceSummary } from "./parts/smartSummary";
@@ -53,10 +57,10 @@ export function SmartInvestScreen() {
   const smartQuery = useSmartInvestData();
   const loansQuery = useMarketplaceLoansData();
   const updateMutation = useV1InvestorSmartInvestUpdate();
-  const deactivateMutation = useV1InvestorSmartInvestDeactivateCreate();
+  const pauseMutation = useV1InvestorSmartInvestPauseCreate();
+  const resumeMutation = useV1InvestorSmartInvestResumeCreate();
   const preview = usePreviewVariant();
   const [wizard, setWizard] = useState<"setup" | "edit" | null>(null);
-  const [confirmOff, setConfirmOff] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
   const [sort, setSort] = useState<SortKey>("closing");
   const [error, setError] = useState("");
@@ -68,16 +72,15 @@ export function SmartInvestScreen() {
 
   const data = smartQuery.data;
   const loans = loansQuery.data ?? [];
-  // Preview variants for review: ?preview=not-set-up, ?preview=zero-matches, ?preview=retired-criteria.
-  const rule = preview === "not-set-up" ? null : preview === "retired-criteria" && data.rule ? { ...data.rule, purposes: ["working_capital"] } as typeof data.rule : data.rule;
+  // Preview variants for review: ?preview=not-set-up, ?preview=zero-matches, ?preview=paused.
+  const rule = preview === "not-set-up" ? null : preview === "paused" && data.rule ? { ...data.rule, is_active: false, state: "paused" as const } : data.rule;
   const matches = preview === "zero-matches" ? [] : data.matches;
-  const active = rule?.is_active === true;
+  const state = smartState(rule);
   const preferences = preferencesFromRule(rule);
-  const retired = retiredCriteria(rule);
   const originators = Array.from(
     new Map(loans.filter((loan) => loan.originator_id && loan.originator_name).map((loan) => [loan.originator_id as string, loan.originator_name as string])).entries()
   ).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
-  const saving = updateMutation.isPending || deactivateMutation.isPending;
+  const saving = updateMutation.isPending || pauseMutation.isPending || resumeMutation.isPending;
   const readonly = isReadonlyView();
 
   const save = async (next: SmartPreferences) => {
@@ -94,20 +97,25 @@ export function SmartInvestScreen() {
       setError(errorMessage(failure));
     }
   };
-  const switchOff = async () => {
+  const changeState = async (next: "pause" | "resume") => {
     setError("");
     if (readonly) {
       setError(t("Smart Invest cannot be changed in a read-only view."));
       return;
     }
     try {
-      const response = isFixturePreview ? previewSwitchedOff(rule, loans) : await deactivateMutation.mutateAsync();
+      let response: SmartInvestResponse;
+      if (isFixturePreview) response = next === "pause" ? previewPaused(rule, loans) : previewResumed(rule, loans);
+      else response = next === "pause" ? await pauseMutation.mutateAsync() : await resumeMutation.mutateAsync();
       queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
-      setConfirmOff(false);
     } catch (failure) {
       setError(errorMessage(failure));
     }
   };
+  // Design amountSummary(): the usual amount in each selected currency, or "Choose for each investment".
+  const amountSummary = preferences.preferredAmount === null
+    ? t("Choose for each investment")
+    : preferences.currencies.map((currency) => formatMoneyLabel(currency, Math.round((preferences.preferredAmount ?? 0) * 100))).join(" / ");
 
   if (wizard) {
     return (
@@ -122,13 +130,38 @@ export function SmartInvestScreen() {
         }}
         onSave={(next) => void save(next)}
         originators={originators}
-        retired={wizard === "edit" ? retired : []}
         saving={saving}
       />
     );
   }
 
-  if (!active) {
+  if (state === "paused") {
+    return (
+      <main className="si-page si-inactive-page">
+        <PageHead title={t("Smart Invest")} />
+        <div className="si-state-panel si-paused">
+          <h2 className="h4"><span aria-hidden="true" className="si-state-pause-dot" />{t("Smart Invest is paused.")}</h2>
+          <p>{t("Your preferences are saved. Resume to see opportunities that match them.")}</p>
+          <dl className="si-state-saved">
+            <div><dt>{t("Preferred investment amount")}</dt><dd>{amountSummary}</dd></div>
+            <div><dt>{t("Minimum annual interest rate")}</dt><dd>{preferences.minRate === null ? t("No preference") : t("{rate} per year", { rate: `${formatDecimal(preferences.minRate, 1)}%` })}</dd></div>
+            <div><dt>{t("Maximum investment duration")}</dt><dd>{preferences.maxTerm === null ? t("No preference") : t("{count} months", { count: preferences.maxTerm })}</dd></div>
+          </dl>
+          {error ? <p className="u33-error" role="alert">{error}</p> : null}
+          <div className="si-state-actions">
+            <button className="btn si-state-primary" disabled={readonly || saving} onClick={() => void changeState("resume")} type="button">
+              {resumeMutation.isPending ? t("Resuming...") : t("Resume Smart Invest")} <NiIcon name="arrow-right" />
+            </button>
+            <button className="btn btn-outline-light" disabled={readonly} onClick={() => setWizard("edit")} type="button">
+              <NiIcon name="edit" /> {t("Edit preferences")}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (state !== "active") {
     return (
       <main className="si-page si-inactive-page">
         <PageHead title={t("Smart Invest")} />
@@ -166,15 +199,9 @@ export function SmartInvestScreen() {
         </div>
         <div className="si-pref-actions">
           <Button disabled={readonly} icon="edit" onClick={() => setWizard("edit")} size="sm">{t("Edit preferences")}</Button>
-          <button className="si-link" disabled={readonly} onClick={() => setConfirmOff(true)} type="button">{t("Switch off Smart Invest")}</button>
+          <button className="si-link" disabled={readonly || saving} onClick={() => void changeState("pause")} type="button">{t("Pause Smart Invest")}</button>
         </div>
       </div>
-      {retired.length > 0 ? (
-        <div className="alert alert-warning alert-icon u33-retired-criteria" role="status">
-          <NiIcon name="alert-circle" />
-          {t("Your saved preferences also include risk rating, purpose or loan type. Smart Invest no longer uses them: saving your preferences removes them.")}
-        </div>
-      ) : null}
       {error ? <p className="u33-error" role="alert">{error}</p> : null}
       <div className="si-results-toolbar">
         <div>
@@ -212,7 +239,7 @@ export function SmartInvestScreen() {
           </div>
         ) : (
           <div className="si-results-grid">
-            {sorted.map((match) => <OpportunityCard key={match.loan_id} match={match} />)}
+            {sorted.map((match) => <OpportunityCard key={match.loan_id} match={match} preferredAmount={preferences.preferredAmount} />)}
           </div>
         )}
       </div>
@@ -228,23 +255,7 @@ export function SmartInvestScreen() {
         <Dialog bodyClassName="u104-explanation" onClose={() => setWhyOpen(false)} size="sm" title={t("Why these matches?")}>
           <p>{t("These opportunities are open now and meet every preference you set: {summary}.", { summary })}</p>
           <p>{t("Within the security types, one matching type is enough. Smart Invest never invests or reserves money for you; you review and confirm each investment.")}</p>
-        </Dialog>
-      ) : null}
-      {confirmOff ? (
-        <Dialog
-          busy={deactivateMutation.isPending}
-          footer={
-            <>
-              <Button onClick={() => setConfirmOff(false)}>{t("Keep Smart Invest")}</Button>
-              <Button disabled={deactivateMutation.isPending} onClick={() => void switchOff()} variant="primary">{deactivateMutation.isPending ? t("Switching off...") : t("Switch off")}</Button>
-            </>
-          }
-          onClose={() => setConfirmOff(false)}
-          size="sm"
-          title={t("Switch off Smart Invest?")}
-        >
-          <p>{t("Switching off deletes your preferences and stops new-match alerts. To use Smart Invest again, you set it up again. Investment opportunities stay open to you.")}</p>
-          {error ? <p className="u33-error" role="alert">{error}</p> : null}
+          {preferences.preferredAmount !== null ? <p>{t("Your usual amount and your balance do not remove opportunities from the matches. When you cannot invest your usual amount in one of them, its card tells you why.")}</p> : null}
         </Dialog>
       ) : null}
     </main>

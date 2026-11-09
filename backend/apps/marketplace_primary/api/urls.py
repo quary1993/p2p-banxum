@@ -12,7 +12,6 @@ from backend.apps.marketplace_primary.api.views import (
     PrimaryLoanCancellationView,
     PrimaryLoanCloseView,
     PrimaryLoanExpiryScanView,
-    PrimaryOrderBatchView,
     PublicOriginatorListView,
     PublicProjectDetailView,
     PublicProjectListView,
@@ -59,11 +58,6 @@ urlpatterns = [
         "orders/",
         PrimaryInvestmentOrderCreateView.as_view(),
         name="marketplace-primary-order-create",
-    ),
-    path(
-        "orders/batch/",
-        PrimaryOrderBatchView.as_view(),
-        name="marketplace-primary-order-batch",
     ),
     path(
         "orders/<uuid:order_id>/allocate-balance/",
