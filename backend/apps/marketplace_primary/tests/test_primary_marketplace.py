@@ -99,7 +99,7 @@ def investor() -> Model:
     )
 
 
-def _approve_financial_access(investor: Model) -> None:
+def _approve_financial_access(investor: Model, *, return_accounts: bool = True) -> None:
     now = timezone.now()
     cast(Any, investor).phone_verified_at = now
     investor.save(update_fields=["phone_verified_at"])
@@ -115,6 +115,32 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+    if return_accounts:
+        _verified_return_accounts(investor)
+
+
+# U33-DEC-04: investing needs a verified bank account in the currency.
+_RETURN_ACCOUNT_IBANS = {"CHF": "CH5604835012345678009", "EUR": "DE89370400440532013000"}
+
+
+def _verified_return_accounts(investor: Model) -> None:
+    instruction_model = apps.get_model("ledger", "InvestorPayoutInstruction")
+    for currency, iban in _RETURN_ACCOUNT_IBANS.items():
+        if instruction_model.objects.filter(
+            investor_user_id=investor.pk, currency_id=currency, status="active"
+        ).exists():
+            continue
+        instruction_model.objects.create(
+            investor_user_id=investor.pk,
+            currency_id=currency,
+            destination_iban=iban,
+            destination_account_name=str(getattr(investor, "full_name", "") or "Investor"),
+            is_verified_usable=True,
+            is_default_return=True,
+            verified_at=timezone.now(),
+            created_by_admin_id=investor.pk,
+            metadata={"source": "test_return_account"},
+        )
 
 
 def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
@@ -2644,7 +2670,7 @@ def test_historical_primary_order_batch_keeps_app_and_db_append_only_guards(
 
 
 @pytest.mark.django_db
-def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
+def test_investor_without_a_verified_account_cannot_order_or_allocate(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -2670,7 +2696,8 @@ def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
         value_date=today - timedelta(days=70),
         idempotency_key="old-deposit",
     )
-    # No usable IBAN is left at day 60, so the scan puts the old balance in penalty mode.
+    # No usable IBAN is left: U33-DEC-04 blocks investing until one is verified again, and
+    # the old balance past day 60 stays on the balance with no penalty mode.
     for instruction in apps.get_model("ledger", "InvestorPayoutInstruction").objects.filter(
         investor_user_id=investor.pk, status="active"
     ):
@@ -2683,9 +2710,9 @@ def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
         )
     ledger.run_balance_ageing_scan(ledger.RunBalanceAgeingScanCommand(actor=admin_user))
     old.balance_lot.refresh_from_db()
-    assert old.balance_lot.status == "penalty_mode"
+    assert old.balance_lot.status == "available"
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Investing is not possible"):
+    with pytest.raises(MarketplacePrimaryValidationError, match="verified bank account in your"):
         create_primary_investment_order(
             CreatePrimaryInvestmentOrderCommand(
                 actor=investor,
@@ -2699,7 +2726,7 @@ def test_penalty_mode_investor_cannot_order_or_allocate_a_primary_investment(
         order_id=str(pending.id),
         idempotency_key="penalty-pending-accept",
     )
-    with pytest.raises(MarketplacePrimaryValidationError, match="Investing is not possible"):
+    with pytest.raises(MarketplacePrimaryValidationError, match="verified bank account in your"):
         allocate_primary_order_from_balance(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,

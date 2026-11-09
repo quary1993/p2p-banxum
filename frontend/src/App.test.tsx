@@ -2562,7 +2562,7 @@ test("Account shows the frozen balance apart from the penalty charged on the lot
 
     expect(screen.queryByText("Penalty/frozen")).not.toBeInTheDocument();
     // The available balance does not include the penalty: it is listed per lot in Balance details,
-    // with a note that it is already deducted (penalty mode exists until U33-DEC-04).
+    // with a note that it is already deducted (penalties charged before U33-DEC-04 removed them stay in the history).
     const details = screen.getByText("Balance details").closest("details") as HTMLElement;
     const table = within(details).getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Penalty charged" })).toBeInTheDocument();

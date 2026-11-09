@@ -489,8 +489,6 @@ export const balancesFixture: InvestorBalancePortal = {
     }
   ],
   pending_withdrawals: [],
-  has_penalty_mode_balance: false,
-  penalty_bps_per_day: 100,
   auto_return_after_days: AUTO_RETURN_AFTER_DAYS
 };
 

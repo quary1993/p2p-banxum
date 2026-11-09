@@ -348,7 +348,7 @@ def test_with_iban_the_money_goes_back_on_day_59_without_penalty(
 
 
 @pytest.mark.django_db
-def test_without_iban_the_money_waits_withdraw_only_and_penalty_starts_on_day_61(
+def test_without_iban_the_money_waits_withdraw_only_with_no_penalty(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -375,7 +375,9 @@ def test_without_iban_the_money_waits_withdraw_only_and_penalty_starts_on_day_61
     assert "Tomorrow, 2026-03-01, we must return it to your bank" in body
     assert "Add a bank account in your name today so we can return your money." in body
     assert "after 2026-03-02 (the 60-day legal limit)" in body
-    assert "a penalty of 1% per day is charged on it" in body
+    # U33-DEC-04: no daily penalty and no frozen account.
+    assert "There is no penalty." in body
+    assert "penalty mode" not in body
     assert "You can still withdraw" not in body
 
     # Day 59: due back, but no IBAN. It stays withdraw-only, without penalty; urgent notice.
@@ -402,34 +404,29 @@ def test_without_iban_the_money_waits_withdraw_only_and_penalty_starts_on_day_61
             as_of=_at(date(2026, 3, 1)),
         )
 
-    # Day 60 (legal limit): still no penalty; the notice says penalty mode starts tomorrow.
+    # Day 60 (legal limit): the last notice, still no penalty.
     day_60 = _scan(admin_user, _at(date(2026, 3, 2), 0, 30))
     assert [reminder.day for reminder in day_60.reminders_due] == [60]
     assert day_60.penalty_mode_transitions == []
     warning = _email(lot_id, 60)
-    assert warning["subject"] == "Penalty mode starts tomorrow: add a bank account today"
-    assert warning["template_key"] == "balance.penalty_warning.v1"
+    assert warning["subject"] == "Today is the 60-day limit: add a bank account today"
+    assert warning["template_key"] == "balance.legal_limit.v1"
     assert "reaches the 60-day legal limit today, 2026-03-02" in warning["body_text"]
-    assert (
-        "If the money is still on your balance tomorrow, it enters penalty mode, a penalty "
-        "of 1% per day is charged on it" in warning["body_text"]
-    )
+    assert "There is no penalty." in warning["body_text"]
     lot = InvestorBalanceLot.objects.get(id=lot_id)
     assert (lot.status, lot.available_amount_minor) == (BalanceLotStatus.AVAILABLE, 1000_00)
 
-    # Day 61: penalty mode and the first daily penalty, exactly as before the 58-day rule.
-    day_61 = _scan(admin_user, _at(date(2026, 3, 3), 0, 30))
+    # Day 61 and later (U33-DEC-04): no penalty mode, no charge, no frozen account; the money
+    # stays due back on the balance and cannot be invested.
+    for day in (date(2026, 3, 3), date(2026, 3, 10)):
+        later = _scan(admin_user, _at(day, 0, 30))
+        assert later.reminders_due == []
+        assert later.penalty_mode_transitions == []
+        assert later.penalty_charges == []
     lot.refresh_from_db()
-    assert day_61.reminders_due == []
-    assert [transition.days_overdue for transition in day_61.penalty_mode_transitions] == [1]
-    assert [(charge.charge_date, charge.amount_minor) for charge in day_61.penalty_charges] == [
-        (date(2026, 3, 3), 10_00)
-    ]
-    assert lot.status == BalanceLotStatus.PENALTY_MODE
-    assert lot.available_amount_minor == 990_00
-    assert (
-        LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").count() == 1
-    )
+    assert (lot.status, lot.available_amount_minor) == (BalanceLotStatus.AVAILABLE, 1000_00)
+    assert not LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").exists()
+    assert _buckets(investor, _at(date(2026, 3, 10))) == (0, 0, 1000_00)
     assert _reminder_days(lot_id) == [25, 46, 53, 56, 57, 58, 59, 60]
 
 

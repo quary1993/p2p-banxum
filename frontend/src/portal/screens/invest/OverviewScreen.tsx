@@ -125,7 +125,7 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
   const currency = currencyPick && currencies.includes(currencyPick) ? currencyPick : defaultCurrency;
   const summary = balances.summaries.find((item) => item.currency === currency);
   const availableMinor = summary?.total_available_minor ?? 0;
-  // Penalty mode (PAY-DEC-022) stays the platform rule until U33-DEC-04 removes it (Phase 17.2).
+  // Frozen money (status "frozen"); penalty mode was removed by U33-DEC-04, older lots count here.
   const frozenMinor = (summary?.penalty_mode_minor ?? 0) + (summary?.frozen_minor ?? 0);
   const principalMinor = outstanding.get(currency) ?? 0;
   const interestMinor = dashboard.portfolio_summary.realized_interest_by_currency.find((item) => item.currency === currency)?.amount_minor ?? 0;
@@ -196,7 +196,7 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
                   {frozenMinor > 0 ? (
                     <div className="ov-account-note u33-invest-frozen">
                       <div className="alert alert-danger alert-icon mb-3">
-                        <span>{t("Of which {amount} is frozen, with a daily penalty.", { amount: formatMoneyLabel(currency, frozenMinor) })}</span>
+                        <span>{t("Of which {amount} is frozen.", { amount: formatMoneyLabel(currency, frozenMinor) })}</span>
                       </div>
                     </div>
                   ) : null}

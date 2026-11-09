@@ -10,7 +10,6 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.apps import apps
-from django.conf import settings
 from django.db.models import Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import user_can_access_financial_features
@@ -230,6 +229,7 @@ def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[s
         "withdrawn_amount_minor": int(lot.withdrawn_amount_minor),
         "penalized_amount_minor": int(lot.penalized_amount_minor),
         "requires_withdrawal": bucket in {"withdraw_only", "overdue", "penalty_mode"},
+        # Penalty mode is gone (U33-DEC-04); kept for the failed-return state still to decide.
         "blocks_financial_actions": bucket == "penalty_mode",
     }
 
@@ -361,7 +361,6 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         lots=lots,
         return_after_days=return_after_days,
     )
-    penalty_mode_minor = sum(item["penalty_mode_minor"] for item in summaries)
     # Requested withdrawals (voluntary and forced) wait for the bank transfer; their amount is
     # already out of the balance.
     withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
@@ -388,8 +387,6 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         "lots": visible_lots,
         "payout_instructions": payout_instructions,
         "pending_withdrawals": pending_withdrawals,
-        "has_penalty_mode_balance": penalty_mode_minor > 0,
-        "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
         "auto_return_after_days": return_after_days,
     }
 

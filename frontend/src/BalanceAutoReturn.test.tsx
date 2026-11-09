@@ -103,7 +103,7 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   const notices = within(screen.getByRole("region", { name: "Account notices" }));
   const noAccount = notices.getByText("Add a verified bank account so we can return your money.").closest(".alert") as HTMLElement;
   expect(noAccount).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank, but there is no verified EUR bank account.");
-  expect(noAccount).toHaveTextContent("After 60 days (the legal limit) the money enters penalty mode.");
+  expect(noAccount).toHaveTextContent("Until then it stays on your balance and you cannot invest it. There is no penalty.");
   expect(within(noAccount).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   const lastDay = notices.getByText("Last day for CHF 100,00.").closest(".alert") as HTMLElement;
   expect(lastDay).toHaveTextContent("It can no longer be invested and goes back to your bank account on 11 Dec 2026. You can withdraw it until then.");
@@ -149,5 +149,5 @@ test("the Help page explains the 58-day return and the 60-day legal limit", asyn
   expect(within(answer).getByText("After 58 days")).toBeInTheDocument();
   expect(answer).toHaveTextContent("Day 58 is the last day");
   expect(answer).toHaveTextContent("The next day we send it back automatically to your verified bank account.");
-  expect(answer).toHaveTextContent("after day 60 it enters penalty mode");
+  expect(answer).toHaveTextContent("There is no penalty: money past its return date stays on your balance");
 }, 30_000);

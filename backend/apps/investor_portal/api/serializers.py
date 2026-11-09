@@ -146,10 +146,6 @@ class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     pending_withdrawals = PendingWithdrawalSerializer(
         many=True, help_text="Withdrawal requests waiting for the bank transfer, oldest first."
     )
-    has_penalty_mode_balance = serializers.BooleanField()
-    penalty_bps_per_day = serializers.IntegerField(
-        help_text="Daily balance-ageing penalty on a balance in penalty mode, in basis points."
-    )
     auto_return_after_days = serializers.IntegerField(
         help_text=(
             "Money still not invested goes back to the investor's bank the day after this "

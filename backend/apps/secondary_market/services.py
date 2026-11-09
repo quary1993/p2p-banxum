@@ -1702,13 +1702,6 @@ def _record_audit_and_domain(
     )
 
 
-def _require_not_in_penalty_mode(actor: Model, action: str) -> None:
-    """PAY-DEC-022: a penalty-mode investor cannot start new financial actions."""
-    ledger = _ledger_services()
-    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
-        raise SecondaryMarketValidationError(ledger.penalty_mode_frozen_message(action))
-
-
 def _open_listing_exists_for_holding(holding_id: str) -> bool:
     return SecondaryMarketListing.objects.filter(
         holding_id=cast(Any, holding_id),
@@ -1774,7 +1767,6 @@ def create_secondary_market_listing(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
@@ -1857,7 +1849,6 @@ def _create_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
@@ -1997,7 +1988,6 @@ def edit_secondary_market_listing(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     listing = (
         SecondaryMarketListing.objects.select_related("holding")
         .filter(id=command.listing_id, seller_user_id=command.actor.pk)
@@ -2060,7 +2050,6 @@ def _edit_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     locator = (
         SecondaryMarketListing.objects.filter(
             id=command.listing_id,

@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from importlib import import_module
 from typing import Any, TypedDict, cast
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -127,6 +126,22 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+    # U33-DEC-04: buying needs a verified bank account in the currency.
+    instruction_model = apps.get_model("ledger", "InvestorPayoutInstruction")
+    if not instruction_model.objects.filter(
+        investor_user_id=investor.pk, currency_id="CHF", status="active"
+    ).exists():
+        instruction_model.objects.create(
+            investor_user_id=investor.pk,
+            currency_id="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name=str(getattr(investor, "full_name", "") or "Investor"),
+            is_verified_usable=True,
+            is_default_return=True,
+            verified_at=now,
+            created_by_admin_id=investor.pk,
+            metadata={"source": "test_return_account"},
+        )
 
 
 def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
@@ -2856,94 +2871,6 @@ def test_direct_resale_chain_charges_the_next_buyer_accrued_interest_from_the_in
     assert a_interest + b_interest_net + c_interest_net == 100_00
     assert c_interest_net == 34_25
 
-
-def _put_investor_in_penalty_mode(admin_user: Model, investor: Model) -> None:
-    ledger = import_module("backend.apps.ledger.services")
-    deposit = _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=500_00,
-        value_date=date(2025, 10, 1),
-        idempotency_key="penalty-mode-old-deposit",
-    )
-    # No usable IBAN at day 60: the deposit's IBAN was revoked.
-    ledger.revoke_investor_payout_instruction(
-        ledger.RevokeInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            instruction_id=str(deposit.payout_instruction.pk),
-            reason="Returned by the bank.",
-        )
-    )
-    ledger.run_balance_ageing_scan(
-        ledger.RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=datetime(2026, 1, 16, 12, 0, tzinfo=ZoneInfo("UTC")),
-        )
-    )
-    assert ledger.investor_has_penalty_mode_balance(str(investor.pk))
-
-
-@pytest.mark.django_db
-def test_penalty_mode_seller_cannot_list_or_change_a_listing_but_can_cancel(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan = _create_funded_loan(admin_user)
-    holding = _create_holding(admin_user, investor, loan)
-    listing = _list_holding_for_sale(investor, holding, price_bps=10_000, key="penalty-listed")
-    other_loan = _create_funded_loan(admin_user)
-    other_holding = _create_holding(
-        admin_user,
-        investor,
-        other_loan,
-        idempotency_key="secondary-holding-penalty-2",
-    )
-    _put_investor_in_penalty_mode(admin_user, investor)
-
-    # The freeze is checked before the email code, so no code is spent.
-    unused_code = {"sensitive_action_code_id": str(uuid4()), "sensitive_action_code": "000000"}
-    other_acceptance = _create_listing_acceptance(
-        investor,
-        other_holding,
-        idempotency_key="penalty-new-acceptance",
-    )
-    with pytest.raises(SecondaryMarketValidationError, match="Listing a holding for sale"):
-        create_secondary_market_listing(
-            CreateSecondaryMarketListingCommand(
-                actor=investor,
-                holding_id=str(cast(Any, other_holding).id),
-                price_bps=10_000,
-                document_acceptance_id=str(other_acceptance.pk),
-                idempotency_key="penalty-new",
-                **unused_code,
-            )
-        )
-    edit_acceptance = _create_listing_acceptance(
-        investor,
-        holding,
-        idempotency_key="penalty-edit-acceptance",
-    )
-    with pytest.raises(SecondaryMarketValidationError, match="Changing a listing"):
-        edit_secondary_market_listing(
-            EditSecondaryMarketListingCommand(
-                actor=investor,
-                listing_id=str(listing.id),
-                price_bps=9_900,
-                document_acceptance_id=str(edit_acceptance.pk),
-                idempotency_key="penalty-edit",
-                **unused_code,
-            )
-        )
-    cancelled = cancel_secondary_market_listing(
-        CancelSecondaryMarketListingCommand(
-            actor=investor,
-            listing_id=str(listing.id),
-            reason="Frozen account.",
-            idempotency_key="penalty-cancel",
-        )
-    )
-    assert cancelled.status == SecondaryMarketListingStatus.CANCELLED
 
 @pytest.mark.django_db
 def test_c18_migration_cancels_approval_requests_and_non_performing_open_listings(

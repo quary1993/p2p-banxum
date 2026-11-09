@@ -1,7 +1,7 @@
 // IP of Webby-Soft SRL.
 // The balance ageing rule as the investor area shows it (owner decision 2026-10-16): money that is
 // not invested goes back to the investor's bank automatically after 58 days. The legal limit stays
-// 60 days; penalty mode can start only after it. The live day count comes from the balances API
+// 60 days; there is no penalty after it (U33-DEC-04). The live day count comes from the balances API
 // (`auto_return_after_days`); this default covers static texts and the time before it loads.
 import type { BalanceLot } from "../api/generated/banxumApi";
 import { formatDate } from "./format";

@@ -195,7 +195,7 @@ function useInvestorApi() {
     ),
     http.get("*/api/v1/investor/portal/notifications/", () => HttpResponse.json({ notifications: [], unread_count: 0 })),
     http.get("*/api/v1/investor/portal/balances/", () =>
-      HttpResponse.json({ as_of: "2026-12-20T11:00:00Z", summaries: [], lots: [], payout_instructions: [], has_penalty_mode_balance: false })
+      HttpResponse.json({ as_of: "2026-12-20T11:00:00Z", summaries: [], lots: [], payout_instructions: [] })
     ),
     http.get("*/api/v1/marketplace/primary/loans/", () => HttpResponse.json([])),
     http.get("*/api/v1/investor/portal/portfolio/", () => HttpResponse.json(portfolio)),

@@ -62,8 +62,7 @@ export function balancesPayload(summaries: BalanceSummary[], payoutInstructions:
       requires_withdrawal: false,
       blocks_financial_actions: false
     })),
-    payout_instructions: payoutInstructions,
-    has_penalty_mode_balance: false
+    payout_instructions: payoutInstructions
   };
 }
 

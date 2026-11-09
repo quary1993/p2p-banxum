@@ -9040,12 +9040,6 @@ components:
           items:
             $ref: '#/components/schemas/PendingWithdrawal'
           description: Withdrawal requests waiting for the bank transfer, oldest first.
-        has_penalty_mode_balance:
-          type: boolean
-        penalty_bps_per_day:
-          type: integer
-          description: Daily balance-ageing penalty on a balance in penalty mode,
-            in basis points.
         auto_return_after_days:
           type: integer
           description: Money still not invested goes back to the investor's bank the
@@ -9053,10 +9047,8 @@ components:
       required:
       - as_of
       - auto_return_after_days
-      - has_penalty_mode_balance
       - lots
       - payout_instructions
-      - penalty_bps_per_day
       - pending_withdrawals
       - summaries
     InvestorBalanceSummary:

@@ -62,7 +62,7 @@ function AccountNoticeAlert({
         <NiIcon name="alert-circle" />
         <strong className="bxm-signal-text">{t("Add a verified bank account so we can return your money.")}</strong>{" "}
         {t("{amount} was not invested within {days} days and must go back to your bank, but there is no verified {currency} bank account.", { amount, days, currency: notice.currency })}{" "}
-        {t("After 60 days (the legal limit) the money enters penalty mode.")}{" "}
+        {t("Until then it stays on your balance and you cannot invest it. There is no penalty.")}{" "}
         {addAccount}
       </div>
     );

@@ -1,14 +1,12 @@
-"""Investor notices for balance events: deposits, withdrawals, forced returns, penalty mode
-and payout IBANs (plan 14). Each function is called at the end of the successful ledger
-service path, inside its transaction, and creates at most one notice per business event.
+"""Investor notices for balance events: deposits, withdrawals, forced returns and payout
+IBANs (plan 14; penalty mode was removed by U33-DEC-04). Each function is called at the end
+of the successful ledger service path, inside its transaction, and creates at most one
+notice per business event.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Iterable
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -44,13 +42,6 @@ BALANCE_TARGET = "balances"
 def _invest_or_exchange() -> str:
     """Texts offer currency exchange only while it is switched on (fx.enabled, 2026-10-16)."""
     return "invest or exchange" if platform_switch_enabled("fx.enabled") else "invest"
-
-
-def _penalty_text() -> str:
-    bps = int(settings.BALANCE_PENALTY_BPS_PER_DAY)
-    if bps <= 0:
-        return ""
-    return f"{(Decimal(bps) / Decimal(100)).normalize():f}% per day"
 
 
 def notify_deposit_credited(
@@ -236,61 +227,6 @@ def notify_withdrawal_cancelled(request: InvestorWithdrawalRequest) -> None:
             metadata=_withdrawal_metadata(request, "cancelled"),
         )
     )
-
-
-def notify_penalty_mode_entered(*, transitions: Iterable[Any], as_of: datetime) -> None:
-    """One notice per investor and currency when balance sources enter penalty mode.
-
-    Daily penalty charges do not create notices; the investor sees them on the balance page.
-    """
-    grouped: dict[tuple[str, str], list[Any]] = defaultdict(list)
-    for transition in transitions:
-        grouped[(str(transition.investor_user_id), str(transition.currency))].append(transition)
-    penalty = _penalty_text()
-    operator = settings.LEGAL_OPERATOR_NAME
-    for (investor_user_id, currency_code), rows in grouped.items():
-        amount = notice_amount(sum(int(row.amount_minor) for row in rows), currency_code)
-        penalty_sentence = (
-            f" A penalty of {penalty} of this amount applies until it is returned."
-            if penalty
-            else ""
-        )
-        enqueue_investor_notice(
-            InvestorNotice(
-                investor_user_id=investor_user_id,
-                topic="email.balance_penalty_mode",
-                idempotency_key=(
-                    f"penalty-mode:{investor_user_id}:{currency_code}:{notice_date(as_of)}"
-                ),
-                subject="Action needed: add a usable IBAN",
-                headline="Financial actions are frozen",
-                body_text=(
-                    f"{amount} of your balance passed the 60-day holding limit. {operator} "
-                    "has no usable IBAN to return it to you, so this amount is now in penalty "
-                    f"mode.{penalty_sentence}\n\n"
-                    "Financial actions on your account are frozen. Add a usable IBAN in your "
-                    "name so we can return the money. You can still see your portfolio, "
-                    "documents, tax statements, notices and messages."
-                ),
-                template_key="ledger.balance_penalty_mode.v1",
-                notice_label="Balance notice",
-                status_label="Action needed",
-                status_tone="danger",
-                data_rows=(
-                    ("Amount in penalty mode", amount),
-                    ("Penalty", penalty),
-                    ("Since", notice_date(as_of)),
-                ),
-                navigation_target=BALANCE_TARGET,
-                action_label="Add a payout IBAN",
-                metadata={
-                    "currency": currency_code,
-                    "amount_minor": sum(int(row.amount_minor) for row in rows),
-                    "balance_lot_ids": [str(row.lot_id) for row in rows],
-                    "as_of": as_of.isoformat(),
-                },
-            )
-        )
 
 
 PAYOUT_ACCOUNT_TOPIC = "email.payout_account_status"

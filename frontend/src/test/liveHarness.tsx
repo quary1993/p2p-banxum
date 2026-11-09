@@ -94,8 +94,6 @@ export function balances(values: Partial<InvestorBalancePortal> = {}): InvestorB
     lots: [],
     payout_instructions: [],
     pending_withdrawals: [],
-    has_penalty_mode_balance: false,
-    penalty_bps_per_day: 100,
     auto_return_after_days: 58,
     ...values
   };

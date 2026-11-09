@@ -94,9 +94,7 @@ const frozenBalances = () =>
         requested_at: "2026-12-09T11:00:00Z",
         is_forced: true
       }
-    ],
-    has_penalty_mode_balance: true,
-    penalty_bps_per_day: 100
+    ]
   });
 
 test("the frozen state from the balances API shows a banner, counts frozen money and blocks FX", async () => {
@@ -106,7 +104,8 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   const banner = await screen.findByText("Financial actions are frozen", {}, { timeout: 5000 });
   const bannerBox = banner.closest(".alert") as HTMLElement;
   expect(bannerBox).toHaveTextContent("EUR 4.898.036,89 passed the 60-day holding limit");
-  expect(bannerBox).toHaveTextContent("A penalty of 1,0% of this money is taken every day");
+  // No daily penalty any more (U33-DEC-04).
+  expect(bannerBox).not.toHaveTextContent(/penalty/i);
   expect(bannerBox).toHaveTextContent("add a bank account in your name for EUR");
   expect(within(bannerBox).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   // The nav marks the Account entry; Add funds (account menu) is disabled.
@@ -116,9 +115,9 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   // The raw lot status never reaches the page.
   expect(document.body.textContent).not.toMatch(/penalty_mode|PENALTY_MODE/);
 
-  // Overview: the EUR available balance names the frozen part (penalty mode until U33-DEC-04).
+  // Overview: the EUR available balance names the frozen part.
   fireEvent.click(await screen.findByRole("button", { name: "EUR" }));
-  expect(await screen.findByText("Of which EUR 4.898.036,89 is frozen, with a daily penalty.")).toBeInTheDocument();
+  expect(await screen.findByText("Of which EUR 4.898.036,89 is frozen.")).toBeInTheDocument();
 
   // FX: the converter is blocked with the reason before any quote is requested.
   server.use(

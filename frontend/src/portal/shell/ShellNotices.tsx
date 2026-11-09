@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 
 import { useT } from "../../i18n";
 import { joinWithAnd, type FrozenAccount } from "../../investorPortal/accountState";
-import { formatMoneyLabel, formatRateBps } from "../../investorPortal/format";
+import { formatMoneyLabel } from "../../investorPortal/format";
 import { NiIcon } from "../components";
 
 export type ShellNoticeTone = "danger" | "warning" | "info";
@@ -51,8 +51,8 @@ export function ShellNotices({ children }: { children: ReactNode[] }) {
 }
 
 /**
- * The frozen account (PAY-DEC-022, today's rule until U33-DEC-04 is implemented in Phase 17.2):
- * what is frozen, the daily penalty, what is blocked and what to do. `onAddBankAccount` opens the
+ * A blocked account (lots with `blocks_financial_actions`; no daily penalty since U33-DEC-04):
+ * what is blocked and what to do. `onAddBankAccount` opens the
  * shell's bank-account dialog; `onOpenAccount` leads to the Account page.
  */
 export function FrozenAccountNotice({
@@ -76,9 +76,6 @@ export function FrozenAccountNotice({
     missing.length > 0
       ? t("{what} passed the 60-day holding limit, and there is no verified bank account to return it to.", { what })
       : t("{what} passed the 60-day holding limit.", { what }),
-    account.penaltyBpsPerDay > 0
-      ? t("A penalty of {rate} of this money is taken every day until it leaves your account.", { rate: formatRateBps(account.penaltyBpsPerDay) })
-      : null,
     fxEnabled ? t("Investing, currency exchange and resale are blocked.") : t("Investing and resale are blocked."),
     missing.length > 1
       ? t("To unlock them, add a bank account in your name for {currencies}. When we have verified them, we send the money to them.", { currencies: joinWithAnd(missing) })

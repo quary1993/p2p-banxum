@@ -410,7 +410,8 @@ def test_balances_are_self_scoped_and_bucketed(
     assert chf["withdraw_only_minor"] == 0
     assert chf["overdue_minor"] == 3_000_00
     assert chf["penalty_mode_minor"] == 4_000_00
-    assert payload["has_penalty_mode_balance"] is True
+    # U33-DEC-04: no penalty-mode flag; an old penalty-mode lot still shows as such.
+    assert "has_penalty_mode_balance" not in payload
     assert {lot["bucket"] for lot in payload["lots"]} == {
         "investable",
         "overdue",
@@ -1619,7 +1620,7 @@ def test_balance_summary_reports_penalty_charged_apart_from_frozen_balance(
 
 
 @pytest.mark.django_db
-def test_activity_shows_penalty_charges_and_labels_forced_returns(
+def test_activity_labels_forced_returns_and_shows_no_penalty(
     admin_user: Model,
     investor: Model,
     other_investor: Model,
@@ -1662,18 +1663,16 @@ def test_activity_shows_penalty_charges_and_labels_forced_returns(
     assert forced_entry["metadata"]["is_forced"] is True
     assert forced_entry["metadata"]["destination_iban"] == "CH9300762011623852957"
 
+    # U33-DEC-04: after day 60 the other investor's money stays, with no penalty charge.
     _approve_financial_access(other_investor)
     other_entries = get_investor_activity(actor=other_investor, limit=50)["entries"]
-    penalties = [e for e in other_entries if e["activity_type"] == "balance_penalty_charge"]
-    assert len(penalties) == 1
-    assert penalties[0]["direction"] == "out"
-    assert penalties[0]["amount_minor"] == 20_00
-    assert penalties[0]["currency"] == "CHF"
-    assert penalties[0]["metadata"]["balance_lot_id"] == str(penalty_lot.pk)
+    assert not [e for e in other_entries if e["activity_type"] == "balance_penalty_charge"]
+    cast(Any, penalty_lot).refresh_from_db()
+    assert cast(Any, penalty_lot).available_amount_minor > 0
 
 
 @pytest.mark.django_db
-def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_penalty(
+def test_balances_list_pending_withdrawals_with_forced_returns(
     admin_user: Model,
     investor: Model,
     settings: Any,
@@ -1727,7 +1726,7 @@ def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_pen
 
     payload = get_investor_balances(actor=investor)
 
-    assert payload["penalty_bps_per_day"] == 100
+    assert "penalty_bps_per_day" not in payload
     rows = payload["pending_withdrawals"]
     assert [row["id"] for row in rows] == [str(pending.id), str(forced.id)]
     assert rows[0]["amount_minor"] == 150_00
@@ -1741,7 +1740,7 @@ def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_pen
     response = client.get("/api/v1/investor/portal/balances/")
     assert response.status_code == 200
     assert response.json()["pending_withdrawals"][1]["is_forced"] is True
-    assert response.json()["penalty_bps_per_day"] == 100
+    assert "penalty_bps_per_day" not in response.json()
 
 
 @pytest.mark.django_db

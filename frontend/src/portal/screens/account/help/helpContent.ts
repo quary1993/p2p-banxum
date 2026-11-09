@@ -145,7 +145,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       answer: t("Money in your {brand} account earns no interest. Money you do not invest goes back to your bank automatically after {days} days, to your return account in the same currency (a verified bank account; you choose it in Bank accounts). Account shows the date for each amount.", { brand, days }),
       more: {
         title: t("After {days} days", { days }),
-        text: t("Day {days} is the last day: you can still withdraw the money until the end of that day (Europe/Zurich), but you can no longer invest it. The next day we send it back automatically to your verified bank account. Without a verified bank account the money stays in your account and we ask you to add one. Money may not stay longer than 60 days, the legal limit: after day 60 it enters penalty mode and money-moving actions are blocked until a verified bank account is on file.", { days })
+        text: t("Day {days} is the last day: you can still withdraw the money until the end of that day (Europe/Zurich), but you can no longer invest it. The next day we send it back automatically to your verified bank account. Without a verified bank account the money stays in your account and we ask you to add one. Money may not stay longer than 60 days, the legal limit. There is no penalty: money past its return date stays on your balance until we can return it, and you cannot invest it.", { days })
       },
       links: [
         { label: t("Account"), to: "balances" },

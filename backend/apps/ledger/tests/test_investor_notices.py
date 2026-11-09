@@ -259,7 +259,7 @@ def test_withdrawal_requested_sent_and_cancelled_each_send_one_notice(
     assert len(investor_notices(investor, "email.withdrawal_status")) == 4
 
 
-def test_day_59_return_and_day_61_penalty_mode_send_one_notice_each(
+def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
     admin_user: Model, investor: Model
 ) -> None:
     other = _investor("notice-penalty@example.test")
@@ -268,8 +268,8 @@ def test_day_59_return_and_day_61_penalty_mode_send_one_notice_each(
         admin_user, other, key="pen-1", amount_minor=600_00, value_date=date(2026, 1, 1)
     )
     _deposit(admin_user, other, key="pen-2", amount_minor=400_00, value_date=date(2026, 1, 2))
-    # No usable IBAN for the second investor: day 59 cannot return it, and after the
-    # 60-day legal limit (day 61) it enters penalty mode.
+    # No usable IBAN for the second investor: day 59 cannot return it; after the 60-day
+    # legal limit it stays on the balance with no penalty (U33-DEC-04).
     InvestorPayoutInstruction.objects.filter(investor_user_id=other.pk).update(status="disabled")
     assert first.payout_instruction is not None
 
@@ -302,18 +302,8 @@ def test_day_59_return_and_day_61_penalty_mode_send_one_notice_each(
     assert_renders_to(forced, investor, "CHF 1'000.00")
     assert not investor_notices(investor, "email.balance_penalty_mode")
 
-    # Two lots entered penalty mode on different days, daily charges followed: the investor
-    # gets one notice per entry day, never one per charge.
-    penalty = investor_notices(other, "email.balance_penalty_mode")
-    assert [notice.payload["metadata"]["as_of"][:10] for notice in penalty] == [
-        "2026-03-03",
-        "2026-03-04",
-    ]
-    assert penalty[0].payload["metadata"]["amount_minor"] == 600_00
-    assert "CHF 600.00" in penalty[0].payload["body_text"]
-    assert "1% per day" in penalty[0].payload["body_text"]
-    assert "frozen" in penalty[0].payload["body_text"]
-    assert_renders_to(penalty[0], other, "CHF 600.00")
+    # No penalty-mode notice any more, and no notice after day 60.
+    assert not investor_notices(other, "email.balance_penalty_mode")
     assert not investor_notices(other, "email.balance_forced_return")
 
 

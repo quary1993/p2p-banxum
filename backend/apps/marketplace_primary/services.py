@@ -776,15 +776,15 @@ def _validate_primary_document_acceptance(
     return acceptance
 
 
-def _require_not_in_penalty_mode(actor: Model) -> None:
-    """PAY-DEC-022: no new investment while a balance is frozen in penalty mode.
+def _require_verified_return_account(actor: Model, currency: str) -> None:
+    """U33-DEC-04: a verified bank account in the currency before investing.
 
     The ledger reservation enforces the same rule; this check gives the clear message
-    before an order or a batch is started.
+    before an order is started.
     """
     ledger = _ledger_services()
-    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
-        raise MarketplacePrimaryValidationError(ledger.penalty_mode_frozen_message("Investing"))
+    if not ledger.investor_has_verified_return_account(str(actor.pk), currency):
+        raise MarketplacePrimaryValidationError(ledger.verified_return_account_message(currency))
 
 
 def _ledger_services() -> Any:
@@ -855,7 +855,7 @@ def create_primary_investment_order(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor)
+    _require_verified_return_account(command.actor, currency.code)
     _close_abandoned_pending_orders(
         actor=command.actor,
         investor_user_id=investor_id,

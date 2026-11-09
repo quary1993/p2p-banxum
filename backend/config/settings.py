@@ -363,7 +363,6 @@ FX_YAHOO_USER_AGENT = env(
     "FX_YAHOO_USER_AGENT",
     default="BANXUM/1.0 provider-check",
 )
-BALANCE_PENALTY_BPS_PER_DAY = env.int("BALANCE_PENALTY_BPS_PER_DAY", default=100)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CACHE_URL = env(
     "CACHE_URL",

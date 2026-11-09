@@ -897,7 +897,7 @@ function InvestorShell({
   }, [fxRouteUnavailable, setRoute]);
   const balancesData = useBalancesData(financialAccessAllowed).data;
   const balances = balancesData ?? { summaries: [], lots: [] };
-  // Day-60 penalty mode (PAY-DEC-022) from the live balances; the preview switch only drives fixtures.
+  // A blocked account from the live balances (no penalty mode since U33-DEC-04); the preview switch only drives fixtures.
   const frozenAccount = frozenAccountFromBalances(
     financialAccessAllowed ? balancesData : undefined,
     isFixturePreview && demoState === "frozen"
@@ -1027,7 +1027,7 @@ function InvestorShell({
         : <KycStatusScreen />
       : screen;
 
-  // Lots on their last day (withdraw-only), due back to the bank, or in penalty mode need action.
+  // Lots on their last day (withdraw-only) or due back to the bank need action (older penalty-mode lots too).
   const overdueCount = balances.lots.filter((lot) => ["withdraw_only", "overdue", "penalty_mode", "penalty"].includes(lot.bucket)).length;
   const addFundsCurrency = balances.summaries.find((summary) => summary.currency === "CHF")?.currency
     ?? balances.summaries[0]?.currency

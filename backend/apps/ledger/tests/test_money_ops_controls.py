@@ -437,7 +437,54 @@ def test_forced_return_after_revocation_uses_the_latest_admin_verified_iban(
 # --- A-19: penalty mode blocks investing --------------------------------------------------
 
 
-def _penalty_mode_investor(admin_user: Model, investor: Model) -> InvestorBalanceLot:
+def _reserve(admin_user: Model, investor: Model, key: str, *, day: date) -> Any:
+    return reserve_investor_balance_for_investment(
+        ReserveInvestmentBalanceCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            loan_id=str(uuid.uuid4()),
+            amount_minor=400_00,
+            currency="CHF",
+            loan_funding_deadline=day,
+            source_type="primary_investment_order",
+            source_id=f"order-{key}",
+            idempotency_key=f"reserve-{key}",
+            as_of=_received_at(day),
+        )
+    )
+
+
+@pytest.mark.django_db
+def test_no_investment_without_a_verified_bank_account_in_the_currency(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """U33-DEC-04: a verified bank account comes before the first investment."""
+    _approve_financial_access(investor)
+    deposit = declare_lender_deposit(
+        replace(
+            _deposit_command(admin_user, investor, amount_minor=1_000_00),
+            payer_is_account_holder=False,
+        )
+    )
+    with pytest.raises(LedgerValidationError, match="verified bank account in your name for CHF"):
+        _reserve(admin_user, investor, "no-account", day=date(2026, 1, 10))
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    assert lot.available_amount_minor == 1_000_00
+
+    _register_verified_iban(admin_user, investor, iban=SECOND_IBAN)
+    _reserve(admin_user, investor, "with-account", day=date(2026, 1, 10))
+    lot.refresh_from_db()
+    assert lot.available_amount_minor == 600_00
+
+
+@pytest.mark.django_db
+def test_money_past_the_limit_does_not_freeze_new_investments(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """U33-DEC-04: no penalty mode; the overdue money stays out, fresh money can be invested."""
+    _approve_financial_access(investor)
     old = declare_lender_deposit(_deposit_command(admin_user, investor, idempotency_key="old"))
     assert old.payout_instruction is not None
     revoke_investor_payout_instruction(
@@ -450,17 +497,8 @@ def _penalty_mode_investor(admin_user: Model, investor: Model) -> InvestorBalanc
     run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 3)))
     )
-    lot = InvestorBalanceLot.objects.get(id=old.balance_lot.id)
-    assert lot.status == BalanceLotStatus.PENALTY_MODE
-    return lot
-
-
-@pytest.mark.django_db
-def test_penalty_mode_investor_cannot_reserve_a_primary_investment(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _penalty_mode_investor(admin_user, investor)
+    old_lot = InvestorBalanceLot.objects.get(id=old.balance_lot.id)
+    assert old_lot.status == BalanceLotStatus.AVAILABLE
     fresh = declare_lender_deposit(
         replace(
             _deposit_command(
@@ -473,24 +511,10 @@ def test_penalty_mode_investor_cannot_reserve_a_primary_investment(
             payer_account_identifier=SECOND_IBAN,
         )
     )
-
-    with pytest.raises(LedgerValidationError, match="Investing is not possible: your account"):
-        reserve_investor_balance_for_investment(
-            ReserveInvestmentBalanceCommand(
-                actor=admin_user,
-                investor_user_id=str(investor.pk),
-                loan_id=str(uuid.uuid4()),
-                amount_minor=400_00,
-                currency="CHF",
-                loan_funding_deadline=date(2026, 3, 10),
-                source_type="primary_investment_order",
-                source_id="order-1",
-                idempotency_key="reserve-penalty",
-                as_of=_received_at(date(2026, 3, 3)),
-            )
-        )
-    lot = InvestorBalanceLot.objects.get(id=fresh.balance_lot.id)
-    assert lot.available_amount_minor == 1_000_00
+    _reserve(admin_user, investor, "fresh", day=date(2026, 3, 10))
+    old_lot.refresh_from_db()
+    assert old_lot.available_amount_minor == 100_00
+    assert InvestorBalanceLot.objects.get(id=fresh.balance_lot.id).available_amount_minor == 600_00
 
 
 # --- A-23: reconciliation with escrow -------------------------------------------------------
