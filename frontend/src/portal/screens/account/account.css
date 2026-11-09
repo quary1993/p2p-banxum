@@ -127,3 +127,38 @@ html.bxu .acc-close-list { margin: 16px 0; padding-left: 18px; font-size: 13px; 
 html.bxu .acc-close-list li + li { margin-top: 6px; }
 html.bxu[data-theme="dark"] .acc-close-list { color: #e4e8e6; }
 html.bxu .p73-modal a.p73-next { text-decoration: none; }
+
+/* ---- Sign-in, registration, PIN gate (design: create-account module, .u04-account) -------------- */
+
+/* Without the step bar the card sits where the design's sign-in card sits (about 60px lower). */
+html.bxu .u04-account .ca-shell.acc-no-journey main { padding-top: 62px; }
+@media (max-width: 700px) {
+  html.bxu .u04-account .ca-shell.acc-no-journey main { padding-top: 10px; }
+}
+/* The logo link: the design's <a> around the logo image. */
+html.bxu .u04-account .ca-brand-link { display: inline-flex; align-items: center; }
+html.bxu .u04-account .ca-brand-text { font-size: 22px; font-weight: 600; color: var(--ink); }
+/* The sign-in button below the email field (the design writes margin-top:24px inline). */
+html.bxu .u04-account .acc-auth-submit { margin-top: 24px; }
+html.bxu .u04-account .acc-auth-demo { margin-top: 12px; }
+/* "Your session has expired" above the sign-in form (no design state; .ca-recipient look). */
+html.bxu .u04-account .ca-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+html.bxu .u04-account .ca-notice .ca-icon { font-size: 17px; color: var(--muted); }
+html.bxu .u04-account .ca-notice strong { font-weight: 600; color: var(--ink); }
+/* Label with the "Send code" text button of the email-code field (PIN gate). */
+html.bxu .u04-account .acc-ca-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+html.bxu .u04-account .acc-ca-label-row .ca-text-button { padding: 0 0 7px; }
+html.bxu .u04-account .acc-email-code { margin: 0 0 18px; }
+/* The inline phone editor of the SMS step ("Change" next to the number). */
+html.bxu .u04-account .acc-phone-edit { margin: 0 0 22px; }

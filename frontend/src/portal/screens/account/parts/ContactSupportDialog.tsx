@@ -46,7 +46,7 @@ export function ContactSupportDialog({ onClose, topic: initialTopic, reference }
               <a
                 aria-disabled={message.trim() ? undefined : true}
                 className={`btn btn-primary ${message.trim() ? "" : "disabled"}`.trim()}
-                href={message.trim() ? href : undefined}
+                href={href}
                 onClick={(event) => {
                   if (!message.trim()) {
                     event.preventDefault();

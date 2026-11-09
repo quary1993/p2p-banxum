@@ -68,14 +68,14 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Send sign-in link" })).not.toBeInTheDocument();
 
   // A real "signed out" answer still leads to the login form.
   meStatus = 403;
   await act(async () => {
     await queryClient.refetchQueries({ queryKey: getV1AuthMeRetrieveQueryKey() });
   });
-  expect(await screen.findByRole("button", { name: "Send magic link" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Send sign-in link" }, { timeout: 5000 })).toBeInTheDocument();
 }, 30_000);
 
 test("a returning visitor whose session ended sees the public home page at /", async () => {
@@ -84,7 +84,7 @@ test("a returning visitor whose session ended sees the public home page at /", a
   renderLiveApp(App, "/");
 
   expect(await screen.findByRole("heading", { level: 1, name: /Invest in business loans/ }, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Send sign-in link" })).not.toBeInTheDocument();
   expect(window.location.pathname).toBe("/");
 }, 15_000);
 

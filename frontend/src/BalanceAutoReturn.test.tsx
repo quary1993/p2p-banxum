@@ -121,11 +121,14 @@ test("the Help page explains the 58-day return and the 60-day legal limit", asyn
   server.use(...shellHandlers({ balances: ageingBalances }));
   renderLiveApp(App, "/portal/help");
 
-  const question = await screen.findByRole("button", { name: "What happens after 58 days?" }, { timeout: 5000 });
+  const question = await screen.findByText("What happens to money I do not invest?", {}, { timeout: 5000 });
   fireEvent.click(question);
-  const answer = document.getElementById(question.getAttribute("aria-controls") ?? "") as HTMLElement;
+  const answer = question.closest("details") as HTMLElement;
+  expect(answer).toHaveAttribute("open");
+  // The day count comes from the balances API (auto_return_after_days).
+  expect(answer).toHaveTextContent("Money you do not invest goes back to your bank automatically after 58 days");
+  expect(within(answer).getByText("After 58 days")).toBeInTheDocument();
   expect(answer).toHaveTextContent("Day 58 is the last day");
-  expect(answer).toHaveTextContent("The next day we send it back automatically to your verified payout IBAN.");
+  expect(answer).toHaveTextContent("The next day we send it back automatically to your verified bank account.");
   expect(answer).toHaveTextContent("after day 60 it enters penalty mode");
-  expect(screen.getByText(/Money that is not invested goes back to your bank automatically after 58 days\. Investment eligibility/)).toBeInTheDocument();
 }, 30_000);
