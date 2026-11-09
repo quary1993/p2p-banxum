@@ -73,6 +73,12 @@ export function daysUntil(dateKey: string | null | undefined, asOf?: string | nu
   return Math.max(0, Math.round((target - today) / 86_400_000));
 }
 
+/** The list view's closing line (design: "Closes in 7 days"). */
+export function closesInLabel(days: number) {
+  if (days <= 0) return t("Closes today");
+  return days === 1 ? t("Closes in 1 day") : t("Closes in {count} days", { count: days });
+}
+
 export function daysLeftLabel(days: number) {
   if (days === 0) return t("Closes today");
   return days === 1 ? t("1 day left") : t("{count} days left", { count: days });
@@ -195,6 +201,57 @@ export function collateralLabel(type: string) {
   return humanize(type);
 }
 
+// Design explanation of a security (the "i" next to Security on the cards: securityHelp).
+const securityHelpTexts: Record<string, string> = {
+  real_estate: "The property can be sold to recover unpaid debt if the borrower defaults.",
+  equipment: "The equipment can be sold to recover unpaid debt if the borrower defaults.",
+  share_pledge: "The pledged shares can be sold to recover unpaid debt if the borrower defaults.",
+  invoices: "Customer invoice payments can be collected to recover unpaid debt if the borrower defaults."
+};
+
+export function securityHelpText(type: string) {
+  const text = securityHelpTexts[type];
+  return text ? t(text) : "";
+}
+
+/** Design general explanation of Security (vocabulary security). */
+export function securityVocabText() {
+  return t("Assets or rights provided to support repayment if the borrower defaults. Depending on the opportunity, these may include real estate, rights to payments (receivables), or a guarantee. A corporate guarantee is a commitment by a company to meet the covered obligations if the borrower does not. The Credit file explains the specific security and its limitations. Security does not guarantee recovery.");
+}
+
+/** Design "Existing claim" explanation (vocabulary existingClaim). */
+export function existingClaimHelp() {
+  return t("You acquire the right to receive a share of payments under an existing loan, lease or invoice.");
+}
+
+/**
+ * The payment line under the term (design paymentLabel): every repayment type of the platform pays
+ * monthly except a full bullet; none for a loan in default.
+ */
+export function paymentFrequencyLabel(repaymentType: string | null | undefined, loanStatus?: string) {
+  if (!repaymentType || loanStatus === "defaulted" || loanStatus === "written_off") return "";
+  if (repaymentType === "bullet") return t("Payment at maturity");
+  return ["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"].includes(repaymentType)
+    ? t("Monthly payments")
+    : "";
+}
+
+/** The payment line of Review & sign (design repaymentCopy). */
+export function reviewRepaymentCopy(repaymentType: string | null | undefined) {
+  switch (repaymentType) {
+    case "equal_installments":
+    case "amortizing_principal_interest":
+      return t("Monthly principal and interest payments.");
+    case "bullet_periodic_interest":
+    case "interest_only_then_bullet":
+      return t("Monthly interest payments; principal at maturity.");
+    case "bullet":
+      return t("Principal and interest at maturity.");
+    default:
+      return t("Your share of each installment.");
+  }
+}
+
 export function collateralIcon(type: string) {
   return collateralNames[type]?.icon ?? (/estate|property|building/i.test(type) ? "building" : "file-text");
 }
@@ -227,6 +284,8 @@ export function repaymentText(repaymentType: string | null | undefined) {
       return t("Interest paid monthly; principal at the end");
     case "interest_only_then_amortizing":
       return t("Interest only at first, then principal and interest monthly");
+    case "bullet":
+      return t("Principal and interest at maturity");
     default:
       return repaymentType ? humanize(repaymentType) : "";
   }

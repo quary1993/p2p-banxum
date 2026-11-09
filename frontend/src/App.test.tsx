@@ -1067,7 +1067,7 @@ test("Review & sign projects the investor's share of the schedule for a direct l
   // Direct loan: proportional share of the contracted schedule.
   goToPath("/marketplace/GA-2401/invest");
   applyReviewAmount("2000");
-  expect(screen.getByText("Total over 24 payments")).toBeInTheDocument();
+  expect(screen.getByText("Total over 24 months")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /^Payment schedule/ }));
   const direct = screen.getByRole("dialog", { name: "Your payment schedule" });
   expect(within(direct).getAllByRole("row")).toHaveLength(25);

@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 
 import type { Holding } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { formatDate, formatMoneyMinor, monthLabelFromKey, useNumberFormat } from "../../../investorPortal/format";
+import { SHORT_MONTHS, formatDate, formatMoneyMinor, monthLabelFromKey, useNumberFormat } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { EmptyState, NiIcon, PortalLink } from "../../components";
 import { addTo, nextPayment, portfolioPayments, projectedInterestMinor, sortedCurrencies, totalsList, type PortfolioPayment } from "./parts/investmentModel";
@@ -16,8 +16,8 @@ import { useMoneyText } from "./parts/money";
 
 /** "30 Sep" from a business date key, independent of the browser time zone. */
 function dayMonth(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const [, month, day] = dateKey.split("-").map(Number);
+  return `${day} ${SHORT_MONTHS[month - 1]}`;
 }
 
 function Money({ currency, amountMinor }: { currency: string; amountMinor: number }) {

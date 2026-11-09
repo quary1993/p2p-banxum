@@ -34,7 +34,7 @@ import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
 import { isSwissInvestorLimitError, swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
 import { isNotFoundError } from "../../../investorPortal/session";
 import type { DemoAccountState } from "../../../investorPortal/types";
-import { Button, Dialog, EmptyState, NiIcon, PageHead, PortalLink } from "../../components";
+import { Button, Dialog, EmptyState, InfoTip, NiIcon, PageHead, PortalLink } from "../../components";
 import {
   apiErrorMessage,
   checkInvestAmount,
@@ -52,9 +52,10 @@ import {
   eligibleLots,
   isOpenLoan,
   isReadonlyView,
-  loanAvailableMinor,
   loanYieldBps,
+  loanAvailableMinor,
   placesInfo,
+  reviewRepaymentCopy,
   scheduleShare,
   sumAvailableMinor,
   usesImmediateClaimAssignment,
@@ -361,6 +362,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
               onCancel={amount.cancel}
               status={amount.status}
             />
+            {/* Kept with the opportunity page's amount line (audit A-39). */}
             <p className="u33-invest-places-note u33-invest-review-hint">
               {t("Minimum {minimum} · {available} available in this opportunity", { minimum: formatMoneyLabel(loan.currency, loan.minimum_investment_minor), available: formatMoneyLabel(loan.currency, loanAvailableMinor(loan)) })}
             </p>
@@ -381,10 +383,15 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
               {share && share.rows.length > 0 ? (
                 <section aria-label={t("Projected repayments")} className="r34-returns">
                   <div className="ip-summary-line ip-interest">
-                    <span>{t("Projected total interest")}</span>
+                    <span>
+                      {t("Projected total interest")}
+                      <InfoTip label={t("How projected interest is calculated")} title={t("Projected total interest")}>
+                        {t("Based on {amount} over {count} months, with payments as scheduled. Interest is calculated on outstanding principal.", { amount: formatMoneyLabel(loan.currency, amount.appliedMinor ?? 0), count: loan.term_months })}
+                      </InfoTip>
+                    </span>
                     <div className="fp2-interest-line">
                       <strong>{formatMoneyLabel(loan.currency, share.interestMinor)}</strong>
-                      <span className="fp2-duration">{share.rows.length === 1 ? t("1 payment") : t("Total over {count} payments", { count: share.rows.length })}</span>
+                      <span className="fp2-duration">{t("Total over {count} months", { count: loan.term_months })}</span>
                     </div>
                   </div>
                   <div className="ip-summary-line r79-first-payment fp2-first">
@@ -402,7 +409,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                   <NiIcon name="calendar" />
                   <span className="r36-toggle-copy">
                     <strong>{t("Payment schedule")}</strong>
-                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : t("Your share of each installment.")}</small>
+                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : reviewRepaymentCopy(loan.repayment_type)}</small>
                   </span>
                   <span className="r36-chevron"><NiIcon name="arrow-up-right" /></span>
                 </button>

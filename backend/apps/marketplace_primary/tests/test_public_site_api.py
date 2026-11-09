@@ -742,8 +742,18 @@ def test_loan_originator_claims_and_originators_list(
         "country": "CH",
         "partner_since": _today().isoformat(),
         "claims_funded": 0,
+        "volume": [],
+        "late_claims": 0,
     }
     assert by_name["Batch Originator LEGACY"]["claims_funded"] == 1
+    assert by_name["Batch Originator LEGACY"]["late_claims"] == 0
+    assert [row["currency"] for row in by_name["Batch Originator LEGACY"]["volume"]] == [
+        legacy["currency"]
+    ]
+    assert (
+        by_name["Batch Originator LEGACY"]["volume"][0]["principal_minor"]
+        == legacy["principal_minor"]
+    )
     assert client.get(STATISTICS_URL).json()["originators_count"] == 2
 
     # After the round, the claim is a funded project with its investors' record.
@@ -916,4 +926,6 @@ def test_openapi_schema_describes_the_public_site_endpoints() -> None:
         "country",
         "partner_since",
         "claims_funded",
+        "volume",
+        "late_claims",
     }

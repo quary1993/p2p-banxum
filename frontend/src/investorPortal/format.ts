@@ -233,26 +233,30 @@ export function formatRateBps(bps: number, style: NumberFormatStyle = activeNumb
   return `${negative ? "-" : ""}${groupThousands(String(whole), SEPARATORS[style].group)}${SEPARATORS[style].decimal}${fraction}%`;
 }
 
-export function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Europe/Zurich"
-  });
+/** The design's month abbreviations (B.date: "Sep", never the "Sept" of newer browsers). */
+export const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function validDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/** "4 Oct 2026" in Zurich time (design B.date). */
+export function formatDate(value: string | null | undefined) {
+  const date = validDate(value);
+  if (!date) return "-";
+  const parts = zurichParts(date);
+  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]} ${parts.year}`;
+}
+
+/** "4 Oct 2026, 14:30" in Zurich time (design B.dateTime). */
 export function formatDateTime(value: string | null | undefined) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Zurich"
-  });
+  const date = validDate(value);
+  if (!date) return "-";
+  const parts = zurichParts(date);
+  const two = (number: number) => String(number).padStart(2, "0");
+  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]} ${parts.year}, ${two(parts.hour)}:${two(parts.minute)}`;
 }
 
 export function zurichDateKey(value: string | Date | null | undefined) {
@@ -425,6 +429,7 @@ export function zurichMonthKey(value: string | Date, offset = 0) {
 /** Month name for a "YYYY-MM" or "YYYY-MM-DD" key, independent of the browser time zone. */
 export function monthLabelFromKey(key: string, options: Intl.DateTimeFormatOptions = { month: "long" }) {
   const [year, month] = key.split("-").map(Number);
+  if (options.month === "short" && !options.year && !options.day) return SHORT_MONTHS[month - 1] ?? "";
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-GB", { ...options, timeZone: "UTC" });
 }
 

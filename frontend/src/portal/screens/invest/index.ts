@@ -6,5 +6,6 @@ export { InvestScreen } from "./InvestScreen";
 export { OpportunitiesScreen } from "./OpportunitiesScreen";
 export { OpportunityScreen } from "./OpportunityScreen";
 export { OverviewScreen } from "./OverviewScreen";
+export { LoanOriginatorsScreen } from "./LoanOriginatorsScreen";
 export { PastOpportunitiesScreen } from "./PastOpportunitiesScreen";
 export type { SensitiveActionKit } from "./parts/sensitiveAction";

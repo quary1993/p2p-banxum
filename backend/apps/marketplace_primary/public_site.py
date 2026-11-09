@@ -704,16 +704,31 @@ def list_public_originators() -> list[dict[str, Any]]:
     originators: list[dict[str, Any]] = []
     for projects in by_originator.values():
         originator = cast(Any, projects[0].profile).originator
+        funded = [
+            project.payload
+            for project in projects
+            if project.payload["public_status"] in FUNDED_PUBLIC_STATUSES
+        ]
+        volume: dict[str, int] = {}
+        for payload in funded:
+            currency = str(payload["currency"])
+            volume[currency] = volume.get(currency, 0) + int(payload["principal_minor"])
         originators.append(
             {
                 "id": str(originator.id),
                 "name": str(originator.public_name),
                 "country": public_country_code(originator.jurisdiction),
                 "partner_since": business_date(originator.created_at),
-                "claims_funded": sum(
+                "claims_funded": len(funded),
+                # U33 Loan originators page: funded volume per currency and late claims.
+                "volume": [
+                    {"currency": currency, "principal_minor": volume[currency]}
+                    for currency in sorted(volume)
+                ],
+                "late_claims": sum(
                     1
-                    for project in projects
-                    if project.payload["public_status"] in FUNDED_PUBLIC_STATUSES
+                    for payload in funded
+                    if payload["public_status"] in {PUBLIC_STATUS_LATE, PUBLIC_STATUS_DEFAULT}
                 ),
             }
         )

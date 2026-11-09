@@ -3129,6 +3129,7 @@ def public_marketplace_listing_payload(
     without one, what a new investor must invest (Swiss-borrower limit, MKT-DEC-028).
     """
     loan_ref = cast(Any, loan)
+    borrower = getattr(loan_ref, "borrower", None)
     progress = loan_funding_progress(str(loan_ref.id))
     limit_fields = investor_limits.investor_limit_payload(
         _loan_investor_limit(loan),
@@ -3160,7 +3161,13 @@ def public_marketplace_listing_payload(
         "is_refinancing": bool(loan_ref.is_refinancing),
         "originator_id": None,
         "originator_name": None,
-        "borrower_display_name": None,
+        # The borrower's legal name and country are part of the investor disclosure of every
+        # Direct loan (entities.borrower_investor_disclosure); the U33 cards show them.
+        "borrower_display_name": str(getattr(borrower, "legal_name", "") or "") or None,
+        "borrower_country": str(getattr(borrower, "country", "") or ""),
+        "repayment_type": str(loan_ref.repayment_type),
+        "collateral_description": str(loan_ref.collateral_description),
+        "published_at": loan_ref.published_at,
         "skin_in_the_game_bps": int(getattr(loan_ref, "skin_in_the_game_bps", 0)),
         "minimum_subscription_bps": int(getattr(loan_ref, "minimum_subscription_bps", 5_000)),
     }

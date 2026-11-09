@@ -35,6 +35,8 @@ import {
   isOpenLoan,
   isOriginatorClaimLoan,
   loanAvailableMinor,
+  paymentFrequencyLabel,
+  securityVocabText,
   formatLtv,
   loanLtv,
   loanTypeLabel,
@@ -214,9 +216,7 @@ function OpportunityPage({
               <div className="r36-security-head">
                 <h2>
                   {t("Security")}
-                  <InfoTip label={t("Security")} title={t("Security")}>
-                    {t("The collateral or guarantee recorded for this loan. It can help recover money if the borrower stops paying; it does not guarantee repayment.")}
-                  </InfoTip>
+                  <InfoTip label={t("Security")} title={t("Security")}>{securityVocabText()}</InfoTip>
                 </h2>
                 <PortalLink aria-label={t("Security details & documents")} className="rc-resource" params={{ loanId: loan.loan_id, section: "credit-file", chapter: "security" }} to="loan">
                   {t("Details")} <NiIcon name="arrow-right" />
@@ -234,8 +234,10 @@ function OpportunityPage({
                       <button
                         aria-controls={`r62-collateral-${loan.loan_id}`}
                         aria-expanded={ltvOpen}
-                        aria-label={t("Loan-to-value {ratio}. Value comparison", { ratio: formatLtv(ltv) })}
+                        aria-describedby={`r62-collateral-${loan.loan_id}-explanation`}
+                        aria-label={t("Loan-to-value {ratio}. {valueLabel} comparison", { ratio: formatLtv(ltv), valueLabel: t(securityValueLabel(loan.collateral_type)) })}
                         className="r62-toggle"
+                        title={t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: t(securityValueLabel(loan.collateral_type)).toLowerCase() })}
                         onClick={() => setLtvOpen((value) => !value)}
                         type="button"
                       >
@@ -250,6 +252,9 @@ function OpportunityPage({
                           <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t(securityValueLabel(loan.collateral_type))} valueMinor={loan.collateral_value_minor} />
                         </figure>
                       </div>
+                      <span className="sr-only" id={`r62-collateral-${loan.loan_id}-explanation`}>
+                        {t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: t(securityValueLabel(loan.collateral_type)).toLowerCase() })}
+                      </span>
                     </div>
                   </div>
                 ) : (
@@ -270,7 +275,7 @@ function OpportunityPage({
                   <NiIcon name="calendar" />
                   <span className="r36-toggle-copy">
                     <strong>{t("Payment schedule")}</strong>
-                    <small>{cadence || t("Full loan schedule")}</small>
+                    <small>{paymentFrequencyLabel(loan.repayment_type) || cadence || t("Full loan schedule")}</small>
                   </span>
                   <span className="r36-chevron"><NiIcon name={scheduleOpen ? "chevron-up" : "chevron-down"} /></span>
                 </button>
@@ -308,6 +313,8 @@ function OpportunityPage({
                   <p aria-live="polite" className="v107-error" id="iv-error">
                     {error?.message ?? (places?.fullForViewer ? swissInvestorLimitMessage(places.maxInvestors) : "")}
                   </p>
+                  {/* Kept (audit A-39): the minimum, what the loan still takes and the balance usable for this
+                      loan's funding window, which can differ from the available balance. */}
                   <p className="u33-invest-amount-hint">
                     {t("Minimum {minimum} · {available} available", { minimum: formatMoneyLabel(loan.currency, loan.minimum_investment_minor), available: formatMoneyLabel(loan.currency, loanAvailableMinor(loan)) })}
                     <br />

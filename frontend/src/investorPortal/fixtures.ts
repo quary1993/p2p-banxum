@@ -506,6 +506,10 @@ type DirectMarketplaceFixtureInput = Omit<
   | "originator_id"
   | "originator_name"
   | "borrower_display_name"
+  | "borrower_country"
+  | "repayment_type"
+  | "collateral_description"
+  | "published_at"
 >;
 
 const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
@@ -624,7 +628,12 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     fillable_amount_minor: loan.remaining_capacity_minor,
     originator_id: null,
     originator_name: null,
-    borrower_display_name: loan.title
+    borrower_display_name: loan.title,
+    // The same values as the loan details below.
+    borrower_country: loan.currency === "CHF" ? "CH" : "DE",
+    repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
+    collateral_description: loan.collateral_type,
+    published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null
   })
 );
 
@@ -659,6 +668,10 @@ const originatorMarketplaceLoanFixture: MarketplaceLoanPreview = {
   originator_id: "originator-alpine-credit",
   originator_name: "Alpine Credit Partners AG",
   borrower_display_name: "Established Swiss precision manufacturer",
+  borrower_country: "CH",
+  repayment_type: "amortizing_principal_interest",
+  collateral_description: "First-ranking security over financed machinery and equipment.",
+  published_at: `${fixtureIsoDate(0, 1)}T08:00:00Z`,
   distribution_model: "par_component_v2",
   entitlement_start_date: fixtureIsoDate(1, 28),
   investor_interest_participation_bps: 7000,
@@ -1053,6 +1066,8 @@ const pastLoanDetailsFixture: MarketplaceLoanDetail[] = pastLoanInputs.map((inpu
     status: input.status,
     loan_status: input.status,
     opportunity_status: "closed",
+    borrower_country: input.country,
+    published_at: `${fixtureIsoDate(-input.monthsAgo, 1)}T08:00:00Z`,
     currency: input.currency,
     principal_minor: principal,
     committed_principal_minor: principal,

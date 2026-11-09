@@ -95,6 +95,7 @@ import {
   OpportunitiesScreen,
   OpportunityScreen,
   OverviewScreen,
+  LoanOriginatorsScreen,
   PastOpportunitiesScreen,
   type SensitiveActionKit
 } from "./portal/screens/invest";
@@ -290,6 +291,16 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
   if (settingsMatch && isSettingsPathSegment(settingsMatch[1])) return { name: "settings", params: { tab: settingsMatch[1] } };
   // Past opportunities and the credit file are views of the marketplace and loan routes (slice S2).
   if (normalized === "/marketplace/archive") return { name: "market", params: { view: "archive" } };
+  // Loan originators (design #/originators): a view of the marketplace route.
+  if (normalized === "/marketplace/originators") return { name: "market", params: { view: "originators" } };
+  const originatorMatch = normalized.match(/^\/marketplace\/originators\/([^/]+)$/);
+  if (originatorMatch) {
+    try {
+      return { name: "market", params: { view: "originators", originatorId: decodeURIComponent(originatorMatch[1]) } };
+    } catch {
+      return siteRoute;
+    }
+  }
   const investmentMatch = normalized.match(/^\/portfolio\/([^/]+)$/);
   if (investmentMatch) {
     try {
@@ -324,7 +335,11 @@ function routePath(route: AppRoute) {
     register: "/register",
     kyc: "/verification",
     dashboard: "/dashboard",
-    market: route.params?.view === "archive" ? "/marketplace/archive" : "/marketplace",
+    market: route.params?.view === "archive"
+      ? "/marketplace/archive"
+      : route.params?.view === "originators"
+        ? `/marketplace/originators${route.params?.originatorId ? `/${encodeURIComponent(route.params.originatorId)}` : ""}`
+        : "/marketplace",
     smartInvest: "/smart-invest",
     loan: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}${route.params?.section === "credit-file" ? "/credit-file" : ""}`,
     loanSchedule: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}/schedule`,
@@ -935,6 +950,8 @@ function InvestorShell({
       case "market":
         return route.params?.view === "archive"
           ? <PastOpportunitiesScreen />
+          : route.params?.view === "originators"
+            ? <LoanOriginatorsScreen key={route.params?.originatorId ?? "all"} originatorId={route.params?.originatorId} />
           : <OpportunitiesScreen initialMatchesOnly={route.params?.matches === "1"} key={route.params?.matches ?? "all"} />;
       case "smartInvest":
         return <SmartInvestScreen />;

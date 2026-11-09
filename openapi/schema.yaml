@@ -11541,6 +11541,16 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        borrower_country:
+          type: string
+        repayment_type:
+          type: string
+        collateral_description:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
         distribution_model:
           type: string
           nullable: true
@@ -11578,8 +11588,6 @@ components:
           type: string
         collateral_value_minor:
           type: integer
-        collateral_description:
-          type: string
         ltv_warnings:
           type: array
           items:
@@ -11606,8 +11614,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MarketplaceOriginalLoanScheduleRow'
-        repayment_type:
-          type: string
         loan_start_date:
           type: string
           format: date
@@ -11637,6 +11643,7 @@ components:
           format: date
           nullable: true
       required:
+      - borrower_country
       - borrower_disclosure
       - borrower_display_name
       - borrower_id
@@ -11670,6 +11677,7 @@ components:
       - originator_name
       - principal_minor
       - product_type
+      - published_at
       - purpose
       - purpose_description
       - remaining_capacity_minor
@@ -11770,6 +11778,16 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        borrower_country:
+          type: string
+        repayment_type:
+          type: string
+        collateral_description:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
         distribution_model:
           type: string
           nullable: true
@@ -11790,7 +11808,9 @@ components:
           type: integer
           default: 5000
       required:
+      - borrower_country
       - borrower_display_name
+      - collateral_description
       - collateral_type
       - committed_principal_minor
       - currency
@@ -11809,9 +11829,11 @@ components:
       - originator_name
       - principal_minor
       - product_type
+      - published_at
       - purpose
       - remaining_capacity_minor
       - remaining_term_days
+      - repayment_type
       - risk_rating
       - status
       - term_months
@@ -14786,12 +14808,32 @@ components:
         claims_funded:
           type: integer
           description: Public claims of this originator that were funded.
+        volume:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicOriginatorVolume'
+          description: Principal of the funded public claims, per currency.
+        late_claims:
+          type: integer
+          description: Funded public claims that are late or in default.
       required:
       - claims_funded
       - country
       - id
+      - late_claims
       - name
       - partner_since
+      - volume
+    PublicOriginatorVolume:
+      type: object
+      properties:
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+      required:
+      - currency
+      - principal_minor
     PublicProject:
       type: object
       description: A loan on the public site. Never carries the borrower's name or

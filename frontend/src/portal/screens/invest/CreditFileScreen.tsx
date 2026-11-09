@@ -96,13 +96,14 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
     ["assets", t("Total assets"), disclosure.assets_minor],
     ["liabilities", t("Total liabilities"), disclosure.liabilities_minor]
   ].filter((row): row is [string, string, number] => typeof row[2] === "number");
-  const chapters: Array<{ id: ChapterId; label: string }> = [
-    { id: "summary", label: t("Summary") },
-    { id: "business", label: isOriginatorClaimLoan(loan) ? t("Borrower & originator") : t("Borrower & business") },
-    ...(financials.length > 0 ? [{ id: "financials" as const, label: t("Financials") }] : []),
-    { id: "security", label: t("Security") },
-    { id: "terms", label: t("Loan terms") },
-    ...(documents.length > 0 ? [{ id: "documents" as const, label: t("Documents") }] : [])
+  // `short` is the cover divider label (design: Summary, Business, Financials, Security, Terms, ...).
+  const chapters: Array<{ id: ChapterId; label: string; short: string }> = [
+    { id: "summary", label: t("Summary"), short: t("Summary") },
+    { id: "business", label: isOriginatorClaimLoan(loan) ? t("Borrower & originator") : t("Borrower & business"), short: t("Business") },
+    ...(financials.length > 0 ? [{ id: "financials" as const, label: t("Financials"), short: t("Financials") }] : []),
+    { id: "security", label: t("Security"), short: t("Security") },
+    { id: "terms", label: t("Loan terms"), short: t("Terms") },
+    ...(documents.length > 0 ? [{ id: "documents" as const, label: t("Documents"), short: t("Documents") }] : [])
   ];
   const known = chapters.find((chapter) => chapter.id === initialChapter);
   const [opened, setOpened] = useState(Boolean(known));
@@ -190,7 +191,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
               <li key={item.id} style={{ ["--r47-tab-offset" as string]: `${position * 2}px` }}>
                 <button aria-controls="r47-credit-reader" aria-expanded="false" aria-label={t("Open {title} section", { title: item.label })} className="r47-divider" onClick={() => openChapter(item.id)} type="button">
                   <span aria-hidden="true">{number(position)}</span>
-                  {item.label}
+                  {item.short}
                 </button>
               </li>
             ))}
@@ -199,7 +200,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
             <span className="r47-tab-id">{`BANXUM · ${shortId}`}</span>
             <div className="r47-cover-meta"><strong>{t("Credit file")}</strong><span>{statusText}</span></div>
             <div className="r47-main">
-              <p className="r47-eyebrow">{isOriginatorClaimLoan(loan) ? t("Existing claim") : t("Company financing")}</p>
+              <p className="r47-eyebrow">{isOriginatorClaimLoan(loan) ? t("Existing claim") : t("Company & financing")}</p>
               <h1 id="r47-project-title">{loan.title}</h1>
               {company && company !== loan.title ? <p className="r47-company">{company}</p> : null}
               {country || sector ? <p className="r47-location">{[country, sector].filter(Boolean).join(" · ")}</p> : null}
@@ -210,7 +211,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
               <div><dt>{isOriginatorClaimLoan(loan) ? t("Claim offered") : t("Total loan amount")}</dt><dd>{`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency, 0)}`}</dd></div>
             </dl>
             <div className="r47-bottom">
-              <p>{t("Business, financials, security and supporting documents.")}</p>
+              <p>{t("Business, financials, security")}<br />{t("and supporting documents.")}</p>
               <button aria-controls="r47-credit-reader" aria-expanded="false" className="r47-open" onClick={() => openChapter("summary")} type="button">
                 {t("Open credit file")} <NiIcon name="arrow-right" />
               </button>
@@ -378,7 +379,8 @@ function SummaryTerms({ loan }: { loan: MarketplaceLoanDetail }) {
       <div>
         <span>{usesOriginatorSubscription(loan) ? t("Investor interest rate") : t("Annual interest rate")}</span>
         <strong>{formatRateBps(loanYieldBps(loan))}</strong>
-        {repaymentText(loan.repayment_type) ? <small>{repaymentText(loan.repayment_type)}</small> : null}
+        {/* Design credit file: "Principal and interest monthly". */}
+        {repaymentText(loan.repayment_type) ? <small>{["equal_installments", "amortizing_principal_interest"].includes(loan.repayment_type) ? t("Principal and interest monthly") : repaymentText(loan.repayment_type)}</small> : null}
       </div>
       <div>
         <span>{t("Investment term")}</span>

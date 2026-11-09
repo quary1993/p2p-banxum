@@ -10,34 +10,38 @@ import { useState } from "react";
 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { useBalancesData, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
+import { useBalancesData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSmartInvestData } from "../../../investorPortal/data";
 import { formatDate, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import {
   collateralGroup,
   collateralIcon,
   collateralLabel,
+  closesInLabel,
+  countryName,
   daysLeftLabel,
+  existingClaimHelp,
   daysUntil,
   fundedPercent,
   isOpenLoan,
   isOriginatorClaimLoan,
-  loanAvailableMinor,
-  formatLtv,
-  loanLtv,
   loanTypeLabel,
   loanYieldBps,
+  paymentFrequencyLabel,
   placesInfo,
   projectIcon,
   securityGroupLabels,
+  securityHelpText,
+  securityVocabText,
   usesImmediateClaimAssignment,
   type SecurityGroup
 } from "./loanFacts";
+import { isOpenOrder } from "../portfolio/parts/investmentModel";
 import { readStored, writeStored } from "./storage";
 import "./invest.css";
 
 type Layout = "cards" | "list";
-type Sort = "closing" | "rate" | "term" | "funded";
+type Sort = "closing" | "newest" | "rate" | "term" | "funded";
 type Filters = { q: string; currency: string; minRate: number | null; maxTerm: number | null; security: string[]; originator: string };
 
 const LAYOUT_KEY = "banxum:marketplace-layout:v1";
@@ -73,6 +77,7 @@ function sortLoans(loans: MarketplaceLoanPreview[], sort: Sort) {
     if (sort === "rate") return loanYieldBps(b) - loanYieldBps(a);
     if (sort === "term") return a.term_months - b.term_months || closingKey(a).localeCompare(closingKey(b));
     if (sort === "funded") return fundedPercent(b) - fundedPercent(a);
+    if (sort === "newest") return (b.published_at ?? "").localeCompare(a.published_at ?? "") || closingKey(a).localeCompare(closingKey(b));
     return closingKey(a).localeCompare(closingKey(b));
   });
 }
@@ -84,7 +89,7 @@ function compactAmount(amountMinor: number, currency: string) {
     const decimals = Number.isInteger(value) ? 0 : Number.isInteger(value * 10) ? 1 : 2;
     return formatDecimal(value, decimals);
   };
-  if (whole >= 1_000_000) return `${trimmed(Math.round(whole / 10_000) / 100)}m`;
+  if (whole >= 1_000_000) return `${trimmed(Math.round(whole / 10_000) / 100)}M`;
   if (whole >= 1_000) return `${trimmed(Math.round(whole / 100) / 10)}k`;
   return formatMoneyMinor(amountMinor, currency, 0);
 }
@@ -104,6 +109,13 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const loansQuery = useMarketplaceLoansData();
   const smartInvestQuery = useSmartInvestData();
   const asOf = useBalancesData().data?.as_of;
+  // Design "Invested" mark: a loan the investor holds or has an open reservation in.
+  const holdings = usePortfolioData(true).data?.holdings;
+  const orders = usePrimaryOrdersData().data?.orders;
+  const investedIds = new Set([
+    ...(holdings ?? []).filter((holding) => holding.status !== "transferred").map((holding) => holding.loan.loan_id),
+    ...(orders ?? []).filter(isOpenOrder).map((order) => order.loan_id)
+  ]);
   const [layout, setLayoutState] = useState<Layout>(() => (readStored(LAYOUT_KEY) === "list" ? "list" : "cards"));
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -145,8 +157,11 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   return (
     <main className="u33-invest-opportunities">
       <PageHead
-        actions={
-          <div aria-label={t("View")} className="bxm-seg" role="group">
+        actions={[
+          <PortalLink className="btn btn-outline-light" key="originators" params={{ view: "originators" }} to="market">
+            <NiIcon name="building" /><span>{t("Loan originators")}</span>
+          </PortalLink>,
+          <div aria-label={t("View")} className="bxm-seg" key="view" role="group">
             <button aria-pressed={layout === "cards"} className={layout === "cards" ? "active" : ""} onClick={() => setLayout("cards")} type="button">
               <NiIcon name="view-grid-wd" /><span>{t("Cards")}</span>
             </button>
@@ -154,7 +169,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
               <NiIcon name="view-list-wd" /><span>{t("List")}</span>
             </button>
           </div>
-        }
+        ]}
         title={t("Investment opportunities")}
       />
 
@@ -195,6 +210,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
             {t("Sort")}
             <select className="bxm-op-select" id="op-sort" onChange={(event) => setSort(event.target.value as Sort)} value={sort}>
               <option value="closing">{t("Closing soonest")}</option>
+              <option value="newest">{t("Newest")}</option>
               <option value="rate">{t("Highest interest")}</option>
               <option value="term">{t("Shortest term")}</option>
               <option value="funded">{t("Most funded")}</option>
@@ -308,7 +324,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           </EmptyState>
         ) : layout === "cards" ? (
           <div className="row g-gs">
-            {visible.map((loan) => <OpportunityCard asOf={asOf} key={loan.loan_id} loan={loan} matched={matchIds.has(loan.loan_id)} />)}
+            {visible.map((loan) => <OpportunityCard asOf={asOf} invested={investedIds.has(loan.loan_id)} key={loan.loan_id} loan={loan} matched={matchIds.has(loan.loan_id)} />)}
           </div>
         ) : (
           <OpportunityList asOf={asOf} loans={visible} matchIds={matchIds} />
@@ -341,12 +357,16 @@ function MinimumInfo({ loan }: { loan: MarketplaceLoanPreview }) {
   );
 }
 
-function OpportunityCard({ loan, asOf, matched }: { loan: MarketplaceLoanPreview; asOf?: string; matched: boolean }) {
+export function OpportunityCard({ loan, asOf, matched, invested }: { loan: MarketplaceLoanPreview; asOf?: string; matched: boolean; invested: boolean }) {
   const t = useT();
   const percent = fundedPercent(loan);
-  const ltv = loanLtv(loan);
   const places = placesInfo(loan);
   const company = isOriginatorClaimLoan(loan) ? loan.borrower_display_name || loan.originator_name : loan.borrower_display_name;
+  const country = countryName(loan.borrower_country);
+  const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
+  const securityName = collateralLabel(loan.collateral_type);
+  const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
+  const securityHelp = securityHelpText(loan.collateral_type) || securityVocabText();
   return (
     <div className="col-md-6 col-xxl-4">
       <div className={`card card-bordered h-100${matched ? " si-highlighted" : ""}`}>
@@ -361,15 +381,22 @@ function OpportunityCard({ loan, asOf, matched }: { loan: MarketplaceLoanPreview
                 </div>
               </PortalLink>
             </div>
+            {country || invested ? (
+              <div className="r35-location">
+                <span className="r35-location-text"><span>{country}</span></span>
+                <span className="r35-location-badges">{invested ? <span className="bxm-tag is-muted">{t("Invested")}</span> : null}</span>
+              </div>
+            ) : null}
             <div className="bxm-project-tags">
               <span className="bxm-tag is-open">{t("Open")}</span>
               <span className="bxm-tag is-type">{loanTypeLabel(loan)}</span>
+              {isOriginatorClaimLoan(loan) ? <InfoTip label={t("Existing claim")} title={t("Existing claim")}>{existingClaimHelp()}</InfoTip> : null}
               {matched ? <span aria-label={t("Smart Invest: matches your Smart Invest preferences.")} className="bxm-tag si-match-label" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span> : null}
             </div>
             <div className="r60-card-terms">
               <dl className="bxm-project-figures">
                 <div><dt>{t("Annual interest")}</dt><dd>{formatRateBps(loanYieldBps(loan))}</dd></div>
-                <div><dt>{t("Term")}</dt><dd>{t("{count} mo", { count: loan.term_months })}</dd></div>
+                <div><dt>{t("Term")}</dt><dd>{t("{count} mo", { count: loan.term_months })}{payments ? <small className="r74-card-payments">{payments}</small> : null}</dd></div>
                 <div>
                   <dt>{t("Loan amount · {currency}", { currency: loan.currency })}</dt>
                   <dd aria-label={formatMoneyLabel(loan.currency, loan.principal_minor)} tabIndex={0} title={formatMoneyLabel(loan.currency, loan.principal_minor)}>
@@ -379,12 +406,15 @@ function OpportunityCard({ loan, asOf, matched }: { loan: MarketplaceLoanPreview
               </dl>
             </div>
             <section className="r35-security">
-              <div className="r35-security-heading">{t("Security")}</div>
+              <div className="r35-security-heading">
+                {t("Security")}
+                <InfoTip label={t("Security")} title={t("Security")}>{securityHelp}</InfoTip>
+              </div>
               <div className="r35-security-content">
                 <NiIcon className="r35-security-icon" name={collateralIcon(loan.collateral_type)} />
                 <div>
-                  <strong>{collateralLabel(loan.collateral_type)}</strong>
-                  {ltv !== null ? <small>{t("Loan-to-value {ratio}", { ratio: formatLtv(ltv) })}</small> : null}
+                  <strong>{securityName}</strong>
+                  {securityDetail ? <small>{securityDetail}</small> : null}
                 </div>
               </div>
             </section>
@@ -397,7 +427,8 @@ function OpportunityCard({ loan, asOf, matched }: { loan: MarketplaceLoanPreview
                 <span style={{ width: `${percent}%` }} />
               </div>
               <div className="bxm-project-row">
-                {places ? <span className="u33-invest-places">{t("{investors} of {max} investors", { investors: places.investors, max: places.maxInvestors })}</span> : <span />}
+                {/* Design: the investor count stays in the markup but is hidden on the cards (r31-discovery-hidden). */}
+                {places ? <span className="r31-discovery-hidden">{t("{investors} of {max} investors", { investors: places.investors, max: places.maxInvestors })}</span> : <span />}
                 <span className="r31-minimum">
                   {t("Min. {amount}", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) })}
                   <MinimumInfo loan={loan} />
@@ -432,7 +463,7 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
           <tr>
             <th>{t("Opportunity")}</th>
             <th>{t("Annual interest rate")}<br /><span className="ol-heading-secondary">{t("Term")}</span></th>
-            <th>{t("Security")}</th>
+            <th>{t("Security")} <InfoTip label={t("Security")} title={t("Security")}>{securityVocabText()}</InfoTip></th>
             <th>{t("Loan amount")}</th>
             <th>{t("Availability")}</th>
             <th><span className="visually-hidden">{t("Details")}</span></th>
@@ -440,8 +471,13 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
         </thead>
         <tbody>
           {loans.map((loan) => {
-            const ltv = loanLtv(loan);
-            const company = loan.borrower_display_name && loan.borrower_display_name !== loan.title ? loan.borrower_display_name : loan.originator_name;
+            const name = loan.borrower_display_name && loan.borrower_display_name !== loan.title ? loan.borrower_display_name : loan.originator_name;
+            // Design: "Company · CC".
+            const company = [name, loan.borrower_country ? loan.borrower_country.toUpperCase() : ""].filter(Boolean).join(" · ");
+            const securityName = collateralLabel(loan.collateral_type);
+            const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
+            const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
+            const days = usesImmediateClaimAssignment(loan) ? null : daysUntil(loan.funding_deadline, asOf);
             return (
               <tr className="r75-list-row" data-project={loan.loan_id} key={loan.loan_id}>
                 <td>
@@ -451,18 +487,22 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
                       <PortalLink className="ol-title" params={{ loanId: loan.loan_id }} to="loan">{loan.title}</PortalLink>
                       {matchIds.has(loan.loan_id) ? <span className="si-list-match" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span> : null}
                       {company ? <div className="ol-company">{company}</div> : null}
-                      <div className="ol-tags"><span className="bxm-tag ol-type r75-desktop-hidden">{loanTypeLabel(loan)}</span></div>
+                      <div className="ol-tags">
+                        <span className="bxm-tag ol-type r75-desktop-hidden">{loanTypeLabel(loan)}</span>
+                        {isOriginatorClaimLoan(loan) ? <span className="r75-desktop-hidden"><InfoTip label={t("Existing claim")} title={t("Existing claim")}>{existingClaimHelp()}</InfoTip></span> : null}
+                      </div>
                     </div>
                   </div>
                 </td>
                 <td>
                   <span className="ol-rate">{formatRateBps(loanYieldBps(loan))} <span className="ol-per">{t("/ year")}</span></span>
                   <span className="ol-secondary">{t("{count} months", { count: loan.term_months })}</span>
+                  {payments ? <small className="r75-list-cadence">{payments}</small> : null}
                 </td>
                 <td>
                   <span className="ol-security">
-                    <strong>{collateralLabel(loan.collateral_type)}</strong>
-                    {ltv !== null ? <small>{t("Loan-to-value {ratio}", { ratio: formatLtv(ltv) })}</small> : null}
+                    <strong>{securityName}</strong>
+                    {securityDetail ? <small>{securityDetail}</small> : null}
                   </span>
                 </td>
                 <td>
@@ -474,8 +514,7 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
                 </td>
                 <td>
                   <span className="bxm-tag ol-status r75-desktop-hidden">{t("Open")}</span>
-                  <span className="ol-secondary ol-time">{closingText(loan, asOf, t)}</span>
-                  <span className="ol-secondary">{t("{amount} available", { amount: formatMoneyLabel(loan.currency, loanAvailableMinor(loan)) })}</span>
+                  <span className="ol-secondary ol-time">{days === null ? closingText(loan, asOf, t) : closesInLabel(days)}</span>
                 </td>
                 <td className="ol-action">
                   <PortalLink aria-label={t("View details of {title}", { title: loan.title })} className="ol-details" params={{ loanId: loan.loan_id }} to="loan">

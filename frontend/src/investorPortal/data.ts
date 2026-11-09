@@ -18,6 +18,7 @@ import {
   useV1ServicingLoanRiskNotesList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
+  useV1MarketplacePrimaryPublicOriginatorsList,
   useV1MarketplacePrimaryPublicProjectsList,
   useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList,
@@ -27,7 +28,8 @@ import type {
   InvestorDepositInstructions,
   InvestorDocuments,
   InvestorNotifications,
-  InvestorPortalFeatures
+  InvestorPortalFeatures,
+  PublicOriginator
 } from "../api/generated/banxumApi";
 import {
   activityFixture,
@@ -340,6 +342,25 @@ export function useSecondaryListingDetailData(listingId: string) {
 
   return useV1MarketplaceSecondaryListingsRetrieve(listingId, {
     query: previewQuery(fixture, Boolean(listingId))
+  });
+}
+
+const publicOriginatorsFixture: PublicOriginator[] = [
+  {
+    id: "originator-alpine-credit",
+    name: "Alpine Credit Partners AG",
+    country: "CH",
+    partner_since: "2025-09-15",
+    claims_funded: 1,
+    volume: [{ currency: "CHF", principal_minor: 16_000_000 }],
+    late_claims: 0
+  }
+];
+
+/** Loan originators with their funded claims (public originators API; U33 Loan originators page). */
+export function usePublicOriginatorsData(enabled = true) {
+  return useV1MarketplacePrimaryPublicOriginatorsList({
+    query: previewQuery(publicOriginatorsFixture, enabled)
   });
 }
 

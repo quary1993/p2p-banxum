@@ -199,7 +199,7 @@ test("A-15: a new amount after a failed confirm places a new order with new evid
   await confirmInDialog("222222");
   await screen.findByRole("heading", { name: "Investment reserved" }, { timeout: 5000 });
   // The receipt shows the server's order reference and allocation time, not the browser clock.
-  expect(document.querySelector(".l8-reference")).toHaveTextContent("ORDER-2 · 05 Jun 2026");
+  expect(document.querySelector(".l8-reference")).toHaveTextContent("ORDER-2 · 5 Jun 2026");
 
   expect(calls.orders.map((order) => order.amount_minor)).toEqual([100_000, 200_000]);
   expect(calls.orders[1].idempotency_key).not.toBe(calls.orders[0].idempotency_key);
@@ -425,7 +425,7 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
   await confirmInDialog("222222", "Confirm your claim purchase", "Purchase claim");
   await screen.findAllByText("Claim purchased", {}, { timeout: 5000 });
   // The receipt shows the purchase as the server booked it.
-  expect(document.querySelector(".l8-reference")).toHaveTextContent(/^77777777 · 05 Jun 2026/);
+  expect(document.querySelector(".l8-reference")).toHaveTextContent(/^77777777 · 5 Jun 2026/);
 
   expect(calls.acceptances.map((acceptance) => acceptance.context_id)).toEqual(quotes);
   expect(calls.acceptances[1].idempotency_key).not.toBe(calls.acceptances[0].idempotency_key);

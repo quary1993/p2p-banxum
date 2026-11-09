@@ -207,7 +207,7 @@ test("documents are sorted into investment, statements and platform tabs", () =>
 
   const yearToDate = { document_kind: "account_statement", period_start: "2026-01-01", period_end: "2026-06-05", date: "2026-06-05T00:00:00Z" };
   expect(reportSubtitle(yearToDate)).toBe("Year to date");
-  expect(periodLabel(yearToDate)).toMatch(/^01 Jan 2026 – 05 Jun 2026$/);
+  expect(periodLabel(yearToDate)).toMatch(/^1 Jan 2026 – 5 Jun 2026$/);
   const fullYear = { document_kind: "account_statement", period_start: "2025-01-01", period_end: "2025-12-31", date: "2026-06-05T00:00:00Z" };
   expect(reportSubtitle(fullYear)).toBe("Annual statement");
   expect(periodLabel(fullYear)).toBe("2025");
