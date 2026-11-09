@@ -395,7 +395,6 @@
 }
 
 .bxm .btn-primary,
-.bxm .btn-green,
 .bxm .btn.dark {
   background: var(--ink);
   border-color: var(--ink);
@@ -404,7 +403,6 @@
 }
 
 .bxm .btn-primary:hover,
-.bxm .btn-green:hover,
 .bxm .btn.dark:hover {
   background: var(--bxm-graphite);
   border-color: var(--bxm-graphite);
@@ -491,7 +489,6 @@
 }
 
 .bxm .btn-primary:disabled,
-.bxm .btn-green:disabled,
 .bxm .btn-danger:disabled,
 .bxm .btn.dark:disabled {
   background: #b5b5b5;
@@ -914,10 +911,6 @@
   min-height: 36px;
   padding-left: 16px;
   padding-right: 40px;
-}
-
-.bxm .input-affix {
-  border-radius: 999px;
 }
 
 .bxm .hint {
@@ -1833,81 +1826,19 @@
     min-width: 0;
   }
 
-  .bxm table.stack-on-phone .doc-title-cell {
-    min-width: 0;
-    text-align: left;
-  }
+  
 
-  .bxm table.stack-on-phone .doc-downloads-cell .doc-downloads {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
+  
 
   .bxm table.stack-on-phone .chip {
     white-space: normal;
   }
 
-  .bxm .balance-lots-table.stack-on-phone td.lot-deadline {
-    flex-wrap: wrap;
-    min-width: 0;
-  }
+  
 
-  .bxm .balance-lots-table.stack-on-phone td.lot-deadline > .dmeter {
-    flex: 1 1 100%;
-    order: 2;
-  }
+  
 
-  .bxm .balance-lots-table.stack-on-phone .lot-deadline-meta {
-    align-items: flex-end;
-    flex-direction: column;
-    margin-top: 0;
-    white-space: normal;
-  }
-}
-
-/* Documents at desktop widths (audit A-60): the download buttons stay inside the card. The
-   context may wrap, and the buttons stack in one narrow column. */
-.bxm .documents-data-table .doc-title-cell {
-  min-width: 180px;
-}
-
-.bxm table.documents-data-table thead th,
-.bxm table.documents-data-table tbody td {
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-.bxm .documents-data-table .doc-downloads {
-  align-items: stretch;
-  flex-direction: column;
-  min-width: 72px;
-}
-
-@media (max-width: 640px) {
-  .bxm table.stack-on-phone .doc-downloads-cell .doc-downloads {
-    flex-direction: row;
-  }
-}
-
-/* Pending withdrawals on the Account page. */
-.bxm .acct-pending-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.bxm .acct-pending-list .acct-row {
-  padding: 16px 24px;
-}
-
-.bxm .acct-pending-list .acct-row-text {
-  display: block;
-}
-
-@media (max-width: 640px) {
-  .bxm .acct-pending-list .acct-row {
-    padding: 14px 16px;
-  }
+  
 }
 
 /* Smart-Invest rule actions at 320 px: long labels wrap inside the button. */
@@ -1924,14 +1855,6 @@
     padding: 6px 14px;
     text-align: center;
     white-space: normal;
-  }
-}
-
-/* Between tablet and wide desktop the "Artifact" note column gives its room to the downloads. */
-@media (min-width: 641px) and (max-width: 1399px) {
-  .bxm table.documents-data-table thead th:nth-child(6),
-  .bxm table.documents-data-table tbody td:nth-child(6) {
-    display: none;
   }
 }
 

@@ -1,9 +1,7 @@
-// Account status pieces shared by the investor shell and the Account page (audit A-20/A-21).
-import type { PendingWithdrawal } from "../api/generated/banxumApi";
+// Account status pieces of the investor shell (audit A-20/A-21).
 import { joinWithAnd, type FrozenAccount } from "./accountState";
-import { AUTO_RETURN_AFTER_DAYS } from "./balanceAgeing";
-import { formatDate, formatMoneyLabel, formatRateBps } from "./format";
-import { Banner, Button, Chip, Empty } from "./ui";
+import { formatMoneyLabel, formatRateBps } from "./format";
+import { Banner, Button } from "./ui";
 
 /**
  * The blocking banner of PAY-DEC-022: what is frozen, the daily penalty, and what to do.
@@ -46,33 +44,5 @@ export function FrozenAccountBanner({
       {" "}Investing, currency exchange and secondary-market trades are blocked.{todo} Your portfolio, documents,
       statements and notices remain available.
     </Banner>
-  );
-}
-
-/** Requested withdrawals waiting for the bank transfer; forced returns are labelled. */
-export function PendingWithdrawalsList({ withdrawals }: { withdrawals: PendingWithdrawal[] }) {
-  if (withdrawals.length === 0) {
-    return <Empty icon="clock" title="No pending withdrawals">Withdrawal requests in progress will appear here.</Empty>;
-  }
-  return (
-    <ul aria-label="Pending withdrawals" className="acct-rows acct-pending-list">
-      {withdrawals.map((withdrawal) => (
-        <li className="acct-row" key={withdrawal.id}>
-          <div className="acct-row-text">
-            <div className="acct-row-title num">{formatMoneyLabel(withdrawal.currency, withdrawal.amount_minor)}</div>
-            <div className="acct-iban num">To {withdrawal.destination_iban}</div>
-            <div className="acct-row-sub">
-              {withdrawal.is_forced
-                ? `Forced return of money not invested within ${AUTO_RETURN_AFTER_DAYS} days, ${formatDate(withdrawal.requested_at)}`
-                : `Requested ${formatDate(withdrawal.requested_at)}`}
-            </div>
-          </div>
-          <div className="acct-row-actions">
-            {withdrawal.is_forced ? <Chip tone="warn">Forced return</Chip> : null}
-            <Chip tone="warn">Waiting for bank transfer</Chip>
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }
