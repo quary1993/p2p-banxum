@@ -1,0 +1,53 @@
+/* IP of Webby-Soft SRL. */
+/* Fixes for the U33 portfolio screens (slice S3: My investments, investment page, Resale market, Smart
+ * Invest). u33.css is generated from the design and never edited; every rule here is under html.bxu
+ * and says why it exists. */
+
+/* The design puts the view classes on #bxm-view (shell); here they sit on the screen's <main>, so the
+   status pill colours of the investment page are repeated for #bxm-view main.r71-view (the id keeps
+   them above the generic #bxm-view .bxm-tag rule). */
+html.bxu[data-edition="refined"] body.bxm-app #bxm-view main.r71-view .r71-status.r71-on-schedule {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #1c7946;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  background: #eaf4ee;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+html.bxu[data-edition="refined"] body.bxm-app #bxm-view main.r71-view .r71-status.r79-repaid {
+  color: #1c7946;
+  background: #eaf4ee;
+}
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app #bxm-view main.r71-view .r71-status.r71-on-schedule,
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app #bxm-view main.r71-view .r71-status.r79-repaid {
+  color: #75dba4 !important; /* the design's own dark pill colours use !important as well */
+  background-color: #23272c !important;
+}
+
+/* Quiet helper lines (loading, empty lists inside a card, inline errors) that the design writes as
+   .bxm-muted / .invalid-feedback paragraphs. */
+html.bxu .u33-muted {
+  margin: 0;
+  color: var(--bxm-muted, #6b7380);
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.bxu .u33-error {
+  margin: 8px 0 0;
+  color: #b3261e;
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.bxu[data-theme="dark"] .u33-error {
+  color: #ff8a80;
+}
+html.bxu .u33-state-card {
+  margin-top: 8px;
+}
+html.bxu .u33-state-card > .card-inner {
+  padding: 32px;
+}

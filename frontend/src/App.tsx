@@ -176,6 +176,8 @@ import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
 import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
+import { InvestmentDetailScreen } from "./portal/screens/portfolio/InvestmentDetailScreen";
+import { MyInvestmentsScreen } from "./portal/screens/portfolio/MyInvestmentsScreen";
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
@@ -234,7 +236,7 @@ import {
 const U33_SCREENS_INVEST: RouteName[] = [];
 
 // S3 portfolio, resale, Smart Invest (portal/screens/portfolio).
-const U33_SCREENS_PORTFOLIO: RouteName[] = [];
+const U33_SCREENS_PORTFOLIO: RouteName[] = ["portfolio", "investment"];
 
 // S4 account, transactions, reports, documents, notifications (portal/screens/wallet).
 const U33_SCREENS_WALLET: RouteName[] = ["transactions", "reports"];
@@ -2581,15 +2583,9 @@ function InvestorShell({
           />
         );
       case "portfolio":
-        return <PortfolioScreen setRoute={setRoute} />;
+        return <MyInvestmentsScreen />;
       case "investment":
-        return (
-          <InvestmentScreen
-            focusSection={route.params?.section}
-            holdingId={route.params?.holdingId ?? ""}
-            setRoute={setRoute}
-          />
-        );
+        return <InvestmentDetailScreen focusSection={route.params?.section} holdingId={route.params?.holdingId ?? ""} />;
       case "secondary":
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
