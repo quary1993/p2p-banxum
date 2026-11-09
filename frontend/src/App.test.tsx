@@ -1576,6 +1576,21 @@ test("My investments and Transactions show their empty states without holdings, 
   }
 });
 
+test("a menu click leaves a sub-view kept in the query string (My investments history)", () => {
+  renderApp();
+  loginDemo();
+  clickNav("My investments");
+  fireEvent.click(screen.getByRole("link", { name: "View history" }));
+  expect(window.location.search).toBe("?view=history");
+  expect(screen.getByRole("heading", { level: 1, name: "Investment history" })).toBeInTheDocument();
+
+  // The menu entry of the same page returns to My investments and clears the sub-view.
+  clickNav("My investments");
+  expect(window.location.pathname).toBe("/portfolio");
+  expect(window.location.search).toBe("");
+  expect(screen.getByRole("heading", { level: 1, name: "My investments" })).toBeInTheDocument();
+});
+
 // A holding opens as its own page (/portfolio/:holdingId), the design's investment page.
 function openHoldingPage(loanTitle: string) {
   fireEvent.click(screen.getByRole("link", { name: `Open ${loanTitle}` }));

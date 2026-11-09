@@ -25,3 +25,10 @@ export function usePortalNav() {
 export function isPlainLeftClick(event: MouseEvent<HTMLElement>) {
   return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
+
+/**
+ * Fired on window after the app's own navigation changed the address (history.pushState sends no
+ * popstate). Screens that keep a sub-view in the query string (portfolio/parts/urlState.ts) listen to
+ * it, so a menu click on /portfolio?view=history shows My investments, not History.
+ */
+export const PORTAL_ADDRESS_EVENT = "banxum:address-change";

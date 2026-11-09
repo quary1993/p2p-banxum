@@ -2,10 +2,11 @@
 // Sub-views of the portfolio screens as query parameters on the screen's own address
 // (/portfolio?view=history, /secondary-market?tab=mine, /secondary-market?offer=<id>), so they can be
 // shared and the browser's Back button returns to the list. App.tsx routing stays untouched: the
-// parameters are read here, and a popstate (Back/Forward) re-reads them.
+// parameters are read here; Back/Forward (popstate) and the app's own navigation re-read them.
 import { useCallback, useEffect, useState } from "react";
 
 import { isFixturePreview } from "../../../../investorPortal/data";
+import { PORTAL_ADDRESS_EVENT } from "../../../components/portalNav";
 
 function readParams() {
   return new URLSearchParams(window.location.search);
@@ -14,9 +15,14 @@ function readParams() {
 export function useQueryParams(): [URLSearchParams, (next: Record<string, string | null>, options?: { replace?: boolean }) => void] {
   const [params, setParams] = useState(readParams);
   useEffect(() => {
-    const onPopState = () => setParams(readParams());
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    // Back/Forward (popstate) and the app's own navigation (menu links, PORTAL_ADDRESS_EVENT).
+    const onAddressChange = () => setParams(readParams());
+    window.addEventListener("popstate", onAddressChange);
+    window.addEventListener(PORTAL_ADDRESS_EVENT, onAddressChange);
+    return () => {
+      window.removeEventListener("popstate", onAddressChange);
+      window.removeEventListener(PORTAL_ADDRESS_EVENT, onAddressChange);
+    };
   }, []);
   const update = useCallback((next: Record<string, string | null>, options?: { replace?: boolean }) => {
     const merged = readParams();

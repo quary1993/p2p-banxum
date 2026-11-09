@@ -67,7 +67,7 @@ import {
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import { useT } from "./i18n";
-import { PortalNavProvider, type PortalNav } from "./portal/components";
+import { PORTAL_ADDRESS_EVENT, PortalNavProvider, type PortalNav } from "./portal/components";
 import { PortalShell } from "./portal/shell/PortalShell";
 import { LegacyBody } from "./portal/shell/LegacyBody";
 import { FX_NAV_ITEM, NAV_PARENT } from "./portal/shell/nav";
@@ -594,8 +594,10 @@ function goTo(setRoute: (route: AppRoute) => void, name: RouteName, params?: Rec
   const nextRoute = { name, params };
   writeStoredObject(appRouteStorageKey, nextRoute);
   const nextPath = routePath(nextRoute);
-  if (`${window.location.pathname}${window.location.hash}` !== nextPath) {
+  // The whole address counts: a menu click from /portfolio?view=history must leave History.
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextPath) {
     window.history.pushState({}, "", nextPath);
+    window.dispatchEvent(new Event(PORTAL_ADDRESS_EVENT));
   }
   setRoute(nextRoute);
   window.scrollTo({ top: 0, behavior: "instant" });

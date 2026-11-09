@@ -29,7 +29,7 @@ export { NiIcon } from "./Icon";
 export { KeyValueList, type KeyValueItem } from "./KeyValueList";
 export { MoneyAmount } from "./MoneyAmount";
 export { PortalLink, PortalNavProvider } from "./navigation";
-export { isPlainLeftClick, usePortalNav, type PortalNav } from "./portalNav";
+export { isPlainLeftClick, PORTAL_ADDRESS_EVENT, usePortalNav, type PortalNav } from "./portalNav";
 export { PageHead } from "./PageHead";
 export { StatusTag, type TagStatus, type TagTone } from "./StatusTag";
 export { Tabs, type TabItem } from "./Tabs";
