@@ -152,8 +152,12 @@ function ReviewEntry({ loan, initialAmount, sensitiveAction, onAddFunds }: { loa
 /** The investor's funds for this loan: everything in the currency, and what this funding window may use. */
 function useLoanFunds(loan: MarketplaceLoanDetail) {
   const balances = useBalancesData().data;
-  return { balanceMinor: currencyBalanceMinor(balances?.lots, loan.currency), eligibleMinor: sumAvailableMinor(eligibleLots(balances?.lots, loan)) };
+  return { loaded: Boolean(balances), balanceMinor: currencyBalanceMinor(balances?.lots, loan.currency), eligibleMinor: sumAvailableMinor(eligibleLots(balances?.lots, loan)) };
 }
+
+/** Funds that do not limit the amount: used until the balances have loaded, so that an amount applied
+ *  early gets no false "Add funds" error; the live check runs again when the balances arrive. */
+const fundsNotLoaded = { balanceMinor: Number.MAX_SAFE_INTEGER, eligibleMinor: Number.MAX_SAFE_INTEGER };
 
 function initialAmountMinor(initialAmount: string | undefined, currency: string) {
   if (!initialAmount) return null;
@@ -169,10 +173,11 @@ function useReviewAmount(loan: MarketplaceLoanDetail, initialAmount: string | un
   const [error, setError] = useState<{ message: string; shortfall: boolean } | null>(null);
   const [status, setStatus] = useState("");
   // The applied amount is checked again against live data (capacity, balance) on every render.
-  const check = appliedMinor === null ? null : checkInvestAmountMinor(appliedMinor, loan, funds);
+  const checkFunds = funds.loaded ? funds : fundsNotLoaded;
+  const check = appliedMinor === null ? null : checkInvestAmountMinor(appliedMinor, loan, checkFunds);
   const liveError = check && !check.ok ? { message: check.message, shortfall: check.shortfallMinor !== undefined } : null;
   const apply = (text: string) => {
-    const result = checkInvestAmount(text, loan, funds);
+    const result = checkInvestAmount(text, loan, checkFunds);
     if (!result.ok) {
       setError({ message: result.message, shortfall: result.shortfallMinor !== undefined });
       return;
@@ -186,7 +191,8 @@ function useReviewAmount(loan: MarketplaceLoanDetail, initialAmount: string | un
   };
   return {
     appliedMinor,
-    valid: appliedMinor !== null && !error && check?.ok === true,
+    // Confirming needs the real balance check.
+    valid: funds.loaded && appliedMinor !== null && !error && check?.ok === true,
     error: error ?? liveError,
     status,
     apply,

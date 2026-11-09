@@ -1,22 +1,15 @@
-// Real-API checks for the Smart-Invest batch and the opportunity page (QA audit 2026-10-09):
-// A-31 (a batch needs the same risk acknowledgement as one investment), A-42 (balances refresh
-// after a batch), A-39 (the opportunity names the borrower and what can really be invested here,
+// Real-API checks for Smart-Invest matches and the opportunity page (QA audit 2026-10-09):
+// A-31 / A-42 are superseded by U33-DEC-19 (no batch approval: every match is confirmed on its own
+// opportunity page), A-39 (the opportunity names the borrower and what can really be invested here,
 // and the amount parses with or without separators; nothing is pre-filled, U33-DEC-08).
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
-import {
-  getMarketplacePrimaryOrdersBatchCreateResponseMock,
-  getV1DocumentsAcceptancesCreateResponseMock,
-  getV1DocumentsTemplatesCurrentRetrieveResponseMock,
-  getV1MarketplacePrimaryLoansRetrieveResponseMock,
-  getV1MarketplacePrimaryOrdersCreateResponseMock
-} from "./api/generated/banxumApi";
+import { getV1MarketplacePrimaryLoansRetrieveResponseMock } from "./api/generated/banxumApi";
 import { balancesPayload, emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
-import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -78,11 +71,17 @@ function loanDetail(overrides: Record<string, unknown> = {}) {
     default_penalty_interest_bps: 0,
     repayment_type: "amortizing_principal_interest",
     entitlement_start_date: null,
+    // Not a Swiss-borrower loan: the generated mock fills these at random (a "full" loan blocks investing).
+    max_investors: null,
+    places_left: null,
+    is_existing_investor: false,
     ...overrides
   };
 }
 
-test("A-31 / A-42: a Smart-Invest batch needs the risk acknowledgement and refreshes balances", async () => {
+// U33-DEC-19 replaces the Smart-Invest batch (A-31 / A-42): a match opens its opportunity page, where
+// the single-investment flow asks for the terms, the risk acknowledgement and the code on its own.
+test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no batch approval", async () => {
   server.use(
     ...investorShellHandlers(calls, {
       balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
@@ -113,53 +112,23 @@ test("A-31 / A-42: a Smart-Invest batch needs the risk acknowledgement and refre
       })
     ),
     http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail())),
-    http.get("*/api/v1/documents/templates/current/", () =>
-      HttpResponse.json({ ...getV1DocumentsTemplatesCurrentRetrieveResponseMock(), id: "tpl-1", title: "Investment terms", version_number: 3, checkbox_labels: ["I accept."] })
-    ),
-    http.post("*/api/v1/documents/acceptances/", async ({ request }) => {
-      calls.acceptances.push((await request.json()) as Record<string, unknown>);
-      return HttpResponse.json({ ...getV1DocumentsAcceptancesCreateResponseMock(), id: "acc-1" }, { status: 201 });
-    }),
     http.post("*/api/v1/marketplace/primary/orders/batch/", async ({ request }) => {
-      const body = (await request.json()) as { items: Array<{ amount_minor: number }> };
-      calls.batches.push(body);
-      return HttpResponse.json({
-        ...getMarketplacePrimaryOrdersBatchCreateResponseMock(),
-        orders: [{
-          ...getV1MarketplacePrimaryOrdersCreateResponseMock(),
-          loan_id: LOAN_ID,
-          status: "balance_allocated",
-          requested_amount_minor: body.items[0].amount_minor,
-          allocated_amount_minor: body.items[0].amount_minor,
-          closed_reason: ""
-        }],
-        originator_purchases: [],
-        order_count: 1,
-        originator_purchase_count: 0
-      }, { status: 201 });
+      calls.batches.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json({}, { status: 400 });
     })
   );
   renderLiveApp(App, "/smart-invest");
-  fireEvent.click(await screen.findByRole("button", { name: "Review & confirm →" }, { timeout: 5000 }));
-  const dialog = screen.getByRole("dialog", { name: "Approve this allocation." });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
-  await within(dialog).findByText(/one terms acceptance and one email code cover every investment/, {}, { timeout: 5000 });
-  fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
-  enterPin();
-  await waitFor(() => expect(calls.codes).toHaveLength(1));
-  // Without the risk acknowledgement nothing can be placed.
-  expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeDisabled();
-  fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeEnabled());
-  const balanceReadsBefore = calls.balanceReads.length;
-  fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
-  await within(dialog).findByText("Every selected investment is in.", {}, { timeout: 5000 });
+  const review = await screen.findByRole("button", { name: "Review investment in Audit Direct Loan" }, { timeout: 5000 });
+  expect(screen.getByText("CHF only · No other restrictions")).toBeInTheDocument();
+  // Nothing to select, approve or confirm in bulk on the Smart Invest page.
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Review & confirm|Approve|Place \d/ })).not.toBeInTheDocument();
 
-  expect(calls.batches).toHaveLength(1);
-  // The balance pills and the plan are reloaded after the money moved.
-  await waitFor(() => expect(calls.balanceReads.length).toBeGreaterThan(balanceReadsBefore));
-  expect(within(dialog).getByText(/One order reserves balance until the applicable funding round closes\./)).toBeInTheDocument();
+  fireEvent.click(review);
+  await waitFor(() => expect(window.location.pathname).toBe(`/marketplace/${LOAN_ID}`));
+  expect(calls.batches).toHaveLength(0);
+  expect(calls.codes).toHaveLength(0);
+  expect(calls.acceptances).toHaveLength(0);
 }, 30_000);
 
 test("A-39: the opportunity page names the borrower and what can be invested here, and its amount parses", async () => {

@@ -1,0 +1,330 @@
+/* IP of Webby-Soft SRL. */
+/* Fixes for the U33 portfolio screens (slice S3: My investments, investment page, Resale market, Smart
+ * Invest). u33.css is generated from the design and never edited; every rule here is under html.bxu
+ * and says why it exists. */
+
+/* The design puts the view classes on #bxm-view (shell); here they sit on the screen's <main>, so the
+   status pill colours of the investment page are repeated for #bxm-view main.r71-view (the id keeps
+   them above the generic #bxm-view .bxm-tag rule). */
+html.bxu[data-edition="refined"] body.bxm-app #bxm-view main.r71-view .r71-status.r71-on-schedule {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #1c7946;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  background: #eaf4ee;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+html.bxu[data-edition="refined"] body.bxm-app #bxm-view main.r71-view .r71-status.r79-repaid {
+  color: #1c7946;
+  background: #eaf4ee;
+}
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app #bxm-view main.r71-view .r71-status.r71-on-schedule,
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app #bxm-view main.r71-view .r71-status.r79-repaid {
+  color: #75dba4 !important; /* the design's own dark pill colours use !important as well */
+  background-color: #23272c !important;
+}
+
+/* Quiet helper lines (loading, empty lists inside a card, inline errors) that the design writes as
+   .bxm-muted / .invalid-feedback paragraphs. */
+html.bxu .u33-muted {
+  margin: 0;
+  color: var(--bxm-muted, #6b7380);
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.bxu .u33-error {
+  margin: 8px 0 0;
+  color: #b3261e;
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.bxu[data-theme="dark"] .u33-error {
+  color: #ff8a80;
+}
+html.bxu .u33-state-card {
+  margin-top: 8px;
+}
+html.bxu .u33-state-card > .card-inner {
+  padding: 32px;
+}
+
+/* Resale market, My listings: the design shows only the empty card; the listed investments reuse the
+   offers table (.rs-table) with an actions cell, and completed sales/purchases follow under a small
+   heading. */
+html.bxu .u33-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+html.bxu .u33-resale-activity {
+  margin-top: 32px;
+}
+html.bxu .u33-resale-activity h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(-n + 3) {
+  text-align: left;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(n + 4) {
+  text-align: right;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):first-child {
+  width: 18%;
+}
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .u33-resale-activity .rs-table :is(th, td):nth-child(2) {
+  width: 34%;
+}
+html.bxu .bxm-resale .u33-own-table td:nth-child(5),
+html.bxu .bxm-resale .u33-own-table .rs-time {
+  white-space: nowrap;
+}
+/* The offers table is table-layout: fixed; the listed-investments table needs room for two buttons. */
+html.bxu[data-edition="refined"] body.bxm-app .bxm-resale .rs-table.u33-own-table :is(th, td):last-child {
+  width: 224px;
+  white-space: nowrap;
+}
+html.bxu .u33-blocked-note {
+  margin-top: 12px;
+}
+
+/* S1's Dialog writes the title as h5.title; the design styles an h2 in the s106 (sell/buy) and the
+   "How resale works" dialogs. Same values as the design's h2 rules. */
+html.bxu .s106-modal .s106-body > h5.title {
+  font-size: 29px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  margin: 0 32px 9px 0;
+}
+html.bxu .p99-help-modal .p99-help-body > h5.title {
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.65px;
+  line-height: 1.2;
+  margin: 0 28px 18px 0;
+}
+@media (max-width: 575px) {
+  html.bxu .s106-modal .s106-body > h5.title {
+    font-size: 27px;
+  }
+  html.bxu .p99-help-modal .p99-help-body > h5.title {
+    font-size: 24px;
+  }
+}
+
+/* Acceptance of the seller/buyer terms (U33-DEC-14 keeps them; the design has no checkbox here):
+   a quiet checkbox line in the s106 colours, with the template version under it. */
+html.bxu .u33-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0 0;
+  color: var(--s106-ink, var(--bxm-ink, #111315));
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  cursor: pointer;
+}
+html.bxu .u33-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: #111315;
+}
+html.bxu[data-theme="dark"] .u33-check input[type="checkbox"] {
+  accent-color: #f2f4f4;
+}
+html.bxu .u33-check a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html.bxu .u33-terms-version {
+  margin: 4px 0 0 28px;
+  color: var(--s106-muted, #64717b);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Email code + PIN (today's confirmation, ACC-DEC-009): the design's code field (#bxm-code) with the
+   send link beside its label, and the PIN boxes drawn like that field instead of the old square boxes. */
+html.bxu .u33-confirm {
+  margin-top: 20px;
+}
+html.bxu .u33-confirm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+html.bxu .u33-confirm-head .s106-code-label {
+  margin: 0;
+}
+html.bxu .u33-confirm-send {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--s106-ink, #111315);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+html.bxu .u33-confirm-send:disabled {
+  color: var(--s106-muted, #64717b);
+  text-decoration: none;
+  cursor: default;
+}
+html.bxu .u33-confirm-hint {
+  margin: 6px 0 0;
+  color: var(--s106-muted, #64717b);
+  font-size: 12px;
+}
+html.bxu .u33-confirm-pin {
+  margin-top: 18px;
+}
+html.bxu .u33-confirm .pin-field-head {
+  max-width: none;
+}
+html.bxu .u33-confirm .pin-field-label {
+  color: var(--s106-ink, #111315);
+  font-size: 13px;
+}
+html.bxu .u33-confirm .pin-text-btn {
+  color: var(--s106-ink, #111315);
+}
+html.bxu .u33-confirm .pin-boxes {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  max-width: none;
+}
+html.bxu .u33-confirm .pin-box {
+  width: 100%;
+  height: 60px;
+  background: var(--s106-surface, #fff);
+  border: 1px solid var(--s106-line, #dfe5e9);
+  border-radius: 12px;
+  color: var(--s106-ink, #111315);
+  font-size: 24px;
+  font-weight: 500;
+}
+html.bxu .u33-confirm .pin-box:focus {
+  box-shadow: none;
+  outline: 2px solid #78858f;
+  outline-offset: 2px;
+}
+html.bxu .u33-confirm .pin-field.has-error .pin-box {
+  border-color: var(--s106-red, #b64242);
+}
+html.bxu .u33-confirm :is(.pin-field-hint, .pin-field-error) {
+  max-width: none;
+  font-size: 12px;
+}
+html.bxu .u33-confirm .pin-field-hint {
+  color: var(--s106-muted, #64717b);
+}
+html.bxu .u33-confirm .pin-field-error {
+  color: var(--s106-red, #b64242);
+}
+html.bxu .u33-confirm-lock {
+  margin-bottom: 12px;
+}
+/* The create/forgot PIN dialogs (old skin, slice S5 rebuilds them) open above the U33 dialog. */
+html.bxu .u33-pin-dialogs .scrim {
+  z-index: 1080;
+}
+
+/* Small additions of the investment and Smart Invest pages that the design does not draw. */
+html.bxu .u33-resale-note {
+  margin: 0 0 16px;
+}
+/* The design has no dark colours for .alert-info / .alert-light (used by the resale note). */
+html.bxu[data-edition="refined"][data-theme="dark"] body.bxm-app .alert.u33-resale-note {
+  background: #191c20 !important;
+  border-color: #343a40 !important;
+  color: #e4e8e6 !important;
+}
+/* Cancel listing: space between the reason field and the buttons. */
+html.bxu .s106-modal .s106-body > textarea {
+  margin-bottom: 18px;
+}
+html.bxu .u33-retired-criteria {
+  margin: 0 0 16px;
+}
+html.bxu .u33-save-error {
+  margin: 12px 0 0;
+}
+html.bxu .u33-count {
+  display: inline-block;
+  min-width: 22px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--bxm-surface-2, #eef0f3);
+  color: var(--bxm-muted, #6b7380);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+}
+html.bxu[data-theme="dark"] .u33-count {
+  background: #2a2f35;
+  color: #aeb7bf;
+}
+html.bxu .u33-ltv-static {
+  cursor: default;
+}
+html.bxu .u33-recovered {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+html.bxu .u33-recovered > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+html.bxu .u33-recovered dt {
+  font-weight: 400;
+  color: var(--bxm-muted, #6b7380);
+}
+html.bxu .u33-recovered dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+html.bxu .u33-recovered .u33-recovered-total {
+  padding-top: 6px;
+  border-top: 1px solid var(--bxm-line, #e3e7eb);
+  font-weight: 500;
+}
+html.bxu .u33-recovered .u33-recovered-total dt {
+  color: inherit;
+  font-weight: 500;
+}
+html.bxu .u33-lot-date {
+  margin-top: 2px;
+}
+
+/* Payment schedule (design .r75c-calendar.ps93-page): table at 1200 px and wider, month list (.ps32) below,
+   as the design's desktop and mobile editions (one DOM here). */
+@media (min-width: 1200px) {
+  html.bxu .ps93-page .ps32-groups {
+    display: none;
+  }
+}
+@media (max-width: 1199px) {
+  html.bxu .ps93-page .ps93-table-frame {
+    display: none;
+  }
+}

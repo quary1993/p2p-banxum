@@ -330,6 +330,8 @@ export function TransactionsScreen() {
                         <strong>{t(row.label)}</strong>
                         <span className={`tr-status r31m-status ${row.pending ? "tr-reserved" : ""}`.trim()}>{row.pending ? <i /> : null}{t(row.status)}</span>
                         {description ? <small>{description}</small> : null}
+                        {/* Activity kept from before a QA environment reset stays visible and is marked. */}
+                        {row.entry.archived_at ? <small className="wl-qa-note">{t("Before QA reset")}</small> : null}
                       </div>
                     </div>
                   </td>

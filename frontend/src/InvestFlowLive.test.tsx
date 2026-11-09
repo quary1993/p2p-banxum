@@ -61,6 +61,11 @@ function directLoan(overrides: Record<string, unknown> = {}) {
     remaining_capacity_minor: 10_000_000,
     fillable_amount_minor: 10_000_000,
     minimum_investment_minor: 100_000,
+    // Not a Swiss-borrower loan: the generated mock fills these at random, which sometimes made the
+    // loan "full" for the viewer and blocked the amount (flaky tests).
+    max_investors: null,
+    places_left: null,
+    is_existing_investor: false,
     ltv_bps: 5000,
     is_refinancing: false,
     originator_id: null,
@@ -129,8 +134,13 @@ function primaryOrderHandlers(
 }
 
 /** Review & sign: the amount is edited in place and applied with Enter. */
+// Waits for data from the mock server; a full parallel test run on a small machine is slow (each test allows 30 s).
+const SERVER_WAIT = { timeout: 15_000 };
+
 async function applyAmount(amount: string) {
-  const input = await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
+  // The amount is checked against the balances: wait until they are loaded (the header shows them).
+  await screen.findByRole("group", { name: "Available balance" }, SERVER_WAIT);
+  const input = await screen.findByRole("textbox", { name: "Your investment amount" }, SERVER_WAIT);
   fireEvent.change(input, { target: { value: amount } });
   fireEvent.keyDown(input, { key: "Enter" });
   return input as HTMLInputElement;
@@ -142,18 +152,25 @@ function acceptBoth() {
 
 /** The confirmation dialog: email code and PIN (ACC-DEC-009), then the confirm button. */
 async function confirmInDialog(code: string, dialogName = "Confirm your investment", confirmName = "Confirm and reserve") {
-  const dialog = await screen.findByRole("dialog", { name: dialogName });
+  const dialog = await screen.findByRole("dialog", { name: dialogName }, SERVER_WAIT);
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: code } });
   enterPin(undefined, undefined, dialog);
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: confirmName })).toBeEnabled());
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: confirmName })).toBeEnabled(), SERVER_WAIT);
   fireEvent.click(within(dialog).getByRole("button", { name: confirmName }));
   return dialog;
+}
+
+/** Confirm investment is enabled once the amount is valid (minimum, capacity, balance: data from the mock server) and both acceptances are given. */
+async function clickConfirmInvestment() {
+  const button = screen.getByRole("button", { name: "Confirm investment" });
+  await waitFor(() => expect(button).toBeEnabled(), SERVER_WAIT);
+  fireEvent.click(button);
 }
 
 async function reviewAndConfirm(amount: string, code: string) {
   await applyAmount(amount);
   acceptBoth();
-  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  await clickConfirmInvestment();
   return confirmInDialog(code);
 }
 
@@ -178,7 +195,7 @@ test("A-15: a new amount after a failed confirm places a new order with new evid
   (screen.getAllByRole("checkbox") as HTMLInputElement[]).forEach((box) => expect(box).not.toBeChecked());
   expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
   acceptBoth();
-  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  await clickConfirmInvestment();
   await confirmInDialog("222222");
   await screen.findByRole("heading", { name: "Investment reserved" }, { timeout: 5000 });
 
