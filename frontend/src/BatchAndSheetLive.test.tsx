@@ -1,7 +1,7 @@
-// Real-API checks for the Smart-Invest batch and the loan quick-view sheet (QA audit
-// 2026-10-09): A-31 (a batch needs the same risk acknowledgement as one investment),
-// A-42 (balances refresh after a batch), A-39 (the sheet projects what can really be
-// lent, names the borrower, and pre-fills an amount that parses).
+// Real-API checks for the Smart-Invest batch and the opportunity page (QA audit 2026-10-09):
+// A-31 (a batch needs the same risk acknowledgement as one investment), A-42 (balances refresh
+// after a batch), A-39 (the opportunity names the borrower and what can really be invested here,
+// and the amount parses with or without separators; nothing is pre-filled, U33-DEC-08).
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
@@ -162,7 +162,7 @@ test("A-31 / A-42: a Smart-Invest batch needs the risk acknowledgement and refre
   expect(within(dialog).getByText(/One order reserves balance until the applicable funding round closes\./)).toBeInTheDocument();
 }, 30_000);
 
-test("A-39: the quick-view sheet projects what can be lent here, names the borrower, and its amount parses", async () => {
+test("A-39: the opportunity page names the borrower and what can be invested here, and its amount parses", async () => {
   server.use(
     ...investorShellHandlers(calls, {
       // A wallet of CHF 100,500.01 and a loan with CHF 10,000.00 left.
@@ -171,27 +171,32 @@ test("A-39: the quick-view sheet projects what can be lent here, names the borro
     }),
     http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail()))
   );
-  renderLiveApp(App, "/marketplace");
-  fireEvent.click(await screen.findByText("Audit Direct Loan", {}, { timeout: 5000 }));
-  const sheet = await screen.findByRole("dialog", { name: "Audit Direct Loan" });
-  await within(sheet).findByText(/Your claim is against Audit Borrower AG/, {}, { timeout: 5000 });
+  renderLiveApp(App, `/marketplace/${LOAN_ID}`);
+  await screen.findByRole("heading", { level: 1, name: "Audit Direct Loan" }, { timeout: 5000 });
 
-  expect(within(sheet).getByText(/What your CHF 10\.000,00 does here/)).toBeInTheDocument();
-  expect(within(sheet).queryByText(/100\.500,01 does here/)).not.toBeInTheDocument();
-  expect(within(sheet).queryByText(/paid at maturity/)).not.toBeInTheDocument();
-  expect(within(sheet).getByText(/capital and interest every month/)).toBeInTheDocument();
-  expect(within(sheet).queryByText(/claim is against Audit Direct Loan/)).not.toBeInTheDocument();
+  // The claim is against the borrower, not the loan title; the limits come from the loan.
+  expect(screen.getByText(/Audit Borrower AG/)).toBeInTheDocument();
+  expect(screen.getByText(/Minimum CHF 1\.000,00 · CHF 10\.000,00 available/)).toBeInTheDocument();
+  expect(screen.getByText("Principal and interest paid monthly")).toBeInTheDocument();
+  const amount = screen.getByRole("textbox", { name: "Choose investment amount" });
+  expect(amount).toHaveValue("");
+  await screen.findByText(/Your CHF balance for this loan: CHF 100\.500,01/, {}, { timeout: 5000 });
 
-  fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
-  const amount = within(sheet).getByRole("textbox", { name: "Amount to invest" });
-  expect(amount).toHaveValue("10000,00");
-  // Editing the pre-filled amount works, with or without separators.
-  fireEvent.change(amount, { target: { value: "9500.00" } });
-  expect(within(sheet).getByText(/^CHF 9\.500,00$/)).toBeInTheDocument();
-  fireEvent.change(amount, { target: { value: "9’000,50" } });
-  expect(within(sheet).getByText(/^CHF 9\.000,50$/)).toBeInTheDocument();
-  expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeEnabled();
+  // More than the loan still takes names the capacity, not the wallet.
+  fireEvent.change(amount, { target: { value: "50000" } });
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  const error = document.getElementById("iv-error") as HTMLElement;
+  expect(error).toHaveTextContent(/This opportunity has only CHF 10\.000,00 left/);
+  expect(error).not.toHaveTextContent(/100\.500,01/);
+
+  // An ambiguous comma is refused with a hint, never guessed.
   fireEvent.change(amount, { target: { value: "1,000" } });
-  expect(within(sheet).getByRole("alert")).toHaveTextContent(/Write thousands as 1\.000\./);
-  expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  expect(screen.getByText(/Write thousands as 1\.000\./)).toBeInTheDocument();
+
+  // A Swiss-style amount is read and handed to Review & sign.
+  fireEvent.change(amount, { target: { value: "9’000,50" } });
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  expect(window.location.pathname).toBe(`/marketplace/${LOAN_ID}/invest`);
+  expect(await screen.findByRole("textbox", { name: "Your investment amount" })).toHaveValue("9.000,50");
 }, 30_000);

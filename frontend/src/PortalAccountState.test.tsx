@@ -111,10 +111,9 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   // The raw lot status never reaches the page.
   expect(document.body.textContent).not.toMatch(/penalty_mode|PENALTY_MODE/);
 
-  // Overview: EUR money not working includes the frozen balance.
-  fireEvent.click(await screen.findByRole("tab", { name: "EUR" }));
-  expect(await screen.findByText("of which EUR 4.898.036,89 frozen, with a daily penalty")).toBeInTheDocument();
-  expect(screen.getByText("100,0% of your money, earning nothing")).toBeInTheDocument();
+  // Overview: the EUR available balance names the frozen part (penalty mode until U33-DEC-04).
+  fireEvent.click(await screen.findByRole("button", { name: "EUR" }));
+  expect(await screen.findByText("Of which EUR 4.898.036,89 is frozen, with a daily penalty.")).toBeInTheDocument();
 
   // FX: the converter is blocked with the reason before any quote is requested.
   server.use(

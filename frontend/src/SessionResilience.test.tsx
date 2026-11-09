@@ -58,7 +58,7 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
     })
   );
   const queryClient = renderLiveApp(App, "/dashboard");
-  expect(await screen.findByRole("heading", { name: "Money working for you" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: /^Welcome back/ }, { timeout: 5000 })).toBeInTheDocument();
 
   meStatus = 502;
   await act(async () => {
@@ -67,7 +67,7 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
-  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: /^Welcome back/ })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
 
   // A real "signed out" answer still leads to the login form.

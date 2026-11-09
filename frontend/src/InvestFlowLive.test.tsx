@@ -128,21 +128,33 @@ function primaryOrderHandlers(
   ];
 }
 
-function summaryValue(label: string) {
-  const summary = document.querySelector(".iv-summary") as HTMLElement;
-  return within(summary).getByText(label).nextElementSibling?.textContent ?? "";
+/** Review & sign: the amount is edited in place and applied with Enter. */
+async function applyAmount(amount: string) {
+  const input = await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
+  fireEvent.change(input, { target: { value: amount } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  return input as HTMLInputElement;
+}
+
+function acceptBoth() {
+  for (const box of screen.getAllByRole("checkbox") as HTMLInputElement[]) if (!box.checked) fireEvent.click(box);
+}
+
+/** The confirmation dialog: email code and PIN (ACC-DEC-009), then the confirm button. */
+async function confirmInDialog(code: string, dialogName = "Confirm your investment", confirmName = "Confirm and reserve") {
+  const dialog = await screen.findByRole("dialog", { name: dialogName });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: code } });
+  enterPin(undefined, undefined, dialog);
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: confirmName })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: confirmName }));
+  return dialog;
 }
 
 async function reviewAndConfirm(amount: string, code: string) {
-  const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
-  fireEvent.change(amountInput, { target: { value: amount } });
-  fireEvent.click(screen.getByRole("button", { name: "Review order" }));
-  for (const box of await screen.findAllByRole("checkbox")) fireEvent.click(box);
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: code } });
-  enterPin();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm order" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
+  await applyAmount(amount);
+  acceptBoth();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  return confirmInDialog(code);
 }
 
 test("A-15: a new amount after a failed confirm places a new order with new evidence and keys", async () => {
@@ -156,15 +168,19 @@ test("A-15: a new amount after a failed confirm places a new order with new evid
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
 
-  await reviewAndConfirm("1000", "111111");
-  await screen.findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
+  const firstDialog = await reviewAndConfirm("1000", "111111");
+  await within(firstDialog).findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
   expect(calls.codes).toHaveLength(1);
 
-  // Back to the amount step, change the amount, and confirm with the right code.
-  fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  await reviewAndConfirm("2000", "222222");
-  await screen.findByText("Order placed", {}, { timeout: 5000 });
+  // Close the confirmation, change the amount on the page (the acceptances are cleared), confirm again.
+  fireEvent.click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+  await applyAmount("2000");
+  (screen.getAllByRole("checkbox") as HTMLInputElement[]).forEach((box) => expect(box).not.toBeChecked());
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  acceptBoth();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  await confirmInDialog("222222");
+  await screen.findByRole("heading", { name: "Investment reserved" }, { timeout: 5000 });
 
   expect(calls.orders.map((order) => order.amount_minor)).toEqual([100_000, 200_000]);
   expect(calls.orders[1].idempotency_key).not.toBe(calls.orders[0].idempotency_key);
@@ -174,9 +190,8 @@ test("A-15: a new amount after a failed confirm places a new order with new evid
   expect(calls.allocate.map((call) => call.orderId)).toEqual(["order-1", "order-2"]);
   expect(calls.allocate[1]).toMatchObject({ document_acceptance_id: "acc-2" });
   expect(calls.allocate[1].idempotency_key).not.toBe(calls.allocate[0].idempotency_key);
-  // The done screen shows the server's order.
-  expect(summaryValue("Order amount")).toMatch(/CHF 2\.000,00/);
-  expect(summaryValue("Investment amount")).toMatch(/CHF 2\.000,00/);
+  // The result shows the server's order.
+  expect(screen.getByText("Amount reserved").parentElement).toHaveTextContent(/CHF\s*2\.000,00/);
   expect(screen.getByText(/CHF 2\.000,00 of your balance is reserved for this loan/)).toBeInTheDocument();
   expect(screen.queryByText(/pending allocation/)).not.toBeInTheDocument();
 }, 30_000);
@@ -191,12 +206,12 @@ test("A-15: a retry of the same amount reuses the same order, acceptance and key
     )
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  await reviewAndConfirm("1000", "111111");
-  await screen.findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
-  fireEvent.change(screen.getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
-  enterPin();
-  fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
-  await screen.findByText("Order placed", {}, { timeout: 5000 });
+  const dialog = await reviewAndConfirm("1000", "111111");
+  await within(dialog).findByText("Invalid or expired confirmation code.", {}, { timeout: 5000 });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
+  enterPin(undefined, undefined, dialog);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm and reserve" }));
+  await screen.findByRole("heading", { name: "Investment reserved" }, { timeout: 5000 });
 
   expect(calls.orders).toHaveLength(1);
   expect(calls.acceptances).toHaveLength(1);
@@ -210,10 +225,10 @@ test("A-33: the done screen says when only part of the amount, or nothing, was i
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await reviewAndConfirm("5000", "111111");
-  await screen.findByText("Order partly placed", {}, { timeout: 5000 });
+  await screen.findByRole("heading", { name: "Investment partly reserved" }, { timeout: 5000 });
   expect(screen.getByText(/Only CHF 1\.500,00 was left in this loan\. We reserved CHF 1\.500,00 of the CHF 5\.000,00 you asked for\./)).toBeInTheDocument();
-  expect(summaryValue("Investment amount")).toMatch(/CHF 1\.500,00/);
-  expect(screen.queryByText("Order placed")).not.toBeInTheDocument();
+  expect(screen.getByText("Amount reserved").parentElement).toHaveTextContent(/CHF\s*1\.500,00/);
+  expect(screen.queryByRole("heading", { name: "Investment reserved" })).not.toBeInTheDocument();
 }, 30_000);
 
 test("A-33: an order closed below the minimum is shown as not placed, with no money moved", async () => {
@@ -227,10 +242,10 @@ test("A-33: an order closed below the minimum is shown as not placed, with no mo
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await reviewAndConfirm("5000", "111111");
-  await screen.findByText("Order not placed", {}, { timeout: 5000 });
+  await screen.findByRole("heading", { name: "Investment not placed" }, { timeout: 5000 });
   expect(screen.getByText(/Less than the minimum order of CHF 1\.000,00 was left in this loan\. Nothing was invested and no money moved\./)).toBeInTheDocument();
-  expect(summaryValue("Investment amount")).toMatch(/CHF 0,00/);
-  expect(summaryValue("Status")).toBe("Not invested");
+  expect(screen.getByText("Amount invested").parentElement).toHaveTextContent(/CHF\s*0,00/);
+  expect(screen.queryByText(/accepted terms in Documents/)).not.toBeInTheDocument();
 }, 30_000);
 
 test("SECONDARY-09: an order the server closed is replaced by a new order on the next confirm", async () => {
@@ -246,32 +261,39 @@ test("SECONDARY-09: an order the server closed is replaced by a new order on the
     )
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  await reviewAndConfirm("1000", "111111");
-  await screen.findByText(/This order was closed before it was confirmed/, {}, { timeout: 5000 });
-  fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
-  await screen.findByText("Order placed", {}, { timeout: 5000 });
+  const dialog = await reviewAndConfirm("1000", "111111");
+  await within(dialog).findByText(/This order was closed before it was confirmed/, {}, { timeout: 5000 });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm and reserve" }));
+  await screen.findByRole("heading", { name: "Investment reserved" }, { timeout: 5000 });
   expect(calls.orders).toHaveLength(2);
   expect(calls.orders[1].idempotency_key).not.toBe(calls.orders[0].idempotency_key);
   expect(calls.allocate.map((call) => call.orderId)).toEqual(["order-1", "order-2"]);
 }, 30_000);
 
-test("A-40: the amount field keeps the decimal comma and explains an ambiguous comma", async () => {
+test("A-40: the amount field reads the decimal comma and explains an ambiguous comma", async () => {
   server.use(...investorShellHandlers(calls), ...primaryOrderHandlers(directLoan(), () => ({})));
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
 
-  fireEvent.change(amountInput, { target: { value: "1500,50" } });
-  expect(amountInput).toHaveValue("1500,50");
-  expect(summaryValue("Order amount")).toMatch(/CHF 1\.500,50/);
-  expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled();
+  // The first entry has no amount: nothing is pre-filled (U33-DEC-08), confirming waits for one.
+  const amountInput = await applyAmount("1500,50");
+  expect(amountInput).toHaveValue("1.500,50");
+  acceptBoth();
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeEnabled();
 
-  fireEvent.change(amountInput, { target: { value: "2’500.00" } });
-  expect(summaryValue("Order amount")).toMatch(/CHF 2\.500,00/);
+  // Another amount clears the acceptances; the Swiss way of writing it is read as well.
+  await applyAmount("2’500.00");
+  expect(amountInput).toHaveValue("2.500,00");
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  acceptBoth();
 
-  fireEvent.change(amountInput, { target: { value: "1,000" } });
   // European format (U33-DEC-32): 1,000 is one with three decimals, refused with a hint, not guessed.
+  await applyAmount("1,000");
   expect(screen.getByText(/CHF amounts support at most 2 decimal places\. Write thousands as 1\.000\./)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  // Escape restores the applied amount.
+  fireEvent.keyDown(amountInput, { key: "Escape" });
+  expect(amountInput).toHaveValue("2.500,00");
+  expect(screen.queryByText(/Write thousands as 1\.000\./)).not.toBeInTheDocument();
 }, 30_000);
 
 test("FRONTCODE-24: a closed loan shows a notice and sends no email code", async () => {
@@ -281,7 +303,7 @@ test("FRONTCODE-24: a closed loan shows a notice and sends no email code", async
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await screen.findByText("This loan is not open for investment", {}, { timeout: 5000 });
-  expect(screen.queryByRole("textbox", { name: "Investment amount" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Your investment amount" })).not.toBeInTheDocument();
   expect(calls.codes).toHaveLength(0);
 }, 30_000);
 
@@ -290,8 +312,8 @@ test("FRONTCODE-24: the read-only investor view cannot start an investment", asy
   server.use(...investorShellHandlers(calls), ...primaryOrderHandlers(directLoan(), () => ({})));
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
   await screen.findByText(/You can see the loan, but you cannot invest\./, {}, { timeout: 5000 });
-  expect(screen.queryByRole("textbox", { name: "Investment amount" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Review order" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Your investment amount" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Confirm investment" })).not.toBeInTheDocument();
   expect(calls.codes).toHaveLength(0);
   expect(calls.orders).toHaveLength(0);
 }, 30_000);
@@ -354,29 +376,25 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
     })
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  fireEvent.change(await screen.findByRole("textbox", { name: "Cash amount to invest" }, { timeout: 5000 }), { target: { value: "1000" } });
+  await applyAmount("1000");
   fireEvent.click(screen.getByRole("button", { name: "Get executable quote" }));
-  for (const box of await screen.findAllByRole("checkbox")) fireEvent.click(box);
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "111111" } });
-  enterPin();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Purchase claim" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Purchase claim" }));
-  await screen.findByText("Originator claim quote has expired.", {}, { timeout: 5000 });
+  await screen.findByText("Cash price", {}, { timeout: 5000 });
+  acceptBoth();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm purchase" }));
+  const dialog = await confirmInDialog("111111", "Confirm your claim purchase", "Purchase claim");
+  await within(dialog).findByText("Originator claim quote has expired.", {}, { timeout: 5000 });
 
   // Reprice, as the message suggests: a new quote, accepted again.
-  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   fireEvent.click(screen.getByRole("button", { name: "Reprice" }));
   fireEvent.click(await screen.findByRole("button", { name: "Get executable quote" }));
   await waitFor(() => expect(quotes).toHaveLength(2));
-  const boxes = await screen.findAllByRole("checkbox");
+  await screen.findByText("Cash price", {}, { timeout: 5000 });
+  const boxes = screen.getAllByRole("checkbox");
   boxes.forEach((box) => expect(box).not.toBeChecked());
   boxes.forEach((box) => fireEvent.click(box));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "222222" } });
-  enterPin();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Purchase claim" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Purchase claim" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm purchase" }));
+  await confirmInDialog("222222", "Confirm your claim purchase", "Purchase claim");
   await screen.findAllByText("Claim purchased", {}, { timeout: 5000 });
 
   expect(calls.acceptances.map((acceptance) => acceptance.context_id)).toEqual(quotes);
