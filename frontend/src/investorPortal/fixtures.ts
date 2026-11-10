@@ -8,6 +8,7 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  MarketplaceSecurity,
   MarketplaceOriginalLoanScheduleRow,
   PortfolioExposure,
   PortfolioSummary,
@@ -639,6 +640,7 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     borrower_city: directBorrowerCities[loan.loan_id] ?? "",
     repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
     collateral_description: loan.collateral_type,
+    security_types: loan.loan_id === "GA-2401" ? [loan.collateral_type, "personal_guarantee"] : [loan.collateral_type],
     published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null
   })
 );
@@ -851,6 +853,47 @@ const originatorStoryFixture = {
   ]
 };
 
+const helvetiaSecuritiesFixture: MarketplaceSecurity[] = [
+  {
+    id: "security-2401-property",
+    position: 0,
+    security_type: "Commercial real estate",
+    is_guarantee: false,
+    description: "Commercial real estate",
+    holder_name: "Helvetia Logistik AG",
+    rank: 2,
+    status: "in_place",
+    value_minor: amount(2500000),
+    valuation_date: "2026-03-12",
+    valuation_source: "Independent appraisal",
+    appraiser: "Wüest Partner AG",
+    prior_ranking_debt_minor: amount(300000),
+    insurance: "Building insurance at full rebuilding value.",
+    undertaking_scope: "",
+    undertaking_limit_minor: null,
+    documents: []
+  },
+  {
+    id: "security-2401-guarantee",
+    position: 1,
+    security_type: "personal_guarantee",
+    is_guarantee: true,
+    description: "",
+    holder_name: "Main shareholder",
+    rank: null,
+    status: "in_place",
+    value_minor: null,
+    valuation_date: null,
+    valuation_source: "",
+    appraiser: "",
+    prior_ranking_debt_minor: null,
+    insurance: "",
+    undertaking_scope: "Joint and several guarantee for principal and interest.",
+    undertaking_limit_minor: amount(400000),
+    documents: []
+  }
+];
+
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
   ...loan,
   story: loan.loan_id === "GA-2401" ? helvetiaStoryFixture : { version: 1, blocks: [] },
@@ -908,6 +951,8 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         ? amount(1265000)
         : amount(2500000),
   collateral_description: loan.collateral_type,
+  // U33-DEC-21: several securities, each on its own (the property and the owner's guarantee).
+  ...(loan.loan_id === "GA-2401" ? { securities: helvetiaSecuritiesFixture } : {}),
   ltv_bps:
     loan.collateral_type === "Unsecured exception"
       ? null

@@ -348,3 +348,76 @@ class LoanEvent(AppendOnlyModel):
             models.Index(fields=["event_type", "occurred_at"]),
             models.Index(fields=["actor_user_id", "occurred_at"]),
         ]
+
+
+class LoanSecurityStatus(models.TextChoices):
+    """U33-DEC-21: where the security stands. Empty when it was never recorded."""
+
+    IN_PLACE = "in_place", "In place"
+    PENDING = "pending", "Being put in place"
+    RELEASED = "released", "Released"
+
+
+# Guarantees are undertakings of a person or company: they have a scope and a limit, never an asset
+# value, and the guarantor's wealth is never added to an asset value (U33-DEC-21).
+GUARANTEE_SECURITY_TYPES = frozenset(
+    {CollateralType.CORPORATE_GUARANTEE, CollateralType.PERSONAL_GUARANTEE}
+)
+# Kept on existing records only: "mixed" is split into its securities and "asset backed" does not
+# identify the right (U33-DEC-21); "unsecured" is not a security (U33-DEC-38).
+LEGACY_ONLY_SECURITY_TYPES = frozenset(
+    {CollateralType.MIXED_COLLATERAL, CollateralType.ASSET_BACKED}
+)
+
+
+class LoanSecurity(TimestampedModel):
+    """U33-DEC-21: one security of a loan, managed separately (a loan can have several).
+
+    Only the fields that apply are filled. The first security (position 0) also gives the loan's
+    summary fields (collateral type, value and description) that older screens and filters read.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name="securities")
+    position = models.PositiveSmallIntegerField(default=0)
+    security_type = models.CharField(max_length=32, choices=CollateralType.choices)
+    description = models.TextField(blank=True, default="")
+    # The owner of the asset or right, or the guarantor.
+    holder_name = models.CharField(max_length=255, blank=True, default="")
+    # 1 is first rank.
+    rank = models.PositiveSmallIntegerField(null=True, blank=True)
+    status = models.CharField(
+        max_length=16, choices=LoanSecurityStatus.choices, blank=True, default=""
+    )
+    value_minor = models.BigIntegerField(null=True, blank=True)
+    valuation_date = models.DateField(null=True, blank=True)
+    valuation_source = models.CharField(max_length=255, blank=True, default="")
+    appraiser = models.CharField(max_length=255, blank=True, default="")
+    prior_ranking_debt_minor = models.BigIntegerField(null=True, blank=True)
+    insurance = models.TextField(blank=True, default="")
+    undertaking_scope = models.TextField(blank=True, default="")
+    undertaking_limit_minor = models.BigIntegerField(null=True, blank=True)
+    # Borrower documents about this security (ids of the borrower's documents).
+    document_ids = models.JSONField(default=list, blank=True)
+    created_by_admin_id = models.UUIDField(null=True, blank=True)
+    updated_by_admin_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "position"], name="unique_loan_security_position"
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(value_minor__isnull=True) | models.Q(value_minor__gte=0))
+                & (
+                    models.Q(prior_ranking_debt_minor__isnull=True)
+                    | models.Q(prior_ranking_debt_minor__gte=0)
+                )
+                & (
+                    models.Q(undertaking_limit_minor__isnull=True)
+                    | models.Q(undertaking_limit_minor__gte=0)
+                ),
+                name="loan_security_amounts_not_negative",
+            ),
+        ]

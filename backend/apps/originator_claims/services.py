@@ -1346,6 +1346,10 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         committed_principal_minor=0,
         created_by_admin_id=command.actor.pk,
     )
+    # U33-DEC-21: the form's collateral is the loan's first security.
+    import_module("backend.apps.loans.securities").sync_first_security_from_loan(
+        loan, actor=command.actor
+    )
     snapshot = command.borrower_snapshot
     profile = OriginatorLoanProfile.objects.create(
         loan=loan,
@@ -1749,6 +1753,9 @@ def replace_originator_loan_draft(
     loan.schedule_version = revision
     loan.updated_by_admin_id = command.actor.pk
     loan.save()
+    import_module("backend.apps.loans.securities").sync_first_security_from_loan(
+        loan, actor=command.actor
+    )
 
     profile.originator = originator
     profile.distribution_model = distribution_model
@@ -3990,6 +3997,9 @@ def originator_marketplace_payload(
         "title": profile.loan.title,
         "purpose": profile.loan.purpose,
         "collateral_type": profile.loan.collateral_type,
+        "security_types": import_module("backend.apps.loans.securities").loan_security_types(
+            profile.loan
+        ),
         # Compatibility for older clients. New clients should display yield_bps.
         "interest_rate_bps": int(profile.target_yield_bps),
         "yield_bps": int(profile.target_yield_bps),

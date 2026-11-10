@@ -429,6 +429,9 @@ SPECTACULAR_SETTINGS = {
         "PublicEnquiryOriginatorKindEnum": ["originator"],
         "PublicEnquiryContactKindEnum": ["contact"],
         "NewsletterSourceEnum": "backend.apps.communications.models.NewsletterSource.choices",
+        "LoanRecoveryStageStatusEnum": (
+            "backend.apps.servicing.models.LoanRecoveryStageStatus.choices"
+        ),
     },
 }
 

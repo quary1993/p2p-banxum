@@ -12,12 +12,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.loans import securities as loan_securities
 from backend.apps.loans.api.serializers import (
     LoanComingSoonRequestSerializer,
     LoanCreateRequestSerializer,
     LoanEventSerializer,
     LoanInstallmentSerializer,
     LoanListQuerySerializer,
+    LoanSecurityListSerializer,
+    LoanSecurityRequestSerializer,
+    LoanSecuritySerializer,
     LoanSerializer,
     LoanUpdateRequestSerializer,
     OriginalLoanScheduleRowSerializer,
@@ -371,3 +375,92 @@ class LoanComingSoonView(APIView):
         except LoanValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_loan(loan), status=status.HTTP_200_OK)
+
+
+def _security_command(request: Request, loan_id: str, security_id: str | None) -> Any:
+    serializer = LoanSecurityRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data: dict[str, Any] = serializer.validated_data
+    return loan_securities.SaveLoanSecurityCommand(
+        actor=cast(Model, request.user),
+        loan_id=str(loan_id),
+        security_id=security_id,
+        security_type=data["security_type"],
+        description=data["description"],
+        holder_name=data["holder_name"],
+        rank=data["rank"],
+        status=data["status"],
+        value_minor=data["value_minor"],
+        valuation_date=data["valuation_date"],
+        valuation_source=data["valuation_source"],
+        appraiser=data["appraiser"],
+        prior_ranking_debt_minor=data["prior_ranking_debt_minor"],
+        insurance=data["insurance"],
+        undertaking_scope=data["undertaking_scope"],
+        undertaking_limit_minor=data["undertaking_limit_minor"],
+        document_ids=tuple(str(item) for item in data["document_ids"]),
+    )
+
+
+def _security_error(exc: Exception) -> Response:
+    if isinstance(exc, loan_securities.LoanSecurityAuthorizationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LoanSecurityListView(APIView):
+    """U33-DEC-21: the securities of a loan (GET) or add one (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LoanSecurityListSerializer})
+    def get(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            securities = loan_securities.list_loan_securities(
+                actor=cast(Model, request.user), loan_id=str(loan_id)
+            )
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response({"securities": securities})
+
+    @extend_schema(request=LoanSecurityRequestSerializer, responses={201: LoanSecuritySerializer})
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            payload = loan_securities.save_loan_security(_security_command(request, loan_id, None))
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class LoanSecurityDetailView(APIView):
+    """U33-DEC-21: change a security (PUT), or remove a wrong one from a draft (DELETE)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=LoanSecurityRequestSerializer, responses={200: LoanSecuritySerializer})
+    def put(self, request: Request, loan_id: str, security_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            payload = loan_securities.save_loan_security(
+                _security_command(request, loan_id, str(security_id))
+            )
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response(payload)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, loan_id: str, security_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            loan_securities.remove_loan_security(
+                actor=cast(Model, request.user), loan_id=str(loan_id), security_id=str(security_id)
+            )
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)

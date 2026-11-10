@@ -186,6 +186,8 @@ Decision:
 - The opportunity, the credit file and the filters use the same data. Asset value, loan and prior-ranking debt are kept separate; a cumulative ratio is labelled as such. The guarantor's wealth is never added to the property value, and the same asset is never counted twice.
 - The existing taxonomy is reconciled, including vehicles, inventory, pledged securities and cash where they really exist. "Mixed" is split into its securities, "Other" needs a description, and "asset-backed" does not replace the identification of the right. No invented data at migration; this does not approve new products. Mandatory eligibility is in U33-DEC-38.
 
+Implemented 2026-11-10 (Phase 17.4): `plan/07_loan_product_catalog.md` PROD-DEC-003 note. A vehicle type is not added (no vehicle loans exist today); existing "mixed" records stay until an admin splits them.
+
 ### U33-DEC-38: Public Wording and Security Eligibility
 
 Status: Approved (final).

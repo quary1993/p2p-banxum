@@ -223,6 +223,36 @@ test("recovery stages are written by the admin with real dates, and the next ste
   expect(within(dialog).getByText(/Next step "Formal notice" would be recorded/)).toBeInTheDocument();
 });
 
+test("each security of a loan is managed on its own; a guarantee has a scope and a limit (U33-DEC-21)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /^Securities/ }));
+
+  expect(within(dialog).getByText(/A guarantee has a scope and a limit, never an asset value/)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add a security" }));
+  const type = within(dialog).getByLabelText("Security type");
+  // "Mixed" and "asset backed" are not offered for new entries; "unsecured" never.
+  const options = Array.from((type as HTMLSelectElement).options).map((option) => option.value);
+  expect(options).not.toContain("mixed_collateral");
+  expect(options).not.toContain("asset_backed");
+  expect(options).not.toContain("unsecured_exception");
+  expect(within(dialog).getByLabelText("Value minor units")).toBeInTheDocument();
+
+  fireEvent.change(type, { target: { value: "personal_guarantee" } });
+  expect(within(dialog).queryByLabelText("Value minor units")).not.toBeInTheDocument();
+  expect(within(dialog).getByLabelText("Guarantee limit minor units")).toBeInTheDocument();
+  expect(within(dialog).getByLabelText("Guarantor")).toBeInTheDocument();
+
+  fireEvent.change(type, { target: { value: "other" } });
+  expect(within(dialog).getByText("Describe a security of the type Other.")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Add security" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("Description"), { target: { value: "Assignment of rental income" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add security" }));
+  expect(within(dialog).getByText(/A security would be added/)).toBeInTheDocument();
+});
+
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {
   renderAdmin("/admin/loans");
   fireEvent.click(screen.getByRole("button", { name: "Create direct loan" }));

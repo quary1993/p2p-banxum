@@ -9,6 +9,7 @@ from django.apps import apps
 from django.db import transaction
 from django.db.models import Model
 
+from backend.apps.loans import securities as loan_securities
 from backend.apps.loans.domain.schedules import (
     ManualScheduleRow,
     ScheduleGenerationError,
@@ -883,6 +884,8 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         created_by_admin_id=command.actor.pk,
     )
     _write_schedule(loan=loan, schedule_rows=schedule_rows, schedule_version=loan.schedule_version)
+    # U33-DEC-21: the form's collateral is the loan's first security.
+    loan_securities.sync_first_security_from_loan(loan, actor=command.actor)
     if loan.is_refinancing:
         # Fail fast if the declared original terms cannot produce an informational schedule.
         original_schedule_for_loan(loan)
@@ -1293,6 +1296,8 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
 
     loan.updated_by_admin_id = command.actor.pk
     loan.save()
+    if {"collateral_type", "collateral_value_minor", "collateral_description"} & set(changes):
+        loan_securities.sync_first_security_from_loan(loan, actor=command.actor)
     if schedule_rows is not None:
         _write_schedule(
             loan=loan,
@@ -1358,7 +1363,9 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         )
     if loan.funding_deadline is None:
         raise LoanValidationError("Direct loans require a funding deadline before publication.")
-    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
+    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION or (
+        loan_securities.all_securities_released(loan)
+    ):
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)

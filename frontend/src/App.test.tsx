@@ -1416,6 +1416,37 @@ test("a refinancing loan is named in the credit file Summary and keeps its origi
   expect(screen.getByRole("link", { name: /Investment terms and claim assignment/ })).toHaveAttribute("href", "/legal/primary-market-investment");
 });
 
+test("several securities show on the opportunity, in the credit file and in the filter (U33-DEC-21)", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/GA-2401");
+  // The first security keeps the loan-to-value figure; the guarantee follows with its limit.
+  const securityTypes = document.querySelector(".rc-security-types") as HTMLElement;
+  expect(within(securityTypes).getByText("Personal guarantee")).toBeInTheDocument();
+  expect(securityTypes).toHaveTextContent(/Main shareholder · Limit CHF 400.000,00/);
+
+  goToPath("/marketplace/GA-2401/credit-file");
+  fireEvent.click(screen.getByRole("button", { name: /Open credit file/ }));
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Credit file contents" })).getByRole("button", { name: /Security$/ }));
+  const chapter = document.getElementById("security") as HTMLElement;
+  expect(within(chapter).getByText("Rights & priority").nextElementSibling).toHaveTextContent("Rank 2");
+  expect(within(chapter).getByText("Prepared by").nextElementSibling).toHaveTextContent("Wüest Partner AG");
+  expect(within(chapter).getByText("Prior-ranking debt").nextElementSibling).toHaveTextContent("CHF 300.000,00");
+  // (300,000 + 1,450,000) / 2,500,000 = 70%: the combined share is labelled as such.
+  expect(chapter).toHaveTextContent("Including prior debt, total secured borrowing is 70,0% of the stated value.");
+  const guarantee = chapter.querySelector(".r100-guarantee") as HTMLElement;
+  expect(within(guarantee).getByText("Guarantee limit").nextElementSibling).toHaveTextContent("CHF 400.000,00");
+  expect(within(guarantee).getByText("Provider / owner").nextElementSibling).toHaveTextContent("Main shareholder");
+  expect(guarantee).toHaveTextContent("Joint and several guarantee for principal and interest.");
+
+  // The security filter matches any security of the loan.
+  goToPath("/marketplace");
+  fireEvent.click(screen.getByRole("button", { name: /^Filters/ }));
+  fireEvent.click(within(screen.getByRole("region", { name: "Investment filters" })).getByRole("checkbox", { name: "Personal guarantee" }));
+  expect(resultLine()).toHaveTextContent("1 opportunity");
+  expect(screen.getByRole("heading", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
+});
+
 test("the credit file's Borrower & business chapter shows the published story, safely rendered", () => {
   renderApp();
   loginDemo();

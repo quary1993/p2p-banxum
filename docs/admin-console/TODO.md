@@ -383,3 +383,10 @@ Each entry should include:
 - Current first-version behavior: for a late, defaulted or written-off loan, the form lists the recorded stages and the next step, records a stage that happened (title, real date, note for lenders) or the next step (title, date when known, note), and removes a wrong entry with a reason (the number of removed entries is shown; they stay for the audit). Titles are free text; the field suggests examples only.
 - Required admin-console improvement: show the removed entries with their reason and author; show the stages in the loan history; link to "Publish a loan note" to email lenders about a new stage.
 - Priority: important.
+
+## 2026-11-10: Several Securities (U33-DEC-21)
+
+- Screen or component: loan Manage modal, action "Securities" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
+- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities; show the securities in the loan list and the loan detail; show the audit of security changes.
+- Priority: important.

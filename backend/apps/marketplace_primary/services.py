@@ -2355,6 +2355,10 @@ def loan_funding_progress(loan_id: str) -> dict[str, Any]:
     }
 
 
+def _loan_securities_module() -> Any:
+    return import_module("backend.apps.loans.securities")
+
+
 def public_marketplace_listing_payload(
     loan: Model,
     *,
@@ -2381,6 +2385,8 @@ def public_marketplace_listing_payload(
         "title": str(loan_ref.title),
         "purpose": str(loan_ref.purpose),
         "collateral_type": str(loan_ref.collateral_type),
+        # U33-DEC-21: every security type in force, for the filters and Smart Invest.
+        "security_types": _loan_securities_module().loan_security_types(loan_ref),
         "interest_rate_bps": int(loan_ref.interest_rate_bps),
         "yield_bps": int(loan_ref.interest_rate_bps),
         "underlying_interest_rate_bps": int(loan_ref.interest_rate_bps),
@@ -2458,6 +2464,9 @@ def full_marketplace_listing_payload(
             "purpose_description": str(loan_ref.purpose_description),
             "collateral_value_minor": int(loan_ref.collateral_value_minor),
             "collateral_description": str(loan_ref.collateral_description),
+            "securities": _loan_securities_module().investor_securities([str(loan_ref.id)])[
+                str(loan_ref.id)
+            ],
             "default_penalty_interest_bps": int(loan_ref.default_penalty_interest_bps),
             "ltv_bps": loan_ref.ltv_bps,
             "ltv_warnings": loan_ref.ltv_warnings,

@@ -10,6 +10,7 @@ from backend.apps.servicing.models import (
     InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
     LoanRecoveryEvent,
+    LoanRecoveryStageStatus,
     LoanRiskNote,
     LoanRiskNoteType,
     LoanRiskNoteVisibility,
@@ -519,7 +520,7 @@ class LoanRecoveryStageSerializer(serializers.Serializer[Any]):
     """U33-DEC-22: a recorded stage (done) or the known next step (next) of a loan."""
 
     id = serializers.UUIDField()
-    status = serializers.ChoiceField(choices=["done", "next"])
+    status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
     title = serializers.CharField()
     occurred_on = serializers.DateField(allow_null=True)
     investor_note = serializers.CharField(allow_blank=True)
@@ -533,7 +534,7 @@ class LoanRecoveryStageListSerializer(serializers.Serializer[Any]):
 
 
 class LoanRecoveryStageRequestSerializer(serializers.Serializer[Any]):
-    status = serializers.ChoiceField(choices=["done", "next"])
+    status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
     title = serializers.CharField(max_length=120)
     occurred_on = serializers.DateField(required=False, allow_null=True, default=None)
     investor_note = serializers.CharField(

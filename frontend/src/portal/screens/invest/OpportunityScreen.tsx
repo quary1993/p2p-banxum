@@ -1,7 +1,8 @@
 // IP of Webby-Soft SRL.
 /*
  * Opportunity page (design #/projects/:id, slice S2): factual summary, rate and term, the security
- * (one collateral item today, with the loan-to-value comparison when a value is recorded), funding
+ * (the first security with the loan-to-value comparison when a value is recorded, then the other
+ * securities, U33-DEC-21), funding
  * progress with the minimum funding threshold, the Swiss-borrower places line (today's rule,
  * MKT-DEC-028), the originator of a claim, the payment schedule, the credit file link and the amount
  * field. A closed loan shows its state instead of the amount field. No co-investment line
@@ -67,6 +68,7 @@ import {
   usesOriginatorSubscription
 } from "./loanFacts";
 import { LtvFigure } from "./parts/LtvFigure";
+import { SecurityTypeRow } from "./parts/SecurityDetails";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
 import { securityValueLabel } from "../portfolio/parts/labels";
@@ -325,6 +327,7 @@ function OpportunityPage({
                     {loan.collateral_description && loan.collateral_description !== loan.collateral_type ? <span>{loan.collateral_description}</span> : null}
                   </div>
                 )}
+                {(loan.securities ?? []).slice(1).map((security) => <SecurityTypeRow currency={loan.currency} key={security.id} security={security} />)}
               </div>
             </section>
             <div className="r58-project-actions">

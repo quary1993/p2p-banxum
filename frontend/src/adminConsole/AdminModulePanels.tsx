@@ -43,6 +43,13 @@ import {
   useV1LoansAdminLoansOriginalScheduleList,
   useV1LoansAdminLoansPartialUpdate,
   useV1LoansAdminLoansComingSoonCreate,
+  getV1LoansAdminLoansSecuritiesRetrieveQueryKey,
+  useV1LoansAdminLoansSecuritiesCreate,
+  useV1LoansAdminLoansSecuritiesDestroy,
+  useV1LoansAdminLoansSecuritiesRetrieve,
+  useV1LoansAdminLoansSecuritiesUpdate,
+  type LoanSecurity,
+  type LoanSecurityRequest,
   useV1LoansAdminLoansComingSoonDestroy,
   useV1LoansAdminLoansPublishCreate,
   useV1LoansAdminLoansScheduleList,
@@ -4737,6 +4744,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
 type ManageLoanActionId =
   | "publish"
   | "coming_soon"
+  | "securities"
   | "cancel"
   | "expiry"
   | "release"
@@ -4760,6 +4768,13 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Publish loan",
     description: "Put this draft live on the primary market so investors can place orders.",
     statuses: ["draft"]
+  },
+  {
+    id: "securities",
+    title: "Securities",
+    description:
+      "Record each security of the loan on its own: asset or right, owner or guarantor, rank, status, value and valuation, or the scope and limit of a guarantee (U33-DEC-21).",
+    statuses: ["draft", "published", "funded", "active", "late", "defaulted", "repaid", "written_off"]
   },
   {
     id: "coming_soon",
@@ -5757,6 +5772,8 @@ function ManageLoanModal({
 
             {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
 
+            {action === "securities" ? <LoanSecuritiesForm loan={loan} onDone={onChanged} /> : null}
+
             {action === "status_days" ? <LoanStatusDaysForm loan={loan} onDone={onChanged} /> : null}
 
             {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
@@ -6121,6 +6138,197 @@ function LoanStatusDaysForm({ loan, onDone }: { loan: Loan; onDone: () => void }
       {mutation.error ? <Banner tone="bad" title="Could not save the days">{errorMessage(mutation.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Days saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+const GUARANTEE_TYPES: string[] = [CollateralTypeEnum.corporate_guarantee, CollateralTypeEnum.personal_guarantee];
+// New entries: no unsecured exception (U33-DEC-38); "mixed" and "asset backed" stay on old records only.
+const NEW_SECURITY_TYPES: LoanCollateralType[] = SECURED_COLLATERAL_TYPES.filter(
+  (value) => value !== CollateralTypeEnum.mixed_collateral && value !== CollateralTypeEnum.asset_backed
+);
+const SECURITY_STATUS_OPTIONS = ["", "in_place", "pending", "released"] as const;
+type SecurityStatusOption = (typeof SECURITY_STATUS_OPTIONS)[number];
+const securityStatusText: Record<SecurityStatusOption, string> = {
+  "": "Not recorded",
+  in_place: "In place",
+  pending: "Being put in place",
+  released: "Released"
+};
+
+type SecurityDraft = {
+  id: string | null;
+  securityType: string;
+  description: string;
+  holderName: string;
+  rank: string;
+  status: SecurityStatusOption;
+  value: string;
+  valuationDate: string;
+  valuationSource: string;
+  appraiser: string;
+  priorDebt: string;
+  insurance: string;
+  scope: string;
+  limit: string;
+};
+
+function securityDraft(security?: LoanSecurity): SecurityDraft {
+  const text = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value));
+  return {
+    id: security?.id ?? null,
+    securityType: security?.security_type ?? CollateralTypeEnum.real_estate,
+    description: security?.description ?? "",
+    holderName: security?.holder_name ?? "",
+    rank: text(security?.rank),
+    status: (security?.status ?? "") as SecurityStatusOption,
+    value: text(security?.value_minor),
+    valuationDate: security?.valuation_date ?? "",
+    valuationSource: security?.valuation_source ?? "",
+    appraiser: security?.appraiser ?? "",
+    priorDebt: text(security?.prior_ranking_debt_minor),
+    insurance: security?.insurance ?? "",
+    scope: security?.undertaking_scope ?? "",
+    limit: text(security?.undertaking_limit_minor)
+  };
+}
+
+function securityRequest(draft: SecurityDraft): LoanSecurityRequest {
+  const amount = (value: string) => (value.trim() ? intValue(value) : null);
+  const guarantee = GUARANTEE_TYPES.includes(draft.securityType);
+  return {
+    security_type: draft.securityType,
+    description: draft.description.trim(),
+    holder_name: draft.holderName.trim(),
+    rank: draft.rank.trim() ? intValue(draft.rank) : null,
+    status: draft.status,
+    value_minor: guarantee ? null : amount(draft.value),
+    valuation_date: guarantee || !draft.valuationDate ? null : draft.valuationDate,
+    valuation_source: guarantee ? "" : draft.valuationSource.trim(),
+    appraiser: guarantee ? "" : draft.appraiser.trim(),
+    prior_ranking_debt_minor: guarantee ? null : amount(draft.priorDebt),
+    insurance: guarantee ? "" : draft.insurance.trim(),
+    undertaking_scope: guarantee ? draft.scope.trim() : "",
+    undertaking_limit_minor: guarantee ? amount(draft.limit) : null
+  };
+}
+
+/** U33-DEC-21: the securities of a loan, each managed on its own. */
+function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const query = useV1LoansAdminLoansSecuritiesRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const [draft, setDraft] = useState<SecurityDraft | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: getV1LoansAdminLoansSecuritiesRetrieveQueryKey(loan.id) });
+    onDone();
+  };
+  const create = useV1LoansAdminLoansSecuritiesCreate({ mutation: { onSuccess: () => { setSuccess("Security added."); setDraft(null); refresh(); } } });
+  const update = useV1LoansAdminLoansSecuritiesUpdate({ mutation: { onSuccess: () => { setSuccess("Security saved."); setDraft(null); refresh(); } } });
+  const remove = useV1LoansAdminLoansSecuritiesDestroy({ mutation: { onSuccess: () => { setSuccess("Security removed."); refresh(); } } });
+  const securities = query.data?.securities ?? [];
+  const guarantee = draft ? GUARANTEE_TYPES.includes(draft.securityType) : false;
+  const set = (patch: Partial<SecurityDraft>) => setDraft((current) => (current ? { ...current, ...patch } : current));
+  const typeOptions = draft && !NEW_SECURITY_TYPES.includes(draft.securityType as LoanCollateralType)
+    ? [draft.securityType as LoanCollateralType, ...NEW_SECURITY_TYPES]
+    : NEW_SECURITY_TYPES;
+  const draftError = !draft
+    ? ""
+    : draft.securityType === CollateralTypeEnum.other && !draft.description.trim()
+      ? "Describe a security of the type Other."
+      : !guarantee && draft.priorDebt.trim() && !draft.value.trim()
+        ? "Prior-ranking debt needs the value of the asset."
+        : "";
+  const busy = create.isPending || update.isPending || remove.isPending;
+
+  function save() {
+    if (!draft) return;
+    const data = securityRequest(draft);
+    if (isFixturePreview) {
+      setPreview(`${draft.id ? "The security would be saved" : "A security would be added"} for ${loan.id}.`);
+      return;
+    }
+    if (draft.id) update.mutate({ loanId: loan.id, securityId: draft.id, data });
+    else create.mutate({ loanId: loan.id, data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Fill in only what applies and what the documents show. The first security gives the loan&apos;s collateral and
+        loan-to-value. A guarantee has a scope and a limit, never an asset value. After publication a security that ends is
+        set to Released, not removed.
+      </p>
+      {securities.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th><span className="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {securities.map((security) => (
+                <tr key={security.id}>
+                  <td>{labelize(security.security_type)}{security.description ? <small className="muted"> · {security.description}</small> : null}</td>
+                  <td>{security.holder_name || "-"}</td>
+                  <td>{security.rank ?? "-"}</td>
+                  <td>{securityStatusText[(security.status || "") as SecurityStatusOption] ?? security.status}</td>
+                  <td>
+                    {security.is_guarantee
+                      ? security.undertaking_limit_minor !== null ? <Money amountMinor={security.undertaking_limit_minor} currency={loan.currency} /> : "-"
+                      : security.value_minor !== null ? <Money amountMinor={security.value_minor} currency={loan.currency} /> : "-"}
+                  </td>
+                  <td>
+                    <button className="link" onClick={() => setDraft(securityDraft(security))} type="button">Edit</button>
+                    {loan.status === "draft" && securities.length > 1 ? (
+                      <>
+                        {" · "}
+                        <button className="link" disabled={busy} onClick={() => (isFixturePreview ? setPreview(`The security would be removed from ${loan.id}.`) : remove.mutate({ loanId: loan.id, securityId: security.id }))} type="button">Remove</button>
+                      </>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">{query.isLoading ? "Loading the securities..." : "No security is recorded yet. The loan's collateral fields create the first one."}</p>
+      )}
+      {draft ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <SelectInput<LoanCollateralType> label="Security type" onChange={(value) => set({ securityType: value })} options={typeOptions} value={draft.securityType as LoanCollateralType} />
+            <TextInput label={guarantee ? "Guarantor" : "Owner / rights holder"} onChange={(value) => set({ holderName: value })} value={draft.holderName} />
+            <TextInput hint="1 is first rank." integer label="Rank" onChange={(value) => set({ rank: value })} value={draft.rank} />
+            <SelectInput<SecurityStatusOption> label="Status" onChange={(value) => set({ status: value })} optionLabel={(option) => securityStatusText[option]} options={SECURITY_STATUS_OPTIONS} value={draft.status} />
+          </FieldGrid>
+          <TextAreaInput label="Description" onChange={(value) => set({ description: value })} value={draft.description} />
+          {guarantee ? (
+            <FieldGrid>
+              <MoneyMinorInput currency={loan.currency} label="Guarantee limit minor units" onChange={(value) => set({ limit: value })} value={draft.limit} />
+              <TextAreaInput label="Scope of the guarantee" onChange={(value) => set({ scope: value })} value={draft.scope} />
+            </FieldGrid>
+          ) : (
+            <FieldGrid>
+              <MoneyMinorInput currency={loan.currency} label="Value minor units" onChange={(value) => set({ value })} value={draft.value} />
+              <TextInput label="Valuation date" onChange={(value) => set({ valuationDate: value })} type="date" value={draft.valuationDate} />
+              <TextInput label="Valuation basis" onChange={(value) => set({ valuationSource: value })} value={draft.valuationSource} />
+              <TextInput label="Appraiser" onChange={(value) => set({ appraiser: value })} value={draft.appraiser} />
+              <MoneyMinorInput currency={loan.currency} label="Prior-ranking debt minor units" onChange={(value) => set({ priorDebt: value })} value={draft.priorDebt} />
+              <TextAreaInput label="Insurance" onChange={(value) => set({ insurance: value })} value={draft.insurance} />
+            </FieldGrid>
+          )}
+          {draftError ? <Banner tone="bad" title="Check the security">{draftError}</Banner> : null}
+          <Button disabled={Boolean(draftError) || busy} onClick={save} variant="primary">{draft.id ? "Save security" : "Add security"}</Button>{" "}
+          <Button onClick={() => setDraft(null)}>Cancel</Button>
+        </div>
+      ) : (
+        <Button onClick={() => setDraft(securityDraft())}>Add a security</Button>
+      )}
+      {create.error || update.error || remove.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>
   );
 }

@@ -57,6 +57,11 @@ const rateOptions = [5, 6, 7, 8, 9, 10, 12];
 const termOptions = [6, 12, 18, 24, 36, 48, 60];
 const groupOrder: SecurityGroup[] = ["physical", "rights", "guarantees", "other"];
 
+/** U33-DEC-21: every security type in force; the collateral type for older payloads. */
+function securityTypesOf(loan: MarketplaceLoanPreview) {
+  return loan.security_types && loan.security_types.length > 0 ? loan.security_types : [loan.collateral_type];
+}
+
 function matchesFilters(loan: MarketplaceLoanPreview, filters: Filters) {
   const q = filters.q.trim().toLowerCase();
   if (q) {
@@ -66,7 +71,7 @@ function matchesFilters(loan: MarketplaceLoanPreview, filters: Filters) {
   if (filters.currency && loan.currency !== filters.currency) return false;
   if (filters.minRate !== null && loanYieldBps(loan) < filters.minRate * 100) return false;
   if (filters.maxTerm !== null && loan.term_months > filters.maxTerm) return false;
-  if (filters.security.length > 0 && !filters.security.includes(loan.collateral_type)) return false;
+  if (filters.security.length > 0 && !securityTypesOf(loan).some((type) => filters.security.includes(type))) return false;
   if (filters.originator) {
     const source = isOriginatorClaimLoan(loan) ? loan.originator_id ?? "" : DIRECT;
     if (source !== filters.originator) return false;
@@ -154,7 +159,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const visibleSoon = sortComingSoon(soonLoans.filter(shown));
   const visible = [...sortLoans(openLoans.filter(shown), sort), ...visibleSoon];
   const currencies = Array.from(new Set(["EUR", "CHF", ...listedLoans.map((loan) => loan.currency)]));
-  const securityTypes = Array.from(new Set(listedLoans.map((loan) => loan.collateral_type)));
+  const securityTypes = Array.from(new Set(listedLoans.flatMap(securityTypesOf)));
   const originators = Array.from(
     new Map(listedLoans.filter((loan) => isOriginatorClaimLoan(loan) && loan.originator_id).map((loan) => [loan.originator_id as string, loan.originator_name ?? ""])).entries()
   ).sort((a, b) => a[1].localeCompare(b[1]));

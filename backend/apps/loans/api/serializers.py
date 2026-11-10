@@ -360,3 +360,73 @@ def serialize_loan_event(event: LoanEvent) -> dict[str, Any]:
 class LoanComingSoonRequestSerializer(serializers.Serializer[Any]):
     planned_opening_date = serializers.DateField()
     note = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
+
+
+class LoanSecurityDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+class LoanSecuritySerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: one security of a loan; only the fields that apply are filled."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    security_type = serializers.CharField()
+    is_guarantee = serializers.BooleanField()
+    description = serializers.CharField(allow_blank=True)
+    holder_name = serializers.CharField(
+        allow_blank=True, help_text="Owner of the asset or right, or the guarantor."
+    )
+    rank = serializers.IntegerField(allow_null=True, help_text="1 is first rank.")
+    status = serializers.CharField(
+        allow_blank=True, help_text="in_place, pending, released, or empty when not recorded."
+    )
+    value_minor = serializers.IntegerField(allow_null=True)
+    valuation_date = serializers.DateField(allow_null=True)
+    valuation_source = serializers.CharField(allow_blank=True)
+    appraiser = serializers.CharField(allow_blank=True)
+    prior_ranking_debt_minor = serializers.IntegerField(allow_null=True)
+    insurance = serializers.CharField(allow_blank=True)
+    undertaking_scope = serializers.CharField(allow_blank=True)
+    undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    documents = LoanSecurityDocumentSerializer(many=True)
+
+
+class LoanSecurityListSerializer(serializers.Serializer[Any]):
+    securities = LoanSecuritySerializer(many=True)
+
+
+class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
+    security_type = serializers.CharField(max_length=32)
+    description = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+    holder_name = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    rank = serializers.IntegerField(required=False, allow_null=True, default=None, min_value=1)
+    status = serializers.ChoiceField(
+        choices=["", "in_place", "pending", "released"], required=False, default=""
+    )
+    value_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    valuation_date = serializers.DateField(required=False, allow_null=True, default=None)
+    valuation_source = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    appraiser = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
+    prior_ranking_debt_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    insurance = serializers.CharField(required=False, allow_blank=True, default="", max_length=4000)
+    undertaking_scope = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+    undertaking_limit_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    document_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=False, default=list
+    )

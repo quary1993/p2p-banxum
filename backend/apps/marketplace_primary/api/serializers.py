@@ -241,6 +241,33 @@ class PublicOriginatorSerializer(serializers.Serializer[Any]):
     )
 
 
+class MarketplaceSecurityDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+class MarketplaceSecuritySerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: one security of the loan; only the fields that apply are filled."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    security_type = serializers.CharField()
+    is_guarantee = serializers.BooleanField()
+    description = serializers.CharField(allow_blank=True)
+    holder_name = serializers.CharField(allow_blank=True)
+    rank = serializers.IntegerField(allow_null=True)
+    status = serializers.CharField(allow_blank=True)
+    value_minor = serializers.IntegerField(allow_null=True)
+    valuation_date = serializers.DateField(allow_null=True)
+    valuation_source = serializers.CharField(allow_blank=True)
+    appraiser = serializers.CharField(allow_blank=True)
+    prior_ranking_debt_minor = serializers.IntegerField(allow_null=True)
+    insurance = serializers.CharField(allow_blank=True)
+    undertaking_scope = serializers.CharField(allow_blank=True)
+    undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    documents = MarketplaceSecurityDocumentSerializer(many=True)
+
+
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
     # U33-DEC-17: "coming_soon" for a draft shown before it opens (no investment possible).
@@ -252,6 +279,11 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     title = serializers.CharField()
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
+    security_types = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="U33-DEC-21: the types of every security in force.",
+    )
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
@@ -394,6 +426,7 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     purpose_description = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()
     collateral_description = serializers.CharField()
+    securities = MarketplaceSecuritySerializer(many=True, required=False)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()
     original_interest_rate_bps = serializers.IntegerField(allow_null=True)

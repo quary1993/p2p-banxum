@@ -3,7 +3,7 @@
  * Credit file (design #/projects/:id/credit-file, slice S2): the U33 folder cover and the chapter
  * reader, filled only with data the platform has today: Summary, Borrower & business (the published
  * story and the public profile fields), Financials (the last-year figures, hidden when there are none),
- * Security (one collateral item), Loan terms (rate, term, repayment, schedule, originator
+ * Security (each security of the loan, U33-DEC-21), Loan terms (rate, term, repayment, schedule, originator
  * participation, refinanced loan) and Documents. "Checks & updates", structured statements over
  * several years and the document metadata come with U33-DEC-20 (Phase 17.4).
  */
@@ -41,6 +41,7 @@ import {
 import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
+import { AdditionalSecurityBlock, SecurityFacts, SecurityNotes } from "./parts/SecurityDetails";
 import { securityValueLabel } from "../portfolio/parts/labels";
 
 type ChapterId = "summary" | "business" | "financials" | "security" | "terms" | "documents";
@@ -457,6 +458,8 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
   const t = useT();
   const ltv = loanLtv(loan);
   const hasValue = ltv !== null && loan.collateral_value_minor > 0;
+  // U33-DEC-21: the first security gives the loan's figures; the others follow, each on its own.
+  const [first, ...others] = loan.securities ?? [];
   return (
     <section aria-labelledby="heading-security" className="case-chapter r100-chapter" id="security">
       {heading("security", t("Security"))}
@@ -480,15 +483,22 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
               </dl>
             </div>
           </div>
-        ) : (
+        ) : first?.is_guarantee ? null : (
           <dl className="r100-security-facts r100-security-record">
             <div><dt>{t(securityValueLabel(loan.collateral_type))}</dt><dd>{t("Not recorded")}</dd></div>
           </dl>
         )}
+        {first ? (
+          <>
+            <SecurityFacts currency={loan.currency} loanMinor={loan.principal_minor} security={first} withValue={false} />
+            <SecurityNotes security={first} />
+          </>
+        ) : null}
         {(loan.ltv_warnings ?? []).length > 0 ? (
           <ul className="u33-invest-warnings">{loan.ltv_warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
         ) : null}
       </section>
+      {others.map((security) => <AdditionalSecurityBlock currency={loan.currency} key={security.id} loanMinor={loan.principal_minor} security={security} />)}
       <p className="bxm-muted small">{t("Security can help recover money if the borrower stops paying. It does not guarantee repayment.")}</p>
     </section>
   );

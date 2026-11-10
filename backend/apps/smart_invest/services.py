@@ -318,9 +318,12 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
         if _opportunity_is_unsecured(opportunity):
             collateral_matches = SmartInvestCollateralOption.UNSECURED in collateral
         else:
-            collateral_matches = (
-                SmartInvestCollateralOption.ANY_SECURED in collateral
-                or str(opportunity.get("collateral_type") or "") in collateral
+            # U33-DEC-21: any security of the loan can match.
+            types = set(opportunity.get("security_types") or []) or {
+                str(opportunity.get("collateral_type") or "")
+            }
+            collateral_matches = SmartInvestCollateralOption.ANY_SECURED in collateral or bool(
+                types & collateral
             )
         if not collateral_matches:
             return False

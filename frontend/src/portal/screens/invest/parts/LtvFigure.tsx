@@ -1,7 +1,7 @@
 // IP of Webby-Soft SRL.
 // Loan-to-value comparison (design: .r68-ltv): the loan amount and the collateral value as two bars on
-// one scale, with the ratio. One collateral item per loan today (U33-DEC-21 adds several, Phase 17.4);
-// prior-ranking debt is not recorded yet, so it is not drawn.
+// one scale, with the ratio, for the first security (U33-DEC-21: the other securities are listed after it;
+// prior-ranking debt is stated in the credit file with the combined share, not drawn here).
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { useT } from "../../../../i18n";

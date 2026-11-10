@@ -3730,6 +3730,126 @@ paths:
                 items:
                   $ref: '#/components/schemas/LoanInstallment'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/securities/:
+    get:
+      operationId: v1_loans_admin_loans_securities_retrieve
+      description: 'U33-DEC-21: the securities of a loan (GET) or add one (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanSecurityList'
+          description: ''
+    post:
+      operationId: v1_loans_admin_loans_securities_create
+      description: 'U33-DEC-21: the securities of a loan (GET) or add one (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanSecurity'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/securities/{security_id}/:
+    put:
+      operationId: v1_loans_admin_loans_securities_update
+      description: 'U33-DEC-21: change a security (PUT), or remove a wrong one from
+        a draft (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanSecurity'
+          description: ''
+    delete:
+      operationId: v1_loans_admin_loans_securities_destroy
+      description: 'U33-DEC-21: change a security (PUT), or remove a wrong one from
+        a draft (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/marketplace/primary/admin/loans/{loan_id}/cancel-funding/:
     post:
       operationId: v1_marketplace_primary_admin_loans_cancel_funding_create
@@ -11929,7 +12049,7 @@ components:
           type: string
           format: uuid
         status:
-          $ref: '#/components/schemas/Status260Enum'
+          $ref: '#/components/schemas/LoanRecoveryStageStatusEnum'
         title:
           type: string
         occurred_on:
@@ -11977,7 +12097,7 @@ components:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/Status260Enum'
+          $ref: '#/components/schemas/LoanRecoveryStageStatusEnum'
         title:
           type: string
           maxLength: 120
@@ -11992,6 +12112,14 @@ components:
       required:
       - status
       - title
+    LoanRecoveryStageStatusEnum:
+      enum:
+      - done
+      - next
+      type: string
+      description: |-
+        * `done` - Done
+        * `next` - Next
     LoanRiskNote:
       type: object
       properties:
@@ -12076,6 +12204,165 @@ components:
       - loan_id
       - note_type
       - visibility
+    LoanSecurity:
+      type: object
+      description: 'U33-DEC-21: one security of a loan; only the fields that apply
+        are filled.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        security_type:
+          type: string
+        is_guarantee:
+          type: boolean
+        description:
+          type: string
+        holder_name:
+          type: string
+          description: Owner of the asset or right, or the guarantor.
+        rank:
+          type: integer
+          nullable: true
+          description: 1 is first rank.
+        status:
+          type: string
+          description: in_place, pending, released, or empty when not recorded.
+        value_minor:
+          type: integer
+          nullable: true
+        valuation_date:
+          type: string
+          format: date
+          nullable: true
+        valuation_source:
+          type: string
+        appraiser:
+          type: string
+        prior_ranking_debt_minor:
+          type: integer
+          nullable: true
+        insurance:
+          type: string
+        undertaking_scope:
+          type: string
+        undertaking_limit_minor:
+          type: integer
+          nullable: true
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanSecurityDocument'
+      required:
+      - appraiser
+      - description
+      - documents
+      - holder_name
+      - id
+      - insurance
+      - is_guarantee
+      - position
+      - prior_ranking_debt_minor
+      - rank
+      - security_type
+      - status
+      - undertaking_limit_minor
+      - undertaking_scope
+      - valuation_date
+      - valuation_source
+      - value_minor
+    LoanSecurityDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+      required:
+      - display_name
+      - id
+    LoanSecurityList:
+      type: object
+      properties:
+        securities:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanSecurity'
+      required:
+      - securities
+    LoanSecurityRequest:
+      type: object
+      properties:
+        security_type:
+          type: string
+          maxLength: 32
+        description:
+          type: string
+          default: ''
+          maxLength: 4000
+        holder_name:
+          type: string
+          default: ''
+          maxLength: 255
+        rank:
+          type: integer
+          minimum: 1
+          nullable: true
+        status:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/LoanSecurityRequestStatusEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        value_minor:
+          type: integer
+          minimum: 0
+          nullable: true
+        valuation_date:
+          type: string
+          format: date
+          nullable: true
+        valuation_source:
+          type: string
+          default: ''
+          maxLength: 255
+        appraiser:
+          type: string
+          default: ''
+          maxLength: 255
+        prior_ranking_debt_minor:
+          type: integer
+          minimum: 0
+          nullable: true
+        insurance:
+          type: string
+          default: ''
+          maxLength: 4000
+        undertaking_scope:
+          type: string
+          default: ''
+          maxLength: 4000
+        undertaking_limit_minor:
+          type: integer
+          minimum: 0
+          nullable: true
+        document_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - security_type
+    LoanSecurityRequestStatusEnum:
+      enum:
+      - in_place
+      - pending
+      - released
+      type: string
+      description: "* `` - \n* `in_place` - in_place\n* `pending` - pending\n* `released`\
+        \ - released"
     LoanServicingStatusChange:
       type: object
       properties:
@@ -12391,6 +12678,11 @@ components:
           type: string
         collateral_type:
           type: string
+        security_types:
+          type: array
+          items:
+            type: string
+          description: 'U33-DEC-21: the types of every security in force.'
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -12510,6 +12802,10 @@ components:
           type: string
         collateral_value_minor:
           type: integer
+        securities:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceSecurity'
         ltv_warnings:
           type: array
           items:
@@ -12634,6 +12930,11 @@ components:
           type: string
         collateral_type:
           type: string
+        security_types:
+          type: array
+          items:
+            type: string
+          description: 'U33-DEC-21: the types of every security in force.'
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -12906,6 +13207,83 @@ components:
       - penalty_minor
       - principal_minor
       - total_minor
+    MarketplaceSecurity:
+      type: object
+      description: 'U33-DEC-21: one security of the loan; only the fields that apply
+        are filled.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        security_type:
+          type: string
+        is_guarantee:
+          type: boolean
+        description:
+          type: string
+        holder_name:
+          type: string
+        rank:
+          type: integer
+          nullable: true
+        status:
+          type: string
+        value_minor:
+          type: integer
+          nullable: true
+        valuation_date:
+          type: string
+          format: date
+          nullable: true
+        valuation_source:
+          type: string
+        appraiser:
+          type: string
+        prior_ranking_debt_minor:
+          type: integer
+          nullable: true
+        insurance:
+          type: string
+        undertaking_scope:
+          type: string
+        undertaking_limit_minor:
+          type: integer
+          nullable: true
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceSecurityDocument'
+      required:
+      - appraiser
+      - description
+      - documents
+      - holder_name
+      - id
+      - insurance
+      - is_guarantee
+      - position
+      - prior_ranking_debt_minor
+      - rank
+      - security_type
+      - status
+      - undertaking_limit_minor
+      - undertaking_scope
+      - valuation_date
+      - valuation_source
+      - value_minor
+    MarketplaceSecurityDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+      required:
+      - display_name
+      - id
     NaturalPersonRegistrationRequest:
       type: object
       properties:
@@ -17894,6 +18272,10 @@ components:
           type: string
         collateral_type:
           type: string
+        security_types:
+          type: array
+          items:
+            type: string
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -18176,14 +18558,6 @@ components:
         * `not_set_up` - Not set up
         * `active` - Active
         * `paused` - Paused
-    Status260Enum:
-      enum:
-      - done
-      - next
-      type: string
-      description: |-
-        * `done` - done
-        * `next` - next
     Status828Enum:
       enum:
       - active

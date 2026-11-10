@@ -125,6 +125,7 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     title = serializers.CharField()
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
+    security_types = serializers.ListField(child=serializers.CharField(), required=False)
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
