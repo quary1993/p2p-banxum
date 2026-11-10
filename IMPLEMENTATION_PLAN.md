@@ -2168,6 +2168,17 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 - U33-DEC-05: one default return account per currency (first verified account, changeable with the email code and the PIN, forced returns go there); `verification_status` and `is_default_return` in the API; a deposit's source IBAN becomes a return account only after the admin's hand check that the account is in the investor's name.
 - U33-DEC-19 part 1: batch placement removed; Pause/Resume that keeps the preferences; maximum LTV, borrower country and the optional usual amount (prepares the amount, never raised to the minimum); purpose and loan-kind criteria removed by a data migration. Still open: repayment groups (after U33-DEC-11), security groups (after U33-DEC-21), app/email channels (U33-DEC-30).
 
+Status 2026-11-10 (branch `u33-17-2`): the other items without open questions are done; the items with questions are in 17.10.
+
+- U33-DEC-04 part: the 1% daily penalty and penalty mode are removed; after the 60-day limit money stays on the balance as "due back", withdraw-only, with no charge and no freeze (a data migration moves lots out of penalty mode; earlier penalties stay in the history). Every investment (primary order, claim purchase, resale purchase) needs a verified bank account in its currency. Open (17.10): the failed-return procedure.
+- U33-DEC-06/07: listing price 0-102% of the outstanding principal; seller fee = min(2% x price, 2% x outstanding principal), no minimum, no fee on accrued interest; open listings reconciled by a data migration (all were at par or a discount, so the fee did not change).
+- U33-DEC-09: Due for the first 14 days, Late from day 15, Default from day 60, as platform settings with a per-loan contract override (admin, with a reason); contract termination is a separate admin event shown to investors.
+- U33-DEC-12: no Banxum recovery fee (refused; loan fee rates set to 0 by a migration); recoveries show gross, external costs, any fee recorded before the change, net and the investor's share.
+- U33-DEC-28/35: Help messages (SUP-YYYY-NNNN) and closure requests (CLS-YYYY-NNNN) are stored, emailed to the support mailbox with the investor as Reply-To and confirmed to the investor; a closure request opens an admin review task and does not close the account. Open (17.10): support hours and answer times, final support address.
+- U33-DEC-30: Smart Invest in-app and email switches per rule; service emails stay fixed; "News from Banxum" is the only marketing switch.
+- U33-DEC-38: new direct and Loan Originator loans cannot be created, edited or published as unsecured; published loans keep their type. Open (17.10): the proof-of-security checks.
+- U33-DEC-19: security groups done with U33-DEC-21 (a rule matches any security of a loan); repayment groups wait for U33-DEC-11 (17.10).
+
 #### 17.3 Authentication and security (U33-DEC-01, -25, part of -29)
 
 - Password login with mandatory second factor (TOTP app or SMS, enrolled and verified); recovery flows as in U33-DEC-01; no magic link or passkeys.
@@ -2176,6 +2187,8 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 - Migration of existing accounts to password + second factor + PIN; assisted recovery procedure for support.
 - Security review before release.
 - Open: operational procedure, SMS provider, migration plan, history retention.
+
+Status 2026-11-10: U33-DEC-25 is done: device sessions and sign-in events (device and browser, country from a trusted proxy header when configured, method, result, IP only as a keyed hash), the investor's signed-in devices with "Sign out" and "Sign out on all other devices", the sign-in history (last 50, retention setting, default 365 days, daily clean-up job) and a security email for a sign-in from a new device. U33-DEC-01 (password + second factor, PIN-only confirmation, migration) waits for answers (17.10).
 
 #### 17.4 Loan data and opportunity features
 
@@ -2189,7 +2202,18 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 | U33-DEC-18 | Save for later with optional amount; alerts 7, 3 and 1 day before closing (app and email). Open: de-duplication and rescheduling details. |
 | U33-DEC-15 | Optional Banxum co-investment record (entity, amount, status, operation reference) shown only when real. Open: contractual terms. |
 
+Status 2026-11-10: done except U33-DEC-15 and the open points listed in 17.10.
+
+- U33-DEC-17: a direct loan can be announced as "Coming soon" with a planned opening date (admin) and withdrawn; investors see it in the opportunities (card, list tag, counter) and on its page, can ask for an opening email ("Tell me when it opens") and cancel it; no amount can be reserved before opening; the opening email is sent when the loan is published, and a Smart Invest match email is not sent again for the same loan. The public site shows the planned date.
+- U33-DEC-18: "Save for later" with an optional amount (never a reservation); the saved list on the Overview; reminders 7, 3 and 1 day before closing by a daily job (in-app and email), only for milestones after the saving day, one per milestone and deadline, only the latest after a missed run, stopped when the investor removes the loan or it closes, rescheduled when the deadline changes.
+- U33-DEC-22: recovery stages recorded by the admin (done or next, title, date, note for investors; one next step at a time; removal with a reason, kept for audit); shown to investors with the current stage and the next milestone only when one is recorded.
+- U33-DEC-21: several securities per loan with structured fields (type, holder, rank, status, value, valuation date and source, appraiser, prior-ranking debt, insurance, guarantee scope and limit, documents); the first security mirrors the loan's collateral fields; removal only in drafts, "released" after publication; guarantees have no asset value; the migration copies the recorded collateral without inventing data; filters and Smart Invest use every security that is not released.
+- U33-DEC-20: structured credit file: financial years (P&L and balance sheet with checks that the details add up), existing debt facilities, document metadata (category, date, period, issuer, version, status), credit checks and monitoring; admin editors; the investor view always has seven chapters, with the design's four ratios and their formulas. Not built: the design's "Reporting over the loan term" timeline and per-check status chips.
+- U33-DEC-24 display part: the investor and originator shares of the interest and the penalty interest on the credit file and before the investment confirmation. Open (17.10): the first installment owned by the originator.
+
 #### 17.5 Interest and schedules (U33-DEC-10, -11)
+
+Status 2026-11-10: waits for answers (17.10).
 
 - Actual/365 Fixed accrual engine for new loans, broken periods, early/late repayments and assignments; existing and imported contracts keep their convention.
 - Frequencies monthly/quarterly/half-yearly/annual, interest-only or principal+interest, payment at maturity, initial interest-only phases, custom schedules (editor and import validation).
@@ -2198,11 +2222,17 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 
 #### 17.6 Contracts (U33-DEC-13, -14)
 
+Status 2026-11-10: waits for answers (17.10).
+
+
 - QES (ZertES) assignment declaration per investment at successful closing, signed by Garanta's authorized representative, stored in Documents; never "signed" before success. Provider selection, templates, archiving and error handling.
 - Acceptance set validated by legal; resale agreements per side.
 - Open: contractual/signature chain including resale.
 
 #### 17.7 Compliance and limits (U33-DEC-27, -08)
+
+Status 2026-11-10: waits for answers (17.10).
+
 
 - Self-declarations (beneficial owner, source of funds, PEP, expected yearly volume) in onboarding and profile; admin record and review; per-investor re-verification date and notifications (manual handling allowed).
 - Swiss-borrower cap: total loans strictly below CHF 500,000 per Swiss borrower; remove the 20-investor rule and the raised minimum; checks in admin, investing and resale. Blocked until the basis of the total, timing, CHF conversion and concurrency control are confirmed with legal.
@@ -2213,6 +2243,8 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 - Number format European (default) / Swiss with a saved preference, applied to interface, input parsing, emails and new personal reports; Europe/Zurich only.
 - Open: legal translations of contracts.
 
+Status 2026-11-10: U33-DEC-32 is done (number format saved in the account and used in the interface, emails, notifications and new personal statements). U33-DEC-31 is done for the investor interface: language saved in the account, English or Deutsch in the investor area, German texts from the design plus drafted texts for the rest, German dates (details in plan/22). Waiting for answers (17.10): review of the drafted German texts, German emails/notifications/server messages, public site DE/FR, language variants of admin-managed content.
+
 #### 17.9 Owner inputs and later design
 
 - U33-DEC-29: designs for the seven missing states/screens.
@@ -2221,7 +2253,32 @@ Status 2026-11-09 (branch `u33-17-2`): the items without open questions are done
 - U33-DEC-37: licence check of fonts, Nioicon and images.
 - U33-DEC-35: confirmation of withdrawal and repayment times and support hours.
 
-Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close.
+#### 17.10 Waiting for answers (last slice)
+
+Every item below needs an answer from the owner, legal or operations before it can be built correctly. Until then the platform keeps the behaviour in the right-hand column. When an item is answered, it moves back to its step above.
+
+| Item | Question | Behaviour until the answer |
+| --- | --- | --- |
+| U33-DEC-03 | 56-day return: from which event do we count (booking of the deposit, value date or the day after)? When day 56 is a weekend or bank holiday, is the return made before or after? Is a buffer to the 60-day legal limit required, and how many days? How are open amounts with the old 50-day deadline migrated? | 50 days, as today. |
+| U33-DEC-04 | Failed return: when the bank rejects a return transfer, what state does the money get, who is told (investor, team), how often is it retried, and when does the team take over? | The return stays an admin task; money stays withdraw-only. |
+| U33-DEC-01 | Sign-in: password with which rules; second factor TOTP app and SMS, or one of them; which SMS provider; how are existing accounts migrated (forced at next sign-in or invited); what is the assisted recovery procedure; is the PIN alone enough to confirm an operation once the second factor exists? | Email link + PIN + email code. |
+| U33-DEC-10, -11 | Interest engine: contractual start date of interest, which boundary days count, rounding and allocation of cents between investors, penalty rules per contract, which frequencies and schedule types are needed first. | Current schedules and convention. Smart Invest repayment groups wait for this. |
+| U33-DEC-13, -14 | Qualified electronic signature (ZertES): which provider, which documents and templates, who signs for Garanta, archiving, error handling, the signature chain for resales; legal validation of the acceptance set; contract wording for recovery costs (U33-DEC-12). | Clickwrap acceptance with evidence, as today. |
+| U33-DEC-27 | Self-declarations: exact fields and wording (beneficial owner, source of funds, PEP, expected yearly volume), which answers need a review, and the re-verification interval per risk level. | KYC through Didit only. |
+| U33-DEC-08 | Swiss-borrower limit: is the CHF 500,000 total based on original or outstanding principal, at which moment is it checked (order, allocation, closing), which rate converts EUR to CHF, and how are parallel orders handled? | Current rule (20 investors, raised minimum). |
+| U33-DEC-15 | Banxum co-investment: contractual terms, which entity invests, and how it is shown. | Not shown. |
+| U33-DEC-24 | First installment owned by the originator: is it always the first installment after the funding deadline, also for a broken first period, and does it apply to direct loans? | Shown as today for Loan Originator loans only. |
+| U33-DEC-38 | Proof of security: which documents and checks prove that a security is in place before publication? | New loans must record collateral or a guarantee; no document check. |
+| U33-DEC-25 | Place of a sign-in: which geolocation source (city level) may we use, and is 365 days the right retention for the sign-in history? | Country from a trusted proxy header; 365 days. |
+| U33-DEC-17 | Should Loan Originator loans also have a "Coming soon" state? Is the opening email at publication right, or must it wait for the planned date? | Direct loans only; email at publication. |
+| U33-DEC-18 | Confirm the reminder details: sent when the daily job runs (no fixed hour), only milestones after the saving day, one per milestone and deadline, only the latest after a missed run, stopped on removal or closing, rescheduled when the deadline changes. | Built as described. |
+| U33-DEC-22 | The list of recovery stage names to offer (today free text with examples). | Free text with examples. |
+| U33-DEC-21 | Is a separate vehicle security type needed? Who splits old "mixed collateral" records into separate securities? | No vehicle type; old records stay as they are. |
+| U33-DEC-31 | Who reviews the about 1,280 drafted German interface texts? Should German investors get emails and notifications in German only, or in German and English? Who writes and reviews the German and French public site, including the legal pages (with U33-DEC-39)? Which admin-managed texts need language variants (proposal: loan title, summary and purpose, borrower and originator profiles, loan updates and recovery notes, security descriptions) and who marks a translation as reviewed? | Investor interface in English or German; emails, notifications, server messages, public site and admin content in English. |
+| U33-DEC-30 | Legal classification of each message type (service or marketing). | Service emails fixed; "News from Banxum" is the only marketing switch. |
+| U33-DEC-29, -35, -36, -37, -39 | Owner inputs from 17.9: designs of the missing states, support hours and answer times, final contact addresses and domain, licence check of fonts/icons/images, decision per extra public page. | As listed in 17.9. |
+
+Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close. Status 2026-11-10: every item without an open question is done on branch `u33-17-2`; 17.10 lists the items that wait for answers.
 
 ## 9. Critical End-to-End Scenarios
 
