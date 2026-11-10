@@ -318,7 +318,9 @@ class InvestorSupportRequest(TimestampedModel):
     context_type = models.CharField(max_length=32, blank=True)
     context_id = models.CharField(max_length=64, blank=True)
     context_label = models.CharField(max_length=255, blank=True)
-    idempotency_key = models.CharField(max_length=160, unique=True)
+    # The investor's own request key: unique per investor, so one investor's key never
+    # returns another investor's request (audit G-04).
+    idempotency_key = models.CharField(max_length=160)
     request_fingerprint = models.CharField(max_length=64)
     support_outbox_message = models.ForeignKey(
         "platform_core.OutboxMessage",
@@ -341,4 +343,10 @@ class InvestorSupportRequest(TimestampedModel):
         indexes = [
             models.Index(fields=["investor_user_id", "created_at"]),
             models.Index(fields=["kind", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_user_id", "idempotency_key"],
+                name="support_request_key_per_investor",
+            )
         ]

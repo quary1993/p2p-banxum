@@ -258,3 +258,21 @@ def test_admins_see_the_investors_messages_and_the_closure_task_names_the_invest
     assert closure["reference"] in task["title"]
     # Investors cannot read this admin list.
     assert client.get(f"/api/v1/admin-ops/users/{investor.pk}/support-requests/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_the_same_request_key_of_two_investors_never_shares_a_request(
+    investor: Model, throttle_clock: ThrottleClock
+) -> None:
+    other = _user("second-investor@example.test")
+    body = {"kind": "account_closure", "idempotency_key": "closure-1"}
+
+    first = _client(investor).post(URL, body, format="json")
+    second = _client(other).post(URL, body, format="json")
+
+    assert first.status_code == 201, first.content
+    assert second.status_code == 201, second.content
+    # Each investor gets their own request and receipt; nothing of the first one is returned.
+    assert first.json()["reference"] != second.json()["reference"]
+    assert second.json()["receipt_email"] == "second-investor@example.test"
+    assert InvestorSupportRequest.objects.filter(idempotency_key="closure-1").count() == 2

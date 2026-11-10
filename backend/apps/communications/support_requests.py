@@ -224,8 +224,13 @@ def _receipt_email_payload(request: InvestorSupportRequest) -> dict[str, Any]:
     }
 
 
-def _existing_for_key(idempotency_key: str, fingerprint: str) -> InvestorSupportRequest | None:
-    existing = InvestorSupportRequest.objects.filter(idempotency_key=idempotency_key).first()
+def _existing_for_key(
+    investor_user_id: str, idempotency_key: str, fingerprint: str
+) -> InvestorSupportRequest | None:
+    """The investor's own earlier request with this key (never another investor's)."""
+    existing = InvestorSupportRequest.objects.filter(
+        investor_user_id=investor_user_id, idempotency_key=idempotency_key
+    ).first()
     if existing is None:
         return None
     if existing.request_fingerprint != fingerprint:
@@ -269,7 +274,7 @@ def submit_support_request(command: SubmitSupportRequestCommand) -> InvestorSupp
             "context_id": context_id,
         }
     )
-    existing = _existing_for_key(idempotency_key, fingerprint)
+    existing = _existing_for_key(investor_user_id, idempotency_key, fingerprint)
     if existing is not None:
         return existing
     limits = _rate_limits(kind=kind, investor_user_id=investor_user_id)
@@ -331,7 +336,7 @@ def submit_support_request(command: SubmitSupportRequestCommand) -> InvestorSupp
             )
     except IntegrityError:
         # A retry with the same key won the race: return its request.
-        retried = _existing_for_key(idempotency_key, fingerprint)
+        retried = _existing_for_key(investor_user_id, idempotency_key, fingerprint)
         if retried is None:
             raise
         return retried
