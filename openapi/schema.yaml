@@ -2585,6 +2585,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/SmartInvestResponse'
           description: ''
+  /api/v1/investor/smart-invest/notifications/:
+    post:
+      operationId: v1_investor_smart_invest_notifications_create
+      description: 'U33-DEC-30: switch the in-app and email match alerts separately.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartInvestChannels'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SmartInvestChannels'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SmartInvestChannels'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartInvestResponse'
+          description: ''
   /api/v1/investor/smart-invest/pause/:
     post:
       operationId: v1_investor_smart_invest_pause_create
@@ -17165,6 +17192,17 @@ components:
       - code_id
       - expires_at
       - status
+    SmartInvestChannels:
+      type: object
+      description: 'U33-DEC-30: the in-app and email channels of the match alerts.'
+      properties:
+        in_app:
+          type: boolean
+        email:
+          type: boolean
+      required:
+      - email
+      - in_app
     SmartInvestCollateralEnum:
       enum:
       - any_secured
@@ -17322,6 +17360,8 @@ components:
           allOf:
           - $ref: '#/components/schemas/SmartInvestRule'
           nullable: true
+        notification_channels:
+          $ref: '#/components/schemas/SmartInvestChannels'
         match_count:
           type: integer
         open_opportunity_count:
@@ -17333,6 +17373,7 @@ components:
       required:
       - match_count
       - matches
+      - notification_channels
       - open_opportunity_count
       - rule
     SmartInvestRule:

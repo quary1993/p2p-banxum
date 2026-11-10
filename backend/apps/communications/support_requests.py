@@ -38,8 +38,6 @@ from backend.apps.platform_core.services.rate_limits import (
     window_wait_seconds,
 )
 
-SUPPORT_REQUEST_EMAIL_TOPIC = "email.investor_support_request"
-SUPPORT_REQUEST_RECEIPT_TOPIC = "email.support_request_received"
 SUPPORT_REQUEST_SCOPE = "investor-support-request"
 MESSAGE_MAX_LENGTH = 4000
 TOPIC_MAX_LENGTH = 120
@@ -297,14 +295,14 @@ def submit_support_request(command: SubmitSupportRequestCommand) -> InvestorSupp
             support_message = enqueue_outbox_message(
                 OutboxCommand(
                     idempotency_key=f"support-request:{request.id}:team",
-                    topic=SUPPORT_REQUEST_EMAIL_TOPIC,
+                    topic="email.investor_support_request",
                     payload=_support_email_payload(request),
                 )
             )
             receipt_message = enqueue_outbox_message(
                 OutboxCommand(
                     idempotency_key=f"support-request:{request.id}:receipt",
-                    topic=SUPPORT_REQUEST_RECEIPT_TOPIC,
+                    topic="email.support_request_received",
                     payload=_receipt_email_payload(request),
                 )
             )

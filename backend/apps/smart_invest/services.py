@@ -18,6 +18,7 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.time import now_utc
+from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -365,18 +366,73 @@ def get_smart_invest(*, actor: Model) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
     matches: list[dict[str, Any]] = []
-    open_opportunity_count = len(
-        _marketplace_services().list_open_marketplace_loans(limit=10_000)
-    )
+    open_opportunity_count = len(_marketplace_services().list_open_marketplace_loans(limit=10_000))
     # A paused rule shows no matches (U33-DEC-19); resuming recalculates them.
     if rule is not None and rule.is_active:
         matches, open_opportunity_count = _matching_opportunities(rule)
     return {
         "rule": _rule_payload(rule),
+        "notification_channels": _channels_payload(rule),
         "match_count": len(matches),
         "open_opportunity_count": open_opportunity_count,
         "matches": matches,
     }
+
+
+def _channels_payload(rule: SmartInvestRule | None) -> dict[str, bool]:
+    """U33-DEC-30: both channels are on until the investor switches one off."""
+    if rule is None:
+        return {"in_app": True, "email": True}
+    return {"in_app": bool(rule.notify_in_app), "email": bool(rule.notify_email)}
+
+
+@dataclass(frozen=True, slots=True)
+class SetSmartInvestChannelsCommand:
+    actor: Model
+    in_app: bool
+    email: bool
+
+
+@transaction.atomic
+def set_smart_invest_channels(command: SetSmartInvestChannelsCommand) -> dict[str, Any]:
+    """U33-DEC-30: switch the in-app and email match alerts separately.
+
+    Also before set-up: the choice is kept for when the investor saves preferences. Neither
+    channel stops matching or service messages; Pause stops both.
+    """
+    investor_user_id = _require_financial_access(command.actor)
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.select_for_update().get(pk=investor_user_id)
+    rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
+    if rule is None:
+        # Nothing saved yet: an empty, inactive rule only holds the channels (state not_set_up).
+        rule = SmartInvestRule(user_id=investor_user_id, is_active=False)
+    previous = _channels_payload(rule if rule.pk else None)
+    new = {"in_app": bool(command.in_app), "email": bool(command.email)}
+    if rule.pk and previous == new:
+        return get_smart_invest(actor=command.actor)
+    rule.notify_in_app = new["in_app"]
+    rule.notify_email = new["email"]
+    rule.save()
+    SmartInvestRuleEvent.objects.create(
+        rule=rule,
+        investor_user_id=investor_user_id,
+        actor_user_id=command.actor.pk,
+        event_type=SmartInvestRuleEventType.CHANNELS_CHANGED,
+        revision=rule.revision,
+        criteria_snapshot=_criteria_snapshot(rule),
+        metadata={"previous": previous, "new": new},
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="smart_invest.channels_changed",
+            target_type="SmartInvestRule",
+            target_id=str(rule.id),
+            metadata={"previous": previous, "new": new},
+        )
+    )
+    return get_smart_invest(actor=command.actor)
 
 
 @transaction.atomic
@@ -538,7 +594,9 @@ def _public_opportunity(*, loan_id: str, product_type: str) -> dict[str, Any] | 
     return cast(dict[str, Any], _marketplace_services().public_marketplace_listing_payload(loan))
 
 
-def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any]:
+def _email_payload(
+    *, user: Model, opportunity: dict[str, Any], in_app: bool = True
+) -> dict[str, Any]:
     currency = str(opportunity.get("currency", ""))
     yield_bps = int(opportunity.get("yield_bps") or 0)
     term_months = int(opportunity.get("term_months") or 0)
@@ -573,7 +631,46 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
         ),
         "loan_id": str(opportunity["loan_id"]),
         "action_url": action_url,
+        # U33-DEC-30: false keeps the email out of Notifications (in-app channel off).
+        **({} if in_app else {"in_app": False}),
     }
+
+
+IN_APP_MATCH_TOPIC = "notice.smart_invest_opportunity_match"
+
+
+def _enqueue_match_alert(
+    *, rule: SmartInvestRule, user: Model, loan_id: str, opportunity: dict[str, Any]
+) -> Any:
+    """U33-DEC-30: one message per match, shaped by the investor's channels.
+
+    Email on: the email (listed in Notifications unless in-app is off). Email off, in-app on:
+    an in-app notice that is never emailed. Both off: nothing; the match is still recorded.
+    """
+    if rule.notify_email:
+        return enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
+                topic="email.smart_invest_opportunity_match",
+                payload=_email_payload(
+                    user=user, opportunity=opportunity, in_app=rule.notify_in_app
+                ),
+            )
+        )
+    if rule.notify_in_app:
+        notice = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
+                topic=IN_APP_MATCH_TOPIC,
+                payload=_email_payload(user=user, opportunity=opportunity),
+            )
+        )
+        # Not an email topic, so no sender picks it up: it is done once it is listed.
+        type(notice).objects.filter(pk=notice.pk).update(
+            status=OutboxStatus.PROCESSED, processed_at=now_utc()
+        )
+        return notice
+    return None
 
 
 @transaction.atomic
@@ -600,12 +697,8 @@ def notify_smart_invest_matches_for_published_loan(
             investor_user_id=user.pk, loan_id=loan_id
         ).exists():
             continue
-        outbox = enqueue_outbox_message(
-            OutboxCommand(
-                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
-                topic="email.smart_invest_opportunity_match",
-                payload=_email_payload(user=user, opportunity=opportunity),
-            )
+        outbox = _enqueue_match_alert(
+            rule=rule, user=user, loan_id=loan_id, opportunity=opportunity
         )
         try:
             with transaction.atomic():

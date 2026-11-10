@@ -745,6 +745,7 @@ export const smartInvestFixture: SmartInvestResponse = {
       skin_in_the_game_bps: loan.skin_in_the_game_bps,
       minimum_subscription_bps: loan.minimum_subscription_bps
     })),
+  notification_channels: { in_app: true, email: true },
   match_count: 0
 };
 

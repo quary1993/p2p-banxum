@@ -74,6 +74,7 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];
 
 export const smartInvestFixture: SmartInvestResponse = {
   rule: null,
+  notification_channels: { in_app: true, email: true },
   match_count: 0,
   open_opportunity_count: 0,
   matches: []

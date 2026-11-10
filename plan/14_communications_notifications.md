@@ -275,6 +275,8 @@ Define the template variable registry, validation rules, preview/test-send behav
 ### COMMS-DEC-008: Smart-Invest Match Alerts Are Transactional And First-Publication-Only
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19 and U33-DEC-30: Smart Invest alerts get separate in-platform and email controls with real effects; Pause stops both channels; no duplicate alert with the Coming soon opening alert (U33-DEC-17).
+>
+> Implemented 2026-11-10 (Phase 17.2, U33-DEC-30): `SmartInvestRule.notify_in_app` / `notify_email` (both on by default, kept also before set-up in an empty, inactive rule), set with `POST /api/v1/investor/smart-invest/notifications/` (rule event `channels_changed`, audit) and returned as `notification_channels`. Per match: email on sends `email.smart_invest_opportunity_match` (with `in_app: false` in the payload when the in-app channel is off, so Notifications leaves it out); email off and in-app on queues `notice.smart_invest_opportunity_match`, which no sender picks up (processed at once) and Notifications lists; both off records the match without a message. Matching, the matches list and service emails do not depend on the channels; Pause stops both. The Smart Invest page has the design's "Notification settings" dialog; Profile & Settings -> Notifications has the Smart Invest row with "Manage".
 
 Status: Accepted.
 Date: 2026-08-06.

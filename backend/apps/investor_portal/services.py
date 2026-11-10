@@ -43,6 +43,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.loan_status_changed",
         "email.loan_risk_note_published",
         "email.smart_invest_opportunity_match",
+        "notice.smart_invest_opportunity_match",
         "email.support_request_received",
         "email.originator_claim_purchase_confirmation",
         "email.originator_claim_repayment_credited",
@@ -81,6 +82,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.secondary_market_purchase_confirmation": "Secondary market",
     "email.secondary_market_sale_confirmation": "Secondary market",
     "email.smart_invest_opportunity_match": "Smart-Invest",
+    "notice.smart_invest_opportunity_match": "Smart-Invest",
     "email.support_request_received": "Support",
     "email.document_acceptance_pdf": "Documents",
     "email.account_login_blocked": "Account",
@@ -869,6 +871,7 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     for record in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_DELIVERY)
         .select_related("outbox_message")
         .defer("body_html")
         .order_by("-outbox_message__created_at", "-created_at", "-id")[: window * 3]
@@ -917,7 +920,9 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
             {
                 "id": str(outbox.id),
                 "outbox_message_id": int(outbox.id),
-                "notification_source": "email_outbox",
+                "notification_source": (
+                    "in_app" if topic.startswith(IN_APP_TOPIC_PREFIX) else "email_outbox"
+                ),
                 "topic": topic,
                 "topic_label": notification_topic_label(topic),
                 "status": str(outbox.status),
@@ -933,10 +938,23 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     return entries[:window]
 
 
+# U33-DEC-30: in-app notices (never emailed) are listed with the emails; an email whose payload
+# says `in_app: false` (the investor switched the in-app channel off) is not listed.
+IN_APP_TOPIC_PREFIX = "notice."
+# A JSON key that is missing compares as NULL: has_key keeps the rows without the flag listed.
+_IN_APP_OFF_OUTBOX = Q(payload__has_key="in_app") & Q(payload__in_app=False)
+_IN_APP_OFF_DELIVERY = Q(outbox_message__payload__has_key="in_app") & Q(
+    outbox_message__payload__in_app=False
+)
+
+
 def _investor_outbox_queryset(outbox_model: Any, *, investor_user_id: str, email: str) -> Any:
     return (
-        outbox_model.objects.filter(topic__startswith="email.")
+        outbox_model.objects.filter(
+            Q(topic__startswith="email.") | Q(topic__startswith=IN_APP_TOPIC_PREFIX)
+        )
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_OUTBOX)
         .filter(
             Q(payload__user_id=investor_user_id)
             | Q(payload__email=email)
@@ -955,6 +973,7 @@ def _investor_notification_index(actor: Model, *, window: int) -> list[tuple[int
     for outbox_message_id, topic, created_at in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_DELIVERY)
         .order_by("-outbox_message__created_at", "-created_at", "-id")
         .values_list("outbox_message_id", "topic", "outbox_message__created_at")[: window * 3]
     ):

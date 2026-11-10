@@ -514,6 +514,18 @@ test("Smart Invest shows each match as its own opportunity with no bulk selectio
   expect(screen.getByText(/You review and confirm each investment\./)).toBeInTheDocument();
   // No risk rating anywhere (U33-DEC-16).
   expect(screen.queryByText(/risk rating|Rating/)).not.toBeInTheDocument();
+
+  // U33-DEC-30: the in-app and email alerts have their own switches.
+  expect(screen.getByText("New matches appear in your notifications.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));
+  const channels = screen.getByRole("dialog", { name: "Smart Invest notifications" });
+  const inApp = within(channels).getByRole("checkbox", { name: /Notify me in the app/ });
+  expect(inApp).toBeChecked();
+  expect(within(channels).getByRole("checkbox", { name: /Email me/ })).toBeChecked();
+  fireEvent.click(inApp);
+  fireEvent.click(within(channels).getByRole("button", { name: "Save preferences" }));
+  expect(screen.queryByRole("dialog", { name: "Smart Invest notifications" })).not.toBeInTheDocument();
+  expect(screen.getByText("New matches are sent to you by email.")).toBeInTheDocument();
 });
 
 test("Smart Invest explains matches whose minimum cannot be reached; Overview offers no batch", () => {
@@ -2204,6 +2216,12 @@ test("profile and settings keep every section reachable from its tabs and the ac
   fireEvent.click(within(tabs).getByRole("link", { name: "Notifications" }));
   expect(screen.getByRole("checkbox", { name: "News from Banxum" })).not.toBeChecked();
   expect(screen.getAllByText("Always on").length).toBeGreaterThan(0);
+  // U33-DEC-30: Smart Invest has its own in-app / email channels.
+  expect(screen.getByText("Investment opportunities matching your preferences")).toBeInTheDocument();
+  expect(screen.getByText(/In-app notifications on · Email notifications on/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+  expect(screen.getByRole("dialog", { name: "Smart Invest notifications" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
   fireEvent.click(within(tabs).getByRole("link", { name: "Preferences" }));
   fireEvent.click(screen.getByRole("button", { name: "Dark" }));

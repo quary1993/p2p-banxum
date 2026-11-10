@@ -23,6 +23,7 @@ import { Button, Dialog, EmptyState, NiIcon, PageHead } from "../../components";
 import { SmartInvestWizard } from "./SmartInvestWizard";
 import { errorMessage, isReadonlyView } from "./parts/errors";
 import { OpportunityCard } from "./parts/OpportunityCard";
+import { SmartInvestChannelsDialog } from "./parts/SmartInvestChannelsDialog";
 import {
   SMART_CURRENCIES,
   preferencesFromRule,
@@ -33,7 +34,7 @@ import {
   smartState,
   type SmartPreferences
 } from "./parts/smartInvestModel";
-import { preferenceSummary } from "./parts/smartSummary";
+import { channelsLine, preferenceSummary } from "./parts/smartSummary";
 import { usePreviewVariant } from "./parts/urlState";
 import { PageError, PageLoading, SelectFilter } from "./parts/ui";
 import "./portfolio.css";
@@ -62,6 +63,7 @@ export function SmartInvestScreen() {
   const preview = usePreviewVariant();
   const [wizard, setWizard] = useState<"setup" | "edit" | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
+  const [channelsOpen, setChannelsOpen] = useState(false);
   const [sort, setSort] = useState<SortKey>("closing");
   const [error, setError] = useState("");
 
@@ -90,7 +92,9 @@ export function SmartInvestScreen() {
       return;
     }
     try {
-      const response = isFixturePreview ? previewResponse(next, loans, rule) : await updateMutation.mutateAsync({ data: requestFromPreferences(next) });
+      const response = isFixturePreview
+        ? previewResponse(next, loans, rule, undefined, data.notification_channels)
+        : await updateMutation.mutateAsync({ data: requestFromPreferences(next) });
       queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
       setWizard(null);
     } catch (failure) {
@@ -105,7 +109,7 @@ export function SmartInvestScreen() {
     }
     try {
       let response: SmartInvestResponse;
-      if (isFixturePreview) response = next === "pause" ? previewPaused(rule, loans) : previewResumed(rule, loans);
+      if (isFixturePreview) response = next === "pause" ? previewPaused(rule, loans, data.notification_channels) : previewResumed(rule, loans, data.notification_channels);
       else response = next === "pause" ? await pauseMutation.mutateAsync() : await resumeMutation.mutateAsync();
       queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
     } catch (failure) {
@@ -243,14 +247,17 @@ export function SmartInvestScreen() {
           </div>
         )}
       </div>
-      {/* Today new matches are emailed (smart_invest notify_smart_invest_matches_for_published_loan); the
-          design's "Notification settings" waits for the per-channel controls (U33-DEC-30). */}
+      {/* U33-DEC-30: the in-app and email match alerts have their own switches. */}
       <div className="si-notifications">
         <div>
           <NiIcon name="bell" />
-          <span>{t("New matching opportunities are sent to you by email.")}</span>
+          <span>{channelsLine(data.notification_channels)}</span>
         </div>
+        <button className="si-link" onClick={() => setChannelsOpen(true)} type="button">
+          {t("Notification settings")} <NiIcon name="chevron-right" />
+        </button>
       </div>
+      {channelsOpen ? <SmartInvestChannelsDialog current={data} onClose={() => setChannelsOpen(false)} /> : null}
       {whyOpen ? (
         <Dialog bodyClassName="u104-explanation" onClose={() => setWhyOpen(false)} size="sm" title={t("Why these matches?")}>
           <p>{t("These opportunities are open now and meet every preference you set: {summary}.", { summary })}</p>

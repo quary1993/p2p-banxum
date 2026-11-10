@@ -1,14 +1,16 @@
 // IP of Webby-Soft SRL.
 // Profile & Settings -> Notifications (U33-DEC-30): the service emails that are always sent, as a
-// read-only list, and the one optional switch, "News from Banxum" (today's marketing consent). No
-// per-category switches and no Smart Invest channels until the notification preferences exist
-// (Phase 17.2).
+// read-only list, the one optional switch, "News from Banxum" (today's marketing consent), and the
+// Smart Invest section with its own in-app / email channels ("Manage" opens the same dialog as the
+// Smart Invest page). No per-category switches for service emails.
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 
 import { useV1AuthPreferencesMarketingPartialUpdate } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
-import { isFixturePreview } from "../../../../investorPortal/data";
+import { isFixturePreview, useSmartInvestData } from "../../../../investorPortal/data";
+import { smartState } from "../../portfolio/parts/smartInvestModel";
+import { SmartInvestChannelsDialog } from "../../portfolio/parts/SmartInvestChannelsDialog";
 import { brandDisplayName } from "../../../brand";
 import { NiIcon, PortalLink } from "../../../components";
 import { Notice, PsPanel, SettingsRow } from "../parts/ui";
@@ -33,6 +35,9 @@ export function NotificationsTab({ account }: { account: AccountData }) {
   const mutation = useV1AuthPreferencesMarketingPartialUpdate();
   const [marketing, setMarketing] = useState(account.marketingConsent);
   const [error, setError] = useState("");
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  // Smart Invest needs financial access; without it the section is not shown.
+  const smart = useSmartInvestData(account.financialAccess && !account.readonly);
   useEffect(() => setMarketing(account.marketingConsent), [account.marketingConsent]);
 
   const change = (next: boolean) => {
@@ -74,6 +79,17 @@ export function NotificationsTab({ account }: { account: AccountData }) {
             ))}
           </div>
         </PsPanel>
+        {smart.data ? (
+          <PsPanel title={t("Smart Invest")}>
+            <div className="ps-settings-rows">
+              <SettingsRow
+                actions={<button className="btn btn-outline-light btn-sm" disabled={account.readonly} onClick={() => setChannelsOpen(true)} type="button">{t("Manage")}</button>}
+                description={smartChannelsSummary(smart.data, t)}
+                title={t("Investment opportunities matching your preferences")}
+              />
+            </div>
+          </PsPanel>
+        ) : null}
         <PsPanel title={t("Account")}>
           <div className="ps-settings-rows">
             {ACCOUNT_EMAILS.map((item) => (
@@ -103,6 +119,17 @@ export function NotificationsTab({ account }: { account: AccountData }) {
         </PsPanel>
       </div>
       {error ? <Notice title={t("Could not update your preference")} tone="danger">{error}</Notice> : null}
+      {channelsOpen && smart.data ? <SmartInvestChannelsDialog current={smart.data} onClose={() => setChannelsOpen(false)} /> : null}
     </>
   );
+}
+
+/** Design siSummary: the two channels, and why no alert comes yet (not set up or paused). */
+function smartChannelsSummary(data: NonNullable<ReturnType<typeof useSmartInvestData>["data"]>, t: ReturnType<typeof useT>) {
+  const state = smartState(data.rule);
+  const parts = [
+    t("Separate from general opportunity emails."),
+    `${data.notification_channels.in_app ? t("In-app notifications on") : t("In-app notifications off")} · ${data.notification_channels.email ? t("Email notifications on") : t("Email notifications off")}${state === "not_set_up" ? ` · ${t("Available after setup")}` : state === "paused" ? ` · ${t("Smart Invest paused")}` : ""}`
+  ];
+  return parts.join(" ");
 }

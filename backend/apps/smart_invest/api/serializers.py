@@ -152,8 +152,16 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
 
 
+class SmartInvestChannelsSerializer(serializers.Serializer[Any]):
+    """U33-DEC-30: the in-app and email channels of the match alerts."""
+
+    in_app = serializers.BooleanField()
+    email = serializers.BooleanField()
+
+
 class SmartInvestResponseSerializer(serializers.Serializer[Any]):
     rule = SmartInvestRuleSerializer(allow_null=True)
+    notification_channels = SmartInvestChannelsSerializer()
     match_count = serializers.IntegerField()
     open_opportunity_count = serializers.IntegerField()
     matches = SmartInvestOpportunitySerializer(many=True)

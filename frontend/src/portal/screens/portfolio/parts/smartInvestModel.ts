@@ -6,6 +6,7 @@
 import {
   SmartInvestCollateralEnum,
   type MarketplaceLoanPreview,
+  type SmartInvestChannels,
   type SmartInvestCurrencyEnum,
   type SmartInvestOpportunity,
   type SmartInvestResponse,
@@ -190,7 +191,16 @@ function asOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
  * Preview mode only (no server): the answer the server would give after saving these preferences.
  * As the backend, saving keeps a paused rule paused (U33-DEC-19); a new set-up is active.
  */
-export function previewResponse(preferences: SmartPreferences, loans: MarketplaceLoanPreview[], previous: SmartInvestRule | null | undefined, active = smartState(previous) !== "paused"): SmartInvestResponse {
+/** U33-DEC-30: both alert channels are on until the investor switches one off. */
+export const DEFAULT_CHANNELS: SmartInvestChannels = { in_app: true, email: true };
+
+export function previewResponse(
+  preferences: SmartPreferences,
+  loans: MarketplaceLoanPreview[],
+  previous: SmartInvestRule | null | undefined,
+  active = smartState(previous) !== "paused",
+  channels: SmartInvestChannels = DEFAULT_CHANNELS
+): SmartInvestResponse {
   const open = loans.filter(isOpenOpportunity);
   const matches = active ? open.filter((loan) => matchesPreferences(loan, preferences)).map(asOpportunity) : [];
   const request = requestFromPreferences(preferences);
@@ -214,6 +224,7 @@ export function previewResponse(preferences: SmartPreferences, loans: Marketplac
       created_at: previous?.created_at ?? now,
       updated_at: now
     },
+    notification_channels: channels,
     match_count: matches.length,
     open_opportunity_count: open.length,
     matches
@@ -221,11 +232,11 @@ export function previewResponse(preferences: SmartPreferences, loans: Marketplac
 }
 
 /** Preview mode only: the answer after "Pause Smart Invest" (the preferences stay, no matches). */
-export function previewPaused(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[]): SmartInvestResponse {
-  return previewResponse(preferencesFromRule(previous), loans, previous, false);
+export function previewPaused(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[], channels = DEFAULT_CHANNELS): SmartInvestResponse {
+  return previewResponse(preferencesFromRule(previous), loans, previous, false, channels);
 }
 
 /** Preview mode only: the answer after "Resume Smart Invest" (the matches are calculated anew). */
-export function previewResumed(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[]): SmartInvestResponse {
-  return previewResponse(preferencesFromRule(previous), loans, previous, true);
+export function previewResumed(previous: SmartInvestRule | null | undefined, loans: MarketplaceLoanPreview[], channels = DEFAULT_CHANNELS): SmartInvestResponse {
+  return previewResponse(preferencesFromRule(previous), loans, previous, true, channels);
 }

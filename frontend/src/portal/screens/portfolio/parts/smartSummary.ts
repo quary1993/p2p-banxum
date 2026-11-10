@@ -2,6 +2,7 @@
 // The one-line summary of Smart Invest preferences (design summary(): the usual amount per investment or
 // the currencies, minimum interest, maximum duration). The security types, loan-to-value limit, borrower
 // countries and originators are added only when set (U33-DEC-19).
+import type { SmartInvestChannels } from "../../../../api/generated/banxumApi";
 import { t } from "../../../../i18n";
 import { formatDecimal, formatMoneyLabel } from "../../../../investorPortal/format";
 import { countryName } from "../../invest/loanFacts";
@@ -24,4 +25,11 @@ export function preferenceSummary(preferences: SmartPreferences, originators: Ar
     parts.push(preferences.originators.map((id) => (id === BANXUM_SOURCE ? t("Banxum direct loans") : originators.find((item) => item.id === id)?.name ?? t("Selected originator"))).join(", "));
   }
   return parts.join(" · ");
+}
+
+/** The design's line above "Notification settings" on the Smart Invest page. */
+export function channelsLine(channels: SmartInvestChannels) {
+  if (channels.in_app) return t("New matches appear in your notifications.");
+  if (channels.email) return t("New matches are sent to you by email.");
+  return t("Match notifications are off.");
 }

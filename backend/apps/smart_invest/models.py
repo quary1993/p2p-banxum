@@ -38,6 +38,8 @@ class SmartInvestRuleEventType(models.TextChoices):
     RATING_CRITERION_REMOVED = "rating_criterion_removed", "Risk-rating criterion removed"
     # U33-DEC-19: the migration that removed the purpose and loan-kind criteria.
     RETIRED_CRITERIA_REMOVED = "retired_criteria_removed", "Purpose and loan-kind criteria removed"
+    # U33-DEC-30: the investor changed the in-app / email channels of the match alerts.
+    CHANNELS_CHANGED = "channels_changed", "Notification channels changed"
 
 
 class SmartInvestRule(TimestampedModel):
@@ -70,6 +72,10 @@ class SmartInvestRule(TimestampedModel):
     collateral = models.JSONField(default=list, blank=True)
     currencies = models.JSONField(default=list, blank=True)
     revision = models.PositiveIntegerField(default=0)
+    # U33-DEC-30: each channel of the match alerts has its own switch. Off stops only that
+    # channel: matching, the matches list and service messages go on. Pause stops both.
+    notify_in_app = models.BooleanField(default=True)
+    notify_email = models.BooleanField(default=True)
     activated_at = models.DateTimeField(null=True, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
@@ -138,10 +144,13 @@ class SmartInvestMatchNotification(AppendOnlyModel):
     investor_user_id = models.UUIDField()
     loan_id = models.UUIDField()
     product_type = models.CharField(max_length=32)
+    # Empty when both channels were off (U33-DEC-30): the match is recorded, nothing is sent.
     outbox_message = models.ForeignKey(
         "platform_core.OutboxMessage",
         on_delete=models.PROTECT,
         related_name="smart_invest_match_notifications",
+        null=True,
+        blank=True,
     )
     rule_revision = models.PositiveIntegerField()
     match_snapshot = models.JSONField(default=dict)

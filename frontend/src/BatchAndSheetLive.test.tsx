@@ -2,7 +2,7 @@
 // A-31 / A-42 are superseded by U33-DEC-19 (no batch approval: every match is confirmed on its own
 // opportunity page), A-39 (the opportunity names the borrower and what can really be invested here,
 // and the amount parses with or without separators; nothing is pre-filled, U33-DEC-08).
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -21,7 +21,7 @@ beforeAll(async () => {
 
 let calls: RecordedCalls;
 beforeEach(() => {
-  calls = emptyCalls("codes", "acceptances", "batches");
+  calls = emptyCalls("codes", "acceptances", "batches", "channels");
 });
 
 const LOAN_ID = "88888888-8888-4888-8888-888888888888";
@@ -81,13 +81,7 @@ function loanDetail(overrides: Record<string, unknown> = {}) {
 // U33-DEC-19 replaces the Smart-Invest batch (A-31 / A-42): a match opens its opportunity page, where
 // the single-investment flow asks for the terms, the risk acknowledgement and the code on its own.
 test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no batch approval", async () => {
-  server.use(
-    ...investorShellHandlers(calls, {
-      balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
-      marketplaceLoans: () => [preview]
-    }),
-    http.get("*/api/v1/investor/smart-invest/", () =>
-      HttpResponse.json({
+  const smart = {
         rule: {
           id: "rule-1",
           is_active: true,
@@ -106,19 +100,38 @@ test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no b
           created_at: "2026-10-01T00:00:00Z",
           updated_at: "2026-10-01T00:00:00Z"
         },
+        notification_channels: { in_app: true, email: true },
         match_count: 1,
         open_opportunity_count: 1,
         matches: [preview]
-      })
-    ),
+      };
+  server.use(
+    ...investorShellHandlers(calls, {
+      balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
+      marketplaceLoans: () => [preview]
+    }),
+    http.get("*/api/v1/investor/smart-invest/", () => HttpResponse.json(smart)),
     http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail())),
     http.post("*/api/v1/marketplace/primary/orders/batch/", async ({ request }) => {
       calls.batches.push((await request.json()) as Record<string, unknown>);
       return HttpResponse.json({}, { status: 400 });
+    }),
+    http.post("*/api/v1/investor/smart-invest/notifications/", async ({ request }) => {
+      const body = (await request.json()) as { in_app: boolean; email: boolean };
+      calls.channels.push(body);
+      return HttpResponse.json({ ...smart, notification_channels: body });
     })
   );
   renderLiveApp(App, "/smart-invest");
   const review = await screen.findByRole("button", { name: "Review investment in Audit Direct Loan" }, { timeout: 5000 });
+
+  // U33-DEC-30: the channels are saved with their own request.
+  fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));
+  const channels = screen.getByRole("dialog", { name: "Smart Invest notifications" });
+  fireEvent.click(within(channels).getByRole("checkbox", { name: /Email me/ }));
+  fireEvent.click(within(channels).getByRole("button", { name: "Save preferences" }));
+  await waitFor(() => expect(calls.channels).toEqual([{ in_app: true, email: false }]));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Smart Invest notifications" })).not.toBeInTheDocument());
   expect(screen.getByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
   // Nothing to select, approve or confirm in bulk on the Smart Invest page.
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
