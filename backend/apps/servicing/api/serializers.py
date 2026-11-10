@@ -525,8 +525,10 @@ class LoanRecoveryStageSerializer(serializers.Serializer[Any]):
     occurred_on = serializers.DateField(allow_null=True)
     investor_note = serializers.CharField(allow_blank=True)
     created_at = serializers.DateTimeField()
+    recorded_by_email = serializers.CharField(allow_blank=True)
     removed_at = serializers.DateTimeField(allow_null=True)
     removed_reason = serializers.CharField(allow_blank=True)
+    removed_by_email = serializers.CharField(allow_blank=True)
 
 
 class LoanRecoveryStageListSerializer(serializers.Serializer[Any]):

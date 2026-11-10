@@ -217,3 +217,38 @@ def test_the_migration_copies_the_recorded_collateral_without_inventing_data(
     assert rows[guaranteed.pk]["security_type"] == "corporate_guarantee"
     assert rows[guaranteed.pk]["value_minor"] is None
     assert unsecured.pk not in rows
+
+
+def test_a_draft_security_moves_up_and_the_first_one_gives_the_loan_summary(
+    admin_user: Model,
+) -> None:
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    extra = _add(admin_user, loan, security_type="equipment", value_minor=900_00).json()
+    listed = _client(admin_user).get(_url(loan)).json()
+    assert listed["borrower_documents"] == []
+
+    moved = _client(admin_user).post(
+        f"{_url(loan, extra['id'])}move/", data={"direction": "up"}, content_type="application/json"
+    )
+
+    assert moved.status_code == 200, moved.content
+    assert [item["security_type"] for item in moved.json()["securities"]] == [
+        "equipment",
+        "real_estate",
+    ]
+    loan.refresh_from_db()
+    assert (loan.collateral_type, loan.collateral_value_minor) == ("equipment", 900_00)
+    again = _client(admin_user).post(
+        f"{_url(loan, extra['id'])}move/", data={"direction": "up"}, content_type="application/json"
+    )
+    assert again.status_code == 400
+    assert "already first" in again.json()["detail"]
+
+    publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.pk)))
+    fixed = _client(admin_user).post(
+        f"{_url(loan, extra['id'])}move/",
+        data={"direction": "down"},
+        content_type="application/json",
+    )
+    assert fixed.status_code == 400
+    assert "fixed" in fixed.json()["detail"]

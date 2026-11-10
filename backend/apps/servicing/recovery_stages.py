@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, cast
 
+from django.apps import apps
 from django.db import transaction
 from django.db.models import Model
 
@@ -43,7 +44,24 @@ class RecordRecoveryStageCommand:
     investor_note: str = ""
 
 
-def _stage_payload(stage: LoanRecoveryStage) -> dict[str, Any]:
+def _admin_emails(stages: list[LoanRecoveryStage]) -> dict[str, str]:
+    """Admin id -> email for the people who recorded or removed the stages."""
+    ids = {stage.created_by_admin_id for stage in stages} | {
+        stage.removed_by_admin_id for stage in stages if stage.removed_by_admin_id
+    }
+    if not ids:
+        return {}
+    user_model = apps.get_model("accounts_auth", "User")
+    return {
+        str(user_id): str(email)
+        for user_id, email in user_model.objects.filter(pk__in=ids).values_list("pk", "email")
+    }
+
+
+def _stage_payload(
+    stage: LoanRecoveryStage, emails: dict[str, str] | None = None
+) -> dict[str, Any]:
+    names = emails if emails is not None else _admin_emails([stage])
     return {
         "id": str(stage.id),
         "status": stage.status,
@@ -51,18 +69,25 @@ def _stage_payload(stage: LoanRecoveryStage) -> dict[str, Any]:
         "occurred_on": stage.occurred_on,
         "investor_note": stage.investor_note,
         "created_at": stage.created_at,
+        "recorded_by_email": names.get(str(stage.created_by_admin_id), ""),
         "removed_at": stage.removed_at,
         "removed_reason": stage.removed_reason,
+        "removed_by_email": names.get(str(stage.removed_by_admin_id), "")
+        if stage.removed_by_admin_id
+        else "",
     }
 
 
 def list_recovery_stages(*, actor: Model, loan_id: str) -> list[dict[str, Any]]:
-    """Admin: every stage of the loan, removed ones included."""
+    """Admin: every stage of the loan, removed ones included, with who recorded or removed it."""
     _require_admin_actor(actor)
-    stages = LoanRecoveryStage.objects.filter(loan_id=loan_id).order_by(
-        "status", "occurred_on", "created_at", "id"
+    stages = list(
+        LoanRecoveryStage.objects.filter(loan_id=loan_id).order_by(
+            "status", "occurred_on", "created_at", "id"
+        )
     )
-    return [_stage_payload(stage) for stage in stages]
+    emails = _admin_emails(stages)
+    return [_stage_payload(stage, emails) for stage in stages]
 
 
 @transaction.atomic

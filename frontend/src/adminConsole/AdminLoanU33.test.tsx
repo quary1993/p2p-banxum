@@ -204,3 +204,90 @@ test("a superadmin changes the platform's late and default days with a reason", 
   await waitFor(() => expect(puts).toEqual([{ late_days: 20, default_days: 90, reason: "Owner decision" }]));
   expect(await screen.findByText(/Loans without contract days are Late from day 20/)).toBeInTheDocument();
 }, 20_000);
+
+const security = (id: string, type: string, documents: Array<{ id: string; display_name: string }> = []) => ({
+  id,
+  position: 0,
+  security_type: type,
+  is_guarantee: type.endsWith("guarantee"),
+  description: "",
+  holder_name: "",
+  rank: null,
+  status: "in_place",
+  value_minor: 100_000,
+  valuation_date: null,
+  valuation_source: "",
+  appraiser: "",
+  prior_ranking_debt_minor: null,
+  insurance: "",
+  undertaking_scope: "",
+  undertaking_limit_minor: null,
+  documents
+});
+
+test("a draft's securities move up or down and show the borrower documents they rely on", async () => {
+  const moves: Array<{ id: string; body: unknown }> = [];
+  const saves: Array<Record<string, unknown>> = [];
+  const documents = [{ id: "d1", display_name: "Land register extract" }, { id: "d2", display_name: "Valuation report" }];
+  server.use(
+    http.get("*/api/v1/loans/admin/loans/", () => HttpResponse.json([{ ...adminLoan, status: "draft" }])),
+    http.get("*/api/v1/loans/admin/loans/:loanId/", () => HttpResponse.json({ ...adminLoan, status: "draft" })),
+    http.get("*/api/v1/loans/admin/loans/:loanId/securities/", () =>
+      HttpResponse.json({ securities: [security("s1", "real_estate", [documents[0]]), security("s2", "equipment")], borrower_documents: documents })
+    ),
+    http.post("*/api/v1/loans/admin/loans/:loanId/securities/:securityId/move/", async ({ params, request }) => {
+      moves.push({ id: String(params.securityId), body: await request.json() });
+      return HttpResponse.json({ securities: [security("s2", "equipment"), security("s1", "real_estate", [documents[0]])], borrower_documents: documents });
+    }),
+    http.put("*/api/v1/loans/admin/loans/:loanId/securities/:securityId/", async ({ request }) => {
+      saves.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json(security("s1", "real_estate", documents));
+    }),
+    ...adminHandlers()
+  );
+  renderAdmin(`/admin/loans/${adminLoanId}/manage/securities`);
+
+  expect(await screen.findByText("Land register extract", {}, { timeout: 10_000 })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Move Real Estate up" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Move Equipment up" }));
+  await waitFor(() => expect(moves).toEqual([{ id: "s2", body: { direction: "up" } }]));
+
+  const securitiesTable = screen.getByText("Land register extract").closest("table") as HTMLElement;
+  fireEvent.click(within(securitiesTable).getAllByRole("button", { name: "Edit" })[0]);
+  const valuation = await screen.findByRole("checkbox", { name: "Valuation report" });
+  expect(screen.getByRole("checkbox", { name: "Land register extract" })).toBeChecked();
+  fireEvent.click(valuation);
+  fireEvent.click(screen.getByRole("button", { name: "Save security" }));
+  await waitFor(() => expect(saves[0]?.document_ids).toEqual(["d1", "d2"]));
+}, 20_000);
+
+test("removed recovery entries show the reason and who recorded and removed them", async () => {
+  server.use(
+    http.get("*/api/v1/servicing/admin/loans/:loanId/recovery-stages/", () =>
+      HttpResponse.json({
+        stages: [
+          {
+            id: "r1",
+            status: "done",
+            title: "Reminder sent",
+            occurred_on: "2026-03-01",
+            investor_note: "",
+            created_at: "2026-03-01T09:00:00Z",
+            recorded_by_email: "ops@example.test",
+            removed_at: "2026-03-02T09:00:00Z",
+            removed_reason: "Wrong loan.",
+            removed_by_email: "lead@example.test"
+          }
+        ]
+      })
+    ),
+    ...adminHandlers()
+  );
+  renderAdmin(`/admin/loans/${adminLoanId}/manage/recovery_stages`);
+
+  fireEvent.click(await screen.findByText("1 removed entry is kept for the audit", {}, { timeout: 10_000 }));
+  const table = screen.getByRole("table", { name: "Removed recovery entries" });
+  expect(within(table).getByText("Wrong loan.")).toBeInTheDocument();
+  expect(within(table).getByText(/ops@example\.test/)).toBeInTheDocument();
+  expect(within(table).getByText(/lead@example\.test/)).toBeInTheDocument();
+}, 20_000);

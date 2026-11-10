@@ -466,6 +466,12 @@ class LoanSecuritySerializer(serializers.Serializer[Any]):
 
 class LoanSecurityListSerializer(serializers.Serializer[Any]):
     securities = LoanSecuritySerializer(many=True)
+    # The borrower's documents that can be attached to a security.
+    borrower_documents = LoanSecurityDocumentSerializer(many=True)
+
+
+class LoanSecurityMoveRequestSerializer(serializers.Serializer[Any]):
+    direction = serializers.ChoiceField(choices=["up", "down"])
 
 
 class LoanSecurityRequestSerializer(serializers.Serializer[Any]):

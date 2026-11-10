@@ -381,14 +381,14 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, action "Recovery stages" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: for a late, defaulted or written-off loan, the form lists the recorded stages and the next step, records a stage that happened (title, real date, note for lenders) or the next step (title, date when known, note), and removes a wrong entry with a reason (the number of removed entries is shown; they stay for the audit). Titles are free text; the field suggests examples only.
-- Required admin-console improvement: show the removed entries with their reason and author; link to "Publish a loan note" to email lenders about a new stage.
+- Required admin-console improvement: none left from the first version (2026-11-10: removed entries are listed with when and by whom they were recorded and removed and why; after a recorded stage the form offers "Email the lenders with a loan note"; the Loan history shows the stages).
 - Priority: important.
 
 ## 2026-11-10: Several Securities (U33-DEC-21)
 
 - Screen or component: loan Manage modal, action "Securities" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
-- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities (2026-11-10: the loan list shows the securities' types, released ones marked).
+- Required admin-console improvement: none left from the first version (2026-11-10: the form picks the borrower documents of each security and shows them in the list; a draft's securities move up or down, and the first one gives the loan's collateral and loan-to-value; the loan list shows the security types; the Loan history shows every security change). Possible: a document upload from the security form.
 - Priority: important.
 
 ## 2026-11-10: Structured Credit File (U33-DEC-20)

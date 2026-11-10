@@ -15,6 +15,7 @@ from backend.apps.loans.api.views import (
     LoanScheduleView,
     LoanSecurityDetailView,
     LoanSecurityListView,
+    LoanSecurityMoveView,
     PublishLoanView,
 )
 
@@ -46,6 +47,11 @@ urlpatterns = [
         "admin/loans/<uuid:loan_id>/securities/<uuid:security_id>/",
         LoanSecurityDetailView.as_view(),
         name="loan-security",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/securities/<uuid:security_id>/move/",
+        LoanSecurityMoveView.as_view(),
+        name="loan-security-move",
     ),
     path(
         "admin/loans/<uuid:loan_id>/coming-soon/",

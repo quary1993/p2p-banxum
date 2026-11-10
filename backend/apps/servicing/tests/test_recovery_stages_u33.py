@@ -132,6 +132,14 @@ def test_admin_records_real_stages_and_the_next_step_investors_see_them(
     )
     assert removed.status_code == 200, removed.content
     assert removed.json()["removed_reason"] == "Wrong loan."
+    # The admin list keeps the removed entry with who recorded and who removed it.
+    admin_email = str(getattr(admin_user, "email", ""))
+    [listed] = [
+        stage
+        for stage in client.get(_url(loan)).json()["stages"]
+        if stage["id"] == notice.json()["id"]
+    ]
+    assert (listed["recorded_by_email"], listed["removed_by_email"]) == (admin_email, admin_email)
     holding = _portfolio_loan_holding(investor_one)
     assert [stage["title"] for stage in holding["recovery_stages"]] == ["Reminder sent"]
     again = client.post(

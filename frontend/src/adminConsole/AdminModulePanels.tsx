@@ -112,6 +112,7 @@ import {
   useV1ServicingAdminLoansRecoveryStagesRemoveCreate,
   useV1ServicingAdminLoansRecoveryStagesRetrieve,
   useV1LoansAdminLoansHistoryRetrieve,
+  useV1LoansAdminLoansSecuritiesMoveCreate,
   useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
@@ -5852,7 +5853,7 @@ function ManageLoanModal({
 
             {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
 
-            {action === "recovery_stages" ? <LoanRecoveryStagesForm loan={loan} /> : null}
+            {action === "recovery_stages" ? <LoanRecoveryStagesForm loan={loan} onPublishNote={() => setAction("note")} /> : null}
 
             {action === "credit_checks" ? <LoanCreditChecksForm loan={loan} /> : null}
 
@@ -6249,6 +6250,7 @@ type SecurityDraft = {
   insurance: string;
   scope: string;
   limit: string;
+  documentIds: string[];
 };
 
 function securityDraft(security?: LoanSecurity): SecurityDraft {
@@ -6267,7 +6269,8 @@ function securityDraft(security?: LoanSecurity): SecurityDraft {
     priorDebt: text(security?.prior_ranking_debt_minor),
     insurance: security?.insurance ?? "",
     scope: security?.undertaking_scope ?? "",
-    limit: text(security?.undertaking_limit_minor)
+    limit: text(security?.undertaking_limit_minor),
+    documentIds: (security?.documents ?? []).map((document) => document.id)
   };
 }
 
@@ -6287,7 +6290,8 @@ function securityRequest(draft: SecurityDraft): LoanSecurityRequest {
     prior_ranking_debt_minor: guarantee ? null : amount(draft.priorDebt),
     insurance: guarantee ? "" : draft.insurance.trim(),
     undertaking_scope: guarantee ? draft.scope.trim() : "",
-    undertaking_limit_minor: guarantee ? amount(draft.limit) : null
+    undertaking_limit_minor: guarantee ? amount(draft.limit) : null,
+    document_ids: draft.documentIds
   };
 }
 
@@ -6305,7 +6309,10 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
   const create = useV1LoansAdminLoansSecuritiesCreate({ mutation: { onSuccess: () => { setSuccess("Security added."); setDraft(null); refresh(); } } });
   const update = useV1LoansAdminLoansSecuritiesUpdate({ mutation: { onSuccess: () => { setSuccess("Security saved."); setDraft(null); refresh(); } } });
   const remove = useV1LoansAdminLoansSecuritiesDestroy({ mutation: { onSuccess: () => { setSuccess("Security removed."); refresh(); } } });
+  const move = useV1LoansAdminLoansSecuritiesMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved. The first security gives the loan's collateral and loan-to-value."); refresh(); } } });
   const securities = query.data?.securities ?? [];
+  const borrowerDocuments = query.data?.borrower_documents ?? [];
+  const canMove = loan.status === "draft" && securities.length > 1;
   const guarantee = draft ? GUARANTEE_TYPES.includes(draft.securityType) : false;
   const set = (patch: Partial<SecurityDraft>) => setDraft((current) => (current ? { ...current, ...patch } : current));
   const typeOptions = draft && !NEW_SECURITY_TYPES.includes(draft.securityType as LoanCollateralType)
@@ -6318,7 +6325,11 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
       : !guarantee && draft.priorDebt.trim() && !draft.value.trim()
         ? "Prior-ranking debt needs the value of the asset."
         : "";
-  const busy = create.isPending || update.isPending || remove.isPending;
+  const busy = create.isPending || update.isPending || remove.isPending || move.isPending;
+  const moveSecurity = (securityId: string, direction: "up" | "down") =>
+    isFixturePreview
+      ? setPreview(`The security would move ${direction} on ${loan.id}.`)
+      : move.mutate({ loanId: loan.id, securityId, data: { direction } });
 
   function save() {
     if (!draft) return;
@@ -6342,10 +6353,10 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
         <div className="table-wrap admin-table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th><span className="visually-hidden">Actions</span></th></tr>
+              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th>Documents</th><th><span className="visually-hidden">Actions</span></th></tr>
             </thead>
             <tbody>
-              {securities.map((security) => (
+              {securities.map((security, index) => (
                 <tr key={security.id}>
                   <td>{labelize(security.security_type)}{security.description ? <small className="muted"> · {security.description}</small> : null}</td>
                   <td>{security.holder_name || "-"}</td>
@@ -6356,7 +6367,14 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
                       ? security.undertaking_limit_minor !== null ? <Money amountMinor={security.undertaking_limit_minor} currency={loan.currency} /> : "-"
                       : security.value_minor !== null ? <Money amountMinor={security.value_minor} currency={loan.currency} /> : "-"}
                   </td>
+                  <td>{security.documents.length ? security.documents.map((document) => document.display_name || "Document").join(", ") : "-"}</td>
                   <td>
+                    {canMove ? (
+                      <>
+                        <button aria-label={`Move ${labelize(security.security_type)} up`} className="link" disabled={busy || index === 0} onClick={() => moveSecurity(security.id, "up")} type="button">↑</button>{" "}
+                        <button aria-label={`Move ${labelize(security.security_type)} down`} className="link" disabled={busy || index === securities.length - 1} onClick={() => moveSecurity(security.id, "down")} type="button">↓</button>{" · "}
+                      </>
+                    ) : null}
                     <button className="link" onClick={() => setDraft(securityDraft(security))} type="button">Edit</button>
                     {loan.status === "draft" && securities.length > 1 ? (
                       <>
@@ -6397,6 +6415,25 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
               <TextAreaInput label="Insurance" onChange={(value) => set({ insurance: value })} value={draft.insurance} />
             </FieldGrid>
           )}
+          <fieldset className="col gap-8 admin-security-documents">
+            <legend>Documents of the borrower that show this security</legend>
+            {borrowerDocuments.length ? (
+              borrowerDocuments.map((document) => (
+                <label className="admin-checkbox-line" key={document.id}>
+                  <input
+                    checked={draft.documentIds.includes(document.id)}
+                    onChange={(event) =>
+                      set({ documentIds: event.target.checked ? [...draft.documentIds, document.id] : draft.documentIds.filter((id) => id !== document.id) })
+                    }
+                    type="checkbox"
+                  />
+                  {document.display_name || "Document"}
+                </label>
+              ))
+            ) : (
+              <p className="muted">The borrower has no documents yet. Add them in the borrower&apos;s Credit file.</p>
+            )}
+          </fieldset>
           {draftError ? <Banner tone="bad" title="Check the security">{draftError}</Banner> : null}
           <Button disabled={Boolean(draftError) || busy} onClick={save} variant="primary">{draft.id ? "Save security" : "Add security"}</Button>{" "}
           <Button onClick={() => setDraft(null)}>Cancel</Button>
@@ -6404,7 +6441,7 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
       ) : (
         <Button onClick={() => setDraft(securityDraft())}>Add a security</Button>
       )}
-      {create.error || update.error || remove.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error)}</Banner> : null}
+      {create.error || update.error || remove.error || move.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? move.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>
@@ -6775,6 +6812,7 @@ const LOAN_HISTORY_LABELS: Record<string, string> = {
   "loan.security_added": "Security added",
   "loan.security_changed": "Security changed",
   "loan.security_removed": "Security removed",
+  "loan.security_moved": "Security moved",
   "loan.credit_check_saved": "Check saved",
   "loan.credit_check_removed": "Check removed",
   "loan.monitoring_set": "Monitoring changed",
@@ -6939,7 +6977,7 @@ const RECOVERY_STAGE_SUGGESTIONS = [
 ];
 
 /** U33-DEC-22: the real stages of a late or defaulted loan, and the next step when it is known. */
-function LoanRecoveryStagesForm({ loan }: { loan: Loan }) {
+function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublishNote?: () => void }) {
   const businessDate = useAdminBusinessDate();
   const queryClient = useQueryClient();
   const listId = useId();
@@ -7026,7 +7064,26 @@ function LoanRecoveryStagesForm({ loan }: { loan: Loan }) {
       ) : (
         <p className="muted">{stagesQuery.isLoading ? "Loading the stages..." : "No stage is recorded for this loan."}</p>
       )}
-      {removed.length > 0 ? <p className="muted">{removed.length} removed {removed.length === 1 ? "entry is" : "entries are"} kept for the audit.</p> : null}
+      {removed.length > 0 ? (
+        <details className="admin-removed-stages">
+          <summary>{removed.length} removed {removed.length === 1 ? "entry is" : "entries are"} kept for the audit</summary>
+          <div className="table-wrap admin-table-wrap">
+            <table aria-label="Removed recovery entries" className="admin-table">
+              <thead><tr><th>Entry</th><th>Recorded</th><th>Removed</th><th>Reason</th></tr></thead>
+              <tbody>
+                {removed.map((stage) => (
+                  <tr key={stage.id}>
+                    <td>{stage.title}{stage.occurred_on ? <small className="muted"> · {formatDate(stage.occurred_on)}</small> : null}</td>
+                    <td>{formatDateTime(stage.created_at)}{stage.recorded_by_email ? ` · ${stage.recorded_by_email}` : ""}</td>
+                    <td>{stage.removed_at ? formatDateTime(stage.removed_at) : "-"}{stage.removed_by_email ? ` · ${stage.removed_by_email}` : ""}</td>
+                    <td>{stage.removed_reason || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
       {removeId ? (
         <div className="admin-form-panel">
           <TextAreaInput label="Reason for the removal" onChange={setRemoveReason} required value={removeReason} />
@@ -7071,7 +7128,12 @@ function LoanRecoveryStagesForm({ loan }: { loan: Loan }) {
       </OperationConfirmButton>
       {record.error || remove.error ? <Banner tone="bad" title="Could not save">{errorMessage(record.error ?? remove.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
-      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+      {success ? (
+        <Banner tone="ok" title="Saved">
+          {success} Lenders see it on their investment; they get no email for a stage.
+          {onPublishNote ? <> <button className="link" onClick={onPublishNote} type="button">Email the lenders with a loan note</button></> : null}
+        </Banner>
+      ) : null}
     </>
   );
 }

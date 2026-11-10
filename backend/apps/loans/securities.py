@@ -121,6 +121,15 @@ def _borrower_documents(loan: Loan) -> dict[str, str]:
     }
 
 
+def borrower_documents_for_securities(*, actor: Model, loan_id: str) -> list[dict[str, str]]:
+    """The borrower's documents an admin can attach to a security (id and name)."""
+    _require_admin(actor)
+    return [
+        {"id": document_id, "display_name": name}
+        for document_id, name in _borrower_documents(_loan(loan_id)).items()
+    ]
+
+
 def list_loan_securities(*, actor: Model, loan_id: str) -> list[dict[str, Any]]:
     _require_admin(actor)
     loan = Loan.objects.filter(id=loan_id).first()
@@ -300,6 +309,58 @@ def remove_loan_security(*, actor: Model, loan_id: str, security_id: str) -> Non
             metadata={"decision": "U33-DEC-21", "security_id": str(security_id)},
         )
     )
+
+
+# A free position for the swap: (loan, position) is unique.
+_SWAP_POSITION = 32767
+
+
+@transaction.atomic
+def move_loan_security(
+    *, actor: Model, loan_id: str, security_id: str, direction: str
+) -> list[dict[str, Any]]:
+    """Move a security one place up or down in a draft. The first one gives the loan's summary
+    (collateral type, value and loan-to-value); after publication the order stays fixed."""
+    _require_admin(actor)
+    if direction not in {"up", "down"}:
+        raise LoanSecurityValidationError("Move a security up or down.")
+    loan = _loan(loan_id)
+    if loan.status != LoanStatus.DRAFT:
+        raise LoanSecurityValidationError("After publication the order of the securities is fixed.")
+    items = list(loan.securities.select_for_update().order_by("position", "created_at"))
+    index = next((i for i, item in enumerate(items) if str(item.id) == str(security_id)), None)
+    if index is None:
+        raise LoanSecurityValidationError("This security does not exist for the loan.")
+    target = index - 1 if direction == "up" else index + 1
+    if target < 0 or target >= len(items):
+        raise LoanSecurityValidationError(
+            "This security is already first."
+            if direction == "up"
+            else "This security is already last."
+        )
+    moved, other = items[index], items[target]
+    from_position, to_position = moved.position, other.position
+    LoanSecurity.objects.filter(pk=moved.pk).update(position=_SWAP_POSITION)
+    LoanSecurity.objects.filter(pk=other.pk).update(position=from_position)
+    LoanSecurity.objects.filter(pk=moved.pk).update(position=to_position)
+    _sync_loan_summary(loan)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="loan.security_moved",
+            target_type="Loan",
+            target_id=str(loan.id),
+            metadata={
+                "decision": "U33-DEC-21",
+                "security_id": str(moved.id),
+                "security_type": moved.security_type,
+                "from_position": from_position,
+                "to_position": to_position,
+            },
+        )
+    )
+    documents = _borrower_documents(loan)
+    return [security_payload(item, documents) for item in loan.securities.all()]
 
 
 def sync_first_security_from_loan(loan: Loan, *, actor: Model | None = None) -> None:

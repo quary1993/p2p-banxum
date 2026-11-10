@@ -28,6 +28,7 @@ from backend.apps.loans.api.serializers import (
     LoanListQuerySerializer,
     LoanMonitoringRequestSerializer,
     LoanSecurityListSerializer,
+    LoanSecurityMoveRequestSerializer,
     LoanSecurityRequestSerializer,
     LoanSecuritySerializer,
     LoanSerializer,
@@ -440,13 +441,15 @@ class LoanSecurityListView(APIView):
     def get(self, request: Request, loan_id: str) -> Response:
         if not is_admin_actor(request.user):
             return _admin_forbidden_response()
+        actor = cast(Model, request.user)
         try:
-            securities = loan_securities.list_loan_securities(
-                actor=cast(Model, request.user), loan_id=str(loan_id)
+            securities = loan_securities.list_loan_securities(actor=actor, loan_id=str(loan_id))
+            documents = loan_securities.borrower_documents_for_securities(
+                actor=actor, loan_id=str(loan_id)
             )
         except loan_securities.LoanSecurityError as exc:
             return _security_error(exc)
-        return Response({"securities": securities})
+        return Response({"securities": securities, "borrower_documents": documents})
 
     @extend_schema(request=LoanSecurityRequestSerializer, responses={201: LoanSecuritySerializer})
     def post(self, request: Request, loan_id: str) -> Response:
@@ -457,6 +460,35 @@ class LoanSecurityListView(APIView):
         except loan_securities.LoanSecurityError as exc:
             return _security_error(exc)
         return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class LoanSecurityMoveView(APIView):
+    """U33-DEC-21: move a security one place up or down in a draft."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanSecurityMoveRequestSerializer, responses={200: LoanSecurityListSerializer}
+    )
+    def post(self, request: Request, loan_id: str, security_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanSecurityMoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        actor = cast(Model, request.user)
+        try:
+            securities = loan_securities.move_loan_security(
+                actor=actor,
+                loan_id=str(loan_id),
+                security_id=str(security_id),
+                direction=serializer.validated_data["direction"],
+            )
+            documents = loan_securities.borrower_documents_for_securities(
+                actor=actor, loan_id=str(loan_id)
+            )
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response({"securities": securities, "borrower_documents": documents})
 
 
 class LoanSecurityDetailView(APIView):

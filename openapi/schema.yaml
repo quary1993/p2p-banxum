@@ -4374,6 +4374,46 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/loans/admin/loans/{loan_id}/securities/{security_id}/move/:
+    post:
+      operationId: v1_loans_admin_loans_securities_move_create
+      description: 'U33-DEC-21: move a security one place up or down in a draft.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanSecurityList'
+          description: ''
   /api/v1/marketplace/primary/admin/loans/{loan_id}/cancel-funding/:
     post:
       operationId: v1_marketplace_primary_admin_loans_cancel_funding_create
@@ -9271,6 +9311,14 @@ components:
       required:
       - idempotent
       - status
+    DirectionEnum:
+      enum:
+      - up
+      - down
+      type: string
+      description: |-
+        * `up` - up
+        * `down` - down
     DocumentAcceptanceArtifactRequest:
       type: object
       properties:
@@ -13023,18 +13071,24 @@ components:
         created_at:
           type: string
           format: date-time
+        recorded_by_email:
+          type: string
         removed_at:
           type: string
           format: date-time
           nullable: true
         removed_reason:
           type: string
+        removed_by_email:
+          type: string
       required:
       - created_at
       - id
       - investor_note
       - occurred_on
+      - recorded_by_email
       - removed_at
+      - removed_by_email
       - removed_reason
       - status
       - title
@@ -13253,8 +13307,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LoanSecurity'
+        borrower_documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanSecurityDocument'
       required:
+      - borrower_documents
       - securities
+    LoanSecurityMoveRequest:
+      type: object
+      properties:
+        direction:
+          $ref: '#/components/schemas/DirectionEnum'
+      required:
+      - direction
     LoanSecurityOverview:
       type: object
       description: 'U33-DEC-21: a security of the loan in the admin loan list (type
