@@ -771,6 +771,39 @@ def _create_dated_originator_loan(
     return result
 
 
+@pytest.mark.django_db
+def test_an_originator_loan_cannot_be_unsecured(admin_user: Model) -> None:
+    """U33-DEC-38: every loan needs collateral or guarantees, also from an originator."""
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(admin_user=admin_user, today=today, suffix="SEC")
+    command = CreateOriginatorLoanCommand(
+        actor=admin_user,
+        originator_id=str(result.profile.originator_id),
+        title="Unsecured claim",
+        investor_summary="Not allowed.",
+        purpose="working_capital",
+        purpose_description="Working capital",
+        currency="CHF",
+        original_principal_minor=1_000_000,
+        interest_rate_bps=1200,
+        target_yield_bps=800,
+        distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
+        minimum_investment_minor=100_000,
+        repayment_type="equal_installments",
+        interest_only_months=0,
+        collateral_type="unsecured_exception",
+        collateral_value_minor=0,
+        collateral_description="",
+        risk_rating="BBB",
+        csv_content=_dated_two_period_csv(today=today, include_payment=False),
+        source_filename="unsecured.csv",
+        as_of_date=today,
+        borrower_snapshot={"borrower_legal_name": "Unsecured AG"},
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="collateral or guarantees"):
+        create_originator_loan(command)
+
+
 def test_import_parser_accepts_every_documented_example() -> None:
     expectations = {
         "originator_equal_installments.csv": (1_000_000, 0, "equal_installments", 0),

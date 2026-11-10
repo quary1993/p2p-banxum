@@ -1231,9 +1231,22 @@ def _validate_par_subscription_terms(
     return boundary_row, future_rows
 
 
+UNSECURED_LOAN_MESSAGE = (
+    "Every loan needs collateral or guarantees (U33-DEC-38). Choose the collateral or "
+    "guarantee of the loan; an unsecured loan cannot be offered."
+)
+
+
+def _require_secured(collateral_type: str) -> None:
+    """U33-DEC-38: no unsecured exception for a new or draft originator loan."""
+    if str(collateral_type) == "unsecured_exception":
+        raise OriginatorClaimsValidationError(UNSECURED_LOAN_MESSAGE)
+
+
 @transaction.atomic
 def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLoanCreationResult:
     _require_admin(command.actor)
+    _require_secured(command.collateral_type)
     _validate_borrower_snapshot(command.borrower_snapshot)
     parsed = _parse_import(command)
     originator = _locked_originator(command.originator_id)
@@ -1631,6 +1644,7 @@ def replace_originator_loan_draft(
     command: CreateOriginatorLoanCommand,
 ) -> OriginatorLoanCreationResult:
     _require_admin(command.actor)
+    _require_secured(command.collateral_type)
     _validate_borrower_snapshot(command.borrower_snapshot)
     parsed = _parse_import(command)
     profile = (
@@ -1826,6 +1840,7 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
         )
     if profile.originator.status != LoanOriginatorStatus.ACTIVE:
         raise OriginatorClaimsValidationError("Loan Originator is not active.")
+    _require_secured(loan.collateral_type)
     if profile.current_import_id is None:
         raise OriginatorClaimsValidationError("A validated schedule/payment import is required.")
     if profile.current_outstanding_principal_minor <= 0:

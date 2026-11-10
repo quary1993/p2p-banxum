@@ -194,6 +194,20 @@ def _collateral_type(value: str) -> CollateralType:
     return cast(CollateralType, _text_choice(CollateralType, value, "collateral type"))
 
 
+UNSECURED_LOAN_MESSAGE = (
+    "Every loan needs collateral or guarantees (U33-DEC-38). Choose the collateral or "
+    "guarantee of the loan; an unsecured loan cannot be offered."
+)
+
+
+def _eligible_collateral_type(value: str) -> CollateralType:
+    """U33-DEC-38: no unsecured exception for a new loan or a draft."""
+    collateral_type = _collateral_type(value)
+    if collateral_type == CollateralType.UNSECURED_EXCEPTION:
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
+    return collateral_type
+
+
 def _repayment_type(value: str) -> RepaymentType:
     return cast(RepaymentType, _text_choice(RepaymentType, value, "repayment type"))
 
@@ -777,7 +791,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     loan_start_date = _resolve_loan_start_date(command.loan_start_date, funding_deadline)
     first_payment_date = _derive_first_payment_date(loan_start_date)
     purpose = _purpose(command.purpose)
-    collateral_type = _collateral_type(command.collateral_type)
+    collateral_type = _eligible_collateral_type(command.collateral_type)
     repayment_type = _repayment_type(command.repayment_type)
     risk_rating = _risk_rating(command.risk_rating)
     principal_minor = _validate_principal(command.principal_minor, currency)
@@ -1072,7 +1086,7 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="collateral_type",
-            value=_collateral_type(command.collateral_type),
+            value=_eligible_collateral_type(command.collateral_type),
             changes=changes,
         )
     if command.collateral_value_minor is not None:
@@ -1344,6 +1358,8 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         )
     if loan.funding_deadline is None:
         raise LoanValidationError("Direct loans require a funding deadline before publication.")
+    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
     paid_installments, original_loan_state = _validate_publication_original_loan_state(

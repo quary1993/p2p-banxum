@@ -521,6 +521,11 @@ function splitMinorAmount(totalMinor: number, parts: number, index: number) {
   return base + (index < remainder ? 1 : 0);
 }
 
+// U33-DEC-38: every loan needs collateral or guarantees; the unsecured exception is not offered.
+const SECURED_COLLATERAL_TYPES = Object.values(CollateralTypeEnum).filter(
+  (value) => value !== CollateralTypeEnum.unsecured_exception
+);
+
 function previewScheduleRows(loan: Loan, businessDate: string): LoanInstallment[] {
   const term = Math.max(1, loan.term_months || 1);
   // The loan's own schedule is generated from the financeable principal.
@@ -3493,7 +3498,7 @@ function OriginatorLoanCreateForm({
         <TextInput integer hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 5,000 means investors receive 50% of their proportional penalty." label="Investor penalty participation bps" onChange={setPenaltyParticipationBps} required type="number" value={penaltyParticipationBps} />
         <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
         <TextInput integer label="Interest-only months" onChange={setInterestOnlyMonths} value={interestOnlyMonths} />
-        <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+        <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
         <MoneyMinorInput currency={currency} label="Collateral value minor units" onChange={setCollateralValue} required value={collateralValue} />
         <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
         <TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} />
@@ -4510,7 +4515,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
           <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
-          <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+          <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
           <TextInput
@@ -4669,7 +4674,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
           <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
-          <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+          <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
           <TextInput

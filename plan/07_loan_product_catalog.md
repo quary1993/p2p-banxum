@@ -84,6 +84,8 @@ Confirm exact labels for the admin picker and any investor-facing wording.
 ### PROD-DEC-002: Collateral/Backing Options
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-21 and U33-DEC-38: several securities per loan with structured details; every new loan needs collateral or guarantees (no unsecured exception).
+>
+> Implemented 2026-11-10 (Phase 17.2, U33-DEC-38 publication guard): a direct loan cannot be created with, changed to, or published with `unsecured_exception` ("Every loan needs collateral or guarantees"); a Loan Originator loan cannot be created, replaced or published with it either. The admin forms no longer offer the type. Loans already published keep their recorded type (history stays factual). The check of the security documents and rights (proof, not only a label) is still open.
 
 Status: Accepted.
 Date: 2026-05-15.
