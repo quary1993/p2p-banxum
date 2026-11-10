@@ -59,6 +59,7 @@ import {
   useV1EntitiesAdminBorrowersDebtFacilitiesDestroy,
   useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate,
   useV1LoansAdminLoansCreditChecksMoveCreate,
+  useV1LoansAdminLoansReportingPlanUpdate,
   useV1EntitiesAdminBorrowersDebtFacilitiesRetrieve,
   useV1EntitiesAdminBorrowersDebtFacilitiesUpdate,
   useV1EntitiesAdminBorrowersDocumentsList,
@@ -6865,6 +6866,7 @@ const LOAN_HISTORY_LABELS: Record<string, string> = {
   "loan.credit_check_removed": "Check removed",
   "loan.credit_check_moved": "Check moved",
   "loan.monitoring_set": "Monitoring changed",
+  "loan.reporting_plan_set": "Reporting plan changed",
   "loan.schedule_recalculated_after_early_repayment": "Schedule recalculated after an early repayment",
   "servicing.recovery_stage_recorded": "Recovery stage recorded",
   "servicing.recovery_stage_removed": "Recovery stage removed"
@@ -6930,12 +6932,23 @@ function LoanHistoryPanel({ loan }: { loan: Loan }) {
 }
 
 /** U33-DEC-20: the loan's recorded checks and how it is followed ("Checks & updates"). */
+type CheckStatusOption = "" | "received" | "reviewed";
+const CHECK_STATUS_OPTIONS: CheckStatusOption[] = ["reviewed", "received", ""];
+const checkStatusText: Record<CheckStatusOption, string> = { reviewed: "Reviewed", received: "Received", "": "No status" };
+// The design's standard reporting plan (U33-DEC-20), offered as a starting point.
+const STANDARD_REPORTING_PLAN = [
+  { when: "At closing", title: "Signed loan & security records", body: "Executed agreements and confirmation of the security arrangements." },
+  { when: "After each year-end", title: "Annual financial statements", body: "Balance sheet and profit & loss for the completed financial year." },
+  { when: "When something changes", title: "Project & security updates", body: "Relevant changes to the project, repayments or security documents." }
+];
+
 function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const businessDate = useAdminBusinessDate();
   const queryClient = useQueryClient();
   const query = useV1LoansAdminLoansCreditChecksRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
-  const [draft, setDraft] = useState<{ id: string | null; name: string; result: string; source: string; checkedOn: string } | null>(null);
+  const [draft, setDraft] = useState<{ id: string | null; name: string; result: string; source: string; checkedOn: string; status: CheckStatusOption } | null>(null);
   const [frequency, setFrequency] = useState<string | null>(null);
+  const [plan, setPlan] = useState<{ status: "" | "proposed" | "agreed"; milestones: Array<{ when: string; title: string; body: string }> } | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
@@ -6945,6 +6958,10 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const remove = useV1LoansAdminLoansCreditChecksDestroy({ mutation: { onSuccess: () => { setSuccess("Check removed."); refresh(); } } });
   const moveCheck = useV1LoansAdminLoansCreditChecksMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
   const monitoring = useV1LoansAdminLoansMonitoringCreate({ mutation: { onSuccess: () => { setSuccess("Monitoring saved."); refresh(); } } });
+  const savePlan = useV1LoansAdminLoansReportingPlanUpdate({ mutation: { onSuccess: () => { setSuccess("Reporting plan saved."); setPlan(null); refresh(); } } });
+  const recordedPlan = { status: (query.data?.reporting_plan_status ?? "") as "" | "proposed" | "agreed", milestones: (query.data?.reporting_milestones ?? []).map((item) => ({ when: item.when, title: item.title, body: item.body ?? "" })) };
+  const planDraft = plan ?? recordedPlan;
+  const planIncomplete = planDraft.milestones.some((item) => !item.when.trim() || !item.title.trim()) || (planDraft.milestones.length > 0 && !planDraft.status);
   const checks: LoanCreditCheck[] = query.data?.checks ?? [];
   const frequencyText = frequency ?? query.data?.monitoring_frequency ?? "";
   const focusText = focus ?? query.data?.monitoring_focus ?? "";
@@ -6953,10 +6970,16 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
 
   function saveCheck() {
     if (!draft) return;
-    const data = { name: draft.name.trim(), result: draft.result.trim(), source: draft.source.trim(), checked_on: draft.checkedOn || null };
+    const data = { name: draft.name.trim(), result: draft.result.trim(), source: draft.source.trim(), checked_on: draft.checkedOn || null, status: draft.status };
     if (isFixturePreview) return setPreview(`The check "${data.name}" would be saved for ${loan.id}.`);
     if (draft.id) update.mutate({ loanId: loan.id, checkId: draft.id, data });
     else create.mutate({ loanId: loan.id, data });
+  }
+
+  function saveReportingPlan() {
+    const data = { status: planDraft.milestones.length ? planDraft.status : "", milestones: planDraft.milestones.map((item) => ({ when: item.when.trim(), title: item.title.trim(), body: item.body.trim() })) } as const;
+    if (isFixturePreview) return setPreview(`The reporting plan (${data.milestones.length} steps) would be saved for ${loan.id}.`);
+    savePlan.mutate({ loanId: loan.id, data });
   }
 
   function saveMonitoring() {
@@ -6973,7 +6996,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
       {checks.length > 0 ? (
         <div className="table-wrap admin-table-wrap">
           <table className="admin-table">
-            <thead><tr><th>Check</th><th>Result</th><th>Source</th><th>Date</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+            <thead><tr><th>Check</th><th>Result</th><th>Source</th><th>Date</th><th>Status</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
             <tbody>
               {checks.map((check, index) => (
                 <tr key={check.id}>
@@ -6981,10 +7004,11 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
                   <td>{check.result}</td>
                   <td>{check.source || "-"}</td>
                   <td>{check.checked_on ? formatDate(check.checked_on) : "-"}</td>
+                  <td>{checkStatusText[(check.status || "") as CheckStatusOption] ?? check.status}</td>
                   <td>
                     <button aria-label={`Move ${check.name} up`} className="link" disabled={moveCheck.isPending || index === 0} onClick={() => (isFixturePreview ? setPreview("The check would move up.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "up" } }))} type="button">↑</button>{" "}
                     <button aria-label={`Move ${check.name} down`} className="link" disabled={moveCheck.isPending || index === checks.length - 1} onClick={() => (isFixturePreview ? setPreview("The check would move down.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "down" } }))} type="button">↓</button>{" · "}
-                    <button className="link" onClick={() => setDraft({ id: check.id, name: check.name, result: check.result, source: check.source, checkedOn: check.checked_on ?? "" })} type="button">Edit</button>{" · "}
+                    <button className="link" onClick={() => setDraft({ id: check.id, name: check.name, result: check.result, source: check.source, checkedOn: check.checked_on ?? "", status: (check.status || "") as CheckStatusOption })} type="button">Edit</button>{" · "}
                     <button className="link" onClick={() => (isFixturePreview ? setPreview("The check would be removed.") : remove.mutate({ loanId: loan.id, checkId: check.id }))} type="button">Remove</button>
                   </td>
                 </tr>
@@ -6999,18 +7023,47 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
             <TextInput label="What was checked" onChange={(value) => setDraft({ ...draft, name: value })} required value={draft.name} />
             <TextInput label="Source" onChange={(value) => setDraft({ ...draft, source: value })} value={draft.source} />
             <TextInput label="Check date" onChange={(value) => setDraft({ ...draft, checkedOn: value })} type="date" value={draft.checkedOn} />
+            <SelectInput<CheckStatusOption> hint="Investors see it as a chip next to the check." label="Check status" onChange={(value) => setDraft({ ...draft, status: value })} optionLabel={(option) => checkStatusText[option]} options={CHECK_STATUS_OPTIONS} value={draft.status} />
           </FieldGrid>
           <TextAreaInput label="Result" onChange={(value) => setDraft({ ...draft, result: value })} required value={draft.result} />
           {future ? <Banner tone="bad" title="Date in the future">The date of a check cannot be in the future.</Banner> : null}
           <Button disabled={blocked} onClick={saveCheck} variant="primary">Save check</Button>{" "}
           <Button onClick={() => setDraft(null)}>Cancel</Button>
         </div>
-      ) : <Button onClick={() => setDraft({ id: null, name: "", result: "", source: "", checkedOn: businessDate })}>Add a check</Button>}
+      ) : <Button onClick={() => setDraft({ id: null, name: "", result: "", source: "", checkedOn: businessDate, status: "reviewed" })}>Add a check</Button>}
       <h3>Monitoring</h3>
       <TextAreaInput hint="For example Quarterly, with the annual financial statements." label="How often" onChange={setFrequency} value={frequencyText} />
       <TextAreaInput hint="For example order intake and cash generation." label="What is followed" onChange={setFocus} value={focusText} />
       <Button disabled={monitoring.isPending} onClick={saveMonitoring}>Save monitoring</Button>
-      {create.error || update.error || remove.error || monitoring.error || moveCheck.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? monitoring.error ?? moveCheck.error)}</Banner> : null}
+      <h3>Reporting over the loan term</h3>
+      <p className="muted admin-manage-hint">
+        What the borrower reports and when. A proposed plan tells investors that the requirements and dates are still to be
+        agreed. Leave the plan empty when nothing is planned.
+      </p>
+      {planDraft.milestones.map((item, index) => (
+        <div className="admin-form-panel" key={index}>
+          <FieldGrid>
+            <TextInput label={`When (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, when: value } : row)) })} required value={item.when} />
+            <TextInput label={`What is reported (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, title: value } : row)) })} required value={item.title} />
+          </FieldGrid>
+          <TextAreaInput label={`Details (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, body: value } : row)) })} rows={2} value={item.body} />
+          <button className="link" onClick={() => setPlan({ ...planDraft, milestones: planDraft.milestones.filter((_, at) => at !== index) })} type="button">Remove step {index + 1}</button>
+        </div>
+      ))}
+      <div className="row gap-8 wrap">
+        {planDraft.milestones.length < 8 ? <Button onClick={() => setPlan({ ...planDraft, milestones: [...planDraft.milestones, { when: "", title: "", body: "" }] })}>Add a step</Button> : null}
+        {planDraft.milestones.length === 0 ? <Button onClick={() => setPlan({ status: "proposed", milestones: STANDARD_REPORTING_PLAN })}>Use the standard plan</Button> : null}
+      </div>
+      {planDraft.milestones.length > 0 ? (
+        <SelectInput<"" | "proposed" | "agreed"> label="Plan status" onChange={(value) => setPlan({ ...planDraft, status: value })} optionLabel={(option) => ({ "": "Choose", proposed: "Proposed plan (still to be agreed)", agreed: "Agreed plan" })[option]} options={["", "proposed", "agreed"]} value={planDraft.status} />
+      ) : null}
+      {plan ? (
+        <div className="row gap-8 wrap">
+          <Button disabled={savePlan.isPending || planIncomplete} onClick={saveReportingPlan} variant="primary">{planDraft.milestones.length ? "Save reporting plan" : "Remove the reporting plan"}</Button>
+          <Button onClick={() => setPlan(null)}>Discard changes</Button>
+        </div>
+      ) : null}
+      {create.error || update.error || remove.error || monitoring.error || moveCheck.error || savePlan.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? monitoring.error ?? moveCheck.error ?? savePlan.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>

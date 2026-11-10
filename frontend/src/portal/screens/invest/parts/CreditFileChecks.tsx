@@ -3,10 +3,17 @@
 // Banxum" rows with the date, what was checked and the result; the reporting and the project updates).
 // Only what the team recorded: each check with its source and date, how the loan is followed, the
 // recovery stages (U33-DEC-22) and the public loan notes, newest first. No rating or opinion.
+// Each check shows the design's chip ("Received" or "Reviewed"); "Reporting over the loan term"
+// appears when the team recorded a reporting plan, marked as proposed or agreed.
 import type { MarketplaceLoanDetail } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { useLoanRiskNotesData } from "../../../../investorPortal/data";
 import { formatDate } from "../../../../investorPortal/format";
+import { NiIcon } from "../../../components";
+
+const CHECK_STATUS_LABELS: Record<string, string> = { received: "check|Received", reviewed: "check|Reviewed" };
+// The design's icons for its three standard reporting steps, repeated for longer plans.
+const MILESTONE_ICONS = ["file-check", "file-text", "update"];
 
 function dayParts(value: string) {
   const [day, ...rest] = formatDate(value).split(" ");
@@ -18,6 +25,7 @@ export function ChecksAndUpdates({ loan }: { loan: MarketplaceLoanDetail }) {
   const checks = loan.credit_checks ?? [];
   const monitoring = loan.monitoring;
   const stages = loan.recovery_stages;
+  const plan = loan.reporting_plan && loan.reporting_plan.milestones.length ? loan.reporting_plan : null;
   const notesQuery = useLoanRiskNotesData(loan.loan_id);
   const notes = [...(notesQuery.data ?? [])]
     .filter((note) => note.visibility === "public")
@@ -38,6 +46,7 @@ export function ChecksAndUpdates({ loan }: { loan: MarketplaceLoanDetail }) {
                   <small>{check.result}</small>
                   {check.source ? <small className="r100-check-source">{t("Source: {source}", { source: check.source })}</small> : null}
                 </span>
+                {CHECK_STATUS_LABELS[check.status] ? <span className="r100-state">{t(CHECK_STATUS_LABELS[check.status])}</span> : null}
               </div>
             );
           })}
@@ -45,6 +54,25 @@ export function ChecksAndUpdates({ loan }: { loan: MarketplaceLoanDetail }) {
       ) : (
         <p className="bxm-muted">{t("No check is recorded for this loan yet.")}</p>
       )}
+      {plan ? (
+        <section className="r100-reporting">
+          <div className="r100-section-head">
+            <h3>{t("Reporting over the loan term")}</h3>
+            <span className="r100-state">{plan.status === "agreed" ? t("Agreed plan") : t("Proposed plan")}</span>
+          </div>
+          <div className="r100-timeline">
+            {plan.milestones.map((milestone, index) => (
+              <div key={`${milestone.when}-${milestone.title}`}>
+                <span className="r100-timeline-dot"><NiIcon name={MILESTONE_ICONS[index % MILESTONE_ICONS.length]} /></span>
+                <small>{milestone.when}</small>
+                <h4>{milestone.title}</h4>
+                {milestone.body ? <p>{milestone.body}</p> : null}
+              </div>
+            ))}
+          </div>
+          {plan.status === "proposed" ? <p className="r100-note">{t("Reporting requirements and delivery dates are to be agreed for this loan.")}</p> : null}
+        </section>
+      ) : null}
       {monitoring && (monitoring.frequency || monitoring.focus) ? (
         <section className="r100-reporting">
           <div className="r100-section-head"><h3>{t("Monitoring")}</h3></div>

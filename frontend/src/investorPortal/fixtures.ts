@@ -954,8 +954,8 @@ const helvetiaDebtFixture: MarketplaceDebtFacility[] = [
   source_document: null
 }));
 const helvetiaChecksFixture: MarketplaceCreditCheck[] = [
-  { id: "check-2401-company", position: 0, name: "Company and owners", result: "Register details, ownership and authorised signatories reconciled.", source: "Commercial register and shareholder register", checked_on: "2026-03-02" },
-  { id: "check-2401-property", position: 1, name: "Property and charges", result: "Land register extract and existing mortgage reviewed.", source: "Land register extract", checked_on: "2026-03-09" }
+  { id: "check-2401-company", position: 0, name: "Company and owners", result: "Register details, ownership and authorised signatories reconciled.", source: "Commercial register and shareholder register", checked_on: "2026-03-02", status: "reviewed" },
+  { id: "check-2401-property", position: 1, name: "Property and charges", result: "Land register extract and existing mortgage reviewed.", source: "Land register extract", checked_on: "2026-03-09", status: "received" }
 ];
 
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
@@ -1023,7 +1023,16 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         financial_years: helvetiaFinancialYearsFixture,
         debt_facilities: helvetiaDebtFixture,
         credit_checks: helvetiaChecksFixture,
-        monitoring: { frequency: "Quarterly, with the annual financial statements.", focus: "Warehouse occupancy, fleet costs and cash generation." }
+        monitoring: { frequency: "Quarterly, with the annual financial statements.", focus: "Warehouse occupancy, fleet costs and cash generation." },
+        // The design's standard plan, as a proposal (U33-DEC-20).
+        reporting_plan: {
+          status: "proposed",
+          milestones: [
+            { when: "At closing", title: "Signed loan & security records", body: "Executed agreements and confirmation of the security arrangements." },
+            { when: "After each year-end", title: "Annual financial statements", body: "Balance sheet and profit & loss for the completed financial year." },
+            { when: "When something changes", title: "Project & security updates", body: "Relevant changes to the project, repayments or security documents." }
+          ]
+        }
       }
     : {}),
   ltv_bps:

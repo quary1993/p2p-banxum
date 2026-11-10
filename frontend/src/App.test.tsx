@@ -1494,6 +1494,13 @@ test("the credit file has seven chapters with structured financials, key ratios,
   expect(within(checks).getByText("Company and owners")).toBeInTheDocument();
   expect(checks).toHaveTextContent("Source: Commercial register and shareholder register");
   expect(checks).toHaveTextContent("Warehouse occupancy, fleet costs and cash generation.");
+  // The design's chips and the reporting plan (proposed, so the note says it is still to be agreed).
+  expect(within(within(checks).getByText("Company and owners").closest(".r100-check") as HTMLElement).getByText("Reviewed")).toBeInTheDocument();
+  expect(within(within(checks).getByText("Property and charges").closest(".r100-check") as HTMLElement).getByText("Received")).toBeInTheDocument();
+  const reporting = within(checks).getByRole("heading", { name: "Reporting over the loan term" }).closest("section") as HTMLElement;
+  expect(within(reporting).getByText("Proposed plan")).toBeInTheDocument();
+  expect(within(reporting).getByRole("heading", { name: "Annual financial statements" })).toBeInTheDocument();
+  expect(reporting).toHaveTextContent("Reporting requirements and delivery dates are to be agreed for this loan.");
 
   fireEvent.click(contents.getByRole("button", { name: /Documents$/ }));
   expect(screen.getByRole("button", { name: "Download Borrower financial summary" })).toHaveTextContent("Financial statements · FY 2025 · Helvetia Logistik AG · Version 1 · Final");

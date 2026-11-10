@@ -41,6 +41,12 @@ class SaveCreditCheckCommand:
     source: str = ""
     checked_on: date | None = None
     check_id: str | None = None
+    status: str = ""
+
+
+CHECK_STATUSES = ("", "received", "reviewed")
+REPORTING_PLAN_STATUSES = ("proposed", "agreed")
+MAX_REPORTING_MILESTONES = 8
 
 
 def _require_admin(actor: Model) -> None:
@@ -63,6 +69,7 @@ def check_payload(row: LoanCreditCheck) -> dict[str, Any]:
         "result": row.result,
         "source": row.source,
         "checked_on": row.checked_on,
+        "status": row.status,
     }
 
 
@@ -85,6 +92,8 @@ def list_credit_checks(*, actor: Model, loan_id: str) -> dict[str, Any]:
         "checks": [check_payload(row) for row in loan.credit_checks.all()],
         "monitoring_frequency": loan.monitoring_frequency,
         "monitoring_focus": loan.monitoring_focus,
+        "reporting_plan_status": loan.reporting_plan_status,
+        "reporting_milestones": list(loan.reporting_milestones or []),
     }
 
 
@@ -111,8 +120,11 @@ def save_credit_check(command: SaveCreditCheckCommand) -> dict[str, Any]:
         row = LoanCreditCheck(loan=loan, position=0 if last is None else last.position + 1)
     row.name = name
     row.result = result
+    if command.status not in CHECK_STATUSES:
+        raise CreditCheckValidationError("A check is received or reviewed.")
     row.source = command.source.strip()
     row.checked_on = command.checked_on
+    row.status = command.status
     row.updated_by_admin_id = command.actor.pk
     row.save()
     _audit(command.actor, "loan.credit_check_saved", loan, {"check_id": str(row.id)})
@@ -176,12 +188,63 @@ def set_monitoring(*, actor: Model, loan_id: str, frequency: str, focus: str) ->
     return list_credit_checks(actor=actor, loan_id=loan_id)
 
 
+def reporting_plan_payload(loan: Any) -> dict[str, Any] | None:
+    milestones = loan.reporting_milestones if isinstance(loan.reporting_milestones, list) else []
+    if not milestones or loan.reporting_plan_status not in REPORTING_PLAN_STATUSES:
+        return None
+    return {"status": loan.reporting_plan_status, "milestones": list(milestones)}
+
+
 def investor_checks(loan: Any) -> dict[str, Any]:
-    """For investors: the recorded checks and how the loan is followed."""
+    """For investors: the recorded checks, how the loan is followed and the reporting plan."""
     return {
         "credit_checks": [check_payload(row) for row in loan.credit_checks.all()],
         "monitoring": {
             "frequency": loan.monitoring_frequency,
             "focus": loan.monitoring_focus,
         },
+        "reporting_plan": reporting_plan_payload(loan),
     }
+
+
+def _clean_milestone(item: Any) -> dict[str, str]:
+    if not isinstance(item, dict):
+        raise CreditCheckValidationError("Each reporting milestone needs when, a title and a text.")
+    cleaned = {key: str(item.get(key) or "").strip() for key in ("when", "title", "body")}
+    if not cleaned["when"] or not cleaned["title"]:
+        raise CreditCheckValidationError("Each reporting milestone needs when and a title.")
+    for key, limit in (("when", 80), ("title", 120), ("body", 500)):
+        if len(cleaned[key]) > limit:
+            raise CreditCheckValidationError(
+                f"A reporting milestone's {key} can be at most {limit} characters."
+            )
+    return cleaned
+
+
+@transaction.atomic
+def set_reporting_plan(
+    *, actor: Model, loan_id: str, status: str, milestones: list[Any]
+) -> dict[str, Any]:
+    """Record what the borrower reports over the loan term, as a proposed or agreed plan.
+    An empty list removes the plan."""
+    _require_admin(actor)
+    loan = Loan.objects.select_for_update().filter(id=loan_id).first()
+    if loan is None:
+        raise CreditCheckValidationError("Loan does not exist.")
+    if len(milestones) > MAX_REPORTING_MILESTONES:
+        raise CreditCheckValidationError(
+            f"A reporting plan has at most {MAX_REPORTING_MILESTONES} milestones."
+        )
+    cleaned = [_clean_milestone(item) for item in milestones]
+    if cleaned and status not in REPORTING_PLAN_STATUSES:
+        raise CreditCheckValidationError("Say whether the plan is proposed or agreed.")
+    loan.reporting_plan_status = status if cleaned else ""
+    loan.reporting_milestones = cleaned
+    loan.save(update_fields=["reporting_plan_status", "reporting_milestones", "updated_at"])
+    _audit(
+        actor,
+        "loan.reporting_plan_set",
+        loan,
+        {"status": loan.reporting_plan_status, "milestones": len(cleaned)},
+    )
+    return list_credit_checks(actor=actor, loan_id=loan_id)

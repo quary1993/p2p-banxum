@@ -125,3 +125,49 @@ def test_checks_move_up_and_down(admin_user: Model) -> None:
     )
     assert last.status_code == 400
     assert "already last" in last.json()["detail"]
+
+
+def test_check_status_and_the_reporting_plan_reach_investors(admin_user: Model) -> None:
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    client = _client(admin_user)
+    base = f"/api/v1/loans/admin/loans/{loan.pk}"
+    reviewed = client.post(
+        f"{base}/credit-checks/",
+        data={"name": "Company & ownership", "result": "Matched.", "status": "reviewed"},
+        content_type="application/json",
+    )
+    assert reviewed.status_code == 201, reviewed.content
+    milestones = [
+        {"when": "At closing", "title": "Signed loan & security records", "body": "Agreements."},
+        {"when": "After each year-end", "title": "Annual financial statements", "body": ""},
+    ]
+    plan = client.put(
+        f"{base}/reporting-plan/",
+        data={"status": "proposed", "milestones": milestones},
+        content_type="application/json",
+    )
+    assert plan.status_code == 200, plan.content
+    assert plan.json()["reporting_plan_status"] == "proposed"
+    no_status = client.put(
+        f"{base}/reporting-plan/",
+        data={"status": "", "milestones": milestones},
+        content_type="application/json",
+    )
+    assert no_status.status_code == 400
+    publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.pk)))
+    loan.refresh_from_db()
+
+    detail = import_module(
+        "backend.apps.marketplace_primary.services"
+    ).full_marketplace_listing_payload(loan)
+
+    assert detail["credit_checks"][0]["status"] == "reviewed"
+    assert detail["reporting_plan"] == {"status": "proposed", "milestones": milestones}
+    cleared = client.put(
+        f"{base}/reporting-plan/",
+        data={"status": "", "milestones": []},
+        content_type="application/json",
+    )
+    assert cleared.status_code == 200
+    loan.refresh_from_db()
+    assert import_module("backend.apps.loans.credit_checks").reporting_plan_payload(loan) is None

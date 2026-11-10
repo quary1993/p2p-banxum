@@ -477,11 +477,25 @@ class MarketplaceCreditCheckSerializer(serializers.Serializer[Any]):
     # "source" is also a DRF Field attribute; the stubs type it differently.
     source = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
     checked_on = serializers.DateField(allow_null=True)
+    status = serializers.CharField(allow_blank=True)
 
 
 class MarketplaceMonitoringSerializer(serializers.Serializer[Any]):
     frequency = serializers.CharField(allow_blank=True)
     focus = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceReportingMilestoneSerializer(serializers.Serializer[Any]):
+    when = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceReportingPlanSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20 "Reporting over the loan term": a proposed or agreed plan."""
+
+    status = serializers.CharField()
+    milestones = MarketplaceReportingMilestoneSerializer(many=True)
 
 
 class MarketplaceRecoveryStageSerializer(serializers.Serializer[Any]):
@@ -509,6 +523,7 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     debt_facilities = MarketplaceDebtFacilitySerializer(many=True, required=False)
     credit_checks = MarketplaceCreditCheckSerializer(many=True, required=False)
     monitoring = MarketplaceMonitoringSerializer(required=False)
+    reporting_plan = MarketplaceReportingPlanSerializer(required=False, allow_null=True)
     recovery_stages = MarketplaceRecoveryStagesSerializer(required=False)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()

@@ -27,6 +27,7 @@ from backend.apps.loans.api.serializers import (
     LoanInstallmentSerializer,
     LoanListQuerySerializer,
     LoanMonitoringRequestSerializer,
+    LoanReportingPlanRequestSerializer,
     LoanSecurityListSerializer,
     LoanSecurityMoveRequestSerializer,
     LoanSecurityRequestSerializer,
@@ -623,6 +624,31 @@ class LoanCreditCheckDetailView(APIView):
         except loan_credit_checks.CreditCheckError as exc:
             return _credit_check_error(exc)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LoanReportingPlanView(APIView):
+    """U33-DEC-20: what the borrower reports over the loan term, proposed or agreed."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanReportingPlanRequestSerializer, responses={200: LoanCreditChecksSerializer}
+    )
+    def put(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanReportingPlanRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = loan_credit_checks.set_reporting_plan(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                status=serializer.validated_data["status"],
+                milestones=list(serializer.validated_data["milestones"]),
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)
 
 
 class LoanMonitoringView(APIView):

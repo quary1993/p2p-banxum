@@ -4334,6 +4334,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/Loan'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/reporting-plan/:
+    put:
+      operationId: v1_loans_admin_loans_reporting_plan_update
+      description: 'U33-DEC-20: what the borrower reports over the loan term, proposed
+        or agreed.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanReportingPlanRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanReportingPlanRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanReportingPlanRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditChecks'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/schedule/:
     get:
       operationId: v1_loans_admin_loans_schedule_list
@@ -12650,6 +12685,8 @@ components:
           type: string
           format: date
           nullable: true
+        status:
+          type: string
       required:
       - checked_on
       - id
@@ -12657,6 +12694,7 @@ components:
       - position
       - result
       - source
+      - status
     LoanCreditCheckRequest:
       type: object
       properties:
@@ -12674,9 +12712,20 @@ components:
           type: string
           format: date
           nullable: true
+        status:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/LoanCreditCheckRequestStatusEnum'
+          - $ref: '#/components/schemas/BlankEnum'
       required:
       - name
       - result
+    LoanCreditCheckRequestStatusEnum:
+      enum:
+      - received
+      - reviewed
+      type: string
+      description: "* `` - \n* `received` - received\n* `reviewed` - reviewed"
     LoanCreditChecks:
       type: object
       properties:
@@ -12688,10 +12737,18 @@ components:
           type: string
         monitoring_focus:
           type: string
+        reporting_plan_status:
+          type: string
+        reporting_milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanReportingMilestone'
       required:
       - checks
       - monitoring_focus
       - monitoring_frequency
+      - reporting_milestones
+      - reporting_plan_status
     LoanEvent:
       type: object
       properties:
@@ -13297,6 +13354,44 @@ components:
       description: |-
         * `done` - Done
         * `next` - Next
+    LoanReportingMilestone:
+      type: object
+      description: 'U33-DEC-20: one step of the reporting over the loan term (when,
+        what, details).'
+      properties:
+        when:
+          type: string
+          maxLength: 80
+        title:
+          type: string
+          maxLength: 120
+        body:
+          type: string
+          default: ''
+          maxLength: 500
+      required:
+      - title
+      - when
+    LoanReportingPlanRequest:
+      type: object
+      properties:
+        status:
+          oneOf:
+          - $ref: '#/components/schemas/LoanReportingPlanRequestStatusEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanReportingMilestone'
+      required:
+      - milestones
+      - status
+    LoanReportingPlanRequestStatusEnum:
+      enum:
+      - proposed
+      - agreed
+      type: string
+      description: "* `` - \n* `proposed` - proposed\n* `agreed` - agreed"
     LoanRiskNote:
       type: object
       properties:
@@ -13931,6 +14026,8 @@ components:
           type: string
           format: date
           nullable: true
+        status:
+          type: string
       required:
       - checked_on
       - id
@@ -13938,6 +14035,7 @@ components:
       - position
       - result
       - source
+      - status
     MarketplaceCreditFileDocument:
       type: object
       properties:
@@ -14274,6 +14372,10 @@ components:
             $ref: '#/components/schemas/MarketplaceCreditCheck'
         monitoring:
           $ref: '#/components/schemas/MarketplaceMonitoring'
+        reporting_plan:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceReportingPlan'
+          nullable: true
         recovery_stages:
           $ref: '#/components/schemas/MarketplaceRecoveryStages'
         ltv_warnings:
@@ -14716,6 +14818,33 @@ components:
       required:
       - next_step
       - stages
+    MarketplaceReportingMilestone:
+      type: object
+      properties:
+        when:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+      required:
+      - body
+      - title
+      - when
+    MarketplaceReportingPlan:
+      type: object
+      description: 'U33-DEC-20 "Reporting over the loan term": a proposed or agreed
+        plan.'
+      properties:
+        status:
+          type: string
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceReportingMilestone'
+      required:
+      - milestones
+      - status
     MarketplaceSecurity:
       type: object
       description: 'U33-DEC-21: one security of the loan; only the fields that apply

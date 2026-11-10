@@ -519,12 +519,34 @@ class LoanCreditCheckSerializer(serializers.Serializer[Any]):
     # "source" is also a DRF Field attribute; the stubs type it differently.
     source = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
     checked_on = serializers.DateField(allow_null=True)
+    # "received" or "reviewed" (the design's chip); empty for older checks.
+    status = serializers.CharField(allow_blank=True)
+
+
+class LoanReportingMilestoneSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: one step of the reporting over the loan term (when, what, details)."""
+
+    when = serializers.CharField(max_length=80)
+    title = serializers.CharField(max_length=120)
+    body = serializers.CharField(max_length=500, allow_blank=True, required=False, default="")
+
+
+class LoanReportingPlanSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=["proposed", "agreed"])
+    milestones = LoanReportingMilestoneSerializer(many=True)
+
+
+class LoanReportingPlanRequestSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=["", "proposed", "agreed"], allow_blank=True)
+    milestones = LoanReportingMilestoneSerializer(many=True)
 
 
 class LoanCreditChecksSerializer(serializers.Serializer[Any]):
     checks = LoanCreditCheckSerializer(many=True)
     monitoring_frequency = serializers.CharField(allow_blank=True)
     monitoring_focus = serializers.CharField(allow_blank=True)
+    reporting_plan_status = serializers.CharField(allow_blank=True)
+    reporting_milestones = LoanReportingMilestoneSerializer(many=True)
 
 
 class LoanCreditCheckRequestSerializer(serializers.Serializer[Any]):
@@ -534,6 +556,9 @@ class LoanCreditCheckRequestSerializer(serializers.Serializer[Any]):
         required=False, allow_blank=True, default="", max_length=255
     )
     checked_on = serializers.DateField(required=False, allow_null=True, default=None)
+    status = serializers.ChoiceField(
+        choices=["", "received", "reviewed"], required=False, allow_blank=True, default=""
+    )
 
 
 class LoanMonitoringRequestSerializer(serializers.Serializer[Any]):

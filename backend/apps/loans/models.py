@@ -193,6 +193,10 @@ class Loan(TimestampedModel):
     # U33-DEC-20: how the loan is followed, for the credit file's "Checks & updates".
     monitoring_frequency = models.TextField(blank=True, default="")
     monitoring_focus = models.TextField(blank=True, default="")
+    # U33-DEC-20 "Reporting over the loan term": what the borrower reports and when
+    # ([{"when", "title", "body"}]), as a proposed or an agreed plan; empty when none is recorded.
+    reporting_plan_status = models.CharField(max_length=16, blank=True, default="")
+    reporting_milestones = models.JSONField(default=list, blank=True)
     coming_soon_at = models.DateTimeField(null=True, blank=True)
     planned_opening_date = models.DateField(null=True, blank=True)
     recovery_waterfall_version = models.CharField(
@@ -436,6 +440,8 @@ class LoanCreditCheck(TimestampedModel):
     result = models.TextField()
     source = models.CharField(max_length=255, blank=True, default="")
     checked_on = models.DateField(null=True, blank=True)
+    # The design's chip: "received" (the document is in the file) or "reviewed" (Banxum checked it).
+    status = models.CharField(max_length=16, blank=True, default="")
     updated_by_admin_id = models.UUIDField(null=True, blank=True)
 
     class Meta:

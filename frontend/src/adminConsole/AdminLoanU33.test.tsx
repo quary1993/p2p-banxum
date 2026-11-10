@@ -390,3 +390,36 @@ test("a closure task leads to the investor's Help messages, which link back to t
   fireEvent.click(within(table).getByRole("button", { name: "Open task" }));
   await waitFor(() => expect(window.location.pathname).toBe(`/admin/tasks/${task.id}`));
 }, 20_000);
+
+test("a check gets its status and the loan gets the standard reporting plan as a proposal", async () => {
+  const plans: Array<Record<string, unknown>> = [];
+  const checks: Array<Record<string, unknown>> = [];
+  const empty = { checks: [], monitoring_frequency: "", monitoring_focus: "", reporting_plan_status: "", reporting_milestones: [] };
+  server.use(
+    http.get("*/api/v1/loans/admin/loans/:loanId/credit-checks/", () => HttpResponse.json(empty)),
+    http.post("*/api/v1/loans/admin/loans/:loanId/credit-checks/", async ({ request }) => {
+      checks.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json({ id: "c1", position: 0, name: "Register", result: "Matched.", source: "", checked_on: null, status: "received" }, { status: 201 });
+    }),
+    http.put("*/api/v1/loans/admin/loans/:loanId/reporting-plan/", async ({ request }) => {
+      plans.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json(empty);
+    }),
+    ...adminHandlers()
+  );
+  renderAdmin(`/admin/loans/${adminLoanId}/manage/credit_checks`);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Add a check" }, { timeout: 10_000 }));
+  fireEvent.change(screen.getByLabelText("What was checked"), { target: { value: "Register" } });
+  fireEvent.change(screen.getByLabelText("Result"), { target: { value: "Matched." } });
+  fireEvent.change(screen.getByLabelText("Check status"), { target: { value: "received" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save check" }));
+  await waitFor(() => expect(checks[0]).toMatchObject({ name: "Register", status: "received" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Use the standard plan" }));
+  expect(screen.getByLabelText("What is reported (step 2)")).toHaveValue("Annual financial statements");
+  fireEvent.click(screen.getByRole("button", { name: "Save reporting plan" }));
+  await waitFor(() => expect(plans).toHaveLength(1));
+  expect(plans[0].status).toBe("proposed");
+  expect((plans[0].milestones as unknown[]).length).toBe(3);
+}, 20_000);
