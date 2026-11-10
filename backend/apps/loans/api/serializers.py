@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -11,6 +12,7 @@ from backend.apps.loans.models import (
     Loan,
     LoanEvent,
     LoanPurpose,
+    LoanSecurity,
     LoanStatus,
     RepaymentType,
     RiskRating,
@@ -26,6 +28,32 @@ class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField(min_value=0)
     interest_minor = serializers.IntegerField(min_value=0)
+
+
+class LoanSecurityOverviewSerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: a security of the loan in the admin loan list (type and status only)."""
+
+    security_type = serializers.CharField()
+    status = serializers.CharField(allow_blank=True)
+
+
+def admin_loan_list_context(loans: list[Loan]) -> dict[str, Any]:
+    """One query per list for the securities and the opening alerts of the rows."""
+    loan_ids = [str(loan.pk) for loan in loans]
+    overview: dict[str, list[dict[str, str]]] = {loan_id: [] for loan_id in loan_ids}
+    for security in LoanSecurity.objects.filter(loan_id__in=loan_ids).order_by(
+        "position", "created_at"
+    ):
+        overview[str(security.loan_id)].append(
+            {"security_type": security.security_type, "status": security.status}
+        )
+    coming_soon = [str(loan.pk) for loan in loans if loan.coming_soon_at is not None]
+    counts = (
+        import_module("backend.apps.marketplace_primary.services").opening_alert_counts(coming_soon)
+        if coming_soon
+        else {}
+    )
+    return {"security_overview": overview, "opening_alert_counts": counts}
 
 
 class LoanSerializer(serializers.Serializer[Any]):
@@ -82,6 +110,9 @@ class LoanSerializer(serializers.Serializer[Any]):
     # U33-DEC-17: shown as Coming soon since, and the planned opening date.
     coming_soon_at = serializers.DateTimeField(allow_null=True)
     planned_opening_date = serializers.DateField(allow_null=True)
+    # Admin list: the loan's securities and the investors waiting for the opening email.
+    security_overview = serializers.SerializerMethodField()
+    opening_alert_count = serializers.SerializerMethodField()
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
     recovery_waterfall_version = serializers.CharField()
     schedule_version = serializers.IntegerField()
@@ -104,6 +135,28 @@ class LoanSerializer(serializers.Serializer[Any]):
             if isinstance(self.context, dict):
                 self.context["platform_loan_status_thresholds"] = platform
         return loan_status_thresholds(obj, platform=platform)
+
+    @extend_schema_field(LoanSecurityOverviewSerializer(many=True))
+    def get_security_overview(self, obj: Loan) -> list[dict[str, str]]:
+        batch = self.context.get("security_overview") if isinstance(self.context, dict) else None
+        if batch is not None:
+            return list(batch.get(str(obj.pk), []))
+        return [
+            {"security_type": security.security_type, "status": security.status}
+            for security in obj.securities.order_by("position", "created_at")
+        ]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_opening_alert_count(self, obj: Loan) -> int:
+        batch = self.context.get("opening_alert_counts") if isinstance(self.context, dict) else None
+        if batch is not None:
+            return int(batch.get(str(obj.pk), 0))
+        if obj.coming_soon_at is None:
+            return 0
+        counts = import_module("backend.apps.marketplace_primary.services").opening_alert_counts(
+            [str(obj.pk)]
+        )
+        return int(counts.get(str(obj.pk), 0))
 
     @extend_schema_field(serializers.IntegerField())
     def get_effective_late_threshold_days(self, obj: Loan) -> int:

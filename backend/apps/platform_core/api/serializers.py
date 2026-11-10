@@ -85,6 +85,29 @@ class PlatformFeaturesSerializer(serializers.Serializer[Any]):
     features = PlatformFeatureSerializer(many=True)
 
 
+class LoanStatusDaysLastChangeSerializer(serializers.Serializer[Any]):
+    changed_at = serializers.DateTimeField()
+    changed_by_email = serializers.CharField(allow_blank=True)
+    reason = serializers.CharField(allow_blank=True)
+
+
+class LoanStatusDaysSerializer(serializers.Serializer[Any]):
+    """U33-DEC-09: the platform's Late and Default days (loans without contract days)."""
+
+    late_days = serializers.IntegerField()
+    default_days = serializers.IntegerField()
+    default_late_days = serializers.IntegerField()
+    default_default_days = serializers.IntegerField()
+    maximum_days = serializers.IntegerField()
+    last_change = LoanStatusDaysLastChangeSerializer(allow_null=True)
+
+
+class LoanStatusDaysUpdateRequestSerializer(serializers.Serializer[Any]):
+    late_days = serializers.IntegerField(min_value=1)
+    default_days = serializers.IntegerField(min_value=2)
+    reason = serializers.CharField(max_length=1000, allow_blank=True)
+
+
 class PlatformFeatureUpdateRequestSerializer(serializers.Serializer[Any]):
     key = serializers.CharField(max_length=128)
     enabled = serializers.BooleanField()

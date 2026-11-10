@@ -34,6 +34,7 @@ from backend.apps.loans.api.serializers import (
     LoanUpdateRequestSerializer,
     OriginalLoanScheduleRowSerializer,
     PublishLoanRequestSerializer,
+    admin_loan_list_context,
     serialize_loan,
     serialize_loan_event,
 )
@@ -118,11 +119,9 @@ class LoanListCreateView(APIView):
         serializer = LoanListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
-        loans = _loan_queryset_from_query(data)
-        return Response(
-            [serialize_loan(loan) for loan in loans[: data["limit"]]],
-            status=status.HTTP_200_OK,
-        )
+        loans = list(_loan_queryset_from_query(data)[: data["limit"]])
+        rows = LoanSerializer(loans, many=True, context=admin_loan_list_context(loans)).data
+        return Response(rows, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=LoanCreateRequestSerializer,

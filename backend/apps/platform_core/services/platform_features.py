@@ -14,8 +14,17 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_superadmin_actor
+from backend.apps.platform_core.domain.loan_status import (
+    DEFAULT_DEFAULT_THRESHOLD_DAYS,
+    DEFAULT_LATE_THRESHOLD_DAYS,
+    MAX_THRESHOLD_DAYS,
+    valid_threshold_pair,
+)
 from backend.apps.platform_core.models import PlatformSetting, PlatformSettingVersion
-from backend.apps.platform_core.selectors.settings import platform_switch_enabled
+from backend.apps.platform_core.selectors.settings import (
+    platform_loan_status_thresholds,
+    platform_switch_enabled,
+)
 from backend.apps.platform_core.services.settings import (
     DEFAULT_PLATFORM_SETTINGS,
     SetPlatformSettingCommand,
@@ -162,3 +171,94 @@ def set_platform_feature(command: SetPlatformFeatureCommand) -> dict[str, Any]:
         )
     )
     return _feature_payload(feature)
+
+
+# ---- U33-DEC-09: the platform's late and default days ---------------------------------------
+
+LATE_DAYS_SETTING_KEY = "servicing.late_threshold_days"
+DEFAULT_DAYS_SETTING_KEY = "servicing.default_threshold_days"
+
+
+@dataclass(frozen=True, slots=True)
+class SetLoanStatusDaysCommand:
+    actor: Any
+    late_days: int
+    default_days: int
+    reason: str
+
+
+def _days_last_change() -> dict[str, Any] | None:
+    version = (
+        PlatformSettingVersion.objects.filter(
+            key__in=[LATE_DAYS_SETTING_KEY, DEFAULT_DAYS_SETTING_KEY]
+        )
+        .order_by("-occurred_at", "-version")
+        .first()
+    )
+    if version is None:
+        return None
+    return {
+        "changed_at": version.occurred_at,
+        "changed_by_email": _changed_by_email(version),
+        "reason": str(version.reason),
+    }
+
+
+def loan_status_days(*, actor: Any) -> dict[str, Any]:
+    """The platform's Late and Default days, the U33-DEC-09 defaults and the last change."""
+    _require_superadmin(actor)
+    current = platform_loan_status_thresholds()
+    return {
+        "late_days": current.late_days,
+        "default_days": current.default_days,
+        "default_late_days": DEFAULT_LATE_THRESHOLD_DAYS,
+        "default_default_days": DEFAULT_DEFAULT_THRESHOLD_DAYS,
+        "maximum_days": MAX_THRESHOLD_DAYS,
+        "last_change": _days_last_change(),
+    }
+
+
+@transaction.atomic
+def set_loan_status_days(command: SetLoanStatusDaysCommand) -> dict[str, Any]:
+    """Change both days together through the audited settings service (one reason)."""
+    _require_superadmin(command.actor)
+    if not valid_threshold_pair(command.late_days, command.default_days):
+        raise PlatformFeatureValidationError(
+            f"Late must start before Default: 1 <= Late < Default <= {MAX_THRESHOLD_DAYS} days."
+        )
+    reason = str(command.reason or "").strip()
+    if not reason:
+        raise PlatformFeatureValidationError("Enter a reason for this change.")
+    if len(reason) > MAX_REASON_LENGTH:
+        raise PlatformFeatureValidationError(
+            f"The reason can be at most {MAX_REASON_LENGTH} characters."
+        )
+    PlatformSetting.objects.select_for_update().filter(
+        key__in=[LATE_DAYS_SETTING_KEY, DEFAULT_DAYS_SETTING_KEY]
+    ).first()
+    previous = platform_loan_status_thresholds()
+    if (previous.late_days, previous.default_days) == (command.late_days, command.default_days):
+        raise PlatformFeatureValidationError("These days are already in use. Nothing was changed.")
+    metadata = {
+        "decision": "U33-DEC-09",
+        "previous": {"late_days": previous.late_days, "default_days": previous.default_days},
+        "new": {"late_days": command.late_days, "default_days": command.default_days},
+        "reason": reason,
+        "source": "admin_loan_status_days",
+    }
+    for key, value in (
+        (LATE_DAYS_SETTING_KEY, command.late_days),
+        (DEFAULT_DAYS_SETTING_KEY, command.default_days),
+    ):
+        set_platform_setting(
+            SetPlatformSettingCommand(
+                actor=actor_ref_for_user(command.actor),
+                key=key,
+                value=value,
+                value_type="integer",
+                reason=reason,
+                description=_setting_description(key),
+                metadata=metadata,
+            )
+        )
+    return loan_status_days(actor=command.actor)

@@ -16,7 +16,7 @@ from typing import Any, NoReturn, cast
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Model, Q, Sum
+from django.db.models import Count, Model, Q, Sum
 
 from backend.apps.marketplace_primary import investor_limit as investor_limits
 from backend.apps.marketplace_primary import notices as investor_notices
@@ -2718,6 +2718,16 @@ def coming_soon_marketplace_payloads(*, viewer_user_id: str) -> list[dict[str, A
     return [
         _coming_soon_payload(cast(Model, loan), viewer_user_id=viewer_user_id) for loan in loans
     ]
+
+
+def opening_alert_counts(loan_ids: list[str]) -> dict[str, int]:
+    """Admin: how many investors wait for the opening email of each loan (not yet sent)."""
+    rows = (
+        LoanOpeningAlert.objects.filter(loan_id__in=loan_ids, notified_at__isnull=True)
+        .values("loan_id")
+        .annotate(count=Count("id"))
+    )
+    return {str(row["loan_id"]): int(row["count"]) for row in rows}
 
 
 def set_loan_opening_alert(*, actor: Model, loan_id: str, wanted: bool) -> dict[str, Any]:

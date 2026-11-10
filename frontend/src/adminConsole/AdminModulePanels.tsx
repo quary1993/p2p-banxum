@@ -22,6 +22,9 @@ import {
   getV1AdminPlatformFeaturesRetrieveQueryKey,
   useV1AdminPlatformFeaturesCreate,
   useV1AdminPlatformFeaturesRetrieve,
+  getV1AdminLoanStatusDaysRetrieveQueryKey,
+  useV1AdminLoanStatusDaysRetrieve,
+  useV1AdminLoanStatusDaysUpdate,
   useV1AuthAdminUsersAccessCreate,
   useV1AuthAdminUsersCreate,
   useV1AdminOpsUsersDocumentsArtifactCreate,
@@ -2811,6 +2814,20 @@ function FxCurrencyTable({ caption, columns }: { caption: string; columns: Array
   );
 }
 
+/** Lines under a loan's status in the admin list: Coming soon, contract days, termination. */
+function loanStatusNotes(loan: Loan): string[] {
+  const lines: string[] = [];
+  if (loan.coming_soon_at && loan.planned_opening_date) {
+    const waiting = loan.opening_alert_count === 1 ? "1 investor waits for the email" : `${loan.opening_alert_count} investors wait for the email`;
+    lines.push(`Coming soon · opens ${formatDate(loan.planned_opening_date)} · ${waiting}`);
+  }
+  if (loan.late_threshold_days !== null && loan.default_threshold_days !== null) {
+    lines.push(`Contract days: Late from day ${loan.late_threshold_days}, Default from day ${loan.default_threshold_days}`);
+  }
+  if (loan.contract_terminated_on) lines.push(`Contract terminated ${formatDate(loan.contract_terminated_on)}`);
+  return lines;
+}
+
 export function LoansPanel() {
   // Filters, the selected rows and the open Manage view live in the URL:
   // /admin/loans/<loanId>/manage/<action>?q=...&status=...&borrower=...
@@ -3096,10 +3113,20 @@ export function LoansPanel() {
                               : `Borrower: ${loan.borrower_name ?? "-"}`}
                           </span>
                           <span className="mono muted">{loan.id}</span>
+                          {loan.security_overview.length ? (
+                            <span className="muted">
+                              Securities: {loan.security_overview.map((item) => `${labelize(item.security_type)}${item.status === "released" ? " (released)" : ""}`).join(", ")}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td><Chip tone={loan.product_type === "originator_claim" ? "info" : "neutral"}>{loan.product_type === "originator_claim" ? "Originator claim" : "Direct"}</Chip></td>
-                      <td><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip></td>
+                      <td>
+                        <div className="col gap-4">
+                          <Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip>
+                          {loanStatusNotes(loan).map((line) => <span className="muted" key={line}>{line}</span>)}
+                        </div>
+                      </td>
                       <td><LoanFundingProgress loan={loan} /></td>
                       <td className="admin-loan-rate">{(loan.interest_rate_bps / 100).toFixed(2)}% p.a.</td>
                       <td className="admin-loan-rate">{(loan.yield_bps / 100).toFixed(2)}% p.a.</td>
@@ -8179,6 +8206,97 @@ function PlatformFeatureRow({ feature }: { feature: PlatformFeature }) {
   );
 }
 
+/** U33-DEC-09: the platform's Late and Default days, for loans without contract days (superadmin). */
+function LoanStatusDaysCard() {
+  const queryClient = useQueryClient();
+  const daysQuery = useV1AdminLoanStatusDaysRetrieve({ query: { enabled: !isFixturePreview, retry: false, staleTime: 0 } });
+  const days = daysQuery.data;
+  const [late, setLate] = useState("");
+  const [defaulted, setDefaulted] = useState("");
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1AdminLoanStatusDaysUpdate({
+    mutation: {
+      onSuccess: (result) => {
+        queryClient.setQueryData(getV1AdminLoanStatusDaysRetrieveQueryKey(), result);
+        setSuccess(`Loans without contract days are Late from day ${result.late_days} and in Default from day ${result.default_days}. The change was audit-logged.`);
+        setReason("");
+      }
+    }
+  });
+  useEffect(() => {
+    if (!days) return;
+    setLate(String(days.late_days));
+    setDefaulted(String(days.default_days));
+  }, [days]);
+  const lateDays = Number(late);
+  const defaultDays = Number(defaulted);
+  const maximum = days?.maximum_days ?? 365;
+  const pairValid = Number.isInteger(lateDays) && Number.isInteger(defaultDays) && lateDays >= 1 && lateDays < defaultDays && defaultDays <= maximum;
+  const changed = Boolean(days) && (lateDays !== days?.late_days || defaultDays !== days?.default_days);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setSuccess(undefined);
+    setPreview(null);
+    if (isFixturePreview) {
+      setPreview(`Late from day ${lateDays}, Default from day ${defaultDays}. Reason: ${reason.trim()}`);
+      return;
+    }
+    mutation.mutate({ data: { late_days: lateDays, default_days: defaultDays, reason: reason.trim() } });
+  }
+
+  return (
+    <Card padded>
+      <SectionHeader
+        description="Days after the due date of the first unpaid installment (Europe/Zurich). Before the Late day the payment is Due. A loan with its contract's own days keeps them. Loans follow new days at their next status check."
+        title="Late and default days"
+      />
+      {isFixturePreview ? <p className="muted admin-manage-hint">The days are read from the server; the preview has none.</p> : null}
+      {daysQuery.error ? <Banner tone="bad" title="Could not load the late and default days">{errorMessage(daysQuery.error)}</Banner> : null}
+      {days ? (
+        <form className="admin-action-form" onSubmit={submit}>
+          <div className="admin-detail-grid">
+            <div className="admin-review-row">
+              <span>In use</span>
+              <strong>Late from day {days.late_days}, Default from day {days.default_days}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>U33-DEC-09 default</span>
+              <strong>Late from day {days.default_late_days}, Default from day {days.default_default_days}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Last change</span>
+              <strong>{days.last_change ? `${formatDateTime(days.last_change.changed_at)} · ${days.last_change.changed_by_email || "System"}${days.last_change.reason ? ` · ${days.last_change.reason}` : ""}` : "Never changed"}</strong>
+            </div>
+          </div>
+          <div className="admin-form-grid">
+            <TextInput integer label="Late from day" onChange={setLate} required type="number" value={late} />
+            <TextInput integer label="Default from day" onChange={setDefaulted} required type="number" value={defaulted} />
+          </div>
+          {!pairValid ? <Banner tone="warn" title="Check the days">Late must start before Default: 1 ≤ Late &lt; Default ≤ {maximum}.</Banner> : null}
+          {changed && pairValid ? (
+            <>
+              <TextAreaInput
+                hint="Required. Saved with the change in the settings history and the audit log."
+                label="Reason for the new days"
+                onChange={setReason}
+                required
+                rows={2}
+                value={reason}
+              />
+              <ActionFooter disabled={reason.trim().length === 0} mutation={mutation} previewMessage={preview} submitLabel="Save the days" />
+            </>
+          ) : success ? (
+            <Banner tone="ok" title="Days saved">{success}</Banner>
+          ) : null}
+        </form>
+      ) : null}
+    </Card>
+  );
+}
+
 function PlatformFeaturesCard() {
   const featuresQuery = useV1AdminPlatformFeaturesRetrieve({
     query: {
@@ -8227,6 +8345,9 @@ export function SettingsPanel() {
       <PreviewNotice>Superadmin settings use dummy templates in preview. Live template changes create immutable document versions.</PreviewNotice>
       <section className="admin-section">
         <PlatformFeaturesCard />
+      </section>
+      <section className="admin-section">
+        <LoanStatusDaysCard />
       </section>
       <section className="admin-section">
         <Card padded>

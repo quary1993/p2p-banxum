@@ -960,6 +960,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReadOnlyImpersonationStartResponse'
           description: ''
+  /api/v1/admin/loan-status-days/:
+    get:
+      operationId: v1_admin_loan_status_days_retrieve
+      description: 'U33-DEC-09: the platform''s Late and Default days (superadmin),
+        with the last change.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanStatusDays'
+          description: ''
+    put:
+      operationId: v1_admin_loan_status_days_update
+      description: 'U33-DEC-09: the platform''s Late and Default days (superadmin),
+        with the last change.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanStatusDaysUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanStatusDaysUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanStatusDaysUpdateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanStatusDays'
+          description: ''
   /api/v1/admin/platform-features/:
     get:
       operationId: v1_admin_platform_features_retrieve
@@ -12148,6 +12191,14 @@ components:
           type: string
           format: date
           nullable: true
+        security_overview:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanSecurityOverview'
+          readOnly: true
+        opening_alert_count:
+          type: integer
+          readOnly: true
         minimum_subscription_bps:
           type: integer
           default: 5000
@@ -12217,6 +12268,7 @@ components:
       - ltv_warnings
       - maturity_date
       - minimum_investment_minor
+      - opening_alert_count
       - opportunity_status
       - original_interest_only_months
       - original_interest_rate_bps
@@ -12239,6 +12291,7 @@ components:
       - repayment_type
       - risk_rating
       - schedule_version
+      - security_overview
       - status
       - term_months
       - title
@@ -13202,6 +13255,18 @@ components:
             $ref: '#/components/schemas/LoanSecurity'
       required:
       - securities
+    LoanSecurityOverview:
+      type: object
+      description: 'U33-DEC-21: a security of the loan in the admin loan list (type
+        and status only).'
+      properties:
+        security_type:
+          type: string
+        status:
+          type: string
+      required:
+      - security_type
+      - status
     LoanSecurityRequest:
       type: object
       properties:
@@ -13326,6 +13391,62 @@ components:
       required:
       - as_of_date
       - changes
+    LoanStatusDays:
+      type: object
+      description: 'U33-DEC-09: the platform''s Late and Default days (loans without
+        contract days).'
+      properties:
+        late_days:
+          type: integer
+        default_days:
+          type: integer
+        default_late_days:
+          type: integer
+        default_default_days:
+          type: integer
+        maximum_days:
+          type: integer
+        last_change:
+          allOf:
+          - $ref: '#/components/schemas/LoanStatusDaysLastChange'
+          nullable: true
+      required:
+      - default_days
+      - default_default_days
+      - default_late_days
+      - last_change
+      - late_days
+      - maximum_days
+    LoanStatusDaysLastChange:
+      type: object
+      properties:
+        changed_at:
+          type: string
+          format: date-time
+        changed_by_email:
+          type: string
+        reason:
+          type: string
+      required:
+      - changed_at
+      - changed_by_email
+      - reason
+    LoanStatusDaysUpdateRequest:
+      type: object
+      properties:
+        late_days:
+          type: integer
+          minimum: 1
+        default_days:
+          type: integer
+          minimum: 2
+        reason:
+          type: string
+          maxLength: 1000
+      required:
+      - default_days
+      - late_days
+      - reason
     LoanStatusStages:
       type: object
       description: A loan's Late / Default days (own or platform) and its contract

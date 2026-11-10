@@ -360,7 +360,7 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, actions "Late and default days" and "Record contract termination" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: "Late and default days" shows the days in use (platform or contract) and lets the admin set the contract's own pair, or go back to the platform days, with a required reason; offered for draft, published, funded, active and late loans. "Record contract termination" takes the date (not in the future) and an internal note for a late or defaulted loan, recorded once; the status does not change. The loan list does not show the days or the termination date yet.
-- Required admin-console improvement: show the days in use and the termination date in the loan row; a platform settings form for `servicing.late_threshold_days` / `servicing.default_threshold_days` with the pair check.
+- Required admin-console improvement: none left from the first version (2026-11-10: the loan row shows contract days and the termination date; Superadmin settings has "Late and default days" with the pair check, a reason and the last change; loans follow new platform days at their next status check). Possible: re-check the open loans at once after a platform change.
 - Priority: important.
 
 ## 2026-11-10: Account Closure Requests (U33-DEC-28)
@@ -374,7 +374,7 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, action "Show as Coming soon" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: for a draft loan, the admin sets the planned opening date (from today up to the funding deadline) and an optional internal note; the form refuses a past date, a date after the funding deadline, a loan that is not a draft Direct loan and an unsecured loan. When the loan is already shown, the form shows the dates, changes the date, and "Stop showing as Coming soon" hides it again (the opening alerts are then not sent). The opening alerts go out when the admin publishes the loan.
-- Required admin-console improvement: show "Coming soon" and the planned date in the loan list; show the number of investors who asked for the opening alert.
+- Required admin-console improvement: none left from the first version (2026-11-10: the loan list shows "Coming soon · opens <date> · N investors wait for the email").
 - Priority: important.
 
 ## 2026-11-10: Recovery Stages (U33-DEC-22)
@@ -388,7 +388,7 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, action "Securities" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
-- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities; show the securities in the loan list and the loan detail.
+- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities (2026-11-10: the loan list shows the securities' types, released ones marked).
 - Priority: important.
 
 ## 2026-11-10: Structured Credit File (U33-DEC-20)

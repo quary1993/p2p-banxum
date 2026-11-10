@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 
 from backend.apps.platform_core.api.serializers import (
     HealthResponseSerializer,
+    LoanStatusDaysSerializer,
+    LoanStatusDaysUpdateRequestSerializer,
     PlatformFeaturesSerializer,
     PlatformFeatureUpdateRequestSerializer,
     QaDevModeAdvanceRequestSerializer,
@@ -28,8 +30,11 @@ from backend.apps.platform_core.models.story_images import StoryImage
 from backend.apps.platform_core.services.platform_features import (
     PlatformFeatureAuthorizationError,
     PlatformFeatureValidationError,
+    SetLoanStatusDaysCommand,
     SetPlatformFeatureCommand,
     list_platform_features,
+    loan_status_days,
+    set_loan_status_days,
     set_platform_feature,
 )
 from backend.apps.platform_core.services.qa_dev_mode import (
@@ -294,3 +299,40 @@ class AdminPlatformFeaturesView(APIView):
         except PlatformFeatureValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PlatformFeaturesSerializer({"features": features}).data)
+
+
+class AdminLoanStatusDaysView(APIView):
+    """U33-DEC-09: the platform's Late and Default days (superadmin), with the last change."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LoanStatusDaysSerializer})
+    def get(self, request):  # type: ignore[no-untyped-def]
+        try:
+            payload = loan_status_days(actor=request.user)
+        except PlatformFeatureAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(LoanStatusDaysSerializer(payload).data)
+
+    @extend_schema(
+        request=LoanStatusDaysUpdateRequestSerializer,
+        responses={200: LoanStatusDaysSerializer},
+    )
+    def put(self, request):  # type: ignore[no-untyped-def]
+        serializer = LoanStatusDaysUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            payload = set_loan_status_days(
+                SetLoanStatusDaysCommand(
+                    actor=request.user,
+                    late_days=data["late_days"],
+                    default_days=data["default_days"],
+                    reason=data["reason"],
+                )
+            )
+        except PlatformFeatureAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except PlatformFeatureValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(LoanStatusDaysSerializer(payload).data)

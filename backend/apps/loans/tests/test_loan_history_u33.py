@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, cast
 
 import pytest
@@ -59,3 +60,29 @@ def test_only_admins_read_the_history(admin_user: Model, django_user_model: Any)
     investor = django_user_model.objects.create_user(email="history@example.test", full_name="I")
 
     assert _history(investor, loan).status_code == 403
+
+
+def test_the_admin_loan_list_shows_securities_and_waiting_opening_alerts(admin_user: Model) -> None:
+    from django.apps import apps
+
+    from backend.apps.platform_core.domain.time import now_utc
+
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    Loan.objects.filter(pk=loan.pk).update(coming_soon_at=now_utc())
+    alert_model = apps.get_model("marketplace_primary", "LoanOpeningAlert")
+    alert_model.objects.create(loan_id=loan.pk, investor_user_id=uuid.uuid4())
+    alert_model.objects.create(
+        loan_id=loan.pk, investor_user_id=uuid.uuid4(), notified_at=now_utc()
+    )
+
+    rows = _client(admin_user).get("/api/v1/loans/admin/loans/").json()
+
+    [row] = [row for row in rows if row["id"] == str(loan.pk)]
+    assert row["security_overview"] == [{"security_type": "real_estate", "status": ""}]
+    # Only the investors still waiting for the email are counted.
+    assert row["opening_alert_count"] == 1
+    detail = _client(admin_user).get(f"/api/v1/loans/admin/loans/{loan.pk}/").json()
+    assert (detail["security_overview"], detail["opening_alert_count"]) == (
+        row["security_overview"],
+        1,
+    )
