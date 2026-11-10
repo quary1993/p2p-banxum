@@ -28,6 +28,7 @@ from backend.apps.entities.api.serializers import (
     BorrowerFinancialYearRequestSerializer,
     BorrowerFinancialYearSerializer,
     BorrowerInvestorDisclosureSerializer,
+    CreditFileMoveRequestSerializer,
     serialize_borrower_document,
     serialize_borrower_entity,
     serialize_borrower_event,
@@ -452,6 +453,32 @@ class BorrowerDebtFacilityListView(APIView):
         except credit_file.CreditFileError as exc:
             return _credit_file_error(exc)
         return Response(row, status=status.HTTP_201_CREATED)
+
+
+class BorrowerDebtFacilityMoveView(APIView):
+    """U33-DEC-20: move a facility one place up or down."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=CreditFileMoveRequestSerializer,
+        responses={200: BorrowerDebtFacilityListSerializer},
+    )
+    def post(self, request: Request, borrower_id: str, facility_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = CreditFileMoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            rows = credit_file.move_debt_facility(
+                actor=cast(Model, request.user),
+                borrower_id=str(borrower_id),
+                facility_id=str(facility_id),
+                direction=serializer.validated_data["direction"],
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response({"debt_facilities": rows})
 
 
 class BorrowerDebtFacilityDetailView(APIView):

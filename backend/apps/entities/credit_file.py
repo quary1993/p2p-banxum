@@ -358,6 +358,41 @@ def remove_debt_facility(*, actor: Model, borrower_id: str, facility_id: str) ->
     _audit(actor, "borrower.debt_facility_removed", borrower, {"facility_id": str(facility_id)})
 
 
+@transaction.atomic
+def move_debt_facility(
+    *, actor: Model, borrower_id: str, facility_id: str, direction: str
+) -> list[dict[str, Any]]:
+    """Move a facility one place up or down in the list investors see."""
+    _require_admin(actor)
+    if direction not in {"up", "down"}:
+        raise CreditFileValidationError("Move a facility up or down.")
+    borrower = _borrower(borrower_id)
+    rows = list(
+        borrower.debt_facilities.select_for_update().order_by("position", "created_at", "id")
+    )
+    index = next((i for i, row in enumerate(rows) if str(row.id) == str(facility_id)), None)
+    if index is None:
+        raise CreditFileValidationError("This facility does not exist for the borrower.")
+    target = index - 1 if direction == "up" else index + 1
+    if not 0 <= target < len(rows):
+        raise CreditFileValidationError(
+            "This facility is already first."
+            if direction == "up"
+            else "This facility is already last."
+        )
+    rows[index], rows[target] = rows[target], rows[index]
+    for position, row in enumerate(rows):
+        if row.position != position:
+            BorrowerDebtFacility.objects.filter(pk=row.pk).update(position=position)
+    _audit(
+        actor,
+        "borrower.debt_facility_moved",
+        borrower,
+        {"facility_id": str(facility_id), "direction": direction},
+    )
+    return list_debt_facilities(actor=actor, borrower_id=borrower_id)
+
+
 def list_debt_facilities(*, actor: Model, borrower_id: str) -> list[dict[str, Any]]:
     _require_admin(actor)
     borrower = _borrower(borrower_id)

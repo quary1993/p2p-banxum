@@ -5,6 +5,7 @@ from django.urls import path
 from backend.apps.entities.api.views import (
     BorrowerDebtFacilityDetailView,
     BorrowerDebtFacilityListView,
+    BorrowerDebtFacilityMoveView,
     BorrowerDocumentListCreateView,
     BorrowerDocumentMetadataView,
     BorrowerEntityDetailView,
@@ -51,6 +52,11 @@ urlpatterns = [
         "admin/borrowers/<uuid:borrower_id>/debt-facilities/<uuid:facility_id>/",
         BorrowerDebtFacilityDetailView.as_view(),
         name="borrower-debt-facility",
+    ),
+    path(
+        "admin/borrowers/<uuid:borrower_id>/debt-facilities/<uuid:facility_id>/move/",
+        BorrowerDebtFacilityMoveView.as_view(),
+        name="borrower-debt-facility-move",
     ),
     path(
         "admin/borrowers/<uuid:borrower_id>/events/",

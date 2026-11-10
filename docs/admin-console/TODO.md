@@ -395,7 +395,7 @@ Each entry should include:
 
 - Screen or component: Borrowers table, action "Credit file" (financial years, existing debt, document details), and the loan Manage action "Checks & updates" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: a financial year is entered as minor units by statement (profit & loss, balance sheet) with its year, period end, currency and source document; the server refuses details that do not add up. Facilities have a name, currency, balance, part due within a year, security and date. Document details (category, date, period, issuer, version, status) are edited per document. Loan checks have what was checked, the result, the source and the date; the monitoring text says how often and on what the loan is followed.
-- Required admin-console improvement: enter figures in currency units (not minor units) with a running total check; copy a year as the start of the next; pick the source document of a facility; reorder checks and facilities; show who changed what (audit).
+- Required admin-console improvement: show who changed the borrower's credit file (financial years, facilities, document details) in a borrower history like the Loan history. Done 2026-11-10: figures in currency units (no separators, strict) with the server's checks shown while typing and Save blocked while one fails; the previous year's figure next to each field; the facility's source document (kept on edit); facilities and checks move up or down.
 - Priority: important.
 
 ## 2026-11-10: Loan History

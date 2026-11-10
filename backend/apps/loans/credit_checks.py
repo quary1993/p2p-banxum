@@ -130,6 +130,32 @@ def remove_credit_check(*, actor: Model, loan_id: str, check_id: str) -> None:
 
 
 @transaction.atomic
+def move_credit_check(
+    *, actor: Model, loan_id: str, check_id: str, direction: str
+) -> dict[str, Any]:
+    """Move a check one place up or down in the list investors see."""
+    _require_admin(actor)
+    if direction not in {"up", "down"}:
+        raise CreditCheckValidationError("Move a check up or down.")
+    loan = _loan(loan_id)
+    rows = list(loan.credit_checks.select_for_update().order_by("position", "created_at", "id"))
+    index = next((i for i, row in enumerate(rows) if str(row.id) == str(check_id)), None)
+    if index is None:
+        raise CreditCheckValidationError("This check does not exist for the loan.")
+    target = index - 1 if direction == "up" else index + 1
+    if not 0 <= target < len(rows):
+        raise CreditCheckValidationError(
+            "This check is already first." if direction == "up" else "This check is already last."
+        )
+    rows[index], rows[target] = rows[target], rows[index]
+    for position, row in enumerate(rows):
+        if row.position != position:
+            LoanCreditCheck.objects.filter(pk=row.pk).update(position=position)
+    _audit(actor, "loan.credit_check_moved", loan, {"check_id": str(check_id)})
+    return list_credit_checks(actor=actor, loan_id=loan_id)
+
+
+@transaction.atomic
 def set_monitoring(*, actor: Model, loan_id: str, frequency: str, focus: str) -> dict[str, Any]:
     _require_admin(actor)
     loan = Loan.objects.select_for_update().filter(id=loan_id).first()

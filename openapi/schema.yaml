@@ -2211,6 +2211,46 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/entities/admin/borrowers/{borrower_id}/debt-facilities/{facility_id}/move/:
+    post:
+      operationId: v1_entities_admin_borrowers_debt_facilities_move_create
+      description: 'U33-DEC-20: move a facility one place up or down.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: facility_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditFileMoveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreditFileMoveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreditFileMoveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDebtFacilityList'
+          description: ''
   /api/v1/entities/admin/borrowers/{borrower_id}/documents/:
     get:
       operationId: v1_entities_admin_borrowers_documents_list
@@ -4097,6 +4137,46 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/loans/admin/loans/{loan_id}/credit-checks/{check_id}/move/:
+    post:
+      operationId: v1_loans_admin_loans_credit_checks_move_create
+      description: 'U33-DEC-20: move a check one place up or down.'
+      parameters:
+      - in: path
+        name: check_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanSecurityMoveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditChecks'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/events/:
     get:
       operationId: v1_loans_admin_loans_events_list
@@ -9232,6 +9312,13 @@ components:
       required:
       - display_name
       - id
+    CreditFileMoveRequest:
+      type: object
+      properties:
+        direction:
+          $ref: '#/components/schemas/DirectionEnum'
+      required:
+      - direction
     CurrentUserResponse:
       type: object
       properties:

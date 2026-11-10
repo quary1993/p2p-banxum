@@ -3292,6 +3292,23 @@ table.tbl tfoot.schedule-totals th.num,
   }
 }
 
+.admin-year-checks {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+
+.admin-year-checks .ok {
+  color: var(--ok, #1f7a4d);
+}
+
+.admin-year-checks .bad {
+  color: var(--bad, #b42318);
+  font-weight: 600;
+}
+
 .admin-checkbox-line {
   align-items: center;
   display: inline-flex;

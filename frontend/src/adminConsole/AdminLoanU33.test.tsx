@@ -8,7 +8,7 @@ import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
 import { server } from "../api/mocks/server";
-import { getV1AuthMeRetrieveResponseMock, getV1LoansAdminLoansListResponseMock } from "../api/generated/banxumApi";
+import { getV1AuthMeRetrieveResponseMock, getV1EntitiesAdminBorrowersListResponseMock, getV1LoansAdminLoansListResponseMock } from "../api/generated/banxumApi";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -290,4 +290,46 @@ test("removed recovery entries show the reason and who recorded and removed them
   expect(within(table).getByText("Wrong loan.")).toBeInTheDocument();
   expect(within(table).getByText(/ops@example\.test/)).toBeInTheDocument();
   expect(within(table).getByText(/lead@example\.test/)).toBeInTheDocument();
+}, 20_000);
+
+test("the credit file editor takes figures in currency units, checks them and shows last year", async () => {
+  const saves: Array<Record<string, unknown>> = [];
+  const borrower = { id: "b0000000-0000-4000-8000-000000000001", legal_name: "Packaging Works AG", financials_currency: "CHF" };
+  const year2024 = { id: "y24", year: 2024, period_end: "2024-12-31", currency: "CHF", source_document: null, revenue_minor: 1_120_000_000 };
+  server.use(
+    http.get("*/api/v1/entities/admin/borrowers/", () => HttpResponse.json([{ ...getV1EntitiesAdminBorrowersListResponseMock()[0], ...borrower }])),
+    http.get("*/api/v1/entities/admin/borrowers/:borrowerId/financial-years/", () => HttpResponse.json({ financial_years: [year2024] })),
+    http.get("*/api/v1/entities/admin/borrowers/:borrowerId/debt-facilities/", () => HttpResponse.json({ debt_facilities: [] })),
+    http.get("*/api/v1/entities/admin/borrowers/:borrowerId/documents/", () => HttpResponse.json([])),
+    http.post("*/api/v1/entities/admin/borrowers/:borrowerId/financial-years/", async ({ request }) => {
+      saves.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json({ ...year2024, id: "y25", year: 2025 }, { status: 201 });
+    }),
+    ...adminHandlers()
+  );
+  renderAdmin("/admin/loans");
+
+  fireEvent.click(await screen.findByRole("button", { name: "Credit file" }, { timeout: 10_000 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Add a financial year" }));
+  const revenue = screen.getByLabelText("Revenue");
+  expect(screen.getByText(/2024: CHF 11'200'000\.00/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Financial year"), { target: { value: "2025" } });
+  fireEvent.change(revenue, { target: { value: "1'000" } });
+  expect(screen.getByText(/without separators/)).toBeInTheDocument();
+  fireEvent.change(revenue, { target: { value: "1000" } });
+  fireEvent.change(screen.getByLabelText("Materials & purchased services"), { target: { value: "300" } });
+  fireEvent.change(screen.getByLabelText("Staff costs"), { target: { value: "200" } });
+  fireEvent.change(screen.getByLabelText("Other operating costs"), { target: { value: "100" } });
+  fireEvent.change(screen.getByLabelText("Depreciation"), { target: { value: "50" } });
+  fireEvent.change(screen.getByLabelText("Operating profit"), { target: { value: "300" } });
+  const checks = screen.getByRole("list", { name: "Checks of the figures" });
+  expect(within(checks).getByText(/✗ Revenue less operating costs = operating profit: CHF 350\.00 \(entered CHF 300\.00\)/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save financial year" })).toBeDisabled();
+
+  fireEvent.change(screen.getByLabelText("Operating profit"), { target: { value: "350.50" } });
+  fireEvent.change(screen.getByLabelText("Revenue"), { target: { value: "1000.50" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save financial year" }));
+  await waitFor(() => expect(saves).toHaveLength(1));
+  const amounts = saves[0].amounts as Record<string, number | null>;
+  expect([amounts.revenue_minor, amounts.operating_profit_minor, amounts.net_profit_minor]).toEqual([100_050, 35_050, null]);
 }, 20_000);

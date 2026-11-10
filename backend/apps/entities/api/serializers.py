@@ -320,6 +320,10 @@ class BorrowerDebtFacilitySerializer(serializers.Serializer[Any]):
     source_document = CreditFileDocumentRefSerializer(allow_null=True)
 
 
+class CreditFileMoveRequestSerializer(serializers.Serializer[Any]):
+    direction = serializers.ChoiceField(choices=["up", "down"])
+
+
 class BorrowerDebtFacilityListSerializer(serializers.Serializer[Any]):
     debt_facilities = BorrowerDebtFacilitySerializer(many=True)
 

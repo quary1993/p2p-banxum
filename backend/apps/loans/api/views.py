@@ -568,6 +568,31 @@ class LoanCreditCheckListView(APIView):
         return Response(payload, status=status.HTTP_201_CREATED)
 
 
+class LoanCreditCheckMoveView(APIView):
+    """U33-DEC-20: move a check one place up or down."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanSecurityMoveRequestSerializer, responses={200: LoanCreditChecksSerializer}
+    )
+    def post(self, request: Request, loan_id: str, check_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanSecurityMoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = loan_credit_checks.move_credit_check(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                check_id=str(check_id),
+                direction=serializer.validated_data["direction"],
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)
+
+
 class LoanCreditCheckDetailView(APIView):
     """U33-DEC-20: change (PUT) or remove (DELETE) a check."""
 

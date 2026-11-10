@@ -57,6 +57,8 @@ import {
   getV1EntitiesAdminBorrowersFinancialYearsRetrieveQueryKey,
   useV1EntitiesAdminBorrowersDebtFacilitiesCreate,
   useV1EntitiesAdminBorrowersDebtFacilitiesDestroy,
+  useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate,
+  useV1LoansAdminLoansCreditChecksMoveCreate,
   useV1EntitiesAdminBorrowersDebtFacilitiesRetrieve,
   useV1EntitiesAdminBorrowersDebtFacilitiesUpdate,
   useV1EntitiesAdminBorrowersDocumentsList,
@@ -190,9 +192,10 @@ import {
 import { ApiClientError } from "../api/client/httpClient";
 import { writeReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
-import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
+import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps, minorUnitDecimalsForCurrency } from "../investorPortal/format";
 import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type Tone } from "../investorPortal/ui";
 import { adminFormDefaults } from "./adminFixtures";
+import { financialYearCheckResults, minorToUnits, unitsToMinor } from "./statementUnits";
 import { withIdempotencyKey } from "./adminIdempotency";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
@@ -6553,6 +6556,18 @@ function LoanComingSoonForm({ loan, onDone }: { loan: Loan; onDone: () => void }
 }
 
 // U33-DEC-20: the figures of a financial year, by statement. Costs, assets and debts are positive.
+function MoneyUnitsInput({ label, value, onChange, currency, hint, required = false }: { label: string; value: string; onChange: (value: string) => void; currency: string; hint?: string; required?: boolean }) {
+  const decimals = minorUnitDecimalsForCurrency(currency);
+  const minor = unitsToMinor(value, currency);
+  const error = value.trim() && minor === null ? `Write the amount in ${currency} without separators, with at most ${decimals} decimals, for example 1250000.50.` : undefined;
+  const helper = [minor !== null ? `${currency} ${formatMoneyMinor(minor, currency)}` : "", hint].filter(Boolean).join(" · ");
+  return (
+    <Field error={error} hint={helper} label={label}>
+      <input aria-invalid={error ? true : undefined} aria-label={label} inputMode="decimal" onChange={(event) => onChange(event.target.value)} required={required} value={value} />
+    </Field>
+  );
+}
+
 const FINANCIAL_YEAR_GROUPS: Array<{ title: string; fields: Array<[keyof BorrowerFinancialYear, string]> }> = [
   {
     title: "Profit & loss",
@@ -6594,10 +6609,11 @@ type YearDraft = { id: string | null; year: string; periodEnd: string; currency:
 
 function yearDraft(row?: BorrowerFinancialYear): YearDraft {
   const amounts: Record<string, string> = {};
+  const currency = row?.currency ?? "CHF";
   for (const group of FINANCIAL_YEAR_GROUPS) {
     for (const [field] of group.fields) {
       const value = row?.[field];
-      amounts[field] = typeof value === "number" ? String(value) : "";
+      amounts[field] = typeof value === "number" ? minorToUnits(value, currency) : "";
     }
   }
   const year = row?.year ?? new Date().getFullYear() - 1;
@@ -6612,7 +6628,7 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
   const debtQuery = useV1EntitiesAdminBorrowersDebtFacilitiesRetrieve(borrower.id, { query: { enabled, staleTime: 0 } });
   const documentsQuery = useV1EntitiesAdminBorrowersDocumentsList(borrower.id, { query: { enabled, staleTime: 0 } });
   const [yearEdit, setYearEdit] = useState<YearDraft | null>(null);
-  const [debtEdit, setDebtEdit] = useState<{ id: string | null; facilityType: string; currency: string; balance: string; current: string; security: string; asAt: string } | null>(null);
+  const [debtEdit, setDebtEdit] = useState<{ id: string | null; facilityType: string; currency: string; balance: string; current: string; security: string; asAt: string; sourceDocumentId: string } | null>(null);
   const [documentEdit, setDocumentEdit] = useState<{ id: string; category: string; documentDate: string; periodLabel: string; issuer: string; version: string; status: string } | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
@@ -6627,17 +6643,24 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
   const createDebt = useV1EntitiesAdminBorrowersDebtFacilitiesCreate({ mutation: { onSuccess: done("Facility saved.", debtKey) } });
   const updateDebt = useV1EntitiesAdminBorrowersDebtFacilitiesUpdate({ mutation: { onSuccess: done("Facility saved.", debtKey) } });
   const removeDebt = useV1EntitiesAdminBorrowersDebtFacilitiesDestroy({ mutation: { onSuccess: done("Facility removed.", debtKey) } });
+  const moveDebt = useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate({ mutation: { onSuccess: done("Order saved.", debtKey) } });
   const saveMetadata = useV1EntitiesAdminBorrowersDocumentsMetadataCreate({ mutation: { onSuccess: done("Document details saved.", documentsKey) } });
   const years: BorrowerFinancialYear[] = yearsQuery.data?.financial_years ?? [];
   const facilities: BorrowerDebtFacility[] = debtQuery.data?.debt_facilities ?? [];
   const documents: BorrowerDocument[] = documentsQuery.data ?? [];
-  const error = createYear.error ?? updateYear.error ?? removeYear.error ?? createDebt.error ?? updateDebt.error ?? removeDebt.error ?? saveMetadata.error;
+  const error = createYear.error ?? updateYear.error ?? removeYear.error ?? createDebt.error ?? updateDebt.error ?? removeDebt.error ?? moveDebt.error ?? saveMetadata.error;
   const busy = createYear.isPending || updateYear.isPending || createDebt.isPending || updateDebt.isPending || saveMetadata.isPending;
+
+  const yearAmounts: Record<string, number | null> = {};
+  if (yearEdit) for (const [field, value] of Object.entries(yearEdit.amounts)) yearAmounts[field] = unitsToMinor(value, yearEdit.currency);
+  const yearInvalid = yearEdit ? Object.values(yearEdit.amounts).some((value) => value.trim() !== "" && unitsToMinor(value, yearEdit.currency) === null) : false;
+  const yearChecks = yearEdit ? financialYearCheckResults(yearAmounts) : [];
+  // The year before the one being entered, as a reference next to each figure.
+  const priorYear = yearEdit ? years.find((row) => row.year === Number(yearEdit.year) - 1 && row.id !== yearEdit.id) : undefined;
 
   function saveYear() {
     if (!yearEdit) return;
-    const amounts: Record<string, number | null> = {};
-    for (const [field, value] of Object.entries(yearEdit.amounts)) amounts[field] = value.trim() ? intValue(value) : null;
+    const amounts = yearAmounts;
     const data = { year: intValue(yearEdit.year), period_end: yearEdit.periodEnd, currency: yearEdit.currency, source_document_id: yearEdit.sourceDocumentId || null, amounts };
     if (isFixturePreview) return setPreview(`Financial year ${data.year} would be saved for ${borrower.id}.`);
     if (yearEdit.id) updateYear.mutate({ borrowerId: borrower.id, financialYearId: yearEdit.id, data });
@@ -6646,7 +6669,7 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
 
   function saveDebt() {
     if (!debtEdit) return;
-    const data = { facility_type: debtEdit.facilityType.trim(), currency: debtEdit.currency, balance_minor: intValue(debtEdit.balance), current_portion_minor: debtEdit.current.trim() ? intValue(debtEdit.current) : null, security_description: debtEdit.security.trim(), as_at: debtEdit.asAt };
+    const data = { facility_type: debtEdit.facilityType.trim(), currency: debtEdit.currency, balance_minor: unitsToMinor(debtEdit.balance, debtEdit.currency) ?? 0, current_portion_minor: debtEdit.current.trim() ? unitsToMinor(debtEdit.current, debtEdit.currency) : null, security_description: debtEdit.security.trim(), as_at: debtEdit.asAt, source_document_id: debtEdit.sourceDocumentId || null };
     if (isFixturePreview) return setPreview(`The facility "${data.facility_type}" would be saved for ${borrower.id}.`);
     if (debtEdit.id) updateDebt.mutate({ borrowerId: borrower.id, facilityId: debtEdit.id, data });
     else createDebt.mutate({ borrowerId: borrower.id, data });
@@ -6662,9 +6685,10 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
   return (
     <>
       <p className="muted admin-manage-hint">
-        Enter the figures once, from the financial statements, in minor units. Costs, assets and debts are positive amounts.
-        Leave a detail empty when it is not in the statements; the details must add up to the totals. Investors see the
-        years, the key ratios and the existing debt in the credit file.
+        Enter the figures once, from the financial statements, in currency units (for example 1250000 or 1250000.50, no
+        separators). Costs, assets and debts are positive amounts. Leave a detail empty when it is not in the statements;
+        the details must add up to the totals, and the form shows each check while you type. Investors see the years, the
+        key ratios and the existing debt in the credit file.
       </p>
       <h3>Financial years</h3>
       {years.length > 0 ? (
@@ -6701,13 +6725,33 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
             <fieldset key={group.title}>
               <legend>{group.title}</legend>
               <FieldGrid>
-                {group.fields.map(([field, label]) => (
-                  <MoneyMinorInput currency={yearEdit.currency} key={field} label={`${label} minor units`} onChange={(value) => setYearEdit({ ...yearEdit, amounts: { ...yearEdit.amounts, [field]: value } })} value={yearEdit.amounts[field] ?? ""} />
-                ))}
+                {group.fields.map(([field, label]) => {
+                  const prior = priorYear?.[field];
+                  return (
+                    <MoneyUnitsInput
+                      currency={yearEdit.currency}
+                      hint={typeof prior === "number" ? `${priorYear?.year}: ${priorYear?.currency} ${formatMoneyMinor(prior, priorYear?.currency ?? yearEdit.currency)}` : undefined}
+                      key={field}
+                      label={label}
+                      onChange={(value) => setYearEdit({ ...yearEdit, amounts: { ...yearEdit.amounts, [field]: value } })}
+                      value={yearEdit.amounts[field] ?? ""}
+                    />
+                  );
+                })}
               </FieldGrid>
             </fieldset>
           ))}
-          <Button disabled={busy} onClick={saveYear} variant="primary">Save financial year</Button>{" "}
+          {yearChecks.length ? (
+            <ul aria-label="Checks of the figures" className="admin-year-checks">
+              {yearChecks.map((check) => (
+                <li className={check.ok ? "ok" : "bad"} key={check.label}>
+                  {check.ok ? "✓" : "✗"} {check.label}: {yearEdit.currency} {formatMoneyMinor(check.computed, yearEdit.currency)}
+                  {check.ok ? null : ` (entered ${yearEdit.currency} ${formatMoneyMinor(check.total, yearEdit.currency)})`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <Button disabled={busy || yearInvalid || yearChecks.some((check) => !check.ok)} onClick={saveYear} variant="primary">Save financial year</Button>{" "}
           <Button onClick={() => setYearEdit(null)}>Cancel</Button>
         </div>
       ) : <Button onClick={() => setYearEdit(yearDraft())}>Add a financial year</Button>}
@@ -6718,7 +6762,7 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
           <table className="admin-table">
             <thead><tr><th>Facility</th><th>Balance</th><th>Due within a year</th><th>Security</th><th>At</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
             <tbody>
-              {facilities.map((row) => (
+              {facilities.map((row, index) => (
                 <tr key={row.id}>
                   <td>{row.facility_type}</td>
                   <td><Money amountMinor={row.balance_minor} currency={row.currency} /></td>
@@ -6726,7 +6770,9 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
                   <td>{row.security_description || "-"}</td>
                   <td>{formatDate(row.as_at)}</td>
                   <td>
-                    <button className="link" onClick={() => setDebtEdit({ id: row.id, facilityType: row.facility_type, currency: row.currency, balance: String(row.balance_minor), current: row.current_portion_minor !== null ? String(row.current_portion_minor) : "", security: row.security_description, asAt: row.as_at })} type="button">Edit</button>{" · "}
+                    <button aria-label={`Move ${row.facility_type} up`} className="link" disabled={busy || moveDebt.isPending || index === 0} onClick={() => (isFixturePreview ? setPreview("The facility would move up.") : moveDebt.mutate({ borrowerId: borrower.id, facilityId: row.id, data: { direction: "up" } }))} type="button">↑</button>{" "}
+                    <button aria-label={`Move ${row.facility_type} down`} className="link" disabled={busy || moveDebt.isPending || index === facilities.length - 1} onClick={() => (isFixturePreview ? setPreview("The facility would move down.") : moveDebt.mutate({ borrowerId: borrower.id, facilityId: row.id, data: { direction: "down" } }))} type="button">↓</button>{" · "}
+                    <button className="link" onClick={() => setDebtEdit({ id: row.id, facilityType: row.facility_type, currency: row.currency, balance: minorToUnits(row.balance_minor, row.currency), current: minorToUnits(row.current_portion_minor, row.currency), security: row.security_description, asAt: row.as_at, sourceDocumentId: row.source_document?.id ?? "" })} type="button">Edit</button>{" · "}
                     <button className="link" onClick={() => (isFixturePreview ? setPreview("The facility would be removed.") : removeDebt.mutate({ borrowerId: borrower.id, facilityId: row.id }))} type="button">Remove</button>
                   </td>
                 </tr>
@@ -6740,15 +6786,16 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
           <FieldGrid>
             <TextInput label="Facility" onChange={(value) => setDebtEdit({ ...debtEdit, facilityType: value })} required value={debtEdit.facilityType} />
             <SelectInput<string> label="Facility currency" onChange={(value) => setDebtEdit({ ...debtEdit, currency: value })} optionLabel={(option) => option} options={["CHF", "EUR"]} value={debtEdit.currency} />
-            <MoneyMinorInput currency={debtEdit.currency} label="Balance minor units" onChange={(value) => setDebtEdit({ ...debtEdit, balance: value })} required value={debtEdit.balance} />
-            <MoneyMinorInput currency={debtEdit.currency} label="Due within a year minor units" onChange={(value) => setDebtEdit({ ...debtEdit, current: value })} value={debtEdit.current} />
+            <MoneyUnitsInput currency={debtEdit.currency} label="Balance" onChange={(value) => setDebtEdit({ ...debtEdit, balance: value })} required value={debtEdit.balance} />
+            <MoneyUnitsInput currency={debtEdit.currency} label="Due within a year" onChange={(value) => setDebtEdit({ ...debtEdit, current: value })} value={debtEdit.current} />
             <TextInput label="At date" onChange={(value) => setDebtEdit({ ...debtEdit, asAt: value })} required type="date" value={debtEdit.asAt} />
+            <SelectInput<string> label="Facility source document" onChange={(value) => setDebtEdit({ ...debtEdit, sourceDocumentId: value })} optionLabel={(option) => (option ? documents.find((item) => item.id === option)?.display_name ?? option : "None")} options={["", ...documents.map((item) => item.id)]} value={debtEdit.sourceDocumentId} />
           </FieldGrid>
           <TextAreaInput label="Security of the facility" onChange={(value) => setDebtEdit({ ...debtEdit, security: value })} value={debtEdit.security} />
-          <Button disabled={busy || !debtEdit.facilityType.trim() || !debtEdit.balance.trim() || !debtEdit.asAt} onClick={saveDebt} variant="primary">Save facility</Button>{" "}
+          <Button disabled={busy || !debtEdit.facilityType.trim() || unitsToMinor(debtEdit.balance, debtEdit.currency) === null || (debtEdit.current.trim() !== "" && unitsToMinor(debtEdit.current, debtEdit.currency) === null) || !debtEdit.asAt} onClick={saveDebt} variant="primary">Save facility</Button>{" "}
           <Button onClick={() => setDebtEdit(null)}>Cancel</Button>
         </div>
-      ) : <Button onClick={() => setDebtEdit({ id: null, facilityType: "", currency: borrower.financials_currency || "CHF", balance: "", current: "", security: "", asAt: "" })}>Add a facility</Button>}
+      ) : <Button onClick={() => setDebtEdit({ id: null, facilityType: "", currency: borrower.financials_currency || "CHF", balance: "", current: "", security: "", asAt: "", sourceDocumentId: "" })}>Add a facility</Button>}
 
       <h3>Documents</h3>
       {documents.length > 0 ? (
@@ -6815,6 +6862,7 @@ const LOAN_HISTORY_LABELS: Record<string, string> = {
   "loan.security_moved": "Security moved",
   "loan.credit_check_saved": "Check saved",
   "loan.credit_check_removed": "Check removed",
+  "loan.credit_check_moved": "Check moved",
   "loan.monitoring_set": "Monitoring changed",
   "loan.schedule_recalculated_after_early_repayment": "Schedule recalculated after an early repayment",
   "servicing.recovery_stage_recorded": "Recovery stage recorded",
@@ -6894,6 +6942,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const create = useV1LoansAdminLoansCreditChecksCreate({ mutation: { onSuccess: () => { setSuccess("Check saved."); setDraft(null); refresh(); } } });
   const update = useV1LoansAdminLoansCreditChecksUpdate({ mutation: { onSuccess: () => { setSuccess("Check saved."); setDraft(null); refresh(); } } });
   const remove = useV1LoansAdminLoansCreditChecksDestroy({ mutation: { onSuccess: () => { setSuccess("Check removed."); refresh(); } } });
+  const moveCheck = useV1LoansAdminLoansCreditChecksMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
   const monitoring = useV1LoansAdminLoansMonitoringCreate({ mutation: { onSuccess: () => { setSuccess("Monitoring saved."); refresh(); } } });
   const checks: LoanCreditCheck[] = query.data?.checks ?? [];
   const frequencyText = frequency ?? query.data?.monitoring_frequency ?? "";
@@ -6925,13 +6974,15 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
           <table className="admin-table">
             <thead><tr><th>Check</th><th>Result</th><th>Source</th><th>Date</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
             <tbody>
-              {checks.map((check) => (
+              {checks.map((check, index) => (
                 <tr key={check.id}>
                   <td>{check.name}</td>
                   <td>{check.result}</td>
                   <td>{check.source || "-"}</td>
                   <td>{check.checked_on ? formatDate(check.checked_on) : "-"}</td>
                   <td>
+                    <button aria-label={`Move ${check.name} up`} className="link" disabled={moveCheck.isPending || index === 0} onClick={() => (isFixturePreview ? setPreview("The check would move up.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "up" } }))} type="button">↑</button>{" "}
+                    <button aria-label={`Move ${check.name} down`} className="link" disabled={moveCheck.isPending || index === checks.length - 1} onClick={() => (isFixturePreview ? setPreview("The check would move down.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "down" } }))} type="button">↓</button>{" · "}
                     <button className="link" onClick={() => setDraft({ id: check.id, name: check.name, result: check.result, source: check.source, checkedOn: check.checked_on ?? "" })} type="button">Edit</button>{" · "}
                     <button className="link" onClick={() => (isFixturePreview ? setPreview("The check would be removed.") : remove.mutate({ loanId: loan.id, checkId: check.id }))} type="button">Remove</button>
                   </td>
@@ -6958,7 +7009,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
       <TextAreaInput hint="For example Quarterly, with the annual financial statements." label="How often" onChange={setFrequency} value={frequencyText} />
       <TextAreaInput hint="For example order intake and cash generation." label="What is followed" onChange={setFocus} value={focusText} />
       <Button disabled={monitoring.isPending} onClick={saveMonitoring}>Save monitoring</Button>
-      {create.error || update.error || remove.error || monitoring.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? monitoring.error)}</Banner> : null}
+      {create.error || update.error || remove.error || monitoring.error || moveCheck.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? monitoring.error ?? moveCheck.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>

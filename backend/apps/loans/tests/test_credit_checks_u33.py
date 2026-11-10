@@ -101,3 +101,27 @@ def test_checks_and_monitoring_reach_the_credit_file(admin_user: Model) -> None:
     removed = client.delete(f"{url}{recorded['id']}/")
     assert removed.status_code == 204
     assert client.get(url).json()["checks"] == []
+
+
+def test_checks_move_up_and_down(admin_user: Model) -> None:
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    client = _client(admin_user)
+    url = f"/api/v1/loans/admin/loans/{loan.pk}/credit-checks/"
+    ids = [
+        client.post(
+            url, data={"name": name, "result": "Done"}, content_type="application/json"
+        ).json()["id"]
+        for name in ("Register", "Debt collection")
+    ]
+
+    moved = client.post(
+        f"{url}{ids[1]}/move/", data={"direction": "up"}, content_type="application/json"
+    )
+
+    assert moved.status_code == 200, moved.content
+    assert [row["name"] for row in moved.json()["checks"]] == ["Debt collection", "Register"]
+    last = client.post(
+        f"{url}{ids[0]}/move/", data={"direction": "down"}, content_type="application/json"
+    )
+    assert last.status_code == 400
+    assert "already last" in last.json()["detail"]

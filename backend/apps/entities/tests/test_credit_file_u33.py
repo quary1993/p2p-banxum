@@ -204,3 +204,36 @@ def test_existing_debt_facilities_and_document_metadata(admin_user: Model, inves
     )
     # Only admins edit the credit file.
     assert _client(investor).post(url, data={}, content_type="application/json").status_code == 403
+
+
+def test_facilities_move_up_and_down(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    client = _client(admin_user)
+    url = f"/api/v1/entities/admin/borrowers/{borrower.pk}/debt-facilities/"
+    ids = [
+        client.post(
+            url,
+            data={
+                "facility_type": name,
+                "currency": "CHF",
+                "balance_minor": 100_00,
+                "as_at": "2025-12-31",
+            },
+            content_type="application/json",
+        ).json()["id"]
+        for name in ("Overdraft", "Property loan")
+    ]
+
+    moved = client.post(
+        f"{url}{ids[1]}/move/", data={"direction": "up"}, content_type="application/json"
+    )
+
+    assert moved.status_code == 200, moved.content
+    assert [row["facility_type"] for row in moved.json()["debt_facilities"]] == [
+        "Property loan",
+        "Overdraft",
+    ]
+    first = client.post(
+        f"{url}{ids[1]}/move/", data={"direction": "up"}, content_type="application/json"
+    )
+    assert first.status_code == 400

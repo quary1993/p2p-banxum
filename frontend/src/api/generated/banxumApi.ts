@@ -1580,6 +1580,22 @@ export const ContextTypeEnum = {
   holding: 'holding',
 } as const;
 
+/**
+ * * `up` - up
+ * * `down` - down
+ */
+export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
+
+
+export const DirectionEnum = {
+  up: 'up',
+  down: 'down',
+} as const;
+
+export interface CreditFileMoveRequest {
+  direction: DirectionEnum;
+}
+
 export interface CurrentUserResponse {
   user: UserSummary;
   qa_controls_available: boolean;
@@ -1662,18 +1678,6 @@ export interface DiditWebhookResponse {
   status: KycStatusEnum;
   idempotent: boolean;
 }
-
-/**
- * * `up` - up
- * * `down` - down
- */
-export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
-
-
-export const DirectionEnum = {
-  up: 'up',
-  down: 'down',
-} as const;
 
 /**
  * * `pdf` - PDF
@@ -13069,6 +13073,86 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1EntitiesAdminBorrowersDebtFacilitiesDestroyMutationOptions(options), queryClient);
     }
 
+export const getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateUrl = (borrowerId: string,
+    facilityId: string,) => {
+
+
+
+
+  return `/api/v1/entities/admin/borrowers/${borrowerId}/debt-facilities/${facilityId}/move/`
+}
+
+/**
+ * U33-DEC-20: move a facility one place up or down.
+ */
+export const v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate = async (borrowerId: string,
+    facilityId: string,
+    creditFileMoveRequest: CreditFileMoveRequest, options?: Parameters<typeof httpClient>[1]): Promise<BorrowerDebtFacilityList> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<BorrowerDebtFacilityList>(getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateUrl(borrowerId,facilityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(creditFileMoveRequest)
+  }
+);}
+
+
+
+
+
+export const getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationKey = () => ['v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate'] as const;
+
+export const getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>, TError,V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>, TError,V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>, V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables> = (props) => {
+          const {borrowerId,facilityId,data} = props ?? {};
+
+          return  v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate(borrowerId,facilityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>>
+    export type V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationBody = CreditFileMoveRequest
+    export type V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationError = unknown
+    export type V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables = {borrowerId: string;facilityId: string;data: CreditFileMoveRequest}
+
+    export const useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>, TError,V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDebtFacilitiesMoveCreate>>,
+        TError,
+        V1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1EntitiesAdminBorrowersDocumentsListUrl = (borrowerId: string,) => {
 
 
@@ -18865,6 +18949,86 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getV1LoansAdminLoansCreditChecksDestroyMutationOptions(options), queryClient);
+    }
+
+export const getV1LoansAdminLoansCreditChecksMoveCreateUrl = (loanId: string,
+    checkId: string,) => {
+
+
+
+
+  return `/api/v1/loans/admin/loans/${loanId}/credit-checks/${checkId}/move/`
+}
+
+/**
+ * U33-DEC-20: move a check one place up or down.
+ */
+export const v1LoansAdminLoansCreditChecksMoveCreate = async (loanId: string,
+    checkId: string,
+    loanSecurityMoveRequest: LoanSecurityMoveRequest, options?: Parameters<typeof httpClient>[1]): Promise<LoanCreditChecks> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<LoanCreditChecks>(getV1LoansAdminLoansCreditChecksMoveCreateUrl(loanId,checkId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(loanSecurityMoveRequest)
+  }
+);}
+
+
+
+
+
+export const getV1LoansAdminLoansCreditChecksMoveCreateMutationKey = () => ['v1LoansAdminLoansCreditChecksMoveCreate'] as const;
+
+export const getV1LoansAdminLoansCreditChecksMoveCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>, TError,V1LoansAdminLoansCreditChecksMoveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>, TError,V1LoansAdminLoansCreditChecksMoveCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1LoansAdminLoansCreditChecksMoveCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>, V1LoansAdminLoansCreditChecksMoveCreateMutationVariables> = (props) => {
+          const {loanId,checkId,data} = props ?? {};
+
+          return  v1LoansAdminLoansCreditChecksMoveCreate(loanId,checkId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LoansAdminLoansCreditChecksMoveCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>>
+    export type V1LoansAdminLoansCreditChecksMoveCreateMutationBody = LoanSecurityMoveRequest
+    export type V1LoansAdminLoansCreditChecksMoveCreateMutationError = unknown
+    export type V1LoansAdminLoansCreditChecksMoveCreateMutationVariables = {loanId: string;checkId: string;data: LoanSecurityMoveRequest}
+
+    export const useV1LoansAdminLoansCreditChecksMoveCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>, TError,V1LoansAdminLoansCreditChecksMoveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LoansAdminLoansCreditChecksMoveCreate>>,
+        TError,
+        V1LoansAdminLoansCreditChecksMoveCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1LoansAdminLoansCreditChecksMoveCreateMutationOptions(options), queryClient);
     }
 
 export const getV1LoansAdminLoansEventsListUrl = (loanId: string,) => {
@@ -25877,6 +26041,8 @@ export const getV1EntitiesAdminBorrowersDebtFacilitiesCreateResponseMock = (over
 
 export const getV1EntitiesAdminBorrowersDebtFacilitiesUpdateResponseMock = (overrideResponse: Partial<Extract<BorrowerDebtFacility, object>> = {}): BorrowerDebtFacility => ({id: faker.string.uuid(), position: faker.number.int(), facility_type: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_minor: faker.number.int(), current_portion_minor: faker.helpers.arrayElement([faker.number.int(), null]), non_current_portion_minor: faker.helpers.arrayElement([faker.number.int(), null]), security_description: faker.string.alpha({length: {min: 10, max: 20}}), as_at: faker.date.past().toISOString().slice(0, 10), source_document: faker.helpers.arrayElement([{id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})},null,]), ...overrideResponse})
 
+export const getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateResponseMock = (overrideResponse: Partial<Extract<BorrowerDebtFacilityList, object>> = {}): BorrowerDebtFacilityList => ({debt_facilities: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), facility_type: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_minor: faker.number.int(), current_portion_minor: faker.helpers.arrayElement([faker.number.int(), null]), non_current_portion_minor: faker.helpers.arrayElement([faker.number.int(), null]), security_description: faker.string.alpha({length: {min: 10, max: 20}}), as_at: faker.date.past().toISOString().slice(0, 10), source_document: faker.helpers.arrayElement([{id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})},null,])})), ...overrideResponse})
+
 export const getV1EntitiesAdminBorrowersDocumentsListResponseMock = (): BorrowerDocument[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), document_type: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), stored_file_id: faker.number.int(), investor_visible: faker.datatype.boolean(), category: faker.string.alpha({length: {min: 10, max: 20}}), document_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), period_label: faker.string.alpha({length: {min: 10, max: 20}}), issuer: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), document_status: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), created_by_account_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
 export const getV1EntitiesAdminBorrowersDocumentsCreateResponseMock = (overrideResponse: Partial<Extract<BorrowerDocument, object>> = {}): BorrowerDocument => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), document_type: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), stored_file_id: faker.number.int(), investor_visible: faker.datatype.boolean(), category: faker.string.alpha({length: {min: 10, max: 20}}), document_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), period_label: faker.string.alpha({length: {min: 10, max: 20}}), issuer: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), document_status: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), created_by_account_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
@@ -26012,6 +26178,8 @@ export const getV1LoansAdminLoansCreditChecksRetrieveResponseMock = (overrideRes
 export const getV1LoansAdminLoansCreditChecksCreateResponseMock = (overrideResponse: Partial<Extract<LoanCreditCheck, object>> = {}): LoanCreditCheck => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), ...overrideResponse})
 
 export const getV1LoansAdminLoansCreditChecksUpdateResponseMock = (overrideResponse: Partial<Extract<LoanCreditCheck, object>> = {}): LoanCreditCheck => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), ...overrideResponse})
+
+export const getV1LoansAdminLoansCreditChecksMoveCreateResponseMock = (overrideResponse: Partial<Extract<LoanCreditChecks, object>> = {}): LoanCreditChecks => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), monitoring_frequency: faker.string.alpha({length: {min: 10, max: 20}}), monitoring_focus: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1LoansAdminLoansEventsListResponseMock = (): LoanEvent[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
@@ -26952,6 +27120,18 @@ export const getV1EntitiesAdminBorrowersDebtFacilitiesDestroyMockHandler = (over
   }, options)
 }
 
+export const getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMockHandler = (overrideResponse?: BorrowerDebtFacilityList | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerDebtFacilityList> | BorrowerDebtFacilityList), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/entities/admin/borrowers/:borrowerId/debt-facilities/:facilityId/move/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1EntitiesAdminBorrowersDocumentsListMockHandler = (overrideResponse?: BorrowerDocument[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerDocument[]> | BorrowerDocument[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/documents/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
@@ -27760,6 +27940,18 @@ export const getV1LoansAdminLoansCreditChecksDestroyMockHandler = (overrideRespo
 
     return new HttpResponse(null,
       { status: 204
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansCreditChecksMoveCreateMockHandler = (overrideResponse?: LoanCreditChecks | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanCreditChecks> | LoanCreditChecks), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/loans/admin/loans/:loanId/credit-checks/:checkId/move/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansCreditChecksMoveCreateResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -28824,6 +29016,7 @@ export const getBanxumApiMock = () => [
   getV1EntitiesAdminBorrowersDebtFacilitiesCreateMockHandler(),
   getV1EntitiesAdminBorrowersDebtFacilitiesUpdateMockHandler(),
   getV1EntitiesAdminBorrowersDebtFacilitiesDestroyMockHandler(),
+  getV1EntitiesAdminBorrowersDebtFacilitiesMoveCreateMockHandler(),
   getV1EntitiesAdminBorrowersDocumentsListMockHandler(),
   getV1EntitiesAdminBorrowersDocumentsCreateMockHandler(),
   getV1EntitiesAdminBorrowersDocumentsMetadataCreateMockHandler(),
@@ -28892,6 +29085,7 @@ export const getBanxumApiMock = () => [
   getV1LoansAdminLoansCreditChecksCreateMockHandler(),
   getV1LoansAdminLoansCreditChecksUpdateMockHandler(),
   getV1LoansAdminLoansCreditChecksDestroyMockHandler(),
+  getV1LoansAdminLoansCreditChecksMoveCreateMockHandler(),
   getV1LoansAdminLoansEventsListMockHandler(),
   getV1LoansAdminLoansHistoryRetrieveMockHandler(),
   getV1LoansAdminLoansMonitoringCreateMockHandler(),
