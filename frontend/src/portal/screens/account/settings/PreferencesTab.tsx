@@ -7,7 +7,14 @@
 // a separate email after the team's checks.
 import { useState } from "react";
 
-import { useV1InvestorPortalSupportRequestsCreate, type InvestorSupportRequestReceipt } from "../../../../api/generated/banxumApi";
+import { useQueryClient } from "@tanstack/react-query";
+
+import {
+  getV1AuthMeRetrieveQueryKey,
+  useV1AuthPreferencesDisplayPartialUpdate,
+  useV1InvestorPortalSupportRequestsCreate,
+  type InvestorSupportRequestReceipt
+} from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { isFixturePreview } from "../../../../investorPortal/data";
 import { useNumberFormat, type NumberFormat } from "../../../../investorPortal/format";
@@ -82,8 +89,16 @@ function CloseAccountDialog({ onClose }: { onClose: () => void }) {
 export function PreferencesTab({ account }: { account: AccountData }) {
   const t = useT();
   const { appearance, setAppearance } = useAppearance();
-  const { format, setFormat } = useNumberFormat();
+  const { format, setFormat: setLocalFormat } = useNumberFormat();
   const [closing, setClosing] = useState(false);
+  const queryClient = useQueryClient();
+  const saveFormat = useV1AuthPreferencesDisplayPartialUpdate();
+  // U33-DEC-32: the choice applies at once and is saved in the account (all devices, emails, reports).
+  const setFormat = (next: NumberFormat) => {
+    setLocalFormat(next);
+    if (isFixturePreview || account.readonly) return;
+    saveFormat.mutate({ data: { number_format: next } }, { onSuccess: () => void queryClient.invalidateQueries({ queryKey: getV1AuthMeRetrieveQueryKey() }) });
+  };
   return (
     <>
       <PsPanel title={t("Display")}>

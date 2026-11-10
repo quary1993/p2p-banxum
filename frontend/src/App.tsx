@@ -1,5 +1,6 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
+import { setNumberFormatPreference } from "./investorPortal/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
@@ -861,6 +862,11 @@ function InvestorShell({
     writeStoredObject(appRouteStorageKey, { name: "public" });
     setRoute({ name: "public" });
   }, [setRoute, signedOutAtHome]);
+  // U33-DEC-32: the number format saved in the account applies on every device.
+  const accountNumberFormat = sessionUser?.number_format;
+  useEffect(() => {
+    if (accountNumberFormat === "european" || accountNumberFormat === "swiss") setNumberFormatPreference(accountNumberFormat);
+  }, [accountNumberFormat]);
   // Signed in at "/": show the screen's own address, so reload and sharing work.
   const routeAddress = routePath(route);
   useEffect(() => {

@@ -1142,7 +1142,8 @@ def test_notifications_show_human_labels_and_hide_delivery_internals(investor: M
     # A queued notice shows its own subject and content, not a title made from the topic key.
     assert activated["id"] == str(queued.id)
     assert activated["title"] == "BANXUM investment activated: LO Main"
-    assert activated["body"] == "Your CHF 1'000.00 subscription in LO Main is now active."
+    # U33-DEC-32: shown in the investor's number format (European by default).
+    assert activated["body"] == "Your CHF 1.000,00 subscription in LO Main is now active."
     assert activated["topic_label"] == "Investment"
 
 

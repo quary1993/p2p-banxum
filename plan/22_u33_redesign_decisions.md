@@ -464,6 +464,8 @@ Decision:
 - Input recognizes unambiguous forms; ambiguous values follow the displayed/selected convention or ask for clarification, never guessing the amount. Formatting never changes values or calculations. The same value is checked up to confirmation in both formats, languages and devices.
 - One time reference, **Europe/Zurich**, with automatic summer/winter time, not a fixed UTC+1/CET and no personal time-zone selector. Contractual due dates never move by a day by accident. The time zone is mentioned when a cut-off time matters, not next to every date.
 
+Implemented 2026-11-10 (Phase 17.8): `User.number_format` (`european` by default, `swiss`), `PATCH /api/v1/auth/preferences/display/` (audit `account.number_format_changed`), shown in `/auth/me/`. The portal applies the account's choice on sign-in and saves a new choice in the account. Emails and the notification centre convert the canonical amounts ("CHF 1'234.50") and percentages ("7.40%") of each message to the recipient's format when shown (`localize_number_text`); a new account statement of one investor is written in that investor's format (`number_format_context`). Stored messages and issued documents are not rewritten. Dates and times stay Europe/Zurich.
+
 ## Group 10 - Public Area, Identity, Texts and Resources
 
 ### U33-DEC-34: Brand and Operator Identity

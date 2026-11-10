@@ -1463,6 +1463,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/PinStatusResponse'
           description: ''
+  /api/v1/auth/preferences/display/:
+    patch:
+      operationId: v1_auth_preferences_display_partial_update
+      description: 'U33-DEC-32: the number format saved in the account.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDisplayPreferencesUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDisplayPreferencesUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDisplayPreferencesUpdateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
   /api/v1/auth/preferences/marketing/:
     patch:
       operationId: v1_auth_preferences_marketing_partial_update
@@ -14490,6 +14516,14 @@ components:
         * `default_update` - Default update
         * `recovery_update` - Recovery update
         * `document_note` - Document note
+    NumberFormatEnum:
+      enum:
+      - european
+      - swiss
+      type: string
+      description: |-
+        * `european` - european
+        * `swiss` - swiss
     OriginEnum:
       enum:
       - investor_request
@@ -15631,6 +15665,11 @@ components:
           type: string
         evidence_summary:
           type: string
+    PatchedDisplayPreferencesUpdateRequest:
+      type: object
+      properties:
+        number_format:
+          $ref: '#/components/schemas/NumberFormatEnum'
     PatchedLoanOriginatorUpdate:
       type: object
       properties:
@@ -19744,6 +19783,8 @@ components:
           type: boolean
         marketing_consent:
           type: boolean
+        number_format:
+          type: string
         pin_set:
           type: boolean
           readOnly: true
@@ -19759,6 +19800,7 @@ components:
       - id
       - investor_reference
       - marketing_consent
+      - number_format
       - phone_verified
       - pin_locked_until
       - pin_set

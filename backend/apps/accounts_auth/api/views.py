@@ -22,6 +22,7 @@ from backend.apps.accounts_auth.api.serializers import (
     AdminUserCreateRequestSerializer,
     AuthenticatedUserResponseSerializer,
     CurrentUserResponseSerializer,
+    DisplayPreferencesUpdateRequestSerializer,
     MagicLinkConsumeSerializer,
     MagicLinkRequestSerializer,
     MarketingConsentUpdateRequestSerializer,
@@ -93,6 +94,7 @@ from backend.apps.accounts_auth.services import (
     SensitiveActionCodeCommand,
     SensitiveActionCodeThrottleError,
     TooManyCodeAttemptsError,
+    UpdateDisplayPreferencesCommand,
     UpdateMarketingConsentCommand,
     change_account_access,
     confirm_admin_login,
@@ -105,6 +107,7 @@ from backend.apps.accounts_auth.services import (
     request_phone_verification,
     send_registration_follow_up_email,
     start_admin_login,
+    update_display_preferences,
     update_marketing_consent,
 )
 from backend.apps.accounts_auth.session_lifetime import start_authenticated_session
@@ -612,3 +615,27 @@ class SignInHistoryView(APIView):
     def get(self, request: Request) -> Response:
         events = list_sign_in_history(cast(User, request.user))
         return Response({"events": events, "retention_days": retention_days()})
+
+
+class DisplayPreferencesView(APIView):
+    """U33-DEC-32: the number format saved in the account."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=DisplayPreferencesUpdateRequestSerializer,
+        responses={200: AuthenticatedUserResponseSerializer},
+    )
+    def patch(self, request: Request) -> Response:
+        serializer = DisplayPreferencesUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = update_display_preferences(
+                UpdateDisplayPreferencesCommand(
+                    user=cast(User, request.user),
+                    number_format=serializer.validated_data["number_format"],
+                )
+            )
+        except AccountsAuthError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"user": serialize_user(user)})

@@ -29,7 +29,7 @@ from backend.apps.platform_core.domain.access import (
 )
 from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
-from backend.apps.platform_core.domain.money import minor_units_to_decimal
+from backend.apps.platform_core.domain.money import minor_units_to_decimal, number_format_context
 from backend.apps.platform_core.domain.pdf_text import (
     PDF_STANDARD_FONT_OBJECTS,
     pdf_literal,
@@ -3810,6 +3810,28 @@ def _statement_row_height(cells: list[str], *, bold: bool) -> float:
 
 
 def _investor_statement_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> bytes:
+    """Investor account statement in the investor's number format (U33-DEC-32).
+
+    A statement of one investor uses that investor's saved format; a statement of several
+    investors uses the default (European) format.
+    """
+    statement = dataset.presentation["investor_statement"]
+    participant_id = str(statement.get("participant_id") or "")
+    number_format = None
+    if participant_id:
+        number_format = (
+            apps.get_model("accounts_auth", "User")
+            .objects.filter(pk=participant_id)
+            .values_list("number_format", flat=True)
+            .first()
+        )
+    with number_format_context(number_format):
+        return _investor_statement_pdf_bytes_in_format(manifest=manifest, dataset=dataset)
+
+
+def _investor_statement_pdf_bytes_in_format(
+    *, manifest: dict[str, Any], dataset: ReportDataset
+) -> bytes:
     """Investor account statement: one table per currency, amounts in currency units."""
     statement = dataset.presentation["investor_statement"]
     sections: list[StatementSection] = statement["sections"]

@@ -84,7 +84,7 @@ function notifyFormatListeners() {
   formatListeners.forEach((listener) => listener());
 }
 
-/** Saves the investor's choice (localStorage; account storage comes in Phase 17.8). */
+/** Saves the investor's choice in this browser; the Preferences tab also saves it in the account (U33-DEC-32). */
 export function setNumberFormatPreference(format: NumberFormat) {
   if (!isNumberFormat(format)) return;
   preference = format;

@@ -15,6 +15,7 @@ from typing import Any, Protocol, cast
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import transaction
@@ -29,6 +30,7 @@ from backend.apps.communications.models import (
     NotificationReadReceipt,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.money import clean_number_format, localize_number_text
 from backend.apps.platform_core.domain.time import now_utc, to_business_time
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
@@ -1094,8 +1096,58 @@ def _payload_buttons(payload: dict[str, Any]) -> tuple[EmailButton, ...]:
     return ()
 
 
+_LOCALIZED_PAYLOAD_KEYS = (
+    "subject",
+    "body_text",
+    "body_html",
+    "preheader",
+    "headline",
+    "status_label",
+    "fine_print",
+)
+
+
+def recipient_number_format(payload: dict[str, Any]) -> str:
+    """U33-DEC-32: the recipient's number format (European when the account has none)."""
+    user_id = str(payload.get("user_id") or "").strip()
+    number_format: Any = None
+    if user_id:
+        user_model = get_user_model()
+        try:
+            number_format = (
+                user_model.objects.filter(pk=user_id)
+                .values_list("number_format", flat=True)
+                .first()
+            )
+        except (ValueError, DjangoValidationError):
+            number_format = None
+    return clean_number_format(number_format)
+
+
+def _localized_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """The amounts and percentages of a message in the recipient's format (U33-DEC-32)."""
+    number_format = recipient_number_format(payload)
+    localized = dict(payload)
+    for key in _LOCALIZED_PAYLOAD_KEYS:
+        value = localized.get(key)
+        if isinstance(value, str):
+            localized[key] = localize_number_text(value, number_format)
+    rows = localized.get("data_rows")
+    if isinstance(rows, list):
+        localized["data_rows"] = [
+            [
+                localize_number_text(cell, number_format) if isinstance(cell, str) else cell
+                for cell in row
+            ]
+            if isinstance(row, list | tuple)
+            else row
+            for row in rows
+        ]
+    return localized
+
+
 def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
-    payload = message.payload
+    payload = _localized_payload(dict(message.payload or {}))
     recipient = (
         str(payload.get("email") or payload.get("recipient_email") or payload.get("to_email") or "")
         .strip()

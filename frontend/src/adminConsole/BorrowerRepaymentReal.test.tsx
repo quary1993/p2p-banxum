@@ -103,6 +103,7 @@ function useAdminApi() {
             status: "active",
             phone_verified: true,
             marketing_consent: false,
+            number_format: "european",
             pin_set: false,
             pin_locked_until: null
           },

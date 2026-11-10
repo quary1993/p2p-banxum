@@ -93,6 +93,7 @@ export interface UserSummary {
   status: string;
   phone_verified: boolean;
   marketing_consent: boolean;
+  number_format: string;
   readonly pin_set: boolean;
   /** @nullable */
   readonly pin_locked_until: string | null;
@@ -4212,6 +4213,18 @@ export interface NewsletterTokenRequest {
   token: string;
 }
 
+/**
+ * * `european` - european
+ * * `swiss` - swiss
+ */
+export type NumberFormatEnum = typeof NumberFormatEnum[keyof typeof NumberFormatEnum];
+
+
+export const NumberFormatEnum = {
+  european: 'european',
+  swiss: 'swiss',
+} as const;
+
 export interface OriginalLoanScheduleRow {
   installment_number: number;
   due_date: string;
@@ -4727,6 +4740,10 @@ export interface PatchedBorrowerEntityUpdateRequest {
   investor_story?: unknown;
   note?: string;
   evidence_summary?: string;
+}
+
+export interface PatchedDisplayPreferencesUpdateRequest {
+  number_format?: NumberFormatEnum;
 }
 
 export interface PatchedLoanOriginatorUpdate {
@@ -10859,6 +10876,83 @@ export function useV1AuthPinStatusRetrieve<TData = Awaited<ReturnType<typeof v1A
 
 
 
+
+export const getV1AuthPreferencesDisplayPartialUpdateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/preferences/display/`
+}
+
+/**
+ * U33-DEC-32: the number format saved in the account.
+ */
+export const v1AuthPreferencesDisplayPartialUpdate = async (patchedDisplayPreferencesUpdateRequest?: PatchedDisplayPreferencesUpdateRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AuthenticatedUserResponse>(getV1AuthPreferencesDisplayPartialUpdateUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(patchedDisplayPreferencesUpdateRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPreferencesDisplayPartialUpdateMutationKey = () => ['v1AuthPreferencesDisplayPartialUpdate'] as const;
+
+export const getV1AuthPreferencesDisplayPartialUpdateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>, TError,V1AuthPreferencesDisplayPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>, TError,V1AuthPreferencesDisplayPartialUpdateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPreferencesDisplayPartialUpdateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>, V1AuthPreferencesDisplayPartialUpdateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPreferencesDisplayPartialUpdate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPreferencesDisplayPartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>>
+    export type V1AuthPreferencesDisplayPartialUpdateMutationBody = PatchedDisplayPreferencesUpdateRequest | undefined
+    export type V1AuthPreferencesDisplayPartialUpdateMutationError = unknown
+    export type V1AuthPreferencesDisplayPartialUpdateMutationVariables = {data?: PatchedDisplayPreferencesUpdateRequest}
+
+    export const useV1AuthPreferencesDisplayPartialUpdate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>, TError,V1AuthPreferencesDisplayPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPreferencesDisplayPartialUpdate>>,
+        TError,
+        V1AuthPreferencesDisplayPartialUpdateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPreferencesDisplayPartialUpdateMutationOptions(options), queryClient);
+    }
 
 export const getV1AuthPreferencesMarketingPartialUpdateUrl = () => {
 
@@ -25255,19 +25349,19 @@ export const getV1AdminPlatformFeaturesCreateResponseMock = (overrideResponse: P
 
 export const getV1AdminStoryImagesCreateResponseMock = (overrideResponse: Partial<Extract<StoryImage, object>> = {}): StoryImage => ({id: faker.string.uuid(), url: faker.string.alpha({length: {min: 10, max: 20}}), width: faker.number.int(), height: faker.number.int(), byte_size: faker.number.int(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial<Extract<AdminLoginStartResponse, object>> = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
-export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
+export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
 
-export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
 
-export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationRequestResponse, object>> = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
 
@@ -25281,7 +25375,9 @@ export const getV1AuthPinSetCreateResponseMock = (overrideResponse: Partial<Extr
 
 export const getV1AuthPinStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthPreferencesDisplayPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+
+export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
 
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial<Extract<NaturalPersonRegistrationResponse, object>> = {}): NaturalPersonRegistrationResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), email_login_sent: faker.datatype.boolean(), ...overrideResponse})
 
@@ -26093,6 +26189,18 @@ export const getV1AuthPinStatusRetrieveMockHandler = (overrideResponse?: PinStat
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthPinStatusRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthPreferencesDisplayPartialUpdateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/auth/preferences/display/', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPreferencesDisplayPartialUpdateResponseMock(),
       { status: 200
       })
   }, options)
@@ -28181,6 +28289,7 @@ export const getBanxumApiMock = () => [
   getV1AuthPinResetStartCreateMockHandler(),
   getV1AuthPinSetCreateMockHandler(),
   getV1AuthPinStatusRetrieveMockHandler(),
+  getV1AuthPreferencesDisplayPartialUpdateMockHandler(),
   getV1AuthPreferencesMarketingPartialUpdateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1AuthSensitiveActionCodeRequestCreateMockHandler(),

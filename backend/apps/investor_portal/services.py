@@ -18,6 +18,7 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.funding import balance_last_day
+from backend.apps.platform_core.domain.money import clean_number_format, localize_number_text
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import (
     balance_auto_return_after_days,
@@ -1023,9 +1024,13 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
         investor_user_id=investor_user_id,
         index=[(entry["outbox_message_id"], entry["topic"]) for entry in entries],
     )
+    # U33-DEC-32: amounts and percentages in the investor's number format.
+    number_format = clean_number_format(getattr(actor, "number_format", None))
     notifications = [
         {
             **{key: value for key, value in entry.items() if key != "outbox_message_id"},
+            "title": localize_number_text(str(entry.get("title", "")), number_format),
+            "body": localize_number_text(str(entry.get("body", "")), number_format),
             "unread": entry["outbox_message_id"] in unread_ids,
         }
         for entry in entries

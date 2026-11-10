@@ -57,6 +57,7 @@ from backend.apps.platform_core.domain.access import (
     is_superadmin_actor,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.money import NUMBER_FORMATS
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -713,6 +714,36 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
                 "new_value": command.marketing_consent,
             },
             idempotency_key=f"user:{user.id}:marketing-consent:{timezone.now().isoformat()}",
+        )
+    )
+    return user
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateDisplayPreferencesCommand:
+    user: User
+    number_format: str
+
+
+def update_display_preferences(command: UpdateDisplayPreferencesCommand) -> User:
+    """U33-DEC-32: save the number format in the account (all devices, emails, reports)."""
+    if command.number_format not in NUMBER_FORMATS:
+        raise AccountsAuthError("Unknown number format.")
+    user = User.objects.select_for_update().filter(id=command.user.id).first()
+    if user is None:
+        raise AccountsAuthError("Account does not exist.")
+    previous = user.number_format
+    if previous == command.number_format:
+        return user
+    user.number_format = command.number_format
+    user.save(update_fields=["number_format"])
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="account.number_format_changed",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"previous_value": previous, "new_value": command.number_format},
         )
     )
     return user

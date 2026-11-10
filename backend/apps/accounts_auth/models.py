@@ -103,6 +103,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone_number = models.CharField(max_length=32, blank=True)
     phone_verified_at = models.DateTimeField(null=True, blank=True)
     marketing_consent = models.BooleanField(default=False)
+    # U33-DEC-32: "european" (1.234,56, the default) or "swiss" (1'234.56), for the interface,
+    # notifications, emails and new personal reports.
+    number_format = models.CharField(max_length=16, default="european")
     is_env_managed_superadmin = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

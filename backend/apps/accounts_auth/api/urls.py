@@ -15,6 +15,7 @@ from backend.apps.accounts_auth.api.views import (
     AdminLoginStartView,
     AdminUserCreateView,
     CurrentUserView,
+    DisplayPreferencesView,
     LogoutView,
     MagicLinkConsumeView,
     MagicLinkRequestView,
@@ -55,6 +56,7 @@ urlpatterns = [
     path("pin/reset/confirm/", PinResetConfirmView.as_view(), name="auth-pin-reset-confirm"),
     path("me/", CurrentUserView.as_view(), name="auth-me"),
     path("preferences/marketing/", MarketingConsentView.as_view(), name="auth-marketing-consent"),
+    path("preferences/display/", DisplayPreferencesView.as_view(), name="auth-display-preferences"),
     path("logout/", LogoutView.as_view(), name="auth-logout"),
     path("sessions/", UserSessionsView.as_view(), name="auth-sessions"),
     path(
