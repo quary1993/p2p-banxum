@@ -3885,7 +3885,11 @@ def _originator_opportunity_closed_reason(
         return "Originator subscription funding period has ended."
     if profile.maturity_date <= as_of_date + timedelta(days=30):
         return "Originator claim opportunity is within 30 days of maturity."
-    if _originator_days_past_due(profile, as_of_date=as_of_date) >= 5:
+    # U33-DEC-09: the loan's own Late day (contract or platform), not a fixed day 5.
+    if (
+        _originator_days_past_due(profile, as_of_date=as_of_date)
+        >= loan_status_thresholds(profile.loan).late_days
+    ):
         return "Originator claim opportunity is unavailable because the loan is late."
     return ""
 
@@ -4213,7 +4217,10 @@ def _create_originator_claim_quote_locked(
         raise OriginatorClaimsValidationError(
             "This opportunity is closed because 30 days or less remain to maturity."
         )
-    if _originator_days_past_due(profile, as_of_date=today) >= 5:
+    if (
+        _originator_days_past_due(profile, as_of_date=today)
+        >= loan_status_thresholds(profile.loan).late_days
+    ):
         raise OriginatorClaimsValidationError(
             "This opportunity is unavailable because the loan is late."
         )
@@ -4493,7 +4500,10 @@ def _purchase_originator_claim_after_sensitive_code(
         raise OriginatorClaimsValidationError(
             "Originator claim opportunity is within 30 days of maturity."
         )
-    if _originator_days_past_due(profile, as_of_date=today) >= 5:
+    if (
+        _originator_days_past_due(profile, as_of_date=today)
+        >= loan_status_thresholds(profile.loan).late_days
+    ):
         raise OriginatorClaimsValidationError(
             "Originator claim opportunity is unavailable because the loan is late."
         )

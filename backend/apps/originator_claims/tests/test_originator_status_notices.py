@@ -65,3 +65,34 @@ def test_originator_loan_late_and_default_notify_the_current_holder_once_each(
     ]
     assert notices[1].payload["subject"] == f"Loan in default: {result.loan.title}"
     assert_renders_to(notices[1], investor, "recovery process")
+
+
+@pytest.mark.django_db
+def test_claim_offers_close_on_the_loans_late_day_not_on_day_5(
+    admin_user: Model,  # noqa: F811
+) -> None:
+    """Audit G-02: quotes and purchases use the loan's Late day (platform 15 or contract)."""
+    from importlib import import_module
+
+    services = import_module("backend.apps.originator_claims.services")
+    today = business_date(timezone.now())
+    result: Any = _create_dated_originator_loan(
+        admin_user=admin_user, today=today, suffix="LTD", final_due_days=200
+    )
+    profile = result.profile
+    profile.refresh_from_db()
+    # The first installment is due on day 15 after today: 10 days past due on day 25.
+    ten_days_late = today + timedelta(days=25)
+
+    reason = services._originator_opportunity_closed_reason(
+        profile, is_par_subscription=False, as_of_date=ten_days_late
+    )
+    assert reason == ""
+
+    apps.get_model("loans", "Loan").objects.filter(pk=result.loan.pk).update(
+        late_threshold_days=5, default_threshold_days=16
+    )
+    profile.loan.refresh_from_db()
+    assert services._originator_opportunity_closed_reason(
+        profile, is_par_subscription=False, as_of_date=ten_days_late
+    ) == ("Originator claim opportunity is unavailable because the loan is late.")
