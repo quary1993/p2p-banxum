@@ -453,6 +453,22 @@ def _document_subject_user(user_id: str) -> Model:
     return cast(Model, user)
 
 
+def list_admin_user_support_requests(*, actor: Model, user_id: str) -> list[dict[str, Any]]:
+    """U33-DEC-28/35: the investor's portal Help messages and closure requests (admin)."""
+    _require_admin_actor(actor)
+    subject = _document_subject_user(user_id)
+    support = import_module("backend.apps.communications.support_requests")
+    return list(support.admin_support_requests(investor_user_id=str(subject.pk)))
+
+
+def closure_request_investor_ids(request_ids: list[str]) -> dict[str, str]:
+    """Closure request (support request) id -> investor user id, for task links."""
+    if not request_ids:
+        return {}
+    support = import_module("backend.apps.communications.support_requests")
+    return dict(support.support_request_investor_ids(request_ids))
+
+
 def list_admin_user_documents(command: ListAdminUserDocumentsCommand) -> dict[str, Any]:
     _require_admin_actor(command.actor)
     subject = _document_subject_user(command.user_id)

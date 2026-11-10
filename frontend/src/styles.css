@@ -3292,6 +3292,12 @@ table.tbl tfoot.schedule-totals th.num,
   }
 }
 
+.admin-message-cell {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .admin-year-checks {
   display: grid;
   gap: 4px;

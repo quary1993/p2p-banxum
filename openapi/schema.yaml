@@ -960,6 +960,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReadOnlyImpersonationStartResponse'
           description: ''
+  /api/v1/admin-ops/users/{user_id}/support-requests/:
+    get:
+      operationId: v1_admin_ops_users_support_requests_retrieve
+      description: 'U33-DEC-28/35: the investor''s portal Help messages and closure
+        requests.'
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserSupportRequests'
+          description: ''
   /api/v1/admin/loan-status-days/:
     get:
       operationId: v1_admin_loan_status_days_retrieve
@@ -7234,6 +7257,10 @@ components:
         updated_at:
           type: string
           format: date-time
+        subject_user_id:
+          type: string
+          nullable: true
+          readOnly: true
       required:
       - assigned_admin_id
       - completed_at
@@ -7248,6 +7275,7 @@ components:
       - related_object_id
       - related_object_type
       - status
+      - subject_user_id
       - task_type
       - title
       - updated_at
@@ -7580,6 +7608,52 @@ components:
       - disclaimer
       - documents
       - user
+    AdminUserSupportRequest:
+      type: object
+      description: 'U33-DEC-28/35: a portal Help message (SUP-) or closure request
+        (CLS-) of the investor.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        kind:
+          type: string
+        topic:
+          type: string
+        message:
+          type: string
+        context_label:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        admin_task_id:
+          type: string
+          format: uuid
+          nullable: true
+        team_email_status:
+          type: string
+      required:
+      - admin_task_id
+      - context_label
+      - created_at
+      - id
+      - kind
+      - message
+      - reference
+      - team_email_status
+      - topic
+    AdminUserSupportRequests:
+      type: object
+      properties:
+        support_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserSupportRequest'
+      required:
+      - support_requests
     AdvanceRepaymentOverdueRow:
       type: object
       properties:

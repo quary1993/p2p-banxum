@@ -367,7 +367,7 @@ Each entry should include:
 
 - Screen or component: Tasks queue (`AdminTasksPanel`).
 - Current first-version behavior: an investor's closure request opens an "Account access review" task titled "Account closure request CLS-YYYY-NNNN" with the checks to make (balances, investments, orders, listings, payments, KYC/compliance) and the investor's message. The request email goes to the support mailbox (`platform.support_email`, then `SUPPORT_EMAIL`). Closing the account stays the existing admin access action.
-- Required admin-console improvement: link the task to the investor's account page and to the access action that closes the account; show the investor's portal Help messages (references) on the investor page.
+- Required admin-console improvement: none left from the first version (2026-11-10: the closure task opens the investor's account access and the investor's Help messages; Users has "Help messages" per user with the SUP-/CLS- references, topic, context, message and the team email status, and a closure request links back to its task). Possible: reply from the console instead of the support mailbox.
 - Priority: important.
 
 ## 2026-11-10: Coming Soon (U33-DEC-17)

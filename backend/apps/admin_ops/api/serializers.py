@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from backend.apps.admin_ops.models import (
@@ -10,6 +11,10 @@ from backend.apps.admin_ops.models import (
     AdminTaskPriority,
     AdminTaskStatus,
     AdminTaskType,
+)
+from backend.apps.admin_ops.services import (
+    ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+    closure_request_investor_ids,
 )
 from backend.apps.platform_core.models import AuditEvent
 
@@ -31,6 +36,15 @@ class AdminTaskSerializer(serializers.Serializer[Any]):
     is_terminal = serializers.BooleanField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+    # The investor a task is about, when the related object names one (closure requests).
+    subject_user_id = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_subject_user_id(self, obj: AdminTask) -> str | None:
+        if obj.related_object_type != ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE:
+            return None
+        ids = closure_request_investor_ids([str(obj.related_object_id)])
+        return ids.get(str(obj.related_object_id))
 
 
 class AdminTaskEventSerializer(serializers.Serializer[Any]):
@@ -309,3 +323,21 @@ def serialize_admin_task_event(event: AdminTaskEvent) -> dict[str, Any]:
 
 def serialize_audit_event(event: AuditEvent) -> dict[str, Any]:
     return dict(AuditEventSerializer(event).data)
+
+
+class AdminUserSupportRequestSerializer(serializers.Serializer[Any]):
+    """U33-DEC-28/35: a portal Help message (SUP-) or closure request (CLS-) of the investor."""
+
+    id = serializers.UUIDField()
+    reference = serializers.CharField()
+    kind = serializers.CharField()
+    topic = serializers.CharField(allow_blank=True)
+    message = serializers.CharField(allow_blank=True)
+    context_label = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()
+    admin_task_id = serializers.UUIDField(allow_null=True)
+    team_email_status = serializers.CharField(allow_blank=True)
+
+
+class AdminUserSupportRequestsSerializer(serializers.Serializer[Any]):
+    support_requests = AdminUserSupportRequestSerializer(many=True)

@@ -402,6 +402,8 @@ export interface AdminTask {
   is_terminal: boolean;
   created_at: string;
   updated_at: string;
+  /** @nullable */
+  readonly subject_user_id: string | null;
 }
 
 /**
@@ -588,6 +590,26 @@ export interface AdminUserDocumentsResponse {
   user: AdminUserDocumentOwner;
   documents: AdminUserDocument[];
   disclaimer: string;
+}
+
+/**
+ * U33-DEC-28/35: a portal Help message (SUP-) or closure request (CLS-) of the investor.
+ */
+export interface AdminUserSupportRequest {
+  id: string;
+  reference: string;
+  kind: string;
+  topic: string;
+  message: string;
+  context_label: string;
+  created_at: string;
+  /** @nullable */
+  admin_task_id: string | null;
+  team_email_status: string;
+}
+
+export interface AdminUserSupportRequests {
+  support_requests: AdminUserSupportRequest[];
 }
 
 export interface AdvanceRepaymentOverdueRow {
@@ -9582,6 +9604,104 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1AdminOpsUsersReadonlyImpersonationCreateMutationOptions(options), queryClient);
     }
+
+export const getV1AdminOpsUsersSupportRequestsRetrieveUrl = (userId: string,) => {
+
+
+
+
+  return `/api/v1/admin-ops/users/${userId}/support-requests/`
+}
+
+/**
+ * U33-DEC-28/35: the investor's portal Help messages and closure requests.
+ */
+export const v1AdminOpsUsersSupportRequestsRetrieve = async (userId: string, options?: Parameters<typeof httpClient>[1]): Promise<AdminUserSupportRequests> => {
+
+  return httpClient<AdminUserSupportRequests>(getV1AdminOpsUsersSupportRequestsRetrieveUrl(userId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AdminOpsUsersSupportRequestsRetrieveQueryKey = (userId: string,) => {
+    return [
+    `/api/v1/admin-ops/users/${userId}/support-requests/`
+    ] as const;
+    }
+
+
+export const getV1AdminOpsUsersSupportRequestsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError = unknown>(userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsUsersSupportRequestsRetrieveQueryKey(userId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>> = ({ signal }) => v1AdminOpsUsersSupportRequestsRetrieve(userId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsUsersSupportRequestsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>>
+export type V1AdminOpsUsersSupportRequestsRetrieveQueryError = unknown
+
+
+export function useV1AdminOpsUsersSupportRequestsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError = unknown>(
+ userId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersSupportRequestsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersSupportRequestsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsUsersSupportRequestsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersSupportRequestsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsUsersSupportRequestsRetrieveQueryOptions(userId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1AdminLoanStatusDaysRetrieveUrl = () => {
 
@@ -25941,15 +26061,15 @@ export const getV1AdminOpsLookupsUsersListResponseMock = (): AdminLookupResult[]
 
 export const getV1AdminOpsLookupsWithdrawalRequestsListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
 
-export const getV1AdminOpsReconciliationBreakTasksSyncCreateResponseMock = (overrideResponse: Partial<Extract<ReconciliationBreakTaskSyncResponse, object>> = {}): ReconciliationBreakTaskSyncResponse => ({created_count: faker.number.int(), existing_count: faker.number.int(), skipped_count: faker.number.int(), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
+export const getV1AdminOpsReconciliationBreakTasksSyncCreateResponseMock = (overrideResponse: Partial<Extract<ReconciliationBreakTaskSyncResponse, object>> = {}): ReconciliationBreakTaskSyncResponse => ({created_count: faker.number.int(), existing_count: faker.number.int(), skipped_count: faker.number.int(), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', subject_user_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null])})), ...overrideResponse})
 
-export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', subject_user_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null])})))
 
-export const getV1AdminOpsTasksCreateResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1AdminOpsTasksCreateResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', subject_user_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), ...overrideResponse})
 
-export const getV1AdminOpsTasksRetrieveResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1AdminOpsTasksRetrieveResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', subject_user_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), ...overrideResponse})
 
-export const getV1AdminOpsTasksPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1AdminOpsTasksPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AdminTask, object>> = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', subject_user_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), ...overrideResponse})
 
 export const getV1AdminOpsTasksEventsListResponseMock = (): AdminTaskEvent[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
@@ -25960,6 +26080,8 @@ export const getV1AdminOpsUsersDocumentsRetrieveResponseMock = (overrideResponse
 export const getV1AdminOpsUsersDocumentsArtifactCreateResponseMock = (overrideResponse: Partial<Extract<AdminUserDocumentArtifactResponse, object>> = {}): AdminUserDocumentArtifactResponse => ({rendered_artifact_id: faker.string.uuid(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
 export const getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock = (overrideResponse: Partial<Extract<ReadOnlyImpersonationStartResponse, object>> = {}): ReadOnlyImpersonationStartResponse => ({token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in_seconds: faker.number.int(), target_user_id: faker.string.uuid(), target_email: faker.internet.email(), target_full_name: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AdminOpsUsersSupportRequestsRetrieveResponseMock = (overrideResponse: Partial<Extract<AdminUserSupportRequests, object>> = {}): AdminUserSupportRequests => ({support_requests: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), reference: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), topic: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}}), context_label: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', admin_task_id: faker.helpers.arrayElement([faker.string.uuid(), null]), team_email_status: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
 export const getV1AdminLoanStatusDaysRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanStatusDays, object>> = {}): LoanStatusDays => ({late_days: faker.number.int(), default_days: faker.number.int(), default_late_days: faker.number.int(), default_default_days: faker.number.int(), maximum_days: faker.number.int(), last_change: faker.helpers.arrayElement([{changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z', changed_by_email: faker.string.alpha({length: {min: 10, max: 20}}), reason: faker.string.alpha({length: {min: 10, max: 20}})},null,]), ...overrideResponse})
 
@@ -26608,6 +26730,18 @@ export const getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler = (overrid
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock(),
       { status: 201
+      })
+  }, options)
+}
+
+export const getV1AdminOpsUsersSupportRequestsRetrieveMockHandler = (overrideResponse?: AdminUserSupportRequests | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminUserSupportRequests> | AdminUserSupportRequests), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/users/:userId/support-requests/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsUsersSupportRequestsRetrieveResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -28973,6 +29107,7 @@ export const getBanxumApiMock = () => [
   getV1AdminOpsUsersDocumentsRetrieveMockHandler(),
   getV1AdminOpsUsersDocumentsArtifactCreateMockHandler(),
   getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler(),
+  getV1AdminOpsUsersSupportRequestsRetrieveMockHandler(),
   getV1AdminLoanStatusDaysRetrieveMockHandler(),
   getV1AdminLoanStatusDaysUpdateMockHandler(),
   getV1AdminPlatformFeaturesRetrieveMockHandler(),

@@ -333,3 +333,60 @@ test("the credit file editor takes figures in currency units, checks them and sh
   const amounts = saves[0].amounts as Record<string, number | null>;
   expect([amounts.revenue_minor, amounts.operating_profit_minor, amounts.net_profit_minor]).toEqual([100_050, 35_050, null]);
 }, 20_000);
+
+test("a closure task leads to the investor's Help messages, which link back to the task", async () => {
+  const investorId = "77777777-7777-4777-8777-777777777777";
+  const task = {
+    id: "88888888-8888-4888-8888-888888888888",
+    task_type: "account_access_review",
+    title: "Account closure request CLS-2026-0001",
+    priority: "normal",
+    status: "open",
+    assigned_admin_id: null,
+    created_by_id: investorId,
+    due_at: null,
+    notes: "Account closure request CLS-2026-0001.",
+    related_object_type: "InvestorSupportRequest",
+    related_object_id: "99999999-9999-4999-8999-999999999999",
+    subject_user_id: investorId,
+    completed_at: null,
+    completion_note: "",
+    is_terminal: false,
+    created_at: "2026-03-09T09:00:00Z",
+    updated_at: "2026-03-09T09:00:00Z"
+  };
+  const investor = {
+    id: investorId,
+    email: "una@example.test",
+    full_name: "Una Investor",
+    investor_reference: "R1",
+    account_type: "natural_person_lender",
+    status: "active",
+    phone_verified: true,
+    date_joined: "2026-01-01T09:00:00Z",
+    can_impersonate_readonly: false
+  };
+  server.use(
+    http.get("*/api/v1/admin-ops/tasks/", () => HttpResponse.json([task])),
+    http.get("*/api/v1/admin-ops/tasks/:taskId/events/", () => HttpResponse.json([])),
+    http.get("*/api/v1/admin-ops/users/", () => HttpResponse.json({ count: 1, results: [investor] })),
+    http.get("*/api/v1/admin-ops/users/:userId/support-requests/", () =>
+      HttpResponse.json({
+        support_requests: [
+          { id: "s1", reference: "CLS-2026-0001", kind: "account_closure", topic: "", message: "Please close it.", context_label: "", created_at: "2026-03-09T09:00:00Z", admin_task_id: task.id, team_email_status: "sent" },
+          { id: "s2", reference: "SUP-2026-0007", kind: "help", topic: "Security", message: "New phone.", context_label: "", created_at: "2026-03-01T09:00:00Z", admin_task_id: null, team_email_status: "sent" }
+        ]
+      })
+    ),
+    ...adminHandlers()
+  );
+  renderAdmin(`/admin/tasks/${task.id}`);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Help messages of the investor" }, { timeout: 10_000 }));
+  const table = await screen.findByRole("table", { name: "Help messages and closure requests" });
+  expect(within(table).getByText("SUP-2026-0007")).toBeInTheDocument();
+  expect(within(table).getByText("Please close it.")).toBeInTheDocument();
+  expect(window.location.pathname).toBe(`/admin/users/${investorId}/messages`);
+  fireEvent.click(within(table).getByRole("button", { name: "Open task" }));
+  await waitFor(() => expect(window.location.pathname).toBe(`/admin/tasks/${task.id}`));
+}, 20_000);

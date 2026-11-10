@@ -18,6 +18,7 @@ from backend.apps.admin_ops.api.views import (
     AdminUserDocumentArtifactView,
     AdminUserDocumentsView,
     AdminUserLookupView,
+    AdminUserSupportRequestsView,
     AdminWithdrawalLookupView,
     AuditEventListView,
     ReadOnlyImpersonationStartView,
@@ -36,6 +37,11 @@ urlpatterns = [
         "users/<uuid:user_id>/documents/",
         AdminUserDocumentsView.as_view(),
         name="admin-user-documents",
+    ),
+    path(
+        "users/<uuid:user_id>/support-requests/",
+        AdminUserSupportRequestsView.as_view(),
+        name="admin-user-support-requests",
     ),
     path(
         "users/<uuid:user_id>/documents/<uuid:acceptance_id>/artifact/",

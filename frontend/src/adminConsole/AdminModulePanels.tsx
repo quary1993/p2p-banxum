@@ -115,6 +115,7 @@ import {
   useV1ServicingAdminLoansRecoveryStagesRetrieve,
   useV1LoansAdminLoansHistoryRetrieve,
   useV1LoansAdminLoansSecuritiesMoveCreate,
+  useV1AdminOpsUsersSupportRequestsRetrieve,
   useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
@@ -199,7 +200,7 @@ import { financialYearCheckResults, minorToUnits, unitsToMinor } from "./stateme
 import { withIdempotencyKey } from "./adminIdempotency";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
-import { useAdminParam, useAdminSegments } from "./adminRoute";
+import { adminHref, navigateAdmin, useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   isWithdrawalQueueItem,
   taskTypeLabel,
@@ -9047,7 +9048,7 @@ export function UserAccountsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [userSegments, setUserSegments] = useAdminSegments("users");
   const dialogUserId = userSegments[0] ?? "";
-  const dialog = userSegments[1] === "access" || userSegments[1] === "documents" ? userSegments[1] : "";
+  const dialog = userSegments[1] === "access" || userSegments[1] === "documents" || userSegments[1] === "messages" ? userSegments[1] : "";
   const [impersonationNotice, setImpersonationNotice] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const pageSize = 25;
@@ -9074,7 +9075,8 @@ export function UserAccountsPanel() {
     : null;
   const accessUser = dialog === "access" ? dialogUser : null;
   const documentsUser = dialog === "documents" ? dialogUser : null;
-  const openUserDialog = (user: AdminUserDirectoryRow | null, kind: "access" | "documents" = "access") =>
+  const messagesUser = dialog === "messages" ? dialogUser : null;
+  const openUserDialog = (user: AdminUserDirectoryRow | null, kind: "access" | "documents" | "messages" = "access") =>
     setUserSegments(user ? [user.id, kind] : []);
 
   function userDisplay(user: AdminUserDirectoryRow) {
@@ -9177,6 +9179,7 @@ export function UserAccountsPanel() {
                         <div className="row gap-8 wrap">
                           <Button onClick={() => openUserDialog(user, "access")} size="sm">Access controls</Button>
                           <Button onClick={() => openUserDialog(user, "documents")} size="sm" variant="ghost">Documents</Button>
+                          <Button onClick={() => openUserDialog(user, "messages")} size="sm" variant="ghost">Help messages</Button>
                           <Button
                             disabled={!user.can_impersonate_readonly || impersonationMutation.isPending}
                             onClick={() => startReadOnlyImpersonation(user)}
@@ -9233,7 +9236,53 @@ export function UserAccountsPanel() {
           user={documentsUser}
         />
       ) : null}
+      {messagesUser ? <UserSupportRequestsModal onClose={() => openUserDialog(null)} user={messagesUser} /> : null}
     </div>
+  );
+}
+
+/** U33-DEC-28/35: the investor's portal Help messages (SUP-) and closure requests (CLS-). */
+function UserSupportRequestsModal({ onClose, user }: { onClose: () => void; user: AdminUserDirectoryRow }) {
+  const requestsQuery = useV1AdminOpsUsersSupportRequestsRetrieve(user.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const rows = requestsQuery.data?.support_requests ?? [];
+  return (
+    <Modal onClose={onClose} title={`Help messages - ${user.full_name || user.email}`} wide>
+      <p className="muted admin-manage-hint">
+        Messages the investor sent from the portal and requests to close the account. Answers go by email from the support
+        mailbox; a closure request opened an account access review task.
+      </p>
+      {isFixturePreview ? <p className="muted">The messages are read from the server; the preview has none.</p> : null}
+      {requestsQuery.error ? <Banner tone="bad" title="Could not load the messages">{errorMessage(requestsQuery.error)}</Banner> : null}
+      {rows.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table aria-label="Help messages and closure requests" className="admin-table">
+            <thead><tr><th>Reference</th><th>Sent</th><th>Topic</th><th>Message</th><th>Email to the team</th></tr></thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="mono">
+                    {row.reference}
+                    {row.kind === "account_closure" ? (
+                      <>
+                        <br />
+                        <Chip tone="warn">Closure request</Chip>{" "}
+                        {row.admin_task_id ? <button className="link" onClick={() => navigateAdmin(adminHref("tasks", [row.admin_task_id as string]))} type="button">Open task</button> : null}
+                      </>
+                    ) : null}
+                  </td>
+                  <td>{formatDateTime(row.created_at)}</td>
+                  <td>{row.topic || "-"}{row.context_label ? <small className="muted"> · {row.context_label}</small> : null}</td>
+                  <td className="admin-message-cell">{row.message || "-"}</td>
+                  <td>{row.team_email_status ? labelize(row.team_email_status) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : requestsQuery.isLoading || isFixturePreview ? null : (
+        <Empty icon="docs" title="No messages">The investor has not sent a message from the portal.</Empty>
+      )}
+    </Modal>
   );
 }
 

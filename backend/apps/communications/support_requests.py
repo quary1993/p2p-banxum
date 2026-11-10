@@ -337,3 +337,36 @@ def submit_support_request(command: SubmitSupportRequestCommand) -> InvestorSupp
         return retried
     record_window_hits(SUPPORT_REQUEST_SCOPE, limits)
     return request
+
+
+def admin_support_requests(*, investor_user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    """The investor's Help messages and closure requests, newest first (caller checks admin)."""
+    rows = InvestorSupportRequest.objects.filter(investor_user_id=investor_user_id).select_related(
+        "support_outbox_message"
+    )[:limit]
+    return [
+        {
+            "id": str(row.id),
+            "reference": row.reference,
+            "kind": row.kind,
+            "topic": row.topic,
+            "message": row.message,
+            "context_label": row.context_label,
+            "created_at": row.created_at,
+            "admin_task_id": str(row.admin_task_id) if row.admin_task_id else None,
+            "team_email_status": (
+                str(row.support_outbox_message.status) if row.support_outbox_message else ""
+            ),
+        }
+        for row in rows
+    ]
+
+
+def support_request_investor_ids(request_ids: list[str]) -> dict[str, str]:
+    """Support request id -> investor user id (for the admin tasks of closure requests)."""
+    return {
+        str(request_id): str(user_id)
+        for request_id, user_id in InvestorSupportRequest.objects.filter(
+            id__in=request_ids
+        ).values_list("id", "investor_user_id")
+    }

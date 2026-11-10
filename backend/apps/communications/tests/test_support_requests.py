@@ -231,3 +231,30 @@ def test_only_an_investor_account_can_send_requests(throttle_clock: ThrottleCloc
     admin = _user("support-admin@example.test", account_type="admin", is_staff=True)
     response = _client(admin).post(URL, _help("help-admin"), format="json")
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admins_see_the_investors_messages_and_the_closure_task_names_the_investor(
+    investor: Model, throttle_clock: ThrottleClock
+) -> None:
+    client = _client(investor)
+    assert client.post(URL, _help("help-admin"), format="json").status_code == 201
+    closure = client.post(
+        URL, {"kind": "account_closure", "idempotency_key": "closure-admin"}, format="json"
+    ).json()
+    admin = _user("support-admin@example.test", account_type="admin", is_staff=True)
+
+    listed = _client(admin).get(f"/api/v1/admin-ops/users/{investor.pk}/support-requests/")
+
+    assert listed.status_code == 200, listed.content
+    rows = listed.json()["support_requests"]
+    assert [row["kind"] for row in rows] == ["account_closure", "help"]
+    assert rows[1]["message"] == "How do I change my bank account?"
+    task_id = rows[0]["admin_task_id"]
+    assert task_id
+    tasks = _client(admin).get("/api/v1/admin-ops/tasks/").json()
+    [task] = [row for row in tasks if row["id"] == task_id]
+    assert task["subject_user_id"] == str(investor.pk)
+    assert closure["reference"] in task["title"]
+    # Investors cannot read this admin list.
+    assert client.get(f"/api/v1/admin-ops/users/{investor.pk}/support-requests/").status_code == 403
