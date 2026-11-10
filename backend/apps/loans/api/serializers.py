@@ -349,6 +349,24 @@ class LoanEventSerializer(serializers.Serializer[Any]):
     occurred_at = serializers.DateTimeField()
 
 
+class LoanHistoryEntrySerializer(serializers.Serializer[Any]):
+    """One line of a loan's admin history: a loan event or an audit entry about the loan."""
+
+    id = serializers.CharField()
+    kind = serializers.ChoiceField(choices=["event", "change"])
+    code = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+    actor = serializers.CharField()
+    previous_status = serializers.CharField(allow_blank=True)
+    new_status = serializers.CharField(allow_blank=True)
+    note = serializers.CharField(allow_blank=True)
+    details = serializers.JSONField()
+
+
+class LoanHistoryResponseSerializer(serializers.Serializer[Any]):
+    entries = LoanHistoryEntrySerializer(many=True)
+
+
 def serialize_loan(loan: Loan) -> dict[str, Any]:
     return dict(LoanSerializer(loan).data)
 

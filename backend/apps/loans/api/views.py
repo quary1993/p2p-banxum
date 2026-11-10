@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.loans import credit_checks as loan_credit_checks
+from backend.apps.loans import history as loan_history
 from backend.apps.loans import securities as loan_securities
 from backend.apps.loans.api.serializers import (
     LoanComingSoonRequestSerializer,
@@ -21,6 +22,8 @@ from backend.apps.loans.api.serializers import (
     LoanCreditCheckSerializer,
     LoanCreditChecksSerializer,
     LoanEventSerializer,
+    LoanHistoryEntrySerializer,
+    LoanHistoryResponseSerializer,
     LoanInstallmentSerializer,
     LoanListQuerySerializer,
     LoanMonitoringRequestSerializer,
@@ -340,6 +343,22 @@ class LoanEventListView(APIView):
             [serialize_loan_event(event) for event in loan.events.all()],
             status=status.HTTP_200_OK,
         )
+
+
+class LoanHistoryView(APIView):
+    """The loan's events and the audit entries about it, newest first (admin console)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LoanHistoryResponseSerializer})
+    def get(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        loan = Loan.objects.filter(id=loan_id).first()
+        if loan is None:
+            return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
+        entries = LoanHistoryEntrySerializer(loan_history.loan_history(loan), many=True).data
+        return Response({"entries": entries}, status=status.HTTP_200_OK)
 
 
 class LoanComingSoonView(APIView):

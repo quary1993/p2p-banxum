@@ -108,6 +108,7 @@ import {
   useV1ServicingAdminLoansRecoveryStagesCreate,
   useV1ServicingAdminLoansRecoveryStagesRemoveCreate,
   useV1ServicingAdminLoansRecoveryStagesRetrieve,
+  useV1LoansAdminLoansHistoryRetrieve,
   useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
@@ -4785,6 +4786,7 @@ type ManageLoanActionId =
   | "terminate"
   | "recovery_stages"
   | "credit_checks"
+  | "history"
   | "note";
 
 const MANAGE_LOAN_ACTIONS: Array<{
@@ -4887,6 +4889,13 @@ const MANAGE_LOAN_ACTIONS: Array<{
     description:
       "Record what was done with its real date and, when it is known, what comes next. Lenders see the stages on their investment (U33-DEC-22).",
     statuses: ["late", "defaulted", "written_off"]
+  },
+  {
+    id: "history",
+    title: "Loan history",
+    description:
+      "Every recorded change of the loan, newest first: status changes, publication and funding, late and default days, termination, Coming soon, securities, checks and recovery stages, with who did it and the reason.",
+    statuses: ["draft", "published", "funding_close_failed", "funded", "active", "late", "defaulted", "repaid", "written_off", "cancelled"]
   },
   {
     id: "note",
@@ -5820,6 +5829,8 @@ function ManageLoanModal({
 
             {action === "credit_checks" ? <LoanCreditChecksForm loan={loan} /> : null}
 
+            {action === "history" ? <LoanHistoryPanel loan={loan} /> : null}
+
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
@@ -6714,6 +6725,93 @@ function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>
+  );
+}
+
+const LOAN_HISTORY_LABELS: Record<string, string> = {
+  created: "Loan created",
+  updated: "Loan details changed",
+  published: "Published",
+  funding_closed: "Funding closed",
+  funding_close_failed: "Funding close failed",
+  disbursed: "Paid out to the borrower",
+  funding_cancelled: "Funding cancelled",
+  originator_subscription_activated: "Originator subscription activated",
+  schedule_generated: "Schedule generated",
+  servicing_status_changed: "Servicing status changed",
+  recovery_recorded: "Recovery payment recorded",
+  write_off_recorded: "Write-off recorded",
+  status_thresholds_changed: "Late and default days changed",
+  contract_terminated: "Contract terminated",
+  coming_soon_announced: "Shown as Coming soon",
+  coming_soon_withdrawn: "No longer shown as Coming soon",
+  "loan.security_added": "Security added",
+  "loan.security_changed": "Security changed",
+  "loan.security_removed": "Security removed",
+  "loan.credit_check_saved": "Check saved",
+  "loan.credit_check_removed": "Check removed",
+  "loan.monitoring_set": "Monitoring changed",
+  "loan.schedule_recalculated_after_early_repayment": "Schedule recalculated after an early repayment",
+  "servicing.recovery_stage_recorded": "Recovery stage recorded",
+  "servicing.recovery_stage_removed": "Recovery stage removed"
+};
+
+// Details worth a line in the history; ids and technical keys stay in the audit log.
+const LOAN_HISTORY_DETAIL_LABELS: Array<[string, string]> = [
+  ["reason", "Reason"],
+  ["title", "Title"],
+  ["security_type", "Security"],
+  ["status", "Status"],
+  ["occurred_on", "Date"],
+  ["planned_opening_date", "Planned opening"],
+  ["terminated_on", "Terminated on"],
+  ["late_threshold_days", "Late from day"],
+  ["default_threshold_days", "Default from day"],
+  ["changed_fields", "Changed"]
+];
+
+function loanHistoryDetails(details: unknown): string {
+  if (!details || typeof details !== "object") return "";
+  const record = details as Record<string, unknown>;
+  // U33-DEC-09: the late/default days now in use and where they come from.
+  const effective = record.effective && typeof record.effective === "object" ? (record.effective as Record<string, unknown>) : null;
+  const days = effective ? [`Late from day ${String(effective.late_days)}, Default from day ${String(effective.default_days)} (${labelize(String(effective.source ?? ""))})`] : [];
+  return days.concat(LOAN_HISTORY_DETAIL_LABELS.flatMap(([key, label]) => {
+    const value = record[key];
+    if (value === null || value === undefined || value === "") return [];
+    const text = Array.isArray(value) ? value.map(String).join(", ") : typeof value === "object" ? "" : String(value);
+    return text ? [`${label}: ${key.endsWith("_type") || key === "status" ? labelize(text) : text}`] : [];
+  })).join(" · ");
+}
+
+/** The loan's events and the audit entries about it, newest first (loan Manage -> "Loan history"). */
+function LoanHistoryPanel({ loan }: { loan: Loan }) {
+  const historyQuery = useV1LoansAdminLoansHistoryRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const entries = historyQuery.data?.entries ?? [];
+  if (isFixturePreview) return <p className="muted admin-manage-hint">The loan history is read from the server; the preview has none.</p>;
+  if (historyQuery.error) return <Banner tone="bad" title="Could not load the loan history">{errorMessage(historyQuery.error)}</Banner>;
+  if (historyQuery.isLoading) return <p className="muted admin-manage-hint">Loading the loan history...</p>;
+  if (!entries.length) return <Empty icon="clock" title="Nothing recorded yet" />;
+  return (
+    <div className="admin-table-wrap">
+      <table aria-label="Loan history" className="admin-table">
+        <thead><tr><th>When</th><th>What</th><th>Details</th><th>By</th></tr></thead>
+        <tbody>
+          {entries.map((entry) => {
+            const statusChange = entry.previous_status && entry.new_status && entry.previous_status !== entry.new_status ? `${labelize(entry.previous_status)} → ${labelize(entry.new_status)}` : "";
+            const details = [statusChange, entry.note, loanHistoryDetails(entry.details)].filter(Boolean).join(" · ");
+            return (
+              <tr key={`${entry.kind}-${entry.id}`}>
+                <td className="mono">{formatDateTime(entry.occurred_at)}</td>
+                <td>{LOAN_HISTORY_LABELS[entry.code] ?? labelize(entry.code.replace(/^[a-z_]+\./, ""))}</td>
+                <td>{details || "-"}</td>
+                <td>{entry.actor}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

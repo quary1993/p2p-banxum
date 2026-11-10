@@ -3229,6 +3229,37 @@ export interface LoanEvent {
   occurred_at: string;
 }
 
+/**
+ * * `event` - event
+ * * `change` - change
+ */
+export type LoanHistoryEntryKindEnum = typeof LoanHistoryEntryKindEnum[keyof typeof LoanHistoryEntryKindEnum];
+
+
+export const LoanHistoryEntryKindEnum = {
+  event: 'event',
+  change: 'change',
+} as const;
+
+/**
+ * One line of a loan's admin history: a loan event or an audit entry about the loan.
+ */
+export interface LoanHistoryEntry {
+  id: string;
+  kind: LoanHistoryEntryKindEnum;
+  code: string;
+  occurred_at: string;
+  actor: string;
+  previous_status: string;
+  new_status: string;
+  note: string;
+  details: unknown;
+}
+
+export interface LoanHistoryResponse {
+  entries: LoanHistoryEntry[];
+}
+
 export interface LoanInstallment {
   id: string;
   schedule_version: number;
@@ -18700,6 +18731,104 @@ export function useV1LoansAdminLoansEventsList<TData = Awaited<ReturnType<typeof
 
 
 
+export const getV1LoansAdminLoansHistoryRetrieveUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/loans/admin/loans/${loanId}/history/`
+}
+
+/**
+ * The loan's events and the audit entries about it, newest first (admin console).
+ */
+export const v1LoansAdminLoansHistoryRetrieve = async (loanId: string, options?: Parameters<typeof httpClient>[1]): Promise<LoanHistoryResponse> => {
+
+  return httpClient<LoanHistoryResponse>(getV1LoansAdminLoansHistoryRetrieveUrl(loanId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1LoansAdminLoansHistoryRetrieveQueryKey = (loanId: string,) => {
+    return [
+    `/api/v1/loans/admin/loans/${loanId}/history/`
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansHistoryRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansHistoryRetrieveQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>> = ({ signal }) => v1LoansAdminLoansHistoryRetrieve(loanId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: loanId !== null && loanId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansHistoryRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>>
+export type V1LoansAdminLoansHistoryRetrieveQueryError = unknown
+
+
+export function useV1LoansAdminLoansHistoryRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansHistoryRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansHistoryRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansHistoryRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansHistoryRetrieveQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getV1LoansAdminLoansMonitoringCreateUrl = (loanId: string,) => {
 
 
@@ -25571,6 +25700,8 @@ export const getV1LoansAdminLoansCreditChecksUpdateResponseMock = (overrideRespo
 
 export const getV1LoansAdminLoansEventsListResponseMock = (): LoanEvent[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
+export const getV1LoansAdminLoansHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanHistoryResponse, object>> = {}): LoanHistoryResponse => ({entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.helpers.arrayElement(Object.values(LoanHistoryEntryKindEnum)), code: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', actor: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), details: {}})), ...overrideResponse})
+
 export const getV1LoansAdminLoansMonitoringCreateResponseMock = (overrideResponse: Partial<Extract<LoanCreditChecks, object>> = {}): LoanCreditChecks => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), monitoring_frequency: faker.string.alpha({length: {min: 10, max: 20}}), monitoring_focus: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1LoansAdminLoansOriginalScheduleListResponseMock = (): OriginalLoanScheduleRow[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int(), paid_before_publication: faker.datatype.boolean()})))
@@ -27304,6 +27435,18 @@ export const getV1LoansAdminLoansEventsListMockHandler = (overrideResponse?: Loa
   }, options)
 }
 
+export const getV1LoansAdminLoansHistoryRetrieveMockHandler = (overrideResponse?: LoanHistoryResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanHistoryResponse> | LoanHistoryResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/:loanId/history/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansHistoryRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1LoansAdminLoansMonitoringCreateMockHandler = (overrideResponse?: LoanCreditChecks | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanCreditChecks> | LoanCreditChecks), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/loans/admin/loans/:loanId/monitoring/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -28395,6 +28538,7 @@ export const getBanxumApiMock = () => [
   getV1LoansAdminLoansCreditChecksUpdateMockHandler(),
   getV1LoansAdminLoansCreditChecksDestroyMockHandler(),
   getV1LoansAdminLoansEventsListMockHandler(),
+  getV1LoansAdminLoansHistoryRetrieveMockHandler(),
   getV1LoansAdminLoansMonitoringCreateMockHandler(),
   getV1LoansAdminLoansOriginalScheduleListMockHandler(),
   getV1LoansAdminLoansPublishCreateMockHandler(),

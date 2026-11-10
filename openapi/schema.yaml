@@ -4077,6 +4077,29 @@ paths:
                 items:
                   $ref: '#/components/schemas/LoanEvent'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/history/:
+    get:
+      operationId: v1_loans_admin_loans_history_retrieve
+      description: The loan's events and the audit entries about it, newest first
+        (admin console).
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanHistoryResponse'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/monitoring/:
     post:
       operationId: v1_loans_admin_loans_monitoring_create
@@ -12444,6 +12467,56 @@ components:
       - note
       - occurred_at
       - previous_status
+    LoanHistoryEntry:
+      type: object
+      description: 'One line of a loan''s admin history: a loan event or an audit
+        entry about the loan.'
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/LoanHistoryEntryKindEnum'
+        code:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        note:
+          type: string
+        details: {}
+      required:
+      - actor
+      - code
+      - details
+      - id
+      - kind
+      - new_status
+      - note
+      - occurred_at
+      - previous_status
+    LoanHistoryEntryKindEnum:
+      enum:
+      - event
+      - change
+      type: string
+      description: |-
+        * `event` - event
+        * `change` - change
+    LoanHistoryResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanHistoryEntry'
+      required:
+      - entries
     LoanInstallment:
       type: object
       properties:

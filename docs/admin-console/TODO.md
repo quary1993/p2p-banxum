@@ -360,7 +360,7 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, actions "Late and default days" and "Record contract termination" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: "Late and default days" shows the days in use (platform or contract) and lets the admin set the contract's own pair, or go back to the platform days, with a required reason; offered for draft, published, funded, active and late loans. "Record contract termination" takes the date (not in the future) and an internal note for a late or defaulted loan, recorded once; the status does not change. The loan list does not show the days or the termination date yet.
-- Required admin-console improvement: show the days in use and the termination date in the loan row and the loan events list; show the `status_thresholds_changed` and `contract_terminated` events with their reason in the loan history; a platform settings form for `servicing.late_threshold_days` / `servicing.default_threshold_days` with the pair check.
+- Required admin-console improvement: show the days in use and the termination date in the loan row; a platform settings form for `servicing.late_threshold_days` / `servicing.default_threshold_days` with the pair check.
 - Priority: important.
 
 ## 2026-11-10: Account Closure Requests (U33-DEC-28)
@@ -374,21 +374,21 @@ Each entry should include:
 
 - Screen or component: loan Manage modal, action "Show as Coming soon" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: for a draft loan, the admin sets the planned opening date (from today up to the funding deadline) and an optional internal note; the form refuses a past date, a date after the funding deadline, a loan that is not a draft Direct loan and an unsecured loan. When the loan is already shown, the form shows the dates, changes the date, and "Stop showing as Coming soon" hides it again (the opening alerts are then not sent). The opening alerts go out when the admin publishes the loan.
-- Required admin-console improvement: show "Coming soon" and the planned date in the loan list; show the number of investors who asked for the opening alert; show the `coming_soon_announced` / `coming_soon_withdrawn` events in the loan history.
+- Required admin-console improvement: show "Coming soon" and the planned date in the loan list; show the number of investors who asked for the opening alert.
 - Priority: important.
 
 ## 2026-11-10: Recovery Stages (U33-DEC-22)
 
 - Screen or component: loan Manage modal, action "Recovery stages" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: for a late, defaulted or written-off loan, the form lists the recorded stages and the next step, records a stage that happened (title, real date, note for lenders) or the next step (title, date when known, note), and removes a wrong entry with a reason (the number of removed entries is shown; they stay for the audit). Titles are free text; the field suggests examples only.
-- Required admin-console improvement: show the removed entries with their reason and author; show the stages in the loan history; link to "Publish a loan note" to email lenders about a new stage.
+- Required admin-console improvement: show the removed entries with their reason and author; link to "Publish a loan note" to email lenders about a new stage.
 - Priority: important.
 
 ## 2026-11-10: Several Securities (U33-DEC-21)
 
 - Screen or component: loan Manage modal, action "Securities" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
 - Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
-- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities; show the securities in the loan list and the loan detail; show the audit of security changes.
+- Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities; show the securities in the loan list and the loan detail.
 - Priority: important.
 
 ## 2026-11-10: Structured Credit File (U33-DEC-20)
@@ -397,3 +397,11 @@ Each entry should include:
 - Current first-version behavior: a financial year is entered as minor units by statement (profit & loss, balance sheet) with its year, period end, currency and source document; the server refuses details that do not add up. Facilities have a name, currency, balance, part due within a year, security and date. Document details (category, date, period, issuer, version, status) are edited per document. Loan checks have what was checked, the result, the source and the date; the monitoring text says how often and on what the loan is followed.
 - Required admin-console improvement: enter figures in currency units (not minor units) with a running total check; copy a year as the start of the next; pick the source document of a facility; reorder checks and facilities; show who changed what (audit).
 - Priority: important.
+
+## 2026-11-10: Loan History
+
+- Screen or component: loan Manage modal, action "Loan history" (`frontend/src/adminConsole/AdminModulePanels.tsx`, `GET /api/v1/loans/admin/loans/<id>/history/`).
+- Current first-version behavior: one table, newest first, of the loan's events (creation, changes, publication, funding, status changes, late and default days with the days now in use and their source, contract termination, Coming soon) and the audit entries about the loan that have no loan event (securities added, changed or removed; checks and monitoring; recovery stages recorded or removed). Each row shows when, what, the useful details (status change, reason or note, title, security type, dates) and the email of the person who acted. Audit entries that repeat a loan event are left out; the full audit stays in the audit log. Up to 500 rows.
+- Required admin-console improvement: filter by kind (status, securities, credit file, recovery); page older rows; link a row to the record it changed.
+- Priority: nice-to-have.
+
