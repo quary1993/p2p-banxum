@@ -1242,6 +1242,11 @@ test("Review & sign projects the investor's share of the schedule for a direct l
   expect(within(claim).getAllByText("CHF 2.000,00").length).toBeGreaterThan(0);
   expect(within(claim).getByText("CHF 100,80")).toBeInTheDocument();
   expect(within(claim).getByText(/the first one after it belongs to the Loan Originator/)).toBeInTheDocument();
+  fireEvent.click(within(claim).getByRole("button", { name: "Close" }));
+  // U33-DEC-24: the actual split of this loan is stated before confirmation.
+  const split = document.querySelector(".u33-rights-split") as HTMLElement;
+  expect(split).toHaveTextContent(/Interest: 70,0+% to you, 30,0+% to the Loan Originator\./);
+  expect(split).toHaveTextContent(/Penalty interest, when the borrower pays it: 50,0+% to you, 50,0+% to the Loan Originator\./);
 });
 
 test("Investment opportunities sort by closing date, interest and term in both layouts", () => {
@@ -1492,6 +1497,19 @@ test("the credit file has seven chapters with structured financials, key ratios,
 
   fireEvent.click(contents.getByRole("button", { name: /Documents$/ }));
   expect(screen.getByRole("button", { name: "Download Borrower financial summary" })).toHaveTextContent("Financial statements · FY 2025 · Helvetia Logistik AG · Version 1 · Final");
+});
+
+test("Loan terms show the investor's and the originator's shares of interest and penalty interest (U33-DEC-24)", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/LO-2601/credit-file");
+  fireEvent.click(screen.getByRole("button", { name: /Open credit file/ }));
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Credit file contents" })).getByRole("button", { name: /Loan terms$/ }));
+  const facts = (label: string) => screen.getByText(label).nextElementSibling;
+  expect(facts("Your share of the borrower's interest")).toHaveTextContent(/^70,0+%$/);
+  expect(facts("Originator's share of interest")).toHaveTextContent(/^30,0+%$/);
+  expect(facts("Your share of penalty interest")).toHaveTextContent(/^50,0+%$/);
+  expect(facts("Originator's share of penalty interest")).toHaveTextContent(/^50,0+%$/);
 });
 
 test("the credit file's Borrower & business chapter shows the published story, safely rendered", () => {

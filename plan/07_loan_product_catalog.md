@@ -379,6 +379,8 @@ Admin imports the full schedule and all pre-publication payments as versioned ev
 
 ### PROD-DEC-013: Originator Claim Economics
 
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-24 display part): the credit file's Loan terms show the investor's and the originator's shares of interest and of penalty interest; the review step states both splits in one line before confirmation. The explanation of the first installment with amounts waits for the open question of U33-DEC-24.
+
 For `par_component_v2`, one unit of investor cash buys one unit of outstanding principal when the subscription activates. The administrator declares separate investor participation rates for contractual interest and penalty components. For each eligible post-boundary payment component, the investor pool receives:
 
 `component * investor_owned_principal / payment_opening_principal * component_participation_bps / 10000`

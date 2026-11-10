@@ -532,10 +532,15 @@ function TermsFacts({ loan }: { loan: MarketplaceLoanDetail }) {
   const t = useT();
   const rows: Array<[string, string]> = [];
   if (usesOriginatorSubscription(loan)) {
+    // U33-DEC-24: the actual split of this loan, for interest and for penalty interest (set case by case).
+    const interestShare = loan.investor_interest_participation_bps ?? 0;
     rows.push([t("Borrower interest rate"), formatRateBps(loan.underlying_interest_rate_bps)]);
-    rows.push([t("Your share of the borrower's interest"), formatRateBps(loan.investor_interest_participation_bps ?? 0)]);
-    rows.push([t("Your share of penalty interest"), formatRateBps(loan.investor_penalty_participation_bps ?? 0)]);
-    rows.push([t("Originator's share of interest"), formatRateBps(10_000 - (loan.investor_interest_participation_bps ?? 0))]);
+    rows.push([t("Your share of the borrower's interest"), formatRateBps(interestShare)]);
+    rows.push([t("Originator's share of interest"), formatRateBps(10_000 - interestShare)]);
+    if (loan.investor_penalty_participation_bps !== null && loan.investor_penalty_participation_bps !== undefined) {
+      rows.push([t("Your share of penalty interest"), formatRateBps(loan.investor_penalty_participation_bps)]);
+      rows.push([t("Originator's share of penalty interest"), formatRateBps(10_000 - loan.investor_penalty_participation_bps)]);
+    }
     if (loan.entitlement_start_date) rows.push([t("First installment for the Loan Originator"), formatDate(loan.entitlement_start_date)]);
     if (loan.funding_deadline) rows.push([t("Funding deadline"), formatDate(loan.funding_deadline)]);
   } else if (usesImmediateClaimAssignment(loan)) {

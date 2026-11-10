@@ -385,6 +385,8 @@ Decision:
 - The split of interest and, where the contract provides it, of penalty interest with the originator stays, with **percentages set case by case**, no universal percentage. The rate, projections, schedule and first payment shown to the investor reflect only the investor's rights, not automatically the interest paid by the borrower.
 - Loan terms show the actual percentages for the investor and the originator, for interest and, where it applies, penalty interest. The split and its effect on the first receipt are explained briefly before confirmation. Old/new refinancing terms and the base schedule/contract stay accessible in Loan terms; Summary identifies the refinancing factually.
 
+Implemented 2026-11-10 (Phase 17.4), display part: Loan terms show the investor's and the originator's shares of interest and, where recorded, of penalty interest; the review step states the split in one line before confirmation. The first installment is explained only with the existing sentence until the open point below is clarified.
+
 To clarify with Vlad: the first installment assigned to the originator (principal, interest, period, rights and effect on the investment price); no generic loss for the investor is approved. Penalties and their beneficiaries are treated separately, not as projected profit or a recovery fee. For originator claims, the existing mechanism excludes investor interest during funding; the exact contractual start date and the split of rights follow U33-DEC-10.
 
 ## Group 8 - Smart Invest, Saved Items and Notifications

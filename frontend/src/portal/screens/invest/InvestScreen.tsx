@@ -414,6 +414,16 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                   <span className="r36-chevron"><NiIcon name="arrow-up-right" /></span>
                 </button>
               ) : null}
+              {subscription ? (
+                // U33-DEC-24: the split of this loan, briefly, before confirmation.
+                <p className="u33-invest-amount-hint u33-rights-split">
+                  {t("Interest: {investor} to you, {originator} to the Loan Originator.", { investor: formatRateBps(loan.investor_interest_participation_bps ?? 0), originator: formatRateBps(10_000 - (loan.investor_interest_participation_bps ?? 0)) })}
+                  {loan.investor_penalty_participation_bps !== null && loan.investor_penalty_participation_bps !== undefined
+                    ? ` ${t("Penalty interest, when the borrower pays it: {investor} to you, {originator} to the Loan Originator.", { investor: formatRateBps(loan.investor_penalty_participation_bps), originator: formatRateBps(10_000 - loan.investor_penalty_participation_bps) })}`
+                    : null}
+                  {` ${t("The first installment after the funding deadline belongs to the Loan Originator.")}`}
+                </p>
+              ) : null}
               <div className="ip-money-summary">
                 <div className="ip-summary-line rl29-replaced-fee"><span>{t("Investment fees")}</span><strong>{t("None")}</strong></div>
               </div>
