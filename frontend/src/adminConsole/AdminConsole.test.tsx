@@ -260,9 +260,10 @@ test("the credit file editors take the financial years, existing debt, document 
   const editor = screen.getByRole("dialog", { name: "Credit file - Helvetic Wohnbau AG" });
   expect(within(editor).getByText(/the details must add up to the totals/)).toBeInTheDocument();
   fireEvent.click(within(editor).getByRole("button", { name: "Add a financial year" }));
-  expect(within(editor).getByLabelText("Revenue minor units")).toBeInTheDocument();
-  expect(within(editor).getByLabelText("Non-current financial debt minor units")).toBeInTheDocument();
-  fireEvent.change(within(editor).getByLabelText("Revenue minor units"), { target: { value: "1000000" } });
+  // Figures are typed in currency units (statementUnits.ts).
+  expect(within(editor).getByLabelText("Revenue")).toBeInTheDocument();
+  expect(within(editor).getByLabelText("Non-current financial debt")).toBeInTheDocument();
+  fireEvent.change(within(editor).getByLabelText("Revenue"), { target: { value: "1000000" } });
   fireEvent.click(within(editor).getByRole("button", { name: "Save financial year" }));
   expect(within(editor).getByText(/Financial year \d{4} would be saved/)).toBeInTheDocument();
   fireEvent.click(within(editor).getByRole("button", { name: "Add a facility" }));
