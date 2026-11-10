@@ -850,7 +850,7 @@ Before launch, Claude Design should produce or implement:
 ## 2026-11-10: Smart Invest Notification Channels (U33-DEC-30)
 
 - Screen or component: Smart Invest page ("Notification settings" under the matches), Profile & Settings -> Notifications (Smart Invest row, "Manage"), `parts/SmartInvestChannelsDialog.tsx`.
-- Current behavior: the design's dialog with the two choices (in the app / by email) and "Save preferences"; the line under the matches says where new matches go ("New matches appear in your notifications.", "New matches are sent to you by email." when only email is on, or "Match notifications are off."). The settings row shows "In-app notifications on/off · Email notifications on/off" and "Available after setup" or "Smart Invest paused". The row is shown only when Smart Invest is available to the investor (identity check approved).
+- Current behavior: the dialog with the refined design texts ("Notify me about matching investment opportunities", "In the app", "By email") and "Save preferences"; the line under the matches says where new matches go ("New matches appear in your notifications.", "New matches are sent to you by email." when only email is on, or "Match notifications are off."). The settings row shows "In-app notifications on/off · Email notifications on/off" and "Available after setup" or "Smart Invest paused". The row is shown only when Smart Invest is available to the investor (identity check approved).
 - Suggested improvement: none required; review the wording of the summary line.
 - Priority: nice-to-have.
 

@@ -518,13 +518,13 @@ test("Smart Invest shows each match as its own opportunity with no bulk selectio
   // U33-DEC-30: the in-app and email alerts have their own switches.
   expect(screen.getByText("New matches appear in your notifications.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));
-  const channels = screen.getByRole("dialog", { name: "Smart Invest notifications" });
-  const inApp = within(channels).getByRole("checkbox", { name: /Notify me in the app/ });
+  const channels = screen.getByRole("dialog", { name: "Notify me about matching investment opportunities" });
+  const inApp = within(channels).getByRole("checkbox", { name: "In the app" });
   expect(inApp).toBeChecked();
-  expect(within(channels).getByRole("checkbox", { name: /Email me/ })).toBeChecked();
+  expect(within(channels).getByRole("checkbox", { name: "By email" })).toBeChecked();
   fireEvent.click(inApp);
   fireEvent.click(within(channels).getByRole("button", { name: "Save preferences" }));
-  expect(screen.queryByRole("dialog", { name: "Smart Invest notifications" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Notify me about matching investment opportunities" })).not.toBeInTheDocument();
   expect(screen.getByText("New matches are sent to you by email.")).toBeInTheDocument();
 });
 
@@ -2227,7 +2227,7 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(screen.getByText("Investment opportunities matching your preferences")).toBeInTheDocument();
   expect(screen.getByText(/In-app notifications on · Email notifications on/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Manage" }));
-  expect(screen.getByRole("dialog", { name: "Smart Invest notifications" })).toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "Notify me about matching investment opportunities" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
   fireEvent.click(within(tabs).getByRole("link", { name: "Preferences" }));

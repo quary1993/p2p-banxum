@@ -1,6 +1,6 @@
 // IP of Webby-Soft SRL.
-// "Smart Invest notifications" (design: si-notifications modal with two .si-notification-choice boxes and
-// "Save preferences"). U33-DEC-30: the in-app and email match alerts have their own switches with a real
+// Smart Invest notifications (design: si-notifications modal with two .si-notification-choice boxes and
+// "Save preferences", with the refined presentation's title and the short labels "In the app" / "By email"). U33-DEC-30: the in-app and email match alerts have their own switches with a real
 // effect; switching one off does not stop matching or service messages, and Pause stops both.
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -42,7 +42,7 @@ export function SmartInvestChannelsDialog({ current, onClose }: { current: Smart
   };
 
   return (
-    <Dialog busy={mutation.isPending} onClose={onClose} size="md" title={t("Smart Invest notifications")}>
+    <Dialog busy={mutation.isPending} onClose={onClose} size="md" title={t("Notify me about matching investment opportunities")}>
       <form
         noValidate
         onSubmit={(event) => {
@@ -52,11 +52,11 @@ export function SmartInvestChannelsDialog({ current, onClose }: { current: Smart
       >
         <label className="si-notification-choice">
           <input checked={inApp} name="alerts" onChange={(event) => setInApp(event.target.checked)} type="checkbox" />
-          {t("Notify me in the app about investment opportunities that match my preferences.")}
+          {t("In the app")}
         </label>
         <label className="si-notification-choice">
           <input checked={email} name="email" onChange={(event) => setEmail(event.target.checked)} type="checkbox" />
-          {t("Email me about investment opportunities that match my preferences.")}
+          {t("By email")}
         </label>
         {error ? <p className="si-validation" role="alert">{error}</p> : null}
         <button className="btn btn-primary" disabled={mutation.isPending} type="submit">

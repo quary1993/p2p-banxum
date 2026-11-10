@@ -127,11 +127,11 @@ test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no b
 
   // U33-DEC-30: the channels are saved with their own request.
   fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));
-  const channels = screen.getByRole("dialog", { name: "Smart Invest notifications" });
-  fireEvent.click(within(channels).getByRole("checkbox", { name: /Email me/ }));
+  const channels = screen.getByRole("dialog", { name: "Notify me about matching investment opportunities" });
+  fireEvent.click(within(channels).getByRole("checkbox", { name: "By email" }));
   fireEvent.click(within(channels).getByRole("button", { name: "Save preferences" }));
   await waitFor(() => expect(calls.channels).toEqual([{ in_app: true, email: false }]));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Smart Invest notifications" })).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Notify me about matching investment opportunities" })).not.toBeInTheDocument());
   expect(screen.getByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
   // Nothing to select, approve or confirm in bulk on the Smart Invest page.
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
