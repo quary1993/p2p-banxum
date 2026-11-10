@@ -50,6 +50,11 @@ export function isOpenLoan(
   return openStatus && loanAvailableMinor(loan) > 0;
 }
 
+/** U33-DEC-17: shown before it opens. Nothing can be invested or reserved yet. */
+export function isComingSoonLoan(loan: Pick<MarketplaceLoanPreview, "opportunity_status">) {
+  return loan.opportunity_status === "coming_soon";
+}
+
 /** Funded share of the loan, 0-100 with one decimal (bar width). */
 export function fundedPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "committed_principal_minor">) {
   if (loan.principal_minor <= 0) return 0;

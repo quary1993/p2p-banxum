@@ -69,6 +69,8 @@ PUBLIC_PROJECT_FIELDS = {
     "published_at",
     "funding_deadline",
     "funded_at",
+    # U33-DEC-17: the planned opening date of a coming-soon project (null otherwise).
+    "planned_opening_date",
     "record",
 }
 RECORD_FIELDS = {

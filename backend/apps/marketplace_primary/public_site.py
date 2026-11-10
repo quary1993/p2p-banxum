@@ -20,7 +20,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
-from django.db.models import Model, Sum
+from django.db.models import Model, Q, Sum
 
 from backend.apps.marketplace_primary.investor_limit import (
     loan_investor_ids,
@@ -52,6 +52,8 @@ PUBLIC_STATUS_REPAYING = "repaying"
 PUBLIC_STATUS_LATE = "late"
 PUBLIC_STATUS_REPAID = "repaid"
 PUBLIC_STATUS_DEFAULT = "default"
+# U33-DEC-17: a draft Direct loan shown before it opens, with its planned opening date.
+PUBLIC_STATUS_COMING_SOON = "coming_soon"
 PUBLIC_STATUSES = (
     PUBLIC_STATUS_OPEN,
     PUBLIC_STATUS_FULLY_FUNDED,
@@ -140,8 +142,8 @@ def _is_par_subscription(profile: Any) -> bool:
 def _candidate_loans(*, loan_id: str | None = None) -> list[Any]:
     loan_model = _model("loans", "Loan")
     queryset = loan_model.objects.filter(
-        status__in=PUBLIC_LOAN_STATUSES,
-        published_at__isnull=False,
+        Q(status__in=PUBLIC_LOAN_STATUSES, published_at__isnull=False)
+        | Q(status="draft", product_type="direct", coming_soon_at__isnull=False)
     ).select_related(
         "borrower",
         "originator_profile__originator",
@@ -319,6 +321,10 @@ def _project_sort_key(payload: dict[str, Any]) -> tuple[Any, ...]:
     status = payload["public_status"]
     if status == PUBLIC_STATUS_OPEN:
         return (0, 0, published_rank, payload["loan_id"])
+    if status == PUBLIC_STATUS_COMING_SOON:
+        # After the open rounds, soonest planned opening first.
+        planned = payload.get("planned_opening_date")
+        return (0, 1, planned.toordinal() if planned is not None else 0, payload["loan_id"])
     if status == PUBLIC_STATUS_FULLY_FUNDED:
         # Still in its round, so newer than every closed round.
         return (1, 0, published_rank, payload["loan_id"])
@@ -368,7 +374,16 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
         if str(loan.product_type) == "originator_claim" and profile is None:
             continue
         loan_status = str(loan.status)
-        if loan_status == "published":
+        figures: dict[str, Any] | None
+        if loan_status == "draft":
+            figures = {
+                "public_status": PUBLIC_STATUS_COMING_SOON,
+                "principal_minor": int(loan.principal_minor),
+                "committed_principal_minor": 0,
+                "remaining_capacity_minor": int(loan.principal_minor),
+            }
+            funded_at = None
+        elif loan_status == "published":
             figures = _published_round_figures(loan, profile)
             if figures is None:
                 continue
@@ -423,6 +438,9 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
             "max_investors": investor_limit.max_investors,
             "places_left": investor_limit.places_left,
             "funded_at": funded_at,
+            "planned_opening_date": getattr(loan, "planned_opening_date", None)
+            if loan_status == "draft"
+            else None,
             "record": None,
         }
         projects.append(

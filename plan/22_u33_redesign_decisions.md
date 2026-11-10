@@ -392,6 +392,8 @@ Decision:
 - Projects can be visible before opening, with the planned date and an explicit request for an email notification. The admin manages the state and the opening; the alert fires at the real opening, not only when the date passes.
 - No investments or reservations before opening, including in the backend. In Smart Invest, Coming soon is separate from available matches, and the open-investment counter does not include it. The opening alert is not duplicated with the Smart Invest alert. The public state stays consistent; opening does not reset the age of money (U33-DEC-03).
 
+Implemented 2026-11-10 (Phase 17.4) for Direct loans: `plan/09_marketplace_investments.md` MKT-DEC-029. Loan Originator claims are an open point. Smart Invest does not list Coming soon matches yet (its matches are open loans only, so the counters already leave Coming soon out).
+
 ### U33-DEC-18: Save for Later
 
 Status: Approved (design with automatic alerts).

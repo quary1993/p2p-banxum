@@ -6,13 +6,23 @@
  * MKT-DEC-028), the originator of a claim, the payment schedule, the credit file link and the amount
  * field. A closed loan shows its state instead of the amount field. No co-investment line
  * (U33-DEC-15), no ratings (U33-DEC-16), no Save for later yet (U33-DEC-18).
+ * U33-DEC-17: a Coming soon opportunity shows the design's invest box for soon ("Opens on", "Tell me
+ * when it opens"). The alert is a real request: one email when the loan really opens, which can be
+ * later than the planned date. After the request the box says so and the investor can cancel it.
  */
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import type { MarketplaceLoanDetail } from "../../../api/generated/banxumApi";
+import {
+  getV1MarketplacePrimaryComingSoonListQueryKey,
+  getV1MarketplacePrimaryLoansRetrieveQueryKey,
+  useV1MarketplacePrimaryLoansOpeningAlertCreate,
+  useV1MarketplacePrimaryLoansOpeningAlertDestroy,
+  type MarketplaceLoanDetail
+} from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useFrozenAccount } from "../../../investorPortal/accountState";
-import { useBalancesData, useLoanDetailData, usePortfolioData, useSmartInvestData } from "../../../investorPortal/data";
+import { isFixturePreview, useBalancesData, useLoanDetailData, usePortfolioData, useSmartInvestData } from "../../../investorPortal/data";
 import { formatAmountInput, formatDate, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
 import { swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
@@ -32,6 +42,7 @@ import {
   fullLoanSchedule,
   fundedPercent,
   holdingForLoan,
+  isComingSoonLoan,
   isOpenLoan,
   isOriginatorClaimLoan,
   loanAvailableMinor,
@@ -54,6 +65,7 @@ import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
 import { securityValueLabel } from "../portfolio/parts/labels";
+import { errorMessage, isReadonlyView } from "../portfolio/parts/errors";
 
 export function OpportunityScreen({
   loanId,
@@ -345,6 +357,8 @@ function OpportunityPage({
                 </form>
               </section>
             </div>
+          ) : isComingSoonLoan(loan) ? (
+            <ComingSoonState loan={loan} />
           ) : (
             <ClosedState holdingId={holding?.id ?? null} loan={loan} />
           )}
@@ -413,6 +427,8 @@ function OpportunityPage({
 
 function statusPillOf(loan: MarketplaceLoanDetail, t: ReturnType<typeof useT>) {
   if (isOpenLoan(loan)) return null;
+  // Design statusOf: Coming soon stays neutral.
+  if (isComingSoonLoan(loan)) return <span className="l8-open r58-project-status">{t("Coming soon")}</span>;
   const status = loan.loan_status || loan.status;
   const [label, tone] =
     status === "defaulted" || status === "written_off"
@@ -481,6 +497,62 @@ function FundingCard({
           ) : null}
         </div>
       </section>
+    </aside>
+  );
+}
+
+/** U33-DEC-17: design investBox for p.status "soon", with a real opening alert. */
+function ComingSoonState({ loan }: { loan: MarketplaceLoanDetail }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const ask = useV1MarketplacePrimaryLoansOpeningAlertCreate();
+  const cancel = useV1MarketplacePrimaryLoansOpeningAlertDestroy();
+  const [previewRequested, setPreviewRequested] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const requested = previewRequested ?? loan.opening_alert_requested === true;
+  const busy = ask.isPending || cancel.isPending;
+
+  const change = async (wanted: boolean) => {
+    setError("");
+    if (isReadonlyView()) {
+      setError(t("The opening alert cannot be changed in a read-only view."));
+      return;
+    }
+    if (isFixturePreview) {
+      setPreviewRequested(wanted);
+      return;
+    }
+    try {
+      const response = wanted
+        ? await ask.mutateAsync({ loanId: loan.loan_id })
+        : await cancel.mutateAsync({ loanId: loan.loan_id });
+      queryClient.setQueryData(getV1MarketplacePrimaryLoansRetrieveQueryKey(loan.loan_id), response);
+      void queryClient.invalidateQueries({ queryKey: getV1MarketplacePrimaryComingSoonListQueryKey() });
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
+
+  return (
+    <aside className="l8-funding">
+      <h2>{t("Project funding")}</h2>
+      <div className="card card-bordered bxm-invest-box">
+        <div className="card-inner">
+          <h6 className="title mb-1">{t("Opens on {date}", { date: formatDate(loan.planned_opening_date) })}</h6>
+          <p className="bxm-muted">{t("You can reserve an amount from that day. Funding closes on {date}.", { date: formatDate(loan.funding_deadline) })}</p>
+          {requested ? (
+            <>
+              <p className="u33-opening-alert" role="status"><NiIcon name="bell" /> {t("We will email you when this loan opens")}</p>
+              <button className="btn btn-outline-light btn-block" disabled={busy} onClick={() => void change(false)} type="button">{t("Cancel the opening alert")}</button>
+            </>
+          ) : (
+            <button className="btn btn-lg btn-primary btn-block" disabled={busy} onClick={() => void change(true)} type="button">
+              <NiIcon name="bell" /><span>{t("Tell me when it opens")}</span>
+            </button>
+          )}
+          {error ? <p className="v107-error" role="alert">{error}</p> : null}
+        </div>
+      </div>
     </aside>
   );
 }

@@ -761,3 +761,20 @@ Owner decision. A Swiss company that takes loans from more than 20 lenders can b
 
 Follow-ups:
 Confirm with legal whether the limit should also count lenders the borrower has outside BANXUM, and whether Loan Originator claims on Swiss borrowers need a different limit.
+
+### MKT-DEC-029: Coming Soon and the Opening Alert
+
+Status: Accepted (U33-DEC-17, `plan/22_u33_redesign_decisions.md`).
+Date: 2026-11-10.
+
+Decision:
+An admin can show a draft Direct loan as "Coming soon" before it opens.
+
+- Admin: `POST /api/v1/loans/admin/loans/<id>/coming-soon/` with `planned_opening_date` (and an optional note) shows the draft, or changes the date; `DELETE` on the same path hides it again. Only a secured draft Direct loan; the date is from today up to the funding deadline. Loan fields `coming_soon_at` and `planned_opening_date`; loan events `coming_soon_announced` / `coming_soon_withdrawn`; audit.
+- The loan stays a draft: no order, reservation or Smart Invest batch is possible (the order path accepts published loans only).
+- Investors: `GET /api/v1/marketplace/primary/coming-soon/` (by planned date) and the loan detail, with `opportunity_status: "coming_soon"`, `planned_opening_date` and `opening_alert_requested`. `POST` / `DELETE /api/v1/marketplace/primary/loans/<id>/opening-alert/` asks for or cancels the alert (`LoanOpeningAlert`, one per investor and loan).
+- Public site: `public_status: "coming_soon"` with `planned_opening_date`, after the open projects, the next to open first.
+- Opening: `publish_loan` sends `email.loan_opening_alert` once to each investor who asked (listed in Notifications as "Opportunity open"), before the Smart Invest alerts; an investor who got the opening alert gets no Smart Invest alert for the same loan (the match is still recorded). The alert goes out at the real opening, also when it is later or earlier than the planned date. Withdrawing the state leaves the requests unsent.
+
+Open point:
+Loan Originator claims are not shown as Coming soon yet (the claim flow has its own publication); see the open questions of Phase 17.

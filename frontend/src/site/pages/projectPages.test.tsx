@@ -8,7 +8,7 @@ import { describe, expect, test, vi } from "vitest";
 import { App } from "../../App";
 import { siteQueryKeys, type PublicProject } from "../data";
 import { siteDesignProjectIds, siteProjectsFixture } from "../siteFixtures";
-import { projectView } from "../projects";
+import { projectView, statusOf, timeText } from "../projects";
 import {
   calcAmount,
   expectedInterest,
@@ -349,5 +349,15 @@ describe("project page helpers", () => {
       currency: "EUR"
     });
     expect(expectedInterest(fixture("bx-1048"), 32308)).toBe(3637.97);
+  });
+
+  test("a coming_soon project from the API is Coming soon and opens on its planned date (U33-DEC-17)", () => {
+    const base = fixture("bx-1048");
+    const soon = projectView({ ...base, public_status: "coming_soon", published_at: null, planned_opening_date: "2026-10-05" }, "2026-09-23");
+    expect(soon.isSoon).toBe(true);
+    expect(soon.isOpen).toBe(false);
+    expect(statusOf(soon)).toEqual({ label: "Coming soon", cls: "" });
+    expect(timeText(soon)).toBe("Opens 5 Oct");
+    expect(filterProjects([soon], { status: "soon", currency: "all" })).toHaveLength(1);
   });
 });

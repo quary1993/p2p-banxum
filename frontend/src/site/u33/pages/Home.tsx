@@ -17,8 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { t, useT } from "../../../i18n";
 import { useSiteTitle } from "../../context";
 import { usePublicProjects, usePublicStatistics, type PublicProject } from "../../data";
-import { dateShort, dateKey, num, siteToday } from "../../format";
-import { projectView, type ProjectView } from "../../projects";
+import { dateShort, num, siteToday } from "../../format";
+import { openingDate, projectView, type ProjectView } from "../../projects";
 import { GLYPHS } from "../glyphs";
 import { useInView, useNarrow, useReducedMotion, useTimeline } from "../hooks";
 import {
@@ -556,7 +556,7 @@ function LoanCard({ view }: { view: ProjectView }) {
         <Ni glyph="clock" />
         <span>
           <strong>{payment.title}</strong>
-          <small>{view.isSoon ? t("Opens {date}", { date: dateShort(dateKey(p.published_at)) }) : payment.detail}</small>
+          <small>{view.isSoon ? t("Opens {date}", { date: dateShort(openingDate(p)) }) : payment.detail}</small>
         </span>
       </div>
       <div className="loan-security">

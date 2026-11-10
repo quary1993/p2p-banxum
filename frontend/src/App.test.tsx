@@ -730,7 +730,7 @@ test("Investment opportunities mark Smart Invest matches and can show only them"
     expect(screen.getByText("Smart Invest", { selector: ".si-match-label" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Helvetia Logistik AG" })).not.toBeInTheDocument();
     fireEvent.click(toggle);
-    expect(resultLine()).toHaveTextContent("5 opportunities · 5 open");
+    expect(resultLine()).toHaveTextContent("6 opportunities · 5 open · 1 coming soon");
     view.unmount();
 
     // Without an active rule the toolbar leads to the Smart Invest set-up.
@@ -945,17 +945,28 @@ test("published loans appear on Investment opportunities as cards and as a list,
   clickNav("Investment opportunities");
 
   expect(screen.getByRole("heading", { level: 1, name: "Investment opportunities" })).toBeInTheDocument();
-  expect(resultLine()).toHaveTextContent("5 opportunities · 5 open");
+  expect(resultLine()).toHaveTextContent("6 opportunities · 5 open · 1 coming soon");
   expect(screen.getByRole("button", { name: "Cards" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("heading", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "View details of Helvetia Logistik AG" })).toHaveAttribute("href", "/marketplace/GA-2401");
   // No ratings (U33-DEC-16) and no co-investment claim (U33-DEC-15).
   expect(screen.getByRole("main")).not.toHaveTextContent(/rating|alongside you/i);
 
+  // U33-DEC-17: the Coming soon card comes after the open ones, without the funding block.
+  const soonCard = screen.getByRole("heading", { name: "Engadin Lodge AG" }).closest(".bxm-project") as HTMLElement;
+  expect(soonCard).toHaveClass("r31-coming-soon");
+  expect(within(soonCard).getByText("Coming soon")).toHaveClass("bxm-tag");
+  expect(soonCard).toHaveTextContent(/Opens \d{1,2} [A-Z][a-z]{2}/);
+  const cardTitles = screen.getAllByRole("heading", { level: 6 }).map((heading) => heading.textContent);
+  expect(cardTitles[cardTitles.length - 1]).toBe("Engadin Lodge AG");
+
   fireEvent.click(screen.getByRole("button", { name: "List" }));
   const table = screen.getByRole("table");
-  expect(within(table).getAllByRole("row")).toHaveLength(6);
+  expect(within(table).getAllByRole("row")).toHaveLength(7);
   expect(within(table).getByRole("link", { name: "Helvetia Logistik AG" })).toHaveAttribute("href", "/marketplace/GA-2401");
+  const soonRow = within(table).getByRole("link", { name: "Engadin Lodge AG" }).closest("tr") as HTMLElement;
+  expect(within(soonRow).getByText("Coming soon")).toHaveClass("ol-soon");
+  expect(soonRow).not.toHaveTextContent("Min.");
   expect(table).not.toHaveTextContent(/rating/i);
 
   // Past opportunities: loans whose funding closed, opened in their closed state.
@@ -973,6 +984,24 @@ test("published loans appear on Investment opportunities as cards and as a list,
   expect(screen.getByRole("link", { name: "Past opportunities" })).toHaveAttribute("href", "/marketplace/archive");
 });
 
+test("a Coming soon opportunity cannot be invested in and offers the opening alert (U33-DEC-17)", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/GA-2410");
+
+  expect(screen.getByRole("heading", { level: 1, name: "Engadin Lodge AG" })).toBeInTheDocument();
+  expect(screen.getByText("Coming soon", { selector: ".l8-open" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 6, name: /^Opens on \d{1,2} [A-Z][a-z]{2} \d{4}$/ })).toBeInTheDocument();
+  expect(screen.getByText(/^You can reserve an amount from that day\. Funding closes on \d{1,2} [A-Z][a-z]{2} \d{4}\.$/)).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Choose investment amount" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Tell me when it opens" }));
+  expect(screen.getByText("We will email you when this loan opens")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel the opening alert" }));
+  expect(screen.getByRole("button", { name: "Tell me when it opens" })).toBeInTheDocument();
+  expect(screen.queryByText("We will email you when this loan opens")).not.toBeInTheDocument();
+});
+
 test("Investment opportunities search and filter by currency, and the opportunity explains how investing works", () => {
   renderApp();
   loginDemo();
@@ -983,7 +1012,7 @@ test("Investment opportunities search and filter by currency, and the opportunit
   expect(screen.queryByRole("heading", { name: "Helvetia Logistik AG" })).not.toBeInTheDocument();
   expect(resultLine()).toHaveTextContent("1 opportunity · 5 open in total");
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-  expect(resultLine()).toHaveTextContent("5 opportunities · 5 open");
+  expect(resultLine()).toHaveTextContent("6 opportunities · 5 open · 1 coming soon");
 
   const currency = screen.getByRole("group", { name: "Currency" });
   fireEvent.click(within(currency).getByRole("button", { name: "EUR" }));
@@ -1016,7 +1045,7 @@ test("opportunity filters use today's data: security type, rate, term and origin
   fireEvent.click(within(panel).getByRole("checkbox", { name: "Commercial real estate" }));
   expect(resultLine()).toHaveTextContent("2 opportunities");
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-  expect(resultLine()).toHaveTextContent("5 opportunities · 5 open");
+  expect(resultLine()).toHaveTextContent("6 opportunities · 5 open · 1 coming soon");
 
   // Minimum rate and maximum term combine.
   fireEvent.change(within(panel).getByLabelText("Minimum annual interest rate"), { target: { value: "8" } });
@@ -1033,7 +1062,8 @@ test("opportunity filters use today's data: security type, rate, term and origin
   expect(resultLine()).toHaveTextContent("1 opportunity");
   expect(screen.getByRole("heading", { name: "Swiss SME equipment claim" })).toBeInTheDocument();
   fireEvent.change(originator, { target: { value: "direct" } });
-  expect(resultLine()).toHaveTextContent("4 opportunities");
+  // Four open Direct loans and the Coming soon one (U33-DEC-17).
+  expect(resultLine()).toHaveTextContent("5 opportunities · 5 open in total · 1 coming soon");
 });
 
 test("Smart Invest preferences save several security types and an originator", async () => {

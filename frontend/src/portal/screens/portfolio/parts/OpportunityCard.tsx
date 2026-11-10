@@ -6,9 +6,11 @@
 // than is left); the opportunity stays a match (U33-DEC-19).
 // As in the design's Smart Invest page, the badge, funded amount and availability are .r31-discovery-hidden.
 // Slice S2 builds the same card for Investment opportunities; the main session merges the two.
+// U33-DEC-17: a Coming soon match has the design's soon card (r31-coming-soon: no funding block,
+// "Opens {date}") and "View details" instead of "Review investment".
 import type { SmartInvestOpportunity } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
-import { daysBetweenDateKeys, formatDecimal, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
+import { daysBetweenDateKeys, formatDateShort, formatDecimal, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
 import { platformTodayKey } from "../../../../investorPortal/platformClock";
 import { NiIcon, PortalLink, usePortalNav } from "../../../components";
 import { placeName } from "../../invest/loanFacts";
@@ -32,7 +34,8 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
   const subtitle = match.borrower_display_name || match.originator_name || "";
   const unsecured = /unsecured/i.test(match.collateral_type) || match.ltv_bps === null;
   const location = placeName(match.borrower_city, match.borrower_country);
-  const usualMinor = preferredAmount === null ? null : Math.round(preferredAmount * 100);
+  const soon = match.opportunity_status === "coming_soon";
+  const usualMinor = preferredAmount === null || soon ? null : Math.round(preferredAmount * 100);
   const amountNote = usualMinor === null
     ? ""
     : usualMinor < match.minimum_investment_minor
@@ -44,7 +47,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
     <div className="col-md-6 col-xxl-4">
       <div className="card card-bordered h-100">
         <div className="card-inner">
-          <div className="project bxm-project r35-card">
+          <div className={`project bxm-project r35-card${soon ? " r31-coming-soon" : ""}`}>
             <div className="project-head">
               <PortalLink className="project-title" params={{ loanId: match.loan_id }} to="loan">
                 <div className="bxm-project-tile"><NiIcon name={tileIcon(match.collateral_type)} /></div>
@@ -61,7 +64,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
               </span>
             </div>
             <div className="bxm-project-tags">
-              <span className="bxm-tag is-open">{t("Open")}</span>
+              {soon ? <span className="bxm-tag">{t("Coming soon")}</span> : <span className="bxm-tag is-open">{t("Open")}</span>}
               <span className="bxm-tag is-type">{investmentTypeText(match.product_type)}</span>
             </div>
             <div className="r60-card-terms">
@@ -107,11 +110,19 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
             <div className="project-meta mt-3">
               <span className="bxm-muted">
                 <NiIcon name="clock" />
-                {days === null ? t("Open") : days <= 0 ? t("Closes today") : days === 1 ? t("1 day left") : t("{days} days left", { days })}
+                {soon
+                  ? t("Opens {date}", { date: formatDateShort(match.planned_opening_date) })
+                  : days === null ? t("Open") : days <= 0 ? t("Closes today") : days === 1 ? t("1 day left") : t("{days} days left", { days })}
               </span>
-              <button aria-label={t("Review investment in {title}", { title: match.title })} className="btn si-review-investment r65-result-cta" onClick={() => nav.go("loan", { loanId: match.loan_id })} type="button">
-                {t("Review investment")}
-              </button>
+              {soon ? (
+                <PortalLink aria-label={t("View details of {title}", { title: match.title })} className="si-detail" params={{ loanId: match.loan_id }} to="loan">
+                  {t("View details")} <NiIcon name="chevron-right" />
+                </PortalLink>
+              ) : (
+                <button aria-label={t("Review investment in {title}", { title: match.title })} className="btn si-review-investment r65-result-cta" onClick={() => nav.go("loan", { loanId: match.loan_id })} type="button">
+                  {t("Review investment")}
+                </button>
+              )}
             </div>
           </div>
         </div>

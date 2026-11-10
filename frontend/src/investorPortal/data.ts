@@ -16,6 +16,7 @@ import {
   useV1InvestorPortalPrimaryOrdersRetrieve,
   useV1InvestorPortalSecondaryMarketRetrieve,
   useV1ServicingLoanRiskNotesList,
+  useV1MarketplacePrimaryComingSoonList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
   useV1MarketplacePrimaryPublicOriginatorsList,
@@ -34,6 +35,7 @@ import type {
 import {
   activityFixture,
   balancesFixture,
+  comingSoonLoansFixture,
   dashboardFixture,
   fxFixture,
   loanDetailsFixture,
@@ -311,6 +313,13 @@ export function useFxData(limit = 50, enabled = true) {
 export function useMarketplaceLoansData(enabled = true) {
   return useV1MarketplacePrimaryOpportunitiesList({ limit: 250 }, {
     query: previewQuery(marketplaceLoansFixture, enabled)
+  });
+}
+
+/** U33-DEC-17: opportunities shown before they open; nothing can be invested in them yet. */
+export function useComingSoonLoansData(enabled = true) {
+  return useV1MarketplacePrimaryComingSoonList({
+    query: previewQuery(comingSoonLoansFixture, enabled)
   });
 }
 

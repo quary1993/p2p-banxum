@@ -150,6 +150,8 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     borrower_city = serializers.CharField(allow_blank=True)
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
+    # U33-DEC-17: only for a Coming soon match.
+    planned_opening_date = serializers.DateField(required=False, allow_null=True)
 
 
 class SmartInvestChannelsSerializer(serializers.Serializer[Any]):
@@ -165,3 +167,5 @@ class SmartInvestResponseSerializer(serializers.Serializer[Any]):
     match_count = serializers.IntegerField()
     open_opportunity_count = serializers.IntegerField()
     matches = SmartInvestOpportunitySerializer(many=True)
+    # U33-DEC-17: matching Coming soon opportunities; not in match_count, nothing to invest yet.
+    coming_soon_matches = SmartInvestOpportunitySerializer(many=True)

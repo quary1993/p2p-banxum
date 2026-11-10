@@ -77,8 +77,9 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     )
     is_refinancing = serializers.BooleanField(help_text="Loan type: new or refinancing.")
     public_status = serializers.ChoiceField(
-        choices=["open", "fully_funded", "repaying", "late", "repaid", "default"],
+        choices=["coming_soon", "open", "fully_funded", "repaying", "late", "repaid", "default"],
         help_text=(
+            "coming_soon: shown before it opens, nothing can be invested yet (U33-DEC-17); "
             "open: published, capacity left, round still taking orders; fully_funded: "
             "nothing left to invest, round not closed yet; repaying: funded or active; "
             "late; repaid; default: defaulted or written off."
@@ -160,6 +161,11 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
         allow_null=True,
         help_text="Funding close date; null while the round is running.",
     )
+    planned_opening_date = serializers.DateField(
+        allow_null=True,
+        required=False,
+        help_text="Planned opening date of a coming_soon project; null otherwise.",
+    )
     record = PublicProjectRecordSerializer(
         allow_null=True,
         help_text="Repayment record; only for repaying, late, repaid and default loans.",
@@ -237,6 +243,10 @@ class PublicOriginatorSerializer(serializers.Serializer[Any]):
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    # U33-DEC-17: "coming_soon" for a draft shown before it opens (no investment possible).
+    opportunity_status = serializers.CharField(required=False)
+    planned_opening_date = serializers.DateField(required=False, allow_null=True)
+    opening_alert_requested = serializers.BooleanField(required=False)
     product_type = serializers.CharField()
     investment_flow = serializers.CharField()
     title = serializers.CharField()

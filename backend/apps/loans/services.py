@@ -1410,10 +1410,117 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
             idempotency_key=f"loan:{loan.id}:published",
         )
     )
+    # U33-DEC-17: the opening alerts go out at the real opening, before Smart Invest, which
+    # then leaves out the investors who just got the opening alert for this loan.
+    import_module("backend.apps.marketplace_primary.services").send_loan_opening_alerts(
+        loan_id=str(loan.id)
+    )
     import_module(
         "backend.apps.smart_invest.services"
     ).notify_smart_invest_matches_for_published_loan(
         loan_id=str(loan.id),
         product_type=LoanProductType.DIRECT,
+    )
+    return loan
+
+
+@dataclass(frozen=True, slots=True)
+class AnnounceComingSoonCommand:
+    actor: Model
+    loan_id: str
+    planned_opening_date: date
+    note: str = ""
+
+
+@transaction.atomic
+def announce_loan_coming_soon(command: AnnounceComingSoonCommand) -> Loan:
+    """U33-DEC-17: show a draft Direct loan as "Coming soon" with its planned opening date.
+
+    The loan stays a draft: nothing can be invested or reserved. Investors can ask for an
+    opening alert; the alert goes out when the admin publishes the loan, not on the date.
+    Calling it again changes the planned date.
+    """
+    _require_admin_actor(command.actor)
+    loan = Loan.objects.select_for_update().filter(id=command.loan_id).first()
+    if loan is None:
+        raise LoanValidationError("Loan does not exist.")
+    if loan.product_type != LoanProductType.DIRECT or loan.status != LoanStatus.DRAFT:
+        raise LoanValidationError("Only a draft Direct loan can be shown as Coming soon.")
+    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
+    if command.planned_opening_date < _business_today():
+        raise LoanValidationError("The planned opening date cannot be in the past.")
+    if loan.funding_deadline is not None and command.planned_opening_date > loan.funding_deadline:
+        raise LoanValidationError("The planned opening date must be before the funding deadline.")
+    previous_date = loan.planned_opening_date
+    loan.coming_soon_at = loan.coming_soon_at or now_utc()
+    loan.planned_opening_date = command.planned_opening_date
+    loan.updated_by_admin_id = command.actor.pk
+    loan.save(
+        update_fields=[
+            "coming_soon_at",
+            "planned_opening_date",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    metadata = {
+        "decision": "U33-DEC-17",
+        "planned_opening_date": command.planned_opening_date.isoformat(),
+        "previous_planned_opening_date": previous_date.isoformat() if previous_date else None,
+    }
+    _record_loan_event(
+        loan=loan,
+        actor=command.actor,
+        event_type=LoanEventType.COMING_SOON_ANNOUNCED,
+        note=command.note,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="loan.coming_soon_announced",
+            target_type="Loan",
+            target_id=str(loan.id),
+            metadata=metadata,
+        )
+    )
+    return loan
+
+
+@transaction.atomic
+def withdraw_loan_coming_soon(*, actor: Model, loan_id: str, note: str = "") -> Loan:
+    """U33-DEC-17: hide a draft again; the opening alerts asked for it are not sent."""
+    _require_admin_actor(actor)
+    loan = Loan.objects.select_for_update().filter(id=loan_id).first()
+    if loan is None:
+        raise LoanValidationError("Loan does not exist.")
+    if loan.status != LoanStatus.DRAFT or loan.coming_soon_at is None:
+        raise LoanValidationError("Only a draft shown as Coming soon can be withdrawn.")
+    loan.coming_soon_at = None
+    loan.planned_opening_date = None
+    loan.updated_by_admin_id = actor.pk
+    loan.save(
+        update_fields=[
+            "coming_soon_at",
+            "planned_opening_date",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    _record_loan_event(
+        loan=loan,
+        actor=actor,
+        event_type=LoanEventType.COMING_SOON_WITHDRAWN,
+        note=note,
+        metadata={"decision": "U33-DEC-17"},
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="loan.coming_soon_withdrawn",
+            target_type="Loan",
+            target_id=str(loan.id),
+        )
     )
     return loan

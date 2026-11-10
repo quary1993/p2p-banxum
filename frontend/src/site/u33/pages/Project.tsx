@@ -16,7 +16,7 @@ import { useT } from "../../../i18n";
 import { useSiteTitle } from "../../context";
 import { isNotFound, usePublicProject, usePublicProjects, type PublicProject } from "../../data";
 import { date, dateKey, dateShort, num, siteToday } from "../../format";
-import { projectView, type ProjectView } from "../../projects";
+import { openingDate, projectView, type ProjectView } from "../../projects";
 import type { SitePageProps } from "../../SitePages";
 import { useNarrow } from "../hooks";
 import {
@@ -103,7 +103,7 @@ function Breadcrumb({ open }: { open: boolean }) {
 /** The badge of the heading: open with the days left, coming soon, or the loan's status. */
 function statusBadge(view: ProjectView, t: (text: string, vars?: Record<string, string | number>) => string) {
   const p = view.p;
-  if (view.isSoon) return { label: t("Opens {date}", { date: dateShort(dateKey(p.published_at)) }), cls: "" };
+  if (view.isSoon) return { label: t("Opens {date}", { date: dateShort(openingDate(p)) }), cls: "" };
   if (view.isOpen) {
     if (view.daysLeft === null) return { label: t("Open"), cls: "is-open" };
     return {

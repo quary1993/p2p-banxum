@@ -362,20 +362,36 @@ def _matching_opportunities(rule: SmartInvestRule) -> tuple[list[dict[str, Any]]
     )
 
 
+def _coming_soon_matches(rule: SmartInvestRule) -> list[dict[str, Any]]:
+    """U33-DEC-17: Coming soon opportunities that match, apart from the open matches."""
+    criteria = _criteria_snapshot(rule)
+    return [
+        item
+        for item in _marketplace_services().coming_soon_marketplace_payloads(
+            viewer_user_id=str(rule.user_id)
+        )
+        if opportunity_matches_criteria(item, criteria)
+    ]
+
+
 def get_smart_invest(*, actor: Model) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
     matches: list[dict[str, Any]] = []
+    coming_soon: list[dict[str, Any]] = []
     open_opportunity_count = len(_marketplace_services().list_open_marketplace_loans(limit=10_000))
     # A paused rule shows no matches (U33-DEC-19); resuming recalculates them.
     if rule is not None and rule.is_active:
         matches, open_opportunity_count = _matching_opportunities(rule)
+        coming_soon = _coming_soon_matches(rule)
     return {
         "rule": _rule_payload(rule),
         "notification_channels": _channels_payload(rule),
+        # Open matches only: the counters never include Coming soon (U33-DEC-17).
         "match_count": len(matches),
         "open_opportunity_count": open_opportunity_count,
         "matches": matches,
+        "coming_soon_matches": coming_soon,
     }
 
 
@@ -639,6 +655,15 @@ def _email_payload(
 IN_APP_MATCH_TOPIC = "notice.smart_invest_opportunity_match"
 
 
+def _opening_alert_sent(*, investor_user_id: str, loan_id: str) -> bool:
+    alert_model = apps.get_model("marketplace_primary", "LoanOpeningAlert")
+    return bool(
+        alert_model.objects.filter(
+            loan_id=loan_id, investor_user_id=investor_user_id, notified_at__isnull=False
+        ).exists()
+    )
+
+
 def _enqueue_match_alert(
     *, rule: SmartInvestRule, user: Model, loan_id: str, opportunity: dict[str, Any]
 ) -> Any:
@@ -697,8 +722,13 @@ def notify_smart_invest_matches_for_published_loan(
             investor_user_id=user.pk, loan_id=loan_id
         ).exists():
             continue
-        outbox = _enqueue_match_alert(
-            rule=rule, user=user, loan_id=loan_id, opportunity=opportunity
+        # U33-DEC-17: no second alert for an investor who just got this loan's opening alert.
+        outbox = (
+            None
+            if _opening_alert_sent(investor_user_id=str(user.pk), loan_id=loan_id)
+            else _enqueue_match_alert(
+                rule=rule, user=user, loan_id=loan_id, opportunity=opportunity
+            )
         )
         try:
             with transaction.atomic():

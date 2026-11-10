@@ -42,6 +42,8 @@ import {
   useV1LoansAdminLoansCreate,
   useV1LoansAdminLoansOriginalScheduleList,
   useV1LoansAdminLoansPartialUpdate,
+  useV1LoansAdminLoansComingSoonCreate,
+  useV1LoansAdminLoansComingSoonDestroy,
   useV1LoansAdminLoansPublishCreate,
   useV1LoansAdminLoansScheduleList,
   useOriginatorClaimsAdminLoansCreate,
@@ -4730,6 +4732,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
 
 type ManageLoanActionId =
   | "publish"
+  | "coming_soon"
   | "cancel"
   | "expiry"
   | "release"
@@ -4751,6 +4754,13 @@ const MANAGE_LOAN_ACTIONS: Array<{
     id: "publish",
     title: "Publish loan",
     description: "Put this draft live on the primary market so investors can place orders.",
+    statuses: ["draft"]
+  },
+  {
+    id: "coming_soon",
+    title: "Show as Coming soon",
+    description:
+      "Show this draft to investors and on the website before it opens, with the planned opening date. Nothing can be invested until you publish it (U33-DEC-17).",
     statuses: ["draft"]
   },
   {
@@ -5733,6 +5743,8 @@ function ManageLoanModal({
 
             {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
 
+            {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
+
             {action === "status_days" ? <LoanStatusDaysForm loan={loan} onDone={onChanged} /> : null}
 
             {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
@@ -6095,6 +6107,110 @@ function LoanStatusDaysForm({ loan, onDone }: { loan: Loan; onDone: () => void }
       {mutation.error ? <Banner tone="bad" title="Could not save the days">{errorMessage(mutation.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Days saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+/** U33-DEC-17: show a draft Direct loan as Coming soon with the planned opening date, or stop. */
+function LoanComingSoonForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const shown = Boolean(loan.coming_soon_at);
+  const [plannedDate, setPlannedDate] = useState(loan.planned_opening_date ?? businessDate);
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const announce = useV1LoansAdminLoansComingSoonCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(`The loan is shown as Coming soon. Planned opening: ${formatDate(result.planned_opening_date ?? plannedDate)}.`);
+        onDone();
+      }
+    }
+  });
+  const withdraw = useV1LoansAdminLoansComingSoonDestroy({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("The loan is no longer shown. The opening alerts asked for it will not be sent.");
+        onDone();
+      }
+    }
+  });
+  const past = Boolean(plannedDate) && plannedDate < businessDate;
+  const afterDeadline = Boolean(plannedDate && loan.funding_deadline && plannedDate > loan.funding_deadline);
+  const unsecured = loan.collateral_type === "unsecured_exception";
+  const directDraft = loan.product_type === "direct" && loan.status === "draft";
+  const busy = announce.isPending || withdraw.isPending;
+  const blocked = !directDraft || unsecured || !plannedDate || past || afterDeadline || busy;
+
+  function save() {
+    if (isFixturePreview) {
+      setPreview(`Loan ${loan.id} would be shown as Coming soon, planned opening ${plannedDate}.`);
+      return;
+    }
+    announce.mutate({ loanId: loan.id, data: { planned_opening_date: plannedDate, note: note.trim() } });
+  }
+
+  function stop() {
+    if (isFixturePreview) {
+      setPreview(`Loan ${loan.id} would no longer be shown as Coming soon.`);
+      return;
+    }
+    withdraw.mutate({ loanId: loan.id });
+  }
+
+  const failure = announce.error ?? withdraw.error;
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        The loan stays a draft. Investors see it in Investment opportunities and on the website with the planned opening
+        date, and they can ask for an email when it opens. The email goes out when you publish the loan, not on the planned
+        date. Only a secured draft Direct loan can be shown.
+      </p>
+      {shown ? (
+        <div className="admin-context-bar">
+          <span>Shown as Coming soon since {formatDate(loan.coming_soon_at)}</span>
+          <span>Planned opening: {formatDate(loan.planned_opening_date)}</span>
+        </div>
+      ) : null}
+      <FieldGrid>
+        <TextInput label="Planned opening date" onChange={setPlannedDate} required type="date" value={plannedDate} />
+      </FieldGrid>
+      <TextAreaInput hint="Internal: for example why the opening waits." label="Note" onChange={setNote} value={note} />
+      {!directDraft ? <Banner tone="bad" title="Not possible for this loan">Only a draft Direct loan can be shown as Coming soon.</Banner> : null}
+      {unsecured ? <Banner tone="bad" title="Security needed">A loan without an eligible security cannot be shown to investors.</Banner> : null}
+      {past ? <Banner tone="bad" title="Date in the past">The planned opening date cannot be in the past.</Banner> : null}
+      {afterDeadline ? <Banner tone="bad" title="Date after the funding deadline">The planned opening date must be before the funding deadline ({formatDate(loan.funding_deadline)}).</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel={shown ? "Change the date" : "Show as Coming soon"}
+        description="Investors and website visitors see the loan and the planned opening date. Nothing can be invested yet."
+        details={[
+          { label: "Loan", value: loan.title },
+          { label: "Planned opening date", value: plannedDate },
+          { label: "Funding deadline", value: formatDate(loan.funding_deadline) }
+        ]}
+        disabled={blocked}
+        onConfirm={save}
+        title="Confirm Coming soon"
+        variant="primary"
+      >
+        {shown ? "Change the date" : "Show as Coming soon"}
+      </OperationConfirmButton>
+      {shown ? (
+        <OperationConfirmButton
+          confirmLabel="Stop showing"
+          description="The loan is hidden again. Investors who asked for an opening alert do not get it."
+          details={[{ label: "Loan", value: loan.title }]}
+          disabled={busy}
+          onConfirm={stop}
+          title="Stop showing as Coming soon"
+          variant="danger"
+        >
+          Stop showing as Coming soon
+        </OperationConfirmButton>
+      ) : null}
+      {failure ? <Banner tone="bad" title="Could not save">{errorMessage(failure)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>
   );
 }

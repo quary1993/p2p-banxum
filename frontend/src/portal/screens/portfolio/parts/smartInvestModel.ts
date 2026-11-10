@@ -183,7 +183,8 @@ function asOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
     borrower_country: loan.borrower_country,
     borrower_city: loan.borrower_city,
     skin_in_the_game_bps: loan.skin_in_the_game_bps,
-    minimum_subscription_bps: loan.minimum_subscription_bps
+    minimum_subscription_bps: loan.minimum_subscription_bps,
+    planned_opening_date: loan.planned_opening_date ?? null
   };
 }
 
@@ -203,6 +204,9 @@ export function previewResponse(
 ): SmartInvestResponse {
   const open = loans.filter(isOpenOpportunity);
   const matches = active ? open.filter((loan) => matchesPreferences(loan, preferences)).map(asOpportunity) : [];
+  // U33-DEC-17: Coming soon matches, apart from the open ones.
+  const soon = loans.filter((loan) => loan.opportunity_status === "coming_soon");
+  const comingSoonMatches = active ? soon.filter((loan) => matchesPreferences(loan, preferences)).map(asOpportunity) : [];
   const request = requestFromPreferences(preferences);
   const now = new Date().toISOString();
   return {
@@ -227,7 +231,8 @@ export function previewResponse(
     notification_channels: channels,
     match_count: matches.length,
     open_opportunity_count: open.length,
-    matches
+    matches,
+    coming_soon_matches: comingSoonMatches
   };
 }
 

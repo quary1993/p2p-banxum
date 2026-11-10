@@ -710,6 +710,8 @@ export const smartInvestFixture: SmartInvestResponse = {
     updated_at: "2026-06-05T10:00:00+02:00"
   },
   open_opportunity_count: marketplaceLoansFixture.length,
+  // U33-DEC-17: the preview's Coming soon loan (7.6%) is below this rule's 8.5%.
+  coming_soon_matches: [],
   matches: marketplaceLoansFixture
     .filter((loan) => loan.yield_bps >= 850 && loan.term_months <= 36 && !/unsecured/i.test(loan.collateral_type))
     .map((loan) => ({
@@ -1150,11 +1152,47 @@ const legacyClaimDetailFixture: MarketplaceLoanDetail = {
   purpose_description: "Lease of two treatment units and an X-ray device, financed by the loan originator."
 };
 
+// U33-DEC-17: a draft shown as Coming soon, with its planned opening date. Nothing is funded yet.
+const comingSoonBase = directLoanDetailsFixture.find((loan) => loan.loan_id === "GA-2402") ?? directLoanDetailsFixture[0];
+const comingSoonLoanDetailFixture: MarketplaceLoanDetail = {
+  ...comingSoonBase,
+  loan_id: "GA-2410",
+  title: "Engadin Lodge AG",
+  purpose: "Hotel renovation",
+  collateral_type: "Mortgage note",
+  collateral_description: "First-ranking mortgage note on the hotel building.",
+  interest_rate_bps: 760,
+  yield_bps: 760,
+  underlying_interest_rate_bps: 760,
+  term_months: 24,
+  status: "draft",
+  loan_status: "draft",
+  opportunity_status: "coming_soon",
+  currency: "CHF",
+  principal_minor: amount(850000),
+  committed_principal_minor: 0,
+  remaining_capacity_minor: amount(850000),
+  fillable_amount_minor: amount(850000),
+  borrower_display_name: "Engadin Lodge AG",
+  borrower_country: "CH",
+  borrower_city: "St. Moritz",
+  repayment_type: "equal_installments",
+  ltv_bps: 5200,
+  published_at: null,
+  funding_deadline: fixtureIsoDateFromToday(36),
+  planned_opening_date: fixtureIsoDateFromToday(6),
+  opening_alert_requested: false,
+  borrower_disclosure: { ...comingSoonBase.borrower_disclosure, legal_name: "Engadin Lodge AG", country: "CH", city: "St. Moritz" }
+};
+
+export const comingSoonLoansFixture: MarketplaceLoanPreview[] = [comingSoonLoanDetailFixture];
+
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [
   ...directLoanDetailsFixture,
   originatorLoanDetailFixture,
   ...pastLoanDetailsFixture,
-  legacyClaimDetailFixture
+  legacyClaimDetailFixture,
+  comingSoonLoanDetailFixture
 ];
 
 /** Past opportunities (public projects API) for the investor archive, matching the loan details above. */

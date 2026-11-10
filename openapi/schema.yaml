@@ -3572,6 +3572,63 @@ paths:
               schema:
                 $ref: '#/components/schemas/Loan'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/coming-soon/:
+    post:
+      operationId: v1_loans_admin_loans_coming_soon_create
+      description: 'U33-DEC-17: show a draft Direct loan as Coming soon (POST) or
+        hide it again (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanComingSoonRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanComingSoonRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanComingSoonRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
+    delete:
+      operationId: v1_loans_admin_loans_coming_soon_destroy
+      description: 'U33-DEC-17: show a draft Direct loan as Coming soon (POST) or
+        hide it again (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/events/:
     get:
       operationId: v1_loans_admin_loans_events_list
@@ -3797,6 +3854,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/PrimaryInvestmentOrder'
           description: ''
+  /api/v1/marketplace/primary/coming-soon/:
+    get:
+      operationId: v1_marketplace_primary_coming_soon_list
+      description: 'U33-DEC-17: opportunities shown before they open, by planned opening
+        date.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceLoanPreview'
+          description: ''
   /api/v1/marketplace/primary/loans/{loan_id}/:
     get:
       operationId: v1_marketplace_primary_loans_retrieve
@@ -3844,6 +3919,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MarketplaceBorrowerDocumentDownload'
+          description: ''
+  /api/v1/marketplace/primary/loans/{loan_id}/opening-alert/:
+    post:
+      operationId: v1_marketplace_primary_loans_opening_alert_create
+      description: 'U33-DEC-17: ask for (POST) or cancel (DELETE) the email at the
+        real opening.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceLoanDetail'
+          description: ''
+    delete:
+      operationId: v1_marketplace_primary_loans_opening_alert_destroy
+      description: 'U33-DEC-17: ask for (POST) or cancel (DELETE) the email at the
+        real opening.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceLoanDetail'
           description: ''
   /api/v1/marketplace/primary/opportunities/:
     get:
@@ -10908,6 +11028,14 @@ components:
           type: string
           format: date
           nullable: true
+        coming_soon_at:
+          type: string
+          format: date-time
+          nullable: true
+        planned_opening_date:
+          type: string
+          format: date
+          nullable: true
         minimum_subscription_bps:
           type: integer
           default: 5000
@@ -10952,6 +11080,7 @@ components:
       - collateral_description
       - collateral_type
       - collateral_value_minor
+      - coming_soon_at
       - committed_principal_minor
       - contract_terminated_on
       - created_at
@@ -10986,6 +11115,7 @@ components:
       - originator_id
       - originator_name
       - originator_schedule_revision
+      - planned_opening_date
       - pre_publication_paid_installments
       - principal_minor
       - product_type
@@ -11006,6 +11136,18 @@ components:
       - updated_at
       - updated_by_admin_id
       - yield_bps
+    LoanComingSoonRequest:
+      type: object
+      properties:
+        planned_opening_date:
+          type: string
+          format: date
+        note:
+          type: string
+          default: ''
+          maxLength: 2000
+      required:
+      - planned_opening_date
     LoanContractTerminationRequest:
       type: object
       properties:
@@ -11956,6 +12098,12 @@ components:
         loan_id:
           type: string
           format: uuid
+        planned_opening_date:
+          type: string
+          format: date
+          nullable: true
+        opening_alert_requested:
+          type: boolean
         product_type:
           type: string
         investment_flow:
@@ -12193,6 +12341,12 @@ components:
         loan_id:
           type: string
           format: uuid
+        planned_opening_date:
+          type: string
+          format: date
+          nullable: true
+        opening_alert_requested:
+          type: boolean
         product_type:
           type: string
         investment_flow:
@@ -15274,8 +15428,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/PublicStatusEnum'
           description: |-
-            open: published, capacity left, round still taking orders; fully_funded: nothing left to invest, round not closed yet; repaying: funded or active; late; repaid; default: defaulted or written off.
+            coming_soon: shown before it opens, nothing can be invested yet (U33-DEC-17); open: published, capacity left, round still taking orders; fully_funded: nothing left to invest, round not closed yet; repaying: funded or active; late; repaid; default: defaulted or written off.
 
+            * `coming_soon` - coming_soon
             * `open` - open
             * `fully_funded` - fully_funded
             * `repaying` - repaying
@@ -15373,6 +15528,11 @@ components:
           format: date
           nullable: true
           description: Funding close date; null while the round is running.
+        planned_opening_date:
+          type: string
+          format: date
+          nullable: true
+          description: Planned opening date of a coming_soon project; null otherwise.
         record:
           allOf:
           - $ref: '#/components/schemas/PublicProjectRecord'
@@ -15545,6 +15705,7 @@ components:
       - principal_repaid_minor
     PublicStatusEnum:
       enum:
+      - coming_soon
       - open
       - fully_funded
       - repaying
@@ -15553,6 +15714,7 @@ components:
       - default
       type: string
       description: |-
+        * `coming_soon` - coming_soon
         * `open` - open
         * `fully_funded` - fully_funded
         * `repaying` - repaying
@@ -17434,6 +17596,10 @@ components:
         minimum_subscription_bps:
           type: integer
           default: 5000
+        planned_opening_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - borrower_city
       - borrower_country
@@ -17481,7 +17647,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SmartInvestOpportunity'
+        coming_soon_matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestOpportunity'
       required:
+      - coming_soon_matches
       - match_count
       - matches
       - notification_channels

@@ -181,3 +181,12 @@ html.bxu .r100-credit .u33-invest-files {
     grid-row: 2;
   }
 }
+
+/* U33-DEC-17: the opening alert was asked for (Coming soon invest box). */
+html.bxu .u33-opening-alert {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 12px;
+  color: var(--bxm-muted, #6c757d);
+}

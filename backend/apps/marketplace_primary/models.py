@@ -268,3 +268,32 @@ class PrimaryLoanCancellation(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["currency", "cancelled_at"]),
             models.Index(fields=["created_by_admin_id", "cancelled_at"]),
         ]
+
+
+class LoanOpeningAlert(TimestampedModel):
+    """U33-DEC-17: an investor asked to be told when a "Coming soon" loan opens.
+
+    Sent once, at the real opening (publication), as an email that is also listed in the
+    investor's notifications. Asking reserves nothing.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey("loans.Loan", on_delete=models.CASCADE, related_name="opening_alerts")
+    investor_user_id = models.UUIDField()
+    notified_at = models.DateTimeField(null=True, blank=True)
+    outbox_message = models.ForeignKey(
+        "platform_core.OutboxMessage",
+        on_delete=models.SET_NULL,
+        related_name="loan_opening_alerts",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "investor_user_id"], name="unique_loan_opening_alert"
+            )
+        ]
+        indexes = [models.Index(fields=["investor_user_id", "created_at"])]

@@ -369,3 +369,10 @@ Each entry should include:
 - Current first-version behavior: an investor's closure request opens an "Account access review" task titled "Account closure request CLS-YYYY-NNNN" with the checks to make (balances, investments, orders, listings, payments, KYC/compliance) and the investor's message. The request email goes to the support mailbox (`platform.support_email`, then `SUPPORT_EMAIL`). Closing the account stays the existing admin access action.
 - Required admin-console improvement: link the task to the investor's account page and to the access action that closes the account; show the investor's portal Help messages (references) on the investor page.
 - Priority: important.
+
+## 2026-11-10: Coming Soon (U33-DEC-17)
+
+- Screen or component: loan Manage modal, action "Show as Coming soon" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: for a draft loan, the admin sets the planned opening date (from today up to the funding deadline) and an optional internal note; the form refuses a past date, a date after the funding deadline, a loan that is not a draft Direct loan and an unsecured loan. When the loan is already shown, the form shows the dates, changes the date, and "Stop showing as Coming soon" hides it again (the opening alerts are then not sent). The opening alerts go out when the admin publishes the loan.
+- Required admin-console improvement: show "Coming soon" and the planned date in the loan list; show the number of investors who asked for the opening alert; show the `coming_soon_announced` / `coming_soon_withdrawn` events in the loan history.
+- Priority: important.

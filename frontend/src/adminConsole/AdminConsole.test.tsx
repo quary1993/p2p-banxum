@@ -183,6 +183,22 @@ test("U33-DEC-09: a defaulted loan records the contract termination; its days no
   expect(within(dialog).getByText(/Contract termination on .* would be recorded/)).toBeInTheDocument();
 });
 
+test("a draft loan can be shown as Coming soon only with a planned date before the funding deadline (U33-DEC-17)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Show as Coming soon/ }));
+
+  expect(within(dialog).getByText(/The email goes out when you publish the loan, not on the planned/)).toBeInTheDocument();
+  // The fixture's funding deadline (25 Jul 2026) has passed: no planned date can be valid.
+  expect(within(dialog).getByText("Date after the funding deadline")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Show as Coming soon" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("Planned opening date"), { target: { value: "2026-07-01" } });
+  expect(within(dialog).getByText("Date in the past")).toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: "Stop showing as Coming soon" })).not.toBeInTheDocument();
+});
+
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {
   renderAdmin("/admin/loans");
   fireEvent.click(screen.getByRole("button", { name: "Create direct loan" }));

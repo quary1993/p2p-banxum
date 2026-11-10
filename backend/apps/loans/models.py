@@ -119,6 +119,8 @@ class LoanEventType(models.TextChoices):
     WRITE_OFF_RECORDED = "write_off_recorded", "Write-off recorded"
     STATUS_THRESHOLDS_CHANGED = "status_thresholds_changed", "Status thresholds changed"
     CONTRACT_TERMINATED = "contract_terminated", "Contract terminated"
+    COMING_SOON_ANNOUNCED = "coming_soon_announced", "Coming soon announced"
+    COMING_SOON_WITHDRAWN = "coming_soon_withdrawn", "Coming soon withdrawn"
 
 
 class Loan(TimestampedModel):
@@ -186,6 +188,10 @@ class Loan(TimestampedModel):
     default_threshold_days = models.PositiveSmallIntegerField(null=True, blank=True)
     # U33-DEC-09: the contract termination date, recorded by an admin (never automatic).
     contract_terminated_on = models.DateField(null=True, blank=True)
+    # U33-DEC-17: a draft shown as "Coming soon" with its planned opening date. Nothing can be
+    # invested or reserved until the admin publishes it; publishing sends the opening alerts.
+    coming_soon_at = models.DateTimeField(null=True, blank=True)
+    planned_opening_date = models.DateField(null=True, blank=True)
     recovery_waterfall_version = models.CharField(
         max_length=64,
         default=PAYMENT_WATERFALL_VERSION,

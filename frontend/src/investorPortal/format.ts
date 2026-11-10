@@ -250,6 +250,14 @@ export function formatDate(value: string | null | undefined) {
   return `${parts.day} ${SHORT_MONTHS[parts.month - 1]} ${parts.year}`;
 }
 
+/** "4 Oct" in Zurich time (design B.dateShort). */
+export function formatDateShort(value: string | null | undefined) {
+  const date = validDate(value);
+  if (!date) return "-";
+  const parts = zurichParts(date);
+  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]}`;
+}
+
 /** "4 Oct 2026, 14:30" in Zurich time (design B.dateTime). */
 export function formatDateTime(value: string | null | undefined) {
   const date = validDate(value);

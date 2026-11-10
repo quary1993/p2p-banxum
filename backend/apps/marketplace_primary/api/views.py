@@ -61,9 +61,11 @@ from backend.apps.marketplace_primary.services import (
     create_primary_investment_order,
     download_marketplace_borrower_document,
     get_full_marketplace_loan,
+    list_coming_soon_marketplace_loans,
     list_investor_marketplace_loans,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
+    set_loan_opening_alert,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -429,3 +431,43 @@ class PrimaryLoanExpiryScanView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_expiry_scan_result(result), status=status.HTTP_200_OK)
+
+
+class MarketplaceComingSoonListView(APIView):
+    """U33-DEC-17: opportunities shown before they open, by planned opening date."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: MarketplaceLoanPreviewSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = list_coming_soon_marketplace_loans(actor=actor)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class MarketplaceOpeningAlertView(APIView):
+    """U33-DEC-17: ask for (POST) or cancel (DELETE) the email at the real opening."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _answer(self, request: Request, loan_id: str, *, wanted: bool) -> Response:
+        try:
+            payload = set_loan_opening_alert(
+                actor=cast(Model, request.user), loan_id=str(loan_id), wanted=wanted
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={200: MarketplaceLoanDetailSerializer})
+    def post(self, request: Request, loan_id: str) -> Response:
+        return self._answer(request, loan_id, wanted=True)
+
+    @extend_schema(request=None, responses={200: MarketplaceLoanDetailSerializer})
+    def delete(self, request: Request, loan_id: str) -> Response:
+        return self._answer(request, loan_id, wanted=False)

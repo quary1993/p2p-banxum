@@ -10,9 +10,8 @@ import { dateKey, parseAmount, plan, round2, siteToday, type PlanRepayment } fro
 import type { ProjectView } from "../projects";
 
 // ---------------------------------------------------------------------------------------------
-// Filters of the projects list (design FILTERS). The API has no "coming soon" status: Coming soon
-// counts the open projects that are not published yet (projectView isSoon), which only the
-// preview fixtures have; with live data it is always 0.
+// Filters of the projects list (design FILTERS). Coming soon counts the projects that projectView
+// marks isSoon: public_status "coming_soon" (U33-DEC-17), or a preview project not published yet.
 
 export type FilterStatus = "open" | "soon" | "funded" | "all";
 export type FilterCurrency = "all" | "CHF" | "EUR";

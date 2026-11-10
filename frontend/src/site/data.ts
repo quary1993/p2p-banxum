@@ -28,7 +28,8 @@ import { siteOriginatorsFixture, siteProjectsFixture, siteStatisticsFixture } fr
 // ---------------------------------------------------------------------------------------------
 // Contract types
 
-export type PublicProjectStatus = "open" | "fully_funded" | "repaying" | "late" | "repaid" | "default";
+/** coming_soon: shown before it opens, nothing can be invested yet (U33-DEC-17). */
+export type PublicProjectStatus = "coming_soon" | "open" | "fully_funded" | "repaying" | "late" | "repaid" | "default";
 
 export interface PublicProjectRecord {
   installments_total: number;
@@ -82,6 +83,8 @@ export interface PublicProject {
   originator: null | { id: string; name: string; country: string };
   published_at: string | null;
   funding_deadline: string | null;
+  /** Planned opening date of a coming_soon project (U33-DEC-17); null otherwise. */
+  planned_opening_date?: string | null;
   /** Funding close date (null while open). */
   funded_at: string | null;
   /** Only for repaying / late / repaid / default. */

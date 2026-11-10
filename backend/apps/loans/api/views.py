@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.loans.api.serializers import (
+    LoanComingSoonRequestSerializer,
     LoanCreateRequestSerializer,
     LoanEventSerializer,
     LoanInstallmentSerializer,
@@ -26,16 +27,19 @@ from backend.apps.loans.api.serializers import (
 )
 from backend.apps.loans.models import Loan
 from backend.apps.loans.services import (
+    AnnounceComingSoonCommand,
     CreateLoanCommand,
     LoanAuthorizationError,
     LoanValidationError,
     ManualScheduleRowCommand,
     PublishLoanCommand,
     UpdateLoanCommand,
+    announce_loan_coming_soon,
     create_loan,
     original_schedule_payload,
     publish_loan,
     update_loan,
+    withdraw_loan_coming_soon,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.platform_core.domain.time import business_date, now_utc
@@ -151,9 +155,7 @@ class LoanListCreateView(APIView):
                     default_penalty_interest_bps=data.get("default_penalty_interest_bps", 0),
                     recovery_fee_bps=data.get("recovery_fee_bps", 0),
                     minimum_subscription_bps=data.get("minimum_subscription_bps", 5_000),
-                    manual_schedule_rows=_manual_rows_from_data(
-                        data.get("manual_schedule_rows")
-                    ),
+                    manual_schedule_rows=_manual_rows_from_data(data.get("manual_schedule_rows")),
                     note=data.get("note", ""),
                 )
             )
@@ -171,11 +173,15 @@ class LoanDetailView(APIView):
     def get(self, request: Request, loan_id: str) -> Response:
         if not is_admin_actor(request.user):
             return _admin_forbidden_response()
-        loan = Loan.objects.select_related(
-            "currency",
-            "borrower",
-            "originator_profile__originator",
-        ).filter(id=loan_id).first()
+        loan = (
+            Loan.objects.select_related(
+                "currency",
+                "borrower",
+                "originator_profile__originator",
+            )
+            .filter(id=loan_id)
+            .first()
+        )
         if loan is None:
             return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
         return Response(serialize_loan(loan), status=status.HTTP_200_OK)
@@ -222,9 +228,7 @@ class LoanDetailView(APIView):
                     default_penalty_interest_bps=data.get("default_penalty_interest_bps"),
                     recovery_fee_bps=data.get("recovery_fee_bps"),
                     minimum_subscription_bps=data.get("minimum_subscription_bps"),
-                    manual_schedule_rows=_manual_rows_from_data(
-                        data.get("manual_schedule_rows")
-                    ),
+                    manual_schedule_rows=_manual_rows_from_data(data.get("manual_schedule_rows")),
                     investor_message=data.get("investor_message", ""),
                     note=data.get("note", ""),
                 )
@@ -327,3 +331,43 @@ class LoanEventListView(APIView):
             [serialize_loan_event(event) for event in loan.events.all()],
             status=status.HTTP_200_OK,
         )
+
+
+class LoanComingSoonView(APIView):
+    """U33-DEC-17: show a draft Direct loan as Coming soon (POST) or hide it again (DELETE)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=LoanComingSoonRequestSerializer, responses={200: LoanSerializer})
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanComingSoonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            loan = announce_loan_coming_soon(
+                AnnounceComingSoonCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(loan_id),
+                    planned_opening_date=data["planned_opening_date"],
+                    note=data["note"],
+                )
+            )
+        except LoanAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LoanValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_loan(loan), status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={200: LoanSerializer})
+    def delete(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            loan = withdraw_loan_coming_soon(actor=cast(Model, request.user), loan_id=str(loan_id))
+        except LoanAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LoanValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_loan(loan), status=status.HTTP_200_OK)

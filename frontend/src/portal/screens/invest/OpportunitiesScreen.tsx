@@ -5,13 +5,15 @@
  * Filters are the ones today's data can apply: currency, security type, minimum rate, maximum term and
  * originator. No ratings (U33-DEC-16), no purpose or loan-kind filters (U33-DEC-19); LTV, country and
  * repayment filters wait for Phase 17.2/17.4 data. No co-investment claim (U33-DEC-15).
+ * U33-DEC-17: Coming soon opportunities follow the open ones, the next to open first, as in the design
+ * (r31-coming-soon card without the funding block, "Opens {date}", the ol-soon list tag).
  */
 import { useState } from "react";
 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { useBalancesData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSmartInvestData } from "../../../investorPortal/data";
-import { formatDate, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
+import { useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSmartInvestData } from "../../../investorPortal/data";
+import { formatDate, formatDateShort, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import {
   collateralGroup,
@@ -23,6 +25,7 @@ import {
   existingClaimHelp,
   daysUntil,
   fundedPercent,
+  isComingSoonLoan,
   isOpenLoan,
   isOriginatorClaimLoan,
   loanTypeLabel,
@@ -94,7 +97,13 @@ function compactAmount(amountMinor: number, currency: string) {
   return formatMoneyMinor(amountMinor, currency, 0);
 }
 
+/** Coming soon: the next to open first (design: soon after open, by opening date). */
+function sortComingSoon(loans: MarketplaceLoanPreview[]) {
+  return [...loans].sort((a, b) => (a.planned_opening_date ?? "9999").localeCompare(b.planned_opening_date ?? "9999") || a.loan_id.localeCompare(b.loan_id));
+}
+
 function closingText(loan: MarketplaceLoanPreview, asOf: string | undefined, t: ReturnType<typeof useT>) {
+  if (isComingSoonLoan(loan)) return t("Opens {date}", { date: formatDateShort(loan.planned_opening_date) });
   if (usesImmediateClaimAssignment(loan)) {
     return loan.maturity_date ? t("Matures {date}", { date: formatDate(loan.maturity_date) }) : t("Open while performing");
   }
@@ -107,6 +116,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   useNumberFormat();
   const nav = usePortalNav();
   const loansQuery = useMarketplaceLoansData();
+  const soonQuery = useComingSoonLoansData();
   const smartInvestQuery = useSmartInvestData();
   const asOf = useBalancesData().data?.as_of;
   // Design "Invested" mark: a loan the investor holds or has an open reservation in.
@@ -131,17 +141,18 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
 
   const loans = loansQuery.data ?? [];
   const openLoans = loans.filter(isOpenLoan);
+  const soonLoans = soonQuery.data ?? [];
+  const listedLoans = [...openLoans, ...soonLoans];
   const ruleActive = smartInvestQuery.data?.rule?.is_active === true;
   const matchIds = new Set(ruleActive ? (smartInvestQuery.data?.matches ?? []).map((match) => match.loan_id) : []);
   const matchCount = openLoans.filter((loan) => matchIds.has(loan.loan_id)).length;
-  const visible = sortLoans(
-    openLoans.filter((loan) => matchesFilters(loan, filters) && (!matchesOnly || !ruleActive || matchIds.has(loan.loan_id))),
-    sort
-  );
-  const currencies = Array.from(new Set(["EUR", "CHF", ...openLoans.map((loan) => loan.currency)]));
-  const securityTypes = Array.from(new Set(openLoans.map((loan) => loan.collateral_type)));
+  const shown = (loan: MarketplaceLoanPreview) => matchesFilters(loan, filters) && (!matchesOnly || !ruleActive || matchIds.has(loan.loan_id));
+  const visibleSoon = sortComingSoon(soonLoans.filter(shown));
+  const visible = [...sortLoans(openLoans.filter(shown), sort), ...visibleSoon];
+  const currencies = Array.from(new Set(["EUR", "CHF", ...listedLoans.map((loan) => loan.currency)]));
+  const securityTypes = Array.from(new Set(listedLoans.map((loan) => loan.collateral_type)));
   const originators = Array.from(
-    new Map(openLoans.filter((loan) => isOriginatorClaimLoan(loan) && loan.originator_id).map((loan) => [loan.originator_id as string, loan.originator_name ?? ""])).entries()
+    new Map(listedLoans.filter((loan) => isOriginatorClaimLoan(loan) && loan.originator_id).map((loan) => [loan.originator_id as string, loan.originator_name ?? ""])).entries()
   ).sort((a, b) => a[1].localeCompare(b[1]));
   const panelCount = [filters.minRate !== null, filters.maxTerm !== null, filters.security.length > 0, Boolean(filters.originator)].filter(Boolean).length;
   const anyFilter = panelCount > 0 || Boolean(filters.q.trim()) || Boolean(filters.currency) || (matchesOnly && ruleActive);
@@ -302,6 +313,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           <span role="status">
             <strong>{visible.length === 1 ? t("1 opportunity") : t("{count} opportunities", { count: visible.length })}</strong>
             {anyFilter ? ` · ${t("{count} open in total", { count: openLoans.length })}` : ` · ${t("{count} open", { count: openLoans.length })}`}
+            {visibleSoon.length > 0 ? ` · ${t("{count} coming soon", { count: visibleSoon.length })}` : null}
           </span>
           {anyFilter ? <button className="link u33-invest-clear" onClick={clearAll} type="button">{t("Clear filters")}</button> : null}
         </div>
@@ -318,9 +330,9 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           <EmptyState
             actions={anyFilter ? <Button onClick={clearAll} variant="primary">{t("Clear filters")}</Button> : <Button onClick={() => nav.go("smartInvest")}>{t("Set up Smart Invest")}</Button>}
             icon="search"
-            title={openLoans.length === 0 ? t("No investment opportunities are open right now") : t("No opportunity matches these filters.")}
+            title={listedLoans.length === 0 ? t("No investment opportunities are open right now") : t("No opportunity matches these filters.")}
           >
-            {openLoans.length === 0 ? t("New opportunities appear here when they are published.") : t("Change or clear the filters to see more opportunities.")}
+            {listedLoans.length === 0 ? t("New opportunities appear here when they are published.") : t("Change or clear the filters to see more opportunities.")}
           </EmptyState>
         ) : layout === "cards" ? (
           <div className="row g-gs">
@@ -367,11 +379,12 @@ export function OpportunityCard({ loan, asOf, matched, invested }: { loan: Marke
   const securityName = collateralLabel(loan.collateral_type);
   const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
   const securityHelp = securityHelpText(loan.collateral_type) || securityVocabText();
+  const soon = isComingSoonLoan(loan);
   return (
     <div className="col-md-6 col-xxl-4">
       <div className={`card card-bordered h-100${matched ? " si-highlighted" : ""}`}>
         <div className="card-inner">
-          <div className="project bxm-project r35-card">
+          <div className={`project bxm-project r35-card${soon ? " r31-coming-soon" : ""}`}>
             <div className="project-head">
               <PortalLink className="project-title u33-invest-project-link" params={{ loanId: loan.loan_id }} to="loan">
                 <div className="bxm-project-tile"><NiIcon name={projectIcon(loan)} /></div>
@@ -388,7 +401,7 @@ export function OpportunityCard({ loan, asOf, matched, invested }: { loan: Marke
               </div>
             ) : null}
             <div className="bxm-project-tags">
-              <span className="bxm-tag is-open">{t("Open")}</span>
+              {soon ? <span className="bxm-tag">{t("Coming soon")}</span> : <span className="bxm-tag is-open">{t("Open")}</span>}
               <span className="bxm-tag is-type">{loanTypeLabel(loan)}</span>
               {isOriginatorClaimLoan(loan) ? <InfoTip label={t("Existing claim")} title={t("Existing claim")}>{existingClaimHelp()}</InfoTip> : null}
               {matched ? <span aria-label={t("Smart Invest: matches your Smart Invest preferences.")} className="bxm-tag si-match-label" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span> : null}
@@ -437,7 +450,7 @@ export function OpportunityCard({ loan, asOf, matched, invested }: { loan: Marke
             </div>
             <div className="project-meta mt-3">
               <span className="bxm-muted"><NiIcon name="clock" /> {closingText(loan, asOf, t)}</span>
-              <PortalLink aria-label={t("View details of {title}", { title: loan.title })} className="btn btn-sm btn-primary" params={{ loanId: loan.loan_id }} to="loan">{t("View details")}</PortalLink>
+              <PortalLink aria-label={t("View details of {title}", { title: loan.title })} className={`btn btn-sm ${soon ? "btn-outline-light" : "btn-primary"}`} params={{ loanId: loan.loan_id }} to="loan">{t("View details")}</PortalLink>
             </div>
           </div>
         </div>
@@ -477,7 +490,8 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
             const securityName = collateralLabel(loan.collateral_type);
             const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
             const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
-            const days = usesImmediateClaimAssignment(loan) ? null : daysUntil(loan.funding_deadline, asOf);
+            const soon = isComingSoonLoan(loan);
+            const days = soon || usesImmediateClaimAssignment(loan) ? null : daysUntil(loan.funding_deadline, asOf);
             return (
               <tr className="r75-list-row" data-project={loan.loan_id} key={loan.loan_id}>
                 <td>
@@ -507,13 +521,15 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
                 </td>
                 <td>
                   <strong className="ol-money">{`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency, 0)}`}</strong>
-                  <span className="ol-secondary ol-min r31-minimum">
-                    {t("Min. {amount}", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) })}
-                    <MinimumInfo loan={loan} />
-                  </span>
+                  {soon ? null : (
+                    <span className="ol-secondary ol-min r31-minimum">
+                      {t("Min. {amount}", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) })}
+                      <MinimumInfo loan={loan} />
+                    </span>
+                  )}
                 </td>
                 <td>
-                  <span className="bxm-tag ol-status r75-desktop-hidden">{t("Open")}</span>
+                  {soon ? <span className="bxm-tag ol-status ol-soon">{t("Coming soon")}</span> : <span className="bxm-tag ol-status r75-desktop-hidden">{t("Open")}</span>}
                   <span className="ol-secondary ol-time">{days === null ? closingText(loan, asOf, t) : closesInLabel(days)}</span>
                 </td>
                 <td className="ol-action">

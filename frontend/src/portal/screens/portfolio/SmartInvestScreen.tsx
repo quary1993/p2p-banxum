@@ -17,7 +17,7 @@ import {
   type SmartInvestResponse
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { isFixturePreview, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
+import { isFixturePreview, useComingSoonLoansData, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
 import { formatDecimal, formatMoneyLabel, useNumberFormat } from "../../../investorPortal/format";
 import { Button, Dialog, EmptyState, NiIcon, PageHead } from "../../components";
 import { SmartInvestWizard } from "./SmartInvestWizard";
@@ -57,6 +57,7 @@ export function SmartInvestScreen() {
   const queryClient = useQueryClient();
   const smartQuery = useSmartInvestData();
   const loansQuery = useMarketplaceLoansData();
+  const soonQuery = useComingSoonLoansData();
   const updateMutation = useV1InvestorSmartInvestUpdate();
   const pauseMutation = useV1InvestorSmartInvestPauseCreate();
   const resumeMutation = useV1InvestorSmartInvestResumeCreate();
@@ -74,9 +75,13 @@ export function SmartInvestScreen() {
 
   const data = smartQuery.data;
   const loans = loansQuery.data ?? [];
+  // Preview mode matches Coming soon opportunities too (U33-DEC-17).
+  const previewLoans = [...loans, ...(soonQuery.data ?? [])];
   // Preview variants for review: ?preview=not-set-up, ?preview=zero-matches, ?preview=paused.
   const rule = preview === "not-set-up" ? null : preview === "paused" && data.rule ? { ...data.rule, is_active: false, state: "paused" as const } : data.rule;
   const matches = preview === "zero-matches" ? [] : data.matches;
+  // U33-DEC-17: Coming soon matches follow the open ones and are not in the open count.
+  const soonMatches = preview === "zero-matches" ? [] : [...(data.coming_soon_matches ?? [])].sort((a, b) => (a.planned_opening_date ?? "9999").localeCompare(b.planned_opening_date ?? "9999") || a.loan_id.localeCompare(b.loan_id));
   const state = smartState(rule);
   const preferences = preferencesFromRule(rule);
   const originators = Array.from(
@@ -93,7 +98,7 @@ export function SmartInvestScreen() {
     }
     try {
       const response = isFixturePreview
-        ? previewResponse(next, loans, rule, undefined, data.notification_channels)
+        ? previewResponse(next, previewLoans, rule, undefined, data.notification_channels)
         : await updateMutation.mutateAsync({ data: requestFromPreferences(next) });
       queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
       setWizard(null);
@@ -109,7 +114,7 @@ export function SmartInvestScreen() {
     }
     try {
       let response: SmartInvestResponse;
-      if (isFixturePreview) response = next === "pause" ? previewPaused(rule, loans, data.notification_channels) : previewResumed(rule, loans, data.notification_channels);
+      if (isFixturePreview) response = next === "pause" ? previewPaused(rule, previewLoans, data.notification_channels) : previewResumed(rule, previewLoans, data.notification_channels);
       else response = next === "pause" ? await pauseMutation.mutateAsync() : await resumeMutation.mutateAsync();
       queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
     } catch (failure) {
@@ -209,8 +214,8 @@ export function SmartInvestScreen() {
       {error ? <p className="u33-error" role="alert">{error}</p> : null}
       <div className="si-results-toolbar">
         <div>
-          <strong>{matches.length === 1 ? t("1 opportunity") : t("{count} opportunities", { count: matches.length })}</strong>
-          <span> · {t("{count} open", { count: matches.length })}</span>
+          <strong>{matches.length + soonMatches.length === 1 ? t("1 opportunity") : t("{count} opportunities", { count: matches.length + soonMatches.length })}</strong>
+          <span> · {t("{count} open", { count: matches.length })} · {t("{count} coming soon", { count: soonMatches.length })}</span>
         </div>
         <div className="si-results-tools">
           <button className="si-link" onClick={() => setWhyOpen(true)} type="button">
@@ -235,7 +240,7 @@ export function SmartInvestScreen() {
         </div>
       </div>
       <div className="bxm-op-results">
-        {matches.length === 0 ? (
+        {matches.length + soonMatches.length === 0 ? (
           <div className="card card-bordered u33-state-card">
             <EmptyState actions={<Button disabled={readonly} icon="edit" onClick={() => setWizard("edit")}>{t("Edit preferences")}</Button>} icon="search" title={t("No matching opportunities yet")}>
               {t("You can adjust your preferences or wait for new opportunities.")}
@@ -243,7 +248,7 @@ export function SmartInvestScreen() {
           </div>
         ) : (
           <div className="si-results-grid">
-            {sorted.map((match) => <OpportunityCard key={match.loan_id} match={match} preferredAmount={preferences.preferredAmount} />)}
+            {[...sorted, ...soonMatches].map((match) => <OpportunityCard key={match.loan_id} match={match} preferredAmount={preferences.preferredAmount} />)}
           </div>
         )}
       </div>

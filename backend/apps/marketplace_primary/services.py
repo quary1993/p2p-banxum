@@ -21,6 +21,7 @@ from django.db.models import Model, Q, Sum
 from backend.apps.marketplace_primary import investor_limit as investor_limits
 from backend.apps.marketplace_primary import notices as investor_notices
 from backend.apps.marketplace_primary.models import (
+    LoanOpeningAlert,
     PrimaryInvestmentOrder,
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderEventType,
@@ -2554,6 +2555,8 @@ def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
     _require_investor_financial_access(actor)
     loan = _loan_for_read(loan_id)
+    if _is_coming_soon(loan):
+        return _coming_soon_payload(loan, viewer_user_id=str(actor.pk), full=True)
     if str(cast(Any, loan).product_type) == "originator_claim":
         originator_services = _originator_services()
         try:
@@ -2641,3 +2644,119 @@ def allocated_primary_order_total_minor(*, loan_id: str) -> int:
         ],
     ).aggregate(total=Sum("allocated_amount_minor"))
     return int(aggregate["total"] or 0)
+
+
+# U33-DEC-17: Coming soon and the opening alert.
+
+
+def _is_coming_soon(loan: Model) -> bool:
+    loan_ref = cast(Any, loan)
+    return (
+        str(loan_ref.status) == "draft"
+        and str(loan_ref.product_type) == "direct"
+        and loan_ref.coming_soon_at is not None
+    )
+
+
+def _coming_soon_payload(loan: Model, *, viewer_user_id: str, full: bool = False) -> dict[str, Any]:
+    payload = (
+        full_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+        if full
+        else public_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+    )
+    loan_ref = cast(Any, loan)
+    return {
+        **payload,
+        "opportunity_status": "coming_soon",
+        "planned_opening_date": loan_ref.planned_opening_date,
+        "opening_alert_requested": LoanOpeningAlert.objects.filter(
+            loan_id=loan_ref.id, investor_user_id=viewer_user_id
+        ).exists(),
+    }
+
+
+def list_coming_soon_marketplace_loans(*, actor: Model) -> list[dict[str, Any]]:
+    """Drafts shown as Coming soon, by planned opening date. Not open: no orders."""
+    _require_investor_financial_access(actor)
+    return coming_soon_marketplace_payloads(viewer_user_id=str(actor.pk))
+
+
+def coming_soon_marketplace_payloads(*, viewer_user_id: str) -> list[dict[str, Any]]:
+    """The Coming soon list for one investor (also Smart Invest's Coming soon matches)."""
+    loan_model = _model("loans", "Loan")
+    loans = (
+        loan_model.objects.filter(
+            status="draft", product_type="direct", coming_soon_at__isnull=False
+        )
+        .select_related("borrower")
+        .order_by("planned_opening_date", "id")
+    )
+    return [
+        _coming_soon_payload(cast(Model, loan), viewer_user_id=viewer_user_id) for loan in loans
+    ]
+
+
+def set_loan_opening_alert(*, actor: Model, loan_id: str, wanted: bool) -> dict[str, Any]:
+    """Ask for (or cancel) the email at the real opening of a Coming soon loan."""
+    _require_investor_financial_access(actor)
+    loan = _loan_for_read(loan_id)
+    if not _is_coming_soon(loan):
+        raise MarketplacePrimaryValidationError("This opportunity is not coming soon.")
+    if wanted:
+        LoanOpeningAlert.objects.get_or_create(
+            loan_id=cast(Any, loan).id, investor_user_id=actor.pk
+        )
+    else:
+        LoanOpeningAlert.objects.filter(
+            loan_id=cast(Any, loan).id, investor_user_id=actor.pk, notified_at__isnull=True
+        ).delete()
+    return _coming_soon_payload(loan, viewer_user_id=str(actor.pk), full=True)
+
+
+def send_loan_opening_alerts(*, loan_id: str) -> list[str]:
+    """At publication: one email per investor who asked, listed in their notifications.
+
+    Returns the investors told, so Smart Invest does not alert them again for this loan.
+    """
+    loan_model = _model("loans", "Loan")
+    loan = loan_model.objects.filter(id=loan_id).first()
+    if loan is None or str(loan.status) != "published":
+        return []
+    user_model = _model("accounts_auth", "User")
+    notified: list[str] = []
+    now = now_utc()
+    action_url = f"{settings.PUBLIC_APP_BASE_URL.rstrip('/')}/marketplace/{loan.id}"
+    pending = LoanOpeningAlert.objects.select_for_update().filter(
+        loan_id=loan.id, notified_at__isnull=True
+    )
+    for alert in pending:
+        user = user_model.objects.filter(pk=alert.investor_user_id, is_active=True).first()
+        if user is None:
+            continue
+        message = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"loan-opening-alert:{alert.id}",
+                topic="email.loan_opening_alert",
+                payload={
+                    "user_id": str(user.pk),
+                    "email": str(user.email),
+                    "subject": f"Now open: {loan.title}",
+                    "notice_label": "Opportunity open",
+                    "headline": "The opportunity you followed is open",
+                    "status_label": "Open",
+                    "status_tone": "info",
+                    "body_text": (
+                        f"{loan.title} is now open for investment. You asked us to tell you "
+                        "when it opens. Nothing was reserved for you: review the opportunity "
+                        "and confirm your investment if you want to invest."
+                    ),
+                    "buttons": [{"label": "Review opportunity", "url": action_url}],
+                    "loan_id": str(loan.id),
+                    "template_key": "marketplace.opening_alert.v1",
+                    "fine_print": "Capital is at risk. Opening does not guarantee a place.",
+                },
+            )
+        )
+        LoanOpeningAlert.objects.filter(pk=alert.pk).update(notified_at=now, outbox_message=message)
+        notified.append(str(user.pk))
+    return notified

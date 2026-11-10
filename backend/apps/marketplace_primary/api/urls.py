@@ -3,8 +3,10 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.marketplace_primary.api.views import (
+    MarketplaceComingSoonListView,
     MarketplaceLoanDetailView,
     MarketplaceLoanDocumentDownloadView,
+    MarketplaceOpeningAlertView,
     MarketplaceOpportunityListView,
     PrimaryInvestmentOrderAllocateView,
     PrimaryInvestmentOrderCreateView,
@@ -45,9 +47,19 @@ urlpatterns = [
         name="marketplace-primary-opportunities",
     ),
     path(
+        "coming-soon/",
+        MarketplaceComingSoonListView.as_view(),
+        name="marketplace-primary-coming-soon",
+    ),
+    path(
         "loans/<uuid:loan_id>/",
         MarketplaceLoanDetailView.as_view(),
         name="marketplace-primary-loan-detail",
+    ),
+    path(
+        "loans/<uuid:loan_id>/opening-alert/",
+        MarketplaceOpeningAlertView.as_view(),
+        name="marketplace-primary-opening-alert",
     ),
     path(
         "loans/<uuid:loan_id>/documents/<uuid:document_id>/",

@@ -3,8 +3,8 @@
 // "effective criterion" check and its matching rule (opportunity_matches_criteria).
 import { describe, expect, test } from "vitest";
 
-import type { SmartInvestRule } from "../../../../api/generated/banxumApi";
-import { smartInvestFixture } from "../../../../investorPortal/fixtures";
+import type { MarketplaceLoanPreview, SmartInvestRule } from "../../../../api/generated/banxumApi";
+import { marketplaceLoansFixture, smartInvestFixture } from "../../../../investorPortal/fixtures";
 import { ALL_SECURED_TYPES } from "./labels";
 import {
   BANXUM_SOURCE,
@@ -81,6 +81,16 @@ describe("rule mapping", () => {
     const resumed = previewResumed(paused.rule, [loan]);
     expect(resumed.rule).toMatchObject({ is_active: true, state: "active", minimum_yield_bps: 850 });
     expect(smartState(null)).toBe("not_set_up");
+  });
+
+  test("Coming soon matches are kept apart from the open matches and their count (U33-DEC-17)", () => {
+    const published = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399") as MarketplaceLoanPreview;
+    const soon: MarketplaceLoanPreview = { ...published, loan_id: "soon-1", status: "draft", loan_status: "draft", opportunity_status: "coming_soon", planned_opening_date: "2026-12-01" };
+    const active = previewResponse(preferences({ minRate: 5 }), [published, soon], null);
+    expect(active.matches.map((match) => match.loan_id)).toEqual(["GA-2399"]);
+    expect(active.match_count).toBe(1);
+    expect(active.coming_soon_matches.map((match) => [match.loan_id, match.planned_opening_date])).toEqual([["soon-1", "2026-12-01"]]);
+    expect(previewPaused(active.rule, [published, soon]).coming_soon_matches).toEqual([]);
   });
 });
 

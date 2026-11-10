@@ -79,6 +79,9 @@ class LoanSerializer(serializers.Serializer[Any]):
     effective_late_threshold_days = serializers.SerializerMethodField()
     effective_default_threshold_days = serializers.SerializerMethodField()
     contract_terminated_on = serializers.DateField(allow_null=True)
+    # U33-DEC-17: shown as Coming soon since, and the planned opening date.
+    coming_soon_at = serializers.DateTimeField(allow_null=True)
+    planned_opening_date = serializers.DateField(allow_null=True)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
     recovery_waterfall_version = serializers.CharField()
     schedule_version = serializers.IntegerField()
@@ -352,3 +355,8 @@ def serialize_loan(loan: Loan) -> dict[str, Any]:
 
 def serialize_loan_event(event: LoanEvent) -> dict[str, Any]:
     return dict(LoanEventSerializer(event).data)
+
+
+class LoanComingSoonRequestSerializer(serializers.Serializer[Any]):
+    planned_opening_date = serializers.DateField()
+    note = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
