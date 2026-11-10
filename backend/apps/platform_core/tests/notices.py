@@ -8,6 +8,7 @@ from typing import Any
 
 from django.db.models import Model
 
+from backend.apps.platform_core.domain.money import localize_number_text
 from backend.apps.platform_core.models import OutboxMessage
 
 
@@ -30,12 +31,15 @@ def render_notice(message: OutboxMessage) -> Any:
 
 
 def assert_renders_to(message: OutboxMessage, investor: Model, *texts: str) -> Any:
+    """The email shows the payload's canonical amounts in the investor's format (U33-DEC-32)."""
     rendered = render_notice(message)
+    number_format = str(getattr(investor, "number_format", "european"))
     assert rendered.recipient_email == str(getattr(investor, "email", "")).lower()
     assert "<!DOCTYPE html>" in rendered.body_html
-    assert rendered.subject == message.payload["subject"]
-    assert rendered.body_text == message.payload["body_text"]
-    for text in texts:
+    assert rendered.subject == localize_number_text(message.payload["subject"], number_format)
+    assert rendered.body_text == localize_number_text(message.payload["body_text"], number_format)
+    for canonical in texts:
+        text = localize_number_text(canonical, number_format)
         # Data rows appear only in the HTML part, so the check reads the HTML email.
         assert text in rendered.body_html or text.replace("'", "&#x27;") in rendered.body_html, text
     return rendered

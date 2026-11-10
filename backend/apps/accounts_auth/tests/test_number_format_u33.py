@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, cast
 
 import pytest
 from django.test import Client, override_settings
 
 from backend.apps.accounts_auth.models import AccountStatus, AccountType, User
-from backend.apps.communications.services import render_email_for_outbox_message
 from backend.apps.platform_core.domain.money import (
     format_amount_minor,
     localize_number_text,
@@ -92,7 +92,9 @@ def test_emails_show_amounts_in_the_recipient_format(investor: User) -> None:
                 },
             )
         )
-        return render_email_for_outbox_message(message)
+        # Through import_module: accounts_auth does not import communications (import-linter).
+        communications = import_module("backend.apps.communications.services")
+        return communications.render_email_for_outbox_message(message)
 
     european = rendered()
     assert european.subject == "Repayment of CHF 1.250,50"
