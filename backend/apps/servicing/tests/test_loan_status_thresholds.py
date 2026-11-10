@@ -300,3 +300,48 @@ def test_contract_termination_is_a_separate_recorded_stage(
     assert portfolio.status_code == 200, portfolio.content
     loans = [holding["loan"] for holding in portfolio.json()["holdings"]]
     assert loans[0]["contract_terminated_on"] == _day(65).isoformat()
+
+
+@pytest.mark.django_db
+def test_existing_contracts_keep_day_5_and_day_16_after_the_migration(
+    admin_user: Model, investor_one: Model, investor_two: Model
+) -> None:
+    """Audit G-01: the data migration gives every loan with a contract its old days."""
+    from importlib import import_module
+
+    migration = import_module(
+        "backend.apps.loans.migrations.0025_keep_existing_contract_status_days"
+    )
+    loans_services = import_module("backend.apps.loans.services")
+    loans_tests = import_module("backend.apps.loans.tests.test_loans")
+    loan_model = apps.get_model("loans", "Loan")
+    existing = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    draft = loans_services.create_loan(
+        loans_tests._loan_command(admin_user, loans_tests._borrower(admin_user))
+    )
+    own_days = loans_services.create_loan(
+        loans_tests._loan_command(admin_user, loans_tests._borrower(admin_user))
+    )
+    loan_model.objects.filter(pk=own_days.pk).update(
+        status="active", late_threshold_days=20, default_threshold_days=90
+    )
+
+    migration.keep_existing_contract_days(apps, None)
+
+    existing.refresh_from_db()
+    draft.refresh_from_db()
+    own_days.refresh_from_db()
+    days = cast(Any, existing)
+    assert (days.late_threshold_days, days.default_threshold_days) == (5, 16)
+    assert (draft.late_threshold_days, draft.default_threshold_days) == (None, None)
+    assert (own_days.late_threshold_days, own_days.default_threshold_days) == (20, 90)
+    event = (
+        apps.get_model("loans", "LoanEvent")
+        .objects.filter(loan=existing, event_type="status_thresholds_changed")
+        .get()
+    )
+    assert event.metadata["effective"] == {"late_days": 5, "default_days": 16, "source": "loan"}
+    # The loan behaves as before U33-DEC-09: Late on day 5, Default on day 16.
+    assert _scan(admin_user, existing, _day(4)) == "active"
+    assert _scan(admin_user, existing, _day(5)) == "late"
+    assert _scan(admin_user, existing, _day(16)) == "defaulted"
