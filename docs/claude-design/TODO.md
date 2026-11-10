@@ -110,6 +110,20 @@
 - Suggested improvement: move the `.modal` reset into `u33-overrides.css` at the merge and drop it from `invest.css`; after all slices are merged, prune the unused rules of `styles.css` and `banxumSkin.css` in one pass.
 - Priority: important.
 
+## 2026-11-10: Two Invalid Selectors From The Design CSS (audit G-05)
+
+- Screen or component: generated `frontend/src/portal/u33/u33.css` (dialog close control `.close`, Overview widget list `.nk-iv-wg3-list`).
+- Current behavior: the design's own stylesheet has `.close:not(:disabled):not(.disabled):hover-focus` (opacity .75 on hover) and `.nk-iv-wg3-list:last-child() li:nth-last-child(2)` (no bottom border on the second-last item). The selectors are not valid, so browsers ignore both rules in the design and in our screens; the production build warns about them. Our screens look like the design. The generated file is not edited by hand, and the generator `tools/u33-design/investor/build-u33-css.mjs` needs the design package to run again.
+- Suggested improvement: ask the designer if the two rules are intended. If yes, add correct selectors in `u33-overrides.css` (`.close:hover`, `.close:focus`; `.nk-iv-wg3-list li:nth-last-child(2)`). If no, drop them when `u33.css` is next regenerated (S7 clean-up).
+- Priority: nice-to-have.
+
+## 2026-11-10: Bundle Size, Lazy Routes And CSS Per Area (audit G-07)
+
+- Screen or component: `frontend/src/App.tsx`, `frontend/src/main.tsx`, the public, investor and admin style systems.
+- Current behavior: one JavaScript bundle (about 1.5 MB) and one CSS bundle (about 2.1 MB), about 690 KB with gzip, for every route. The public site, the investor area and the admin console all load on the first visit.
+- Suggested improvement: after the S7 clean-up removes the old skin CSS (`LegacyBody`, `banxumSkin.css`, `skin/*.css`), load the public, investor and admin route groups with `React.lazy` and give each group its own CSS entry. Check the CSS order (`u33.css` before `u33-overrides.css`, the admin `styles.css` scope) and move the admin tests that render routes synchronously to `findBy` queries. Compare desktop and phone screenshots before and after.
+- Priority: important (before launch).
+
 ## 2026-11-09: U33 My Investments And Investment Page (Phase 17.1 S3)
 
 - Screen or component: My investments `/portfolio` (summary, In funding, Current investments, Payment updates, Portfolio insights, `?view=payments` schedule and calendar, `?view=history`), investment page `/portfolio/:holdingId` (also an open order id: the reserved state), `frontend/src/portal/screens/portfolio/`.
