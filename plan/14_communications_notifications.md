@@ -211,6 +211,8 @@ Define public-note visibility duration, affected-investor recipient rules, and w
 
 ### COMMS-DEC-006: Support Email Instead of Support Tickets
 
+> Updated 2026-11-10 (U33-DEC-35, implemented in Phase 17.2): the portal Help form sends the message by email to the support mailbox, still without a ticket system. `POST /api/v1/investor/portal/support-requests/` (`kind: help`, topic, message, optional `context_type: holding` with the investor's own holding) stores the message (`communications.InvestorSupportRequest`, reference SUP-YYYY-NNNN), queues `email.investor_support_request` to `platform.support_email` (then `SUPPORT_EMAIL`) with the investor as Reply-To and no `user_id` (it is not an investor notification), and queues the receipt `email.support_request_received` to the investor (shown in Notifications as "Support"). The portal shows the reference; a failed send keeps the message and retries with the same request key (409 if the key is reused for another message). At most 10 messages per hour and 30 per day per investor (429 with Retry-After). Support hours, languages and the answer time are still to be confirmed and are not shown.
+
 Status: Accepted.
 Date: 2026-05-21.
 Owner: Garanta operations / product.

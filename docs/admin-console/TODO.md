@@ -362,3 +362,10 @@ Each entry should include:
 - Current first-version behavior: "Late and default days" shows the days in use (platform or contract) and lets the admin set the contract's own pair, or go back to the platform days, with a required reason; offered for draft, published, funded, active and late loans. "Record contract termination" takes the date (not in the future) and an internal note for a late or defaulted loan, recorded once; the status does not change. The loan list does not show the days or the termination date yet.
 - Required admin-console improvement: show the days in use and the termination date in the loan row and the loan events list; show the `status_thresholds_changed` and `contract_terminated` events with their reason in the loan history; a platform settings form for `servicing.late_threshold_days` / `servicing.default_threshold_days` with the pair check.
 - Priority: important.
+
+## 2026-11-10: Account Closure Requests (U33-DEC-28)
+
+- Screen or component: Tasks queue (`AdminTasksPanel`).
+- Current first-version behavior: an investor's closure request opens an "Account access review" task titled "Account closure request CLS-YYYY-NNNN" with the checks to make (balances, investments, orders, listings, payments, KYC/compliance) and the investor's message. The request email goes to the support mailbox (`platform.support_email`, then `SUPPORT_EMAIL`). Closing the account stays the existing admin access action.
+- Required admin-console improvement: link the task to the investor's account page and to the access action that closes the account; show the investor's portal Help messages (references) on the investor page.
+- Priority: important.

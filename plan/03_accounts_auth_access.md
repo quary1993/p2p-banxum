@@ -188,6 +188,8 @@ Any future write-capable impersonation or admin-role targeting would require a n
 ### ACC-DEC-006: Account Closure, Access Restriction, and Reversible Pseudonymization
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-26 and U33-DEC-28 confirm this decision: verified personal data change only through support after identity verification; the "Close account" button sends a closure request to the team.
+>
+> Implemented 2026-11-10 (Phase 17.2, U33-DEC-28): "Close account" posts `kind: account_closure` to `POST /api/v1/investor/portal/support-requests/`. The request is stored (`communications.InvestorSupportRequest`, reference CLS-YYYY-NNNN), emailed to the support mailbox (`platform.support_email`, then `SUPPORT_EMAIL`) with the investor's email as Reply-To, and opens an "Account access review" admin task with the checks to make. The investor gets a receipt email and a receipt in the portal saying the account is not closed yet; the closure itself stays the admin access action and is confirmed by a separate email. At most 3 closure requests per day per investor; a retry with the same request key returns the same receipt.
 
 Status: Accepted.
 Date: 2026-05-22. Updated 2026-05-30.

@@ -17,9 +17,15 @@ from backend.apps.investor_portal.api.views import (
     InvestorPortfolioView,
     InvestorPrimaryOrdersView,
     InvestorSecondaryMarketActivityView,
+    InvestorSupportRequestView,
 )
 
 urlpatterns = [
+    path(
+        "support-requests/",
+        InvestorSupportRequestView.as_view(),
+        name="investor-portal-support-requests",
+    ),
     path("dashboard/", InvestorDashboardView.as_view(), name="investor-portal-dashboard"),
     path("balances/", InvestorBalancesView.as_view(), name="investor-portal-balances"),
     path(

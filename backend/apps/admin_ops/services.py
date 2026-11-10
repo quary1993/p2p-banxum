@@ -380,6 +380,18 @@ class EnsurePayoutInstructionVerificationTaskCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class OpenAccountClosureRequestTaskCommand:
+    """U33-DEC-28: an investor asked the team to close their account."""
+
+    requested_by: Model
+    support_request_id: str
+    reference: str
+    investor_user_id: str
+    investor_label: str
+    message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class EnsureLoanFundingCloseFailureTaskCommand:
     actor: Model
     loan_id: str
@@ -1851,8 +1863,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
             withdrawal_item_metadata["destination_reason"] = str(selection.get("reason", ""))
         revoked = request_metadata.get("destination_revoked")
         if isinstance(revoked, dict):
-            withdrawal_item_metadata["destination_revoked"] = (
-                "IBAN revoked: " + str(revoked.get("reason", ""))
+            withdrawal_item_metadata["destination_revoked"] = "IBAN revoked: " + str(
+                revoked.get("reason", "")
             )
         item = _queue_item(
             kind="withdrawal_request",
@@ -2220,3 +2232,74 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "currency_summaries": sorted(currency_summaries.values(), key=lambda row: row["currency"]),
         "queues": queues,
     }
+
+
+ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE = "InvestorSupportRequest"
+
+
+@transaction.atomic
+def open_account_closure_request_task(command: OpenAccountClosureRequestTaskCommand) -> AdminTask:
+    """One account access review task per closure request (U33-DEC-28, ACC-DEC-006).
+
+    The team checks balances, investments, pending orders, payments and compliance before it
+    closes the account; the investor gets a separate email when the account is closed.
+    """
+    existing = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.ACCOUNT_ACCESS_REVIEW,
+            related_object_type=ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+            related_object_id=command.support_request_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    notes_lines = [
+        f"Account closure request {command.reference}.",
+        f"Investor: {command.investor_label}",
+        f"Investor user ID: {command.investor_user_id}",
+        "Check balances, running investments, open orders and listings, pending payments "
+        "and open KYC/compliance items before closing (ACC-DEC-006). Tell the investor by "
+        "email when the account is closed; receiving the request did not close it.",
+    ]
+    if command.message.strip():
+        notes_lines.append(f"Message from the investor: {command.message.strip()}")
+    notes = "\n".join(notes_lines)
+    task = AdminTask.objects.create(
+        task_type=AdminTaskType.ACCOUNT_ACCESS_REVIEW,
+        title=f"Account closure request {command.reference}"[:255],
+        priority=AdminTaskPriority.NORMAL,
+        status=AdminTaskStatus.OPEN,
+        created_by=cast(Any, command.requested_by),
+        due_at=now_utc(),
+        notes=notes,
+        related_object_type=ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+        related_object_id=command.support_request_id,
+    )
+    metadata = {
+        "task_type": task.task_type,
+        "status": task.status,
+        "related_object_type": ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+        "related_object_id": command.support_request_id,
+        "reference": command.reference,
+        "investor_user_id": command.investor_user_id,
+    }
+    _record_task_event(
+        task=task,
+        actor=command.requested_by,
+        event_type=AdminTaskEventType.CREATED,
+        new_status=task.status,
+        note=notes,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.requested_by),
+            action="admin_task.account_closure_requested",
+            target_type="AdminTask",
+            target_id=str(task.id),
+            metadata=metadata,
+        )
+    )
+    return task

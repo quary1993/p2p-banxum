@@ -2510,6 +2510,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketActivityPortal'
           description: ''
+  /api/v1/investor/portal/support-requests/:
+    post:
+      operationId: v1_investor_portal_support_requests_create
+      description: |-
+        Send a Help message or an account closure request to the team by email.
+
+        201 with the receipt (reference, time, receipt email). 409 when the request key was used
+        for another message; 429 with Retry-After after too many messages.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorSupportRequestCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorSupportRequestCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorSupportRequestCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorSupportRequestReceipt'
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorSupportRequestReceipt'
+          description: ''
   /api/v1/investor/smart-invest/:
     get:
       operationId: v1_investor_smart_invest_retrieve
@@ -7817,6 +7854,11 @@ components:
       - consent
       - fields
       - kind
+    ContextTypeEnum:
+      enum:
+      - holding
+      type: string
+      description: "* `` - \n* `holding` - holding"
     CurrentUserResponse:
       type: object
       properties:
@@ -9812,6 +9854,65 @@ components:
       - pin
       - sensitive_action_code
       - sensitive_action_code_id
+    InvestorSupportRequestCreate:
+      type: object
+      description: U33-DEC-35 Help message (`help`) or U33-DEC-28 account closure
+        request.
+      properties:
+        kind:
+          $ref: '#/components/schemas/InvestorSupportRequestCreateKindEnum'
+        idempotency_key:
+          type: string
+          maxLength: 160
+        topic:
+          type: string
+          default: ''
+          maxLength: 120
+        message:
+          type: string
+          default: ''
+          maxLength: 4000
+        context_type:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/ContextTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        context_id:
+          type: string
+          default: ''
+          maxLength: 64
+      required:
+      - idempotency_key
+      - kind
+    InvestorSupportRequestCreateKindEnum:
+      enum:
+      - help
+      - account_closure
+      type: string
+      description: |-
+        * `help` - help
+        * `account_closure` - account_closure
+    InvestorSupportRequestReceipt:
+      type: object
+      properties:
+        reference:
+          type: string
+        kind:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        context_label:
+          type: string
+        receipt_email:
+          type: string
+          format: email
+      required:
+      - context_label
+      - kind
+      - receipt_email
+      - received_at
+      - reference
     InvestorWithdrawalCancelRequest:
       type: object
       properties:

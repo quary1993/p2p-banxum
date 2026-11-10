@@ -1399,6 +1399,17 @@ export interface ContactEnquiryRequest {
   fields: ContactEnquiryFields;
 }
 
+/**
+ * * `` -
+ * * `holding` - holding
+ */
+export type ContextTypeEnum = typeof ContextTypeEnum[keyof typeof ContextTypeEnum];
+
+
+export const ContextTypeEnum = {
+  holding: 'holding',
+} as const;
+
 export interface CurrentUserResponse {
   user: UserSummary;
   qa_controls_available: boolean;
@@ -2454,6 +2465,43 @@ export interface InvestorSelfServicePayoutInstructionRegisterRequest {
   sensitive_action_code: string;
   /** @pattern ^\d{6}$ */
   pin: string;
+}
+
+export const InvestorSupportRequestCreateContextType = {...ContextTypeEnum,...BlankEnum,} as const
+/**
+ * * `help` - help
+ * * `account_closure` - account_closure
+ */
+export type InvestorSupportRequestCreateKindEnum = typeof InvestorSupportRequestCreateKindEnum[keyof typeof InvestorSupportRequestCreateKindEnum];
+
+
+export const InvestorSupportRequestCreateKindEnum = {
+  help: 'help',
+  account_closure: 'account_closure',
+} as const;
+
+/**
+ * U33-DEC-35 Help message (`help`) or U33-DEC-28 account closure request.
+ */
+export interface InvestorSupportRequestCreate {
+  kind: InvestorSupportRequestCreateKindEnum;
+  /** @maxLength 160 */
+  idempotency_key: string;
+  /** @maxLength 120 */
+  topic?: string;
+  /** @maxLength 4000 */
+  message?: string;
+  context_type?: typeof InvestorSupportRequestCreateContextType[keyof typeof InvestorSupportRequestCreateContextType];
+  /** @maxLength 64 */
+  context_id?: string;
+}
+
+export interface InvestorSupportRequestReceipt {
+  reference: string;
+  kind: string;
+  received_at: string;
+  context_label: string;
+  receipt_email: string;
 }
 
 export interface InvestorWithdrawalCancelRequest {
@@ -13635,6 +13683,86 @@ export function useV1InvestorPortalSecondaryMarketRetrieve<TData = Awaited<Retur
 
 
 
+export const getV1InvestorPortalSupportRequestsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/investor/portal/support-requests/`
+}
+
+/**
+ * Send a Help message or an account closure request to the team by email.
+ *
+ * 201 with the receipt (reference, time, receipt email). 409 when the request key was used
+ * for another message; 429 with Retry-After after too many messages.
+ */
+export const v1InvestorPortalSupportRequestsCreate = async (investorSupportRequestCreate: InvestorSupportRequestCreate, options?: Parameters<typeof httpClient>[1]): Promise<InvestorSupportRequestReceipt> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<InvestorSupportRequestReceipt>(getV1InvestorPortalSupportRequestsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(investorSupportRequestCreate)
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalSupportRequestsCreateMutationKey = () => ['v1InvestorPortalSupportRequestsCreate'] as const;
+
+export const getV1InvestorPortalSupportRequestsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>, TError,V1InvestorPortalSupportRequestsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>, TError,V1InvestorPortalSupportRequestsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1InvestorPortalSupportRequestsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>, V1InvestorPortalSupportRequestsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1InvestorPortalSupportRequestsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1InvestorPortalSupportRequestsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>>
+    export type V1InvestorPortalSupportRequestsCreateMutationBody = InvestorSupportRequestCreate
+    export type V1InvestorPortalSupportRequestsCreateMutationError = unknown
+    export type V1InvestorPortalSupportRequestsCreateMutationVariables = {data: InvestorSupportRequestCreate}
+
+    export const useV1InvestorPortalSupportRequestsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>, TError,V1InvestorPortalSupportRequestsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1InvestorPortalSupportRequestsCreate>>,
+        TError,
+        V1InvestorPortalSupportRequestsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1InvestorPortalSupportRequestsCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1InvestorSmartInvestRetrieveUrl = () => {
 
 
@@ -21815,6 +21943,8 @@ export const getV1InvestorPortalPrimaryOrdersRetrieveResponseMock = (overrideRes
 
 export const getV1InvestorPortalSecondaryMarketRetrieveResponseMock = (overrideResponse: Partial<Extract<SecondaryMarketActivityPortal, object>> = {}): SecondaryMarketActivityPortal => ({listings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), risk_acknowledgement_required: faker.datatype.boolean(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), purchases_as_buyer: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), taker_fee_minor: faker.number.int(), buyer_total_cost_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), sales_as_seller: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), seller_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), listing_id: faker.string.uuid(), holding_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), cash_amount_minor: faker.number.int(), price_bps: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
+export const getV1InvestorPortalSupportRequestsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorSupportRequestReceipt, object>> = {}): InvestorSupportRequestReceipt => (faker.helpers.arrayElement([{reference: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', context_label: faker.string.alpha({length: {min: 10, max: 20}}), receipt_email: faker.internet.email(), ...overrideResponse}, {reference: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', context_label: faker.string.alpha({length: {min: 10, max: 20}}), receipt_email: faker.internet.email(), ...overrideResponse}]))
+
 export const getV1InvestorSmartInvestRetrieveResponseMock = (overrideResponse: Partial<Extract<SmartInvestResponse, object>> = {}): SmartInvestResponse => ({rule: faker.helpers.arrayElement([{id: faker.string.uuid(), is_active: faker.datatype.boolean(), state: faker.helpers.arrayElement(Object.values(SmartInvestRuleStateEnum)), revision: faker.number.int(), minimum_yield_bps: faker.helpers.arrayElement([faker.number.int(), null]), maximum_term_months: faker.helpers.arrayElement([faker.number.int(), null]), maximum_ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), preferred_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), originators: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), collateral: faker.helpers.arrayElements(Object.values(SmartInvestCollateralEnum)), currencies: faker.helpers.arrayElements(Object.values(SmartInvestCurrencyEnum)), countries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), activated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), deactivated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), match_count: faker.number.int(), open_opportunity_count: faker.number.int(), matches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_city: faker.string.alpha({length: {min: 10, max: 20}}), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int()})), ...overrideResponse})
 
 export const getV1InvestorSmartInvestUpdateResponseMock = (overrideResponse: Partial<Extract<SmartInvestResponse, object>> = {}): SmartInvestResponse => ({rule: faker.helpers.arrayElement([{id: faker.string.uuid(), is_active: faker.datatype.boolean(), state: faker.helpers.arrayElement(Object.values(SmartInvestRuleStateEnum)), revision: faker.number.int(), minimum_yield_bps: faker.helpers.arrayElement([faker.number.int(), null]), maximum_term_months: faker.helpers.arrayElement([faker.number.int(), null]), maximum_ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), preferred_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), originators: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), collateral: faker.helpers.arrayElements(Object.values(SmartInvestCollateralEnum)), currencies: faker.helpers.arrayElements(Object.values(SmartInvestCurrencyEnum)), countries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), activated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), deactivated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), match_count: faker.number.int(), open_opportunity_count: faker.number.int(), matches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_city: faker.string.alpha({length: {min: 10, max: 20}}), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int()})), ...overrideResponse})
@@ -22945,6 +23075,18 @@ export const getV1InvestorPortalSecondaryMarketRetrieveMockHandler = (overrideRe
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1InvestorPortalSecondaryMarketRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalSupportRequestsCreateMockHandler = (overrideResponse?: InvestorSupportRequestReceipt | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorSupportRequestReceipt> | InvestorSupportRequestReceipt), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/investor/portal/support-requests/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalSupportRequestsCreateResponseMock(),
       { status: 200
       })
   }, options)
@@ -24196,6 +24338,7 @@ export const getBanxumApiMock = () => [
   getV1InvestorPortalPortfolioRetrieveMockHandler(),
   getV1InvestorPortalPrimaryOrdersRetrieveMockHandler(),
   getV1InvestorPortalSecondaryMarketRetrieveMockHandler(),
+  getV1InvestorPortalSupportRequestsCreateMockHandler(),
   getV1InvestorSmartInvestRetrieveMockHandler(),
   getV1InvestorSmartInvestUpdateMockHandler(),
   getV1InvestorSmartInvestPauseCreateMockHandler(),

@@ -6,16 +6,14 @@ import "./account.css";
 
 import { useState } from "react";
 
-import { useV1AuthMeRetrieve } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { autoReturnDays } from "../../../investorPortal/balanceAgeing";
-import { isFixturePreview, useBalancesData, useFxFeature } from "../../../investorPortal/data";
+import { useBalancesData, useFxFeature } from "../../../investorPortal/data";
 import { brandDisplayName } from "../../brand";
 import { Button, Dialog, NiIcon, PageHead, PortalLink } from "../../components";
 import { supportEmail } from "./accountLinks";
 import { HELP_TOPICS, helpQuestions, matchesHelpQuestion, type HelpTopic } from "./help/helpContent";
 import { ContactSupportDialog } from "./parts/ContactSupportDialog";
-import { PREVIEW_INVESTOR_REFERENCE } from "./settings/useAccountData";
 
 function HowInvestingWorksDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -48,8 +46,6 @@ export function HelpScreen() {
   const t = useT();
   const fx = useFxFeature();
   const balances = useBalancesData();
-  const me = useV1AuthMeRetrieve({ query: { enabled: !isFixturePreview, retry: false, staleTime: 60_000 } });
-  const reference = isFixturePreview ? PREVIEW_INVESTOR_REFERENCE : (me.data?.user?.investor_reference ?? null);
   const days = autoReturnDays(balances.data?.auto_return_after_days);
   const questions = helpQuestions(t, { days, brand: brandDisplayName(), fxEnabled: fx.enabled });
   const [topic, setTopic] = useState<"all" | HelpTopic>("all");
@@ -176,7 +172,7 @@ export function HelpScreen() {
         </aside>
       </div>
       {dialog?.kind === "how" ? <HowInvestingWorksDialog onClose={() => setDialog(null)} /> : null}
-      {dialog?.kind === "contact" ? <ContactSupportDialog onClose={() => setDialog(null)} reference={reference} topic={dialog.topic} /> : null}
+      {dialog?.kind === "contact" ? <ContactSupportDialog onClose={() => setDialog(null)} topic={dialog.topic} /> : null}
     </main>
   );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, cast
 
 from django.db.models import Model
@@ -23,6 +24,8 @@ from backend.apps.investor_portal.api.serializers import (
     InvestorNotificationsSerializer,
     InvestorPortalFeaturesSerializer,
     InvestorPortfolioSerializer,
+    InvestorSupportRequestCreateSerializer,
+    InvestorSupportRequestReceiptSerializer,
     PortalLimitQuerySerializer,
     PortfolioQuerySerializer,
     PrimaryOrdersPortalSerializer,
@@ -33,6 +36,7 @@ from backend.apps.investor_portal.services import (
     InvestorPortalAuthorizationError,
     InvestorPortalNotFoundError,
     InvestorPortalValidationError,
+    SubmitInvestorSupportRequestCommand,
     download_investor_document,
     get_deposit_instructions,
     get_fx_history,
@@ -47,6 +51,7 @@ from backend.apps.investor_portal.services import (
     get_secondary_market_activity,
     mark_all_investor_notifications_read,
     mark_investor_notification_read,
+    submit_investor_support_request,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -323,3 +328,49 @@ class InvestorPortalFeaturesView(APIView):
     @extend_schema(responses={200: InvestorPortalFeaturesSerializer})
     def get(self, request: Request) -> Response:
         return Response(get_investor_portal_features(), status=status.HTTP_200_OK)
+
+
+class InvestorSupportRequestView(APIView):
+    """Send a Help message or an account closure request to the team by email.
+
+    201 with the receipt (reference, time, receipt email). 409 when the request key was used
+    for another message; 429 with Retry-After after too many messages.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorSupportRequestCreateSerializer,
+        responses={
+            201: InvestorSupportRequestReceiptSerializer,
+            200: InvestorSupportRequestReceiptSerializer,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorSupportRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        support = import_module("backend.apps.communications.support_requests")
+        try:
+            receipt = submit_investor_support_request(
+                SubmitInvestorSupportRequestCommand(
+                    actor=cast(Model, request.user),
+                    kind=data["kind"],
+                    idempotency_key=data["idempotency_key"],
+                    topic=data["topic"],
+                    message=data["message"],
+                    context_type=data["context_type"],
+                    context_id=data["context_id"],
+                )
+            )
+        except support.SupportRequestThrottled as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(exc.wait_seconds)},
+            )
+        except support.SupportRequestConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(receipt, status=status.HTTP_201_CREATED)

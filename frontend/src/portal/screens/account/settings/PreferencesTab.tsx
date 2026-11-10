@@ -2,16 +2,19 @@
 // Profile & Settings -> Preferences (design: Display panel with Appearance, Language, Number format and
 // Time zone, then "Close your account"). Appearance and number format are saved per browser (S1
 // hooks); English is the only language until Phase 17.8 (U33-DEC-31); one time reference,
-// Europe/Zurich, no selector (U33-DEC-32). "Close account" sends a closure request to support by
-// email until the request endpoint exists (U33-DEC-28): the request is not the closure itself.
+// Europe/Zurich, no selector (U33-DEC-32). "Close account" sends a closure request to the team
+// (U33-DEC-28): the receipt (reference and email) is not the closure itself, which is confirmed by
+// a separate email after the team's checks.
 import { useState } from "react";
 
+import { useV1InvestorPortalSupportRequestsCreate, type InvestorSupportRequestReceipt } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
+import { isFixturePreview } from "../../../../investorPortal/data";
 import { useNumberFormat, type NumberFormat } from "../../../../investorPortal/format";
 import { useAppearance, type Appearance } from "../../../appearance";
-import { brandDisplayName } from "../../../brand";
-import { Dialog } from "../../../components";
-import { supportMailto } from "../accountLinks";
+import { Dialog, NiIcon } from "../../../components";
+import { errorMessage, idempotencyKey } from "../../portfolio/parts/errors";
+import { supportEmail } from "../accountLinks";
 import { PsPanel, SettingsRow } from "../parts/ui";
 import type { AccountData } from "./useAccountData";
 
@@ -21,26 +24,56 @@ const NUMBER_FORMAT_OPTIONS: Array<[NumberFormat, string, string]> = [
   ["swiss", "Swiss", "1’234.56"]
 ];
 
-function CloseAccountDialog({ account, onClose }: { account: AccountData; onClose: () => void }) {
+function CloseAccountDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
-  const brand = brandDisplayName();
-  const href = supportMailto({
-    subject: t("Account closure request"),
-    body: t("Please close my {brand} account.", { brand }),
-    reference: account.reference
-  });
+  const [requestKey] = useState(() => idempotencyKey("account-closure"));
+  const [receipt, setReceipt] = useState<InvestorSupportRequestReceipt | null>(null);
+  const [previewSent, setPreviewSent] = useState(false);
+  const mutation = useV1InvestorPortalSupportRequestsCreate();
+  const send = () => {
+    if (isFixturePreview) {
+      setPreviewSent(true);
+      return;
+    }
+    mutation.mutate({ data: { kind: "account_closure", idempotency_key: requestKey } }, { onSuccess: setReceipt });
+  };
+  if (receipt || previewSent) {
+    return (
+      <Dialog className="p73-modal" onClose={onClose} size="sm" title={t("Request account closure")}>
+        <div className="hp-message-result" role="status">
+          <NiIcon name="mail" />
+          <h3>{t("Request received")}</h3>
+          {receipt ? (
+            <>
+              <p>{t("Your reference is {reference}.", { reference: receipt.reference })}</p>
+              <p>{t("Your account is not closed yet. We sent a confirmation to {email}, and we write again when the account is closed.", { email: receipt.receipt_email })}</p>
+            </>
+          ) : (
+            <p>{t("Demo: nothing was sent.")}</p>
+          )}
+          <button className="btn btn-primary" onClick={onClose} type="button">{t("Done")}</button>
+        </div>
+      </Dialog>
+    );
+  }
   return (
-    <Dialog className="p73-modal" onClose={onClose} size="sm" title={t("Request account closure")}>
+    <Dialog busy={mutation.isPending} className="p73-modal" onClose={onClose} size="sm" title={t("Request account closure")}>
       <p className="p73-intro">{t("Closing an account starts with a request to our team. We check your balances, investments and any open obligations first, and we confirm by email when the account is closed.")}</p>
       <ul className="acc-close-list">
         <li>{t("Receiving your request does not close the account yet.")}</li>
         <li>{t("Investments that are still running and money in your account are settled first.")}</li>
         <li>{t("Records that the law requires, and those needed to settle open obligations, are kept.")}</li>
       </ul>
-      <p className="p73-intro">{t("The request is an email to support from your email app, with your investor reference.")}</p>
+      {mutation.isError ? (
+        <p className="hp-message-error" role="alert">
+          {t("Your request was not sent: {reason}", { reason: errorMessage(mutation.error) })} {t("Try again, or write to {email}.", { email: supportEmail })}
+        </p>
+      ) : null}
       <div className="p73-modal-actions">
         <button className="btn p73-back" onClick={onClose} type="button">{t("Cancel")}</button>
-        <a className="btn p73-next" href={href} onClick={() => window.setTimeout(onClose, 0)}>{t("Write closure request")}</a>
+        <button className="btn p73-next" disabled={mutation.isPending} onClick={send} type="button">
+          {mutation.isPending ? t("Sending...") : mutation.isError ? t("Try again") : t("Send closure request")}
+        </button>
       </div>
     </Dialog>
   );
@@ -101,7 +134,7 @@ export function PreferencesTab({ account }: { account: AccountData }) {
         </div>
         <button className="btn btn-outline-light" disabled={account.readonly} onClick={() => setClosing(true)} type="button">{t("Close account")}</button>
       </section>
-      {closing ? <CloseAccountDialog account={account} onClose={() => setClosing(false)} /> : null}
+      {closing ? <CloseAccountDialog onClose={() => setClosing(false)} /> : null}
     </>
   );
 }

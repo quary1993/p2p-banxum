@@ -15,6 +15,8 @@ from typing import Any, Protocol, cast
 
 from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -1140,7 +1142,20 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
         body_html=body_html,
         template_key=template_key,
         metadata={"payload_template": True},
+        reply_to=_payload_reply_to(payload.get("reply_to")),
     )
+
+
+def _payload_reply_to(value: Any) -> str:
+    """A payload's Reply-To only if it is one valid address (no CR/LF or list)."""
+    address = str(value or "").strip()
+    if not address or len(address) > 254 or any(ch in address for ch in '\r\n\x00,;<>"'):
+        return ""
+    try:
+        validate_email(address)
+    except DjangoValidationError:
+        return ""
+    return address
 
 
 def render_email_for_outbox_message(

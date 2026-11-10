@@ -631,3 +631,26 @@ class InvestorPortalFeaturesSerializer(serializers.Serializer[Any]):
     """Platform switches the investor app reads before it shows a feature."""
 
     fx_enabled = serializers.BooleanField()
+
+
+class InvestorSupportRequestCreateSerializer(serializers.Serializer[Any]):
+    """U33-DEC-35 Help message (`help`) or U33-DEC-28 account closure request."""
+
+    kind = serializers.ChoiceField(choices=["help", "account_closure"])
+    idempotency_key = serializers.CharField(max_length=160)
+    topic = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    message = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default="", trim_whitespace=False
+    )
+    context_type = serializers.ChoiceField(
+        choices=["", "holding"], required=False, allow_blank=True, default=""
+    )
+    context_id = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+
+
+class InvestorSupportRequestReceiptSerializer(serializers.Serializer[Any]):
+    reference = serializers.CharField()
+    kind = serializers.CharField()
+    received_at = serializers.DateTimeField()
+    context_label = serializers.CharField(allow_blank=True)
+    receipt_email = serializers.EmailField()

@@ -12,7 +12,11 @@ from uuid import UUID
 from django.apps import apps
 from django.db.models import Model, Q, Sum
 
-from backend.apps.platform_core.domain.access import user_can_access_financial_features
+from backend.apps.platform_core.domain.access import (
+    account_status_of,
+    has_lender_role,
+    user_can_access_financial_features,
+)
 from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import (
@@ -39,6 +43,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.loan_status_changed",
         "email.loan_risk_note_published",
         "email.smart_invest_opportunity_match",
+        "email.support_request_received",
         "email.originator_claim_purchase_confirmation",
         "email.originator_claim_repayment_credited",
         "email.originator_subscription_activated",
@@ -76,6 +81,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.secondary_market_purchase_confirmation": "Secondary market",
     "email.secondary_market_sale_confirmation": "Secondary market",
     "email.smart_invest_opportunity_match": "Smart-Invest",
+    "email.support_request_received": "Support",
     "email.document_acceptance_pdf": "Documents",
     "email.account_login_blocked": "Account",
 }
@@ -726,6 +732,58 @@ _TARGETS_WITH_ID = frozenset({NOTIFICATION_TARGET_LOAN, NOTIFICATION_TARGET_HOLD
 
 def _communications_services() -> Any:
     return import_module("backend.apps.communications.services")
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitInvestorSupportRequestCommand:
+    actor: Model
+    kind: str
+    idempotency_key: str
+    topic: str = ""
+    message: str = ""
+    context_type: str = ""
+    context_id: str = ""
+
+
+def submit_investor_support_request(command: SubmitInvestorSupportRequestCommand) -> dict[str, Any]:
+    """A Help message (U33-DEC-35) or an account closure request (U33-DEC-28) by email.
+
+    Open to every signed-in lender whose account is not closed, also before KYC approval:
+    support must stay reachable. Returns the receipt shown in the portal.
+    """
+    actor: Any = command.actor
+    if (
+        not bool(getattr(actor, "is_active", False))
+        or not has_lender_role(actor)
+        or str(account_status_of(actor)) == "closed"
+    ):
+        raise InvestorPortalAuthorizationError("Only an investor account can send this request.")
+    support = import_module("backend.apps.communications.support_requests")
+    try:
+        request = support.submit_support_request(
+            support.SubmitSupportRequestCommand(
+                actor=actor,
+                kind=command.kind,
+                idempotency_key=command.idempotency_key,
+                topic=command.topic,
+                message=command.message,
+                context_type=command.context_type,
+                context_id=command.context_id,
+            )
+        )
+    except support.SupportRequestThrottled:
+        raise
+    except support.SupportRequestConflict:
+        raise
+    except support.SupportRequestError as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
+    return {
+        "reference": str(request.reference),
+        "kind": str(request.kind),
+        "received_at": request.created_at,
+        "context_label": str(request.context_label),
+        "receipt_email": str(request.investor_email),
+    }
 
 
 def _uuid_text(value: Any) -> str:

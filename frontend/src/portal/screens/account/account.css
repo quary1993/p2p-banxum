@@ -108,6 +108,8 @@ html.bxu .acc-bank-buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; ju
 html.bxu .acc-bank-empty .ps-panel-note { margin-top: 0; padding-top: 0; border-top: 0; }
 
 /* Account closure dialog: the three facts of U33-DEC-28 as a short list. */
+html.bxu .hp-message-error { margin: 0 0 12px; font-size: 13px; color: #b42318; }
+html.bxu[data-theme="dark"] .hp-message-error { color: #f97066; }
 html.bxu .acc-close-list { margin: 16px 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: #34414c; }
 html.bxu .acc-close-list li + li { margin-top: 6px; }
 html.bxu[data-theme="dark"] .acc-close-list { color: #e4e8e6; }

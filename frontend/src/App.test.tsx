@@ -2215,8 +2215,10 @@ test("profile and settings keep every section reachable from its tabs and the ac
   fireEvent.click(screen.getByRole("button", { name: "Close account" }));
   const closure = screen.getByRole("dialog", { name: "Request account closure" });
   expect(within(closure).getByText("Receiving your request does not close the account yet.")).toBeInTheDocument();
-  expect(within(closure).getByRole("link", { name: "Write closure request" }).getAttribute("href")).toMatch(/^mailto:support@banxum\.com\?subject=Account%20closure%20request/);
-  fireEvent.click(within(closure).getByRole("button", { name: "Cancel" }));
+  fireEvent.click(within(closure).getByRole("button", { name: "Send closure request" }));
+  expect(within(closure).getByRole("heading", { name: "Request received" })).toBeInTheDocument();
+  expect(within(closure).getByText("Demo: nothing was sent.")).toBeInTheDocument();
+  fireEvent.click(within(closure).getByRole("button", { name: "Done" }));
 
   // The account menu leads straight to the tabs (design entries).
   openAccountMenu();
@@ -2230,7 +2232,7 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(within(menu).getByRole("link", { name: "Preferences" })).toHaveAttribute("href", "/settings/preferences");
 });
 
-test("the Help page searches its questions and contacts support by email", () => {
+test("the Help page searches its questions and sends a message to support", () => {
   renderApp("/portal/help");
 
   expect(screen.getByRole("heading", { name: "Help", level: 1 })).toBeInTheDocument();
@@ -2256,18 +2258,16 @@ test("the Help page searches its questions and contacts support by email", () =>
   expect(screen.getByText("How do I change my bank account?").closest("details")).not.toHaveAttribute("hidden");
   expect(screen.getByText("How much can I invest?").closest("details")).toHaveAttribute("hidden");
 
-  // Contact support prepares an email (no Help message endpoint yet, U33-DEC-35).
+  // Contact support sends the message by email to the team (U33-DEC-35); the preview sends nothing.
   fireEvent.click(within(screen.getByRole("complementary")).getByRole("button", { name: /^Contact support/ }));
   const dialog = screen.getByRole("dialog", { name: "Contact support" });
-  const write = within(dialog).getByRole("link", { name: "Write email" });
-  expect(write).toHaveAttribute("aria-disabled", "true");
+  const send = within(dialog).getByRole("button", { name: "Send message" });
+  expect(send).toBeDisabled();
   fireEvent.change(within(dialog).getByLabelText("Message"), { target: { value: "Question about my statement" } });
-  expect(write.getAttribute("href")).toMatch(/^mailto:support@banxum\.com\?subject=An%20investment&body=Question%20about%20my%20statement/);
-  // jsdom cannot open a mailto: address; the app's own click handler still runs.
-  write.addEventListener("click", (event) => event.preventDefault());
-  fireEvent.click(write);
-  expect(within(dialog).getByText("Finish in your email app")).toBeInTheDocument();
-  expect(within(dialog).queryByText(/Message submitted/)).not.toBeInTheDocument();
+  expect(send).toBeEnabled();
+  fireEvent.click(send);
+  expect(within(dialog).getByRole("heading", { name: "Message sent" })).toBeInTheDocument();
+  expect(within(dialog).getByText("Demo: nothing was sent.")).toBeInTheDocument();
 });
 
 test("withdrawal dashboard drawer contains the executable withdrawal form", () => {
