@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.marketplace_primary import saved_opportunities
 from backend.apps.marketplace_primary.api.serializers import (
     MarketplaceBorrowerDocumentDownloadSerializer,
     MarketplaceLoanDetailSerializer,
@@ -32,6 +33,9 @@ from backend.apps.marketplace_primary.api.serializers import (
     PublicProjectListQuerySerializer,
     PublicProjectSerializer,
     PublicStatisticsSerializer,
+    SavedOpportunityListSerializer,
+    SavedOpportunityRequestSerializer,
+    SavedOpportunitySerializer,
     serialize_primary_expiry_scan_result,
     serialize_primary_loan_cancellation,
     serialize_primary_loan_close,
@@ -471,3 +475,52 @@ class MarketplaceOpeningAlertView(APIView):
     @extend_schema(request=None, responses={200: MarketplaceLoanDetailSerializer})
     def delete(self, request: Request, loan_id: str) -> Response:
         return self._answer(request, loan_id, wanted=False)
+
+
+class SavedOpportunityListView(APIView):
+    """U33-DEC-18: the investor's saved opportunities, checked again now."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: SavedOpportunityListSerializer})
+    def get(self, request: Request) -> Response:
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            saved = saved_opportunities.list_saved_opportunities(actor=actor)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response({"saved": saved}, status=status.HTTP_200_OK)
+
+
+class SavedOpportunityView(APIView):
+    """U33-DEC-18: save an open opportunity (PUT, optional amount) or remove it (DELETE)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SavedOpportunityRequestSerializer, responses={200: SavedOpportunitySerializer}
+    )
+    def put(self, request: Request, loan_id: str) -> Response:
+        serializer = SavedOpportunityRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = saved_opportunities.save_opportunity(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                amount_minor=serializer.validated_data["amount_minor"],
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, loan_id: str) -> Response:
+        try:
+            saved_opportunities.remove_saved_opportunity(
+                actor=cast(Model, request.user), loan_id=str(loan_id)
+            )
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)

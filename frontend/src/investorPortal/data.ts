@@ -21,6 +21,7 @@ import {
   useV1MarketplacePrimaryOpportunitiesList,
   useV1MarketplacePrimaryPublicOriginatorsList,
   useV1MarketplacePrimaryPublicProjectsList,
+  useV1MarketplacePrimarySavedRetrieve,
   useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList,
   useV1InvestorSmartInvestRetrieve
@@ -44,6 +45,7 @@ import {
   portfolioFixture,
   publicLoanNotesFixture,
   primaryOrdersFixture,
+  savedOpportunitiesFixture,
   secondaryActivityFixture,
   secondaryListingDetailsFixture,
   secondaryListingsFixture,
@@ -313,6 +315,13 @@ export function useFxData(limit = 50, enabled = true) {
 export function useMarketplaceLoansData(enabled = true) {
   return useV1MarketplacePrimaryOpportunitiesList({ limit: 250 }, {
     query: previewQuery(marketplaceLoansFixture, enabled)
+  });
+}
+
+/** U33-DEC-18: the investor's saved opportunities, checked again by the server at each read. */
+export function useSavedOpportunitiesData(enabled = true) {
+  return useV1MarketplacePrimarySavedRetrieve({
+    query: previewQuery(savedOpportunitiesFixture, enabled)
   });
 }
 

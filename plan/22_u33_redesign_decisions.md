@@ -406,6 +406,8 @@ Decision:
 
 Proposed details, to define with Vlad (not yet approved decisions): only future milestones after saving, no retroactive alerts; de-duplication per event/channel; stop when the item is removed or the project closes/is cancelled, and reschedule when the date changes; time of day and simultaneous operations.
 
+Implemented 2026-11-10 (Phase 17.4) with the proposed details: `plan/09_marketplace_investments.md` MKT-DEC-030. The time of day is the daily job run; it and the proposed details are in the open questions of Phase 17.
+
 ### U33-DEC-19: Smart Invest
 
 Status: Approved (final, mixed variant).

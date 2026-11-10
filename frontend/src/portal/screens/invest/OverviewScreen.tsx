@@ -5,6 +5,7 @@
  * received), payment updates for late and defaulted holdings, the investment cashflow and the Smart
  * Invest card in its current state. No batch approval: each match opens its opportunity and is
  * confirmed on its own (U33-DEC-19). Repayments go to the Banxum balance (U33-DEC-02).
+ * U33-DEC-18: saved opportunities ("Continue your investment review") follow the head, as in the design.
  */
 import { useMemo, useState } from "react";
 
@@ -33,6 +34,7 @@ import {
   PortalLink
 } from "../../components";
 import { isOpenLoan, projectIcon } from "./loanFacts";
+import { SavedReviews } from "./parts/SavedReviews";
 import { readStored, writeStored } from "./storage";
 import "./invest.css";
 
@@ -177,6 +179,7 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
         subtitle={t("Your investments in {currency} on {date}.", { currency, date: formatDate(dashboard.as_of) })}
         title={name ? t("Welcome back, {name}", { name }) : t("Welcome back")}
       />
+      <SavedReviews />
       {demoState === "kyc_pending" ? (
         <div className="alert alert-warning alert-icon u33-invest-kyc" role="status">
           <NiIcon name="shield-check" />

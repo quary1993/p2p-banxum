@@ -18,6 +18,8 @@ from backend.apps.marketplace_primary.api.views import (
     PublicProjectDetailView,
     PublicProjectListView,
     PublicStatisticsView,
+    SavedOpportunityListView,
+    SavedOpportunityView,
 )
 
 urlpatterns = [
@@ -55,6 +57,16 @@ urlpatterns = [
         "loans/<uuid:loan_id>/",
         MarketplaceLoanDetailView.as_view(),
         name="marketplace-primary-loan-detail",
+    ),
+    path(
+        "saved/",
+        SavedOpportunityListView.as_view(),
+        name="marketplace-saved-opportunities",
+    ),
+    path(
+        "loans/<uuid:loan_id>/saved/",
+        SavedOpportunityView.as_view(),
+        name="marketplace-saved-opportunity",
     ),
     path(
         "loans/<uuid:loan_id>/opening-alert/",

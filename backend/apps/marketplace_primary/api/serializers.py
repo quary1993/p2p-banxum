@@ -580,3 +580,42 @@ def serialize_primary_expiry_scan_result(result: dict[str, Any]) -> dict[str, An
             for cancellation in result["cancellations"]
         ],
     }
+
+
+class SavedOpportunitySerializer(serializers.Serializer[Any]):
+    """U33-DEC-18: a saved opportunity, checked again at each read."""
+
+    loan_id = serializers.UUIDField()
+    title = serializers.CharField()
+    product_type = serializers.CharField()
+    currency = serializers.CharField()
+    borrower_display_name = serializers.CharField(allow_null=True)
+    collateral_type = serializers.CharField()
+    amount_minor = serializers.IntegerField(
+        allow_null=True, help_text="The amount the investor chose; null when none was chosen."
+    )
+    saved_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+    is_open = serializers.BooleanField()
+    funding_deadline = serializers.DateField(allow_null=True)
+    minimum_investment_minor = serializers.IntegerField(
+        allow_null=True, help_text="The viewer's minimum now; null when not open."
+    )
+    available_minor = serializers.IntegerField(
+        allow_null=True, help_text="What the opportunity still takes; null when not open."
+    )
+    amount_check = serializers.ChoiceField(
+        choices=["ok", "none", "below_minimum", "above_available", "closed"],
+        help_text=(
+            "ok; none: no amount saved; below_minimum / above_available: the saved amount "
+            "no longer fits (it is never changed); closed: no longer open for investment."
+        ),
+    )
+
+
+class SavedOpportunityListSerializer(serializers.Serializer[Any]):
+    saved = SavedOpportunitySerializer(many=True)
+
+
+class SavedOpportunityRequestSerializer(serializers.Serializer[Any]):
+    amount_minor = serializers.IntegerField(required=False, allow_null=True, default=None)

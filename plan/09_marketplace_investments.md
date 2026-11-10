@@ -778,3 +778,18 @@ An admin can show a draft Direct loan as "Coming soon" before it opens.
 
 Open point:
 Loan Originator claims are not shown as Coming soon yet (the claim flow has its own publication); see the open questions of Phase 17.
+
+### MKT-DEC-030: Save for Later and the Closing Reminders
+
+Status: Accepted (U33-DEC-18, `plan/22_u33_redesign_decisions.md`).
+Date: 2026-11-10.
+
+Decision:
+An investor can save an open opportunity, with an amount they chose or without one.
+
+- API: `GET /api/v1/marketplace/primary/saved/`; `PUT /api/v1/marketplace/primary/loans/<id>/saved/` with `amount_minor` (or null) saves or changes it; `DELETE` removes it (`SavedOpportunity`, one per investor and loan). Only an open opportunity (published, deadline not passed, money still needed) can be saved; an amount must be at least the investor's minimum and at most the amount still available. The balance does not matter for saving.
+- Saving reserves no money or place, accepts no agreement and does not keep the opportunity open. Saved items do not change the sort of the opportunities list.
+- Each read checks the item again: `is_open`, the investor's minimum, the amount still available and `amount_check` (`ok`, `none`, `below_minimum`, `above_available`, `closed`). The saved amount is never changed; the screens explain why it does not fit (the opportunity page also checks the balance).
+- Reminders (daily job `saved_opportunity_reminders`): `email.saved_opportunity_closing` 7, 3 and 1 day before the funding deadline, listed in Notifications as "Saved opportunity". Only milestones after the day of saving; one per milestone, investor, loan and deadline (`SavedOpportunityReminder`); a run that finds several milestones due sends the latest one and records the others as skipped; none after removal or when the opportunity is no longer open; a new deadline schedules them again. Marketing choices and the Smart Invest pause do not apply.
+
+Open points (proposed in U33-DEC-18, to confirm): the time of day of the reminder (the daily job run), the details above that the decision lists as proposed.

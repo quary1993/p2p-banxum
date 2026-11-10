@@ -7,12 +7,15 @@
  * repayment filters wait for Phase 17.2/17.4 data. No co-investment claim (U33-DEC-15).
  * U33-DEC-17: Coming soon opportunities follow the open ones, the next to open first, as in the design
  * (r31-coming-soon card without the funding block, "Opens {date}", the ol-soon list tag).
+ * U33-DEC-18: a saved opportunity has the design's "Saved" badge (v107-saved-badge), which removes it.
+ * The design moves saved cards first; the decision keeps the chosen sort, so the order does not change.
  */
 import { useState } from "react";
 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSmartInvestData } from "../../../investorPortal/data";
+import { useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSavedOpportunitiesData, useSmartInvestData } from "../../../investorPortal/data";
+import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportunities";
 import { formatDate, formatDateShort, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import {
@@ -117,6 +120,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const nav = usePortalNav();
   const loansQuery = useMarketplaceLoansData();
   const soonQuery = useComingSoonLoansData();
+  const savedIds = new Set((useSavedOpportunitiesData().data?.saved ?? []).map((item) => item.loan_id));
   const smartInvestQuery = useSmartInvestData();
   const asOf = useBalancesData().data?.as_of;
   // Design "Invested" mark: a loan the investor holds or has an open reservation in.
@@ -336,7 +340,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           </EmptyState>
         ) : layout === "cards" ? (
           <div className="row g-gs">
-            {visible.map((loan) => <OpportunityCard asOf={asOf} invested={investedIds.has(loan.loan_id)} key={loan.loan_id} loan={loan} matched={matchIds.has(loan.loan_id)} />)}
+            {visible.map((loan) => <OpportunityCard asOf={asOf} invested={investedIds.has(loan.loan_id)} key={loan.loan_id} loan={loan} matched={matchIds.has(loan.loan_id)} saved={savedIds.has(loan.loan_id)} />)}
           </div>
         ) : (
           <OpportunityList asOf={asOf} loans={visible} matchIds={matchIds} />
@@ -369,8 +373,9 @@ function MinimumInfo({ loan }: { loan: MarketplaceLoanPreview }) {
   );
 }
 
-export function OpportunityCard({ loan, asOf, matched, invested }: { loan: MarketplaceLoanPreview; asOf?: string; matched: boolean; invested: boolean }) {
+export function OpportunityCard({ loan, asOf, matched, invested, saved = false }: { loan: MarketplaceLoanPreview; asOf?: string; matched: boolean; invested: boolean; saved?: boolean }) {
   const t = useT();
+  const savedActions = useSavedOpportunityActions();
   const percent = fundedPercent(loan);
   const places = placesInfo(loan);
   const company = isOriginatorClaimLoan(loan) ? loan.borrower_display_name || loan.originator_name : loan.borrower_display_name;
@@ -394,10 +399,23 @@ export function OpportunityCard({ loan, asOf, matched, invested }: { loan: Marke
                 </div>
               </PortalLink>
             </div>
-            {country || invested ? (
+            {country || invested || saved ? (
               <div className="r35-location">
                 <span className="r35-location-text"><span>{country}</span></span>
-                <span className="r35-location-badges">{invested ? <span className="bxm-tag is-muted">{t("Invested")}</span> : null}</span>
+                <span className="r35-location-badges">
+                  {invested ? <span className="bxm-tag is-muted">{t("Invested")}</span> : null}
+                  {saved ? (
+                    <button
+                      aria-label={t("Remove saved opportunity: {title}", { title: loan.title })}
+                      className="v107-saved-badge"
+                      disabled={savedActions.busy}
+                      onClick={() => void savedActions.remove(loan.loan_id).catch(() => undefined)}
+                      type="button"
+                    >
+                      <NiIcon name="bookmark" />{t("Saved")}
+                    </button>
+                  ) : null}
+                </span>
               </div>
             ) : null}
             <div className="bxm-project-tags">

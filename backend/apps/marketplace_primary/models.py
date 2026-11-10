@@ -297,3 +297,71 @@ class LoanOpeningAlert(TimestampedModel):
             )
         ]
         indexes = [models.Index(fields=["investor_user_id", "created_at"])]
+
+
+class SavedOpportunity(TimestampedModel):
+    """U33-DEC-18: an opportunity the investor saved for later, with an optional amount.
+
+    Saving reserves no money or place, accepts no agreement and does not guarantee that the
+    opportunity is still open later. The amount is the one the investor chose; it is never
+    changed by the platform.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(
+        "loans.Loan", on_delete=models.CASCADE, related_name="saved_by_investors"
+    )
+    investor_user_id = models.UUIDField()
+    amount_minor = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "investor_user_id"], name="unique_saved_opportunity"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(amount_minor__isnull=True) | models.Q(amount_minor__gt=0),
+                name="saved_opportunity_amount_positive",
+            ),
+        ]
+        indexes = [models.Index(fields=["investor_user_id", "updated_at"])]
+
+
+class SavedOpportunityReminderStatus(models.TextChoices):
+    SENT = "sent", "Sent"
+    # A milestone passed while a later one was due (for example after a missed run): it is
+    # never sent afterwards, so the investor gets one reminder, not a burst.
+    SKIPPED = "skipped", "Skipped"
+
+
+class SavedOpportunityReminder(TimestampedModel):
+    """U33-DEC-18: one closing reminder (7, 3 or 1 day before) per investor, loan and deadline.
+
+    The funding deadline is part of the key: a new deadline schedules the reminders again.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(
+        "loans.Loan", on_delete=models.CASCADE, related_name="saved_opportunity_reminders"
+    )
+    investor_user_id = models.UUIDField()
+    funding_deadline = models.DateField()
+    days_before = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=16, choices=SavedOpportunityReminderStatus.choices)
+    outbox_message = models.ForeignKey(
+        "platform_core.OutboxMessage",
+        on_delete=models.SET_NULL,
+        related_name="saved_opportunity_reminders",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "investor_user_id", "funding_deadline", "days_before"],
+                name="unique_saved_opportunity_reminder",
+            )
+        ]

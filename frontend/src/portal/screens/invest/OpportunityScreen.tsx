@@ -5,7 +5,11 @@
  * progress with the minimum funding threshold, the Swiss-borrower places line (today's rule,
  * MKT-DEC-028), the originator of a claim, the payment schedule, the credit file link and the amount
  * field. A closed loan shows its state instead of the amount field. No co-investment line
- * (U33-DEC-15), no ratings (U33-DEC-16), no Save for later yet (U33-DEC-18).
+ * (U33-DEC-15), no ratings (U33-DEC-16).
+ * U33-DEC-18: "Save for later" (design v107-save) saves the opportunity with the amount in the field, or
+ * without an amount when the field is empty. It reserves nothing. A saved amount fills the field on
+ * return; when it no longer fits (minimum, amount still available, balance) a line explains it and the
+ * amount stays as saved.
  * U33-DEC-17: a Coming soon opportunity shows the design's invest box for soon ("Opens on", "Tell me
  * when it opens"). The alert is a real request: one email when the loan really opens, which can be
  * later than the planned date. After the request the box says so and the investor can cancel it.
@@ -22,8 +26,9 @@ import {
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useFrozenAccount } from "../../../investorPortal/accountState";
-import { isFixturePreview, useBalancesData, useLoanDetailData, usePortfolioData, useSmartInvestData } from "../../../investorPortal/data";
-import { formatAmountInput, formatDate, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
+import { isFixturePreview, useBalancesData, useLoanDetailData, usePortfolioData, useSavedOpportunitiesData, useSmartInvestData } from "../../../investorPortal/data";
+import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportunities";
+import { formatAmountInput, formatDate, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
 import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
 import { swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
 import { isNotFoundError } from "../../../investorPortal/session";
@@ -138,12 +143,19 @@ function OpportunityPage({
   // U33-DEC-19: an active Smart Invest usual amount prepares the amount (never raised to the minimum);
   // what the investor types replaces it. Without a usual amount nothing is pre-filled (U33-DEC-08).
   const smartRule = useSmartInvestData().data?.rule;
+  // U33-DEC-18: an amount the investor saved comes first; it is never changed by the platform.
+  const savedItem = (useSavedOpportunitiesData().data?.saved ?? []).find((item) => item.loan_id === loan.loan_id);
+  const savedAmountMinor = savedItem?.amount_minor ?? null;
+  const savedActions = useSavedOpportunityActions();
+  const [saveError, setSaveError] = useState("");
   const usualMinor =
-    smartRule?.state === "active" && smartRule.preferred_amount_minor && (smartRule.currencies.length === 0 || smartRule.currencies.includes(loan.currency as never))
+    savedAmountMinor === null && smartRule?.state === "active" && smartRule.preferred_amount_minor && (smartRule.currencies.length === 0 || smartRule.currencies.includes(loan.currency as never))
       ? smartRule.preferred_amount_minor
       : null;
   const usingUsual = typedAmount === null && usualMinor !== null;
-  const amountText = typedAmount ?? (usualMinor !== null ? formatAmountInput(usualMinor, loan.currency) : "");
+  const usingSaved = typedAmount === null && savedAmountMinor !== null;
+  const prefillMinor = savedAmountMinor ?? usualMinor;
+  const amountText = typedAmount ?? (prefillMinor !== null ? formatAmountInput(prefillMinor, loan.currency) : "");
 
   const open = isOpenLoan(loan);
   const claim = isOriginatorClaimLoan(loan);
@@ -165,6 +177,34 @@ function OpportunityPage({
   const days = daysUntil(loan.funding_deadline, balances?.as_of);
   const statusPill = statusPillOf(loan, t);
   const cadence = repaymentCadence(loan.repayment_type);
+
+  const fieldAmountMinor = amountText.trim() ? parseMoneyInputToMinorUnits(amountText, loan.currency) : null;
+  const isSaved = Boolean(savedItem) && (fieldAmountMinor === null ? savedAmountMinor === null : !fieldAmountMinor.error && fieldAmountMinor.amountMinor === savedAmountMinor);
+  const savedNote = usingSaved && savedAmountMinor !== null ? savedAmountNote(savedAmountMinor, loan, funds.eligibleMinor, t) : "";
+
+  const toggleSave = async () => {
+    setSaveError("");
+    try {
+      if (isSaved) {
+        await savedActions.remove(loan.loan_id);
+        return;
+      }
+      let amountMinor: number | null = null;
+      if (amountText.trim()) {
+        // The balance does not matter for saving; the minimum and the amount still available do.
+        const check = checkInvestAmount(amountText, loan, { balanceMinor: Number.MAX_SAFE_INTEGER, eligibleMinor: Number.MAX_SAFE_INTEGER });
+        if (!check.ok) {
+          setError({ message: check.message, shortfall: false });
+          return;
+        }
+        amountMinor = check.amountMinor;
+      }
+      setError(null);
+      await savedActions.save(loan, amountMinor);
+    } catch (failure) {
+      setSaveError(errorMessage(failure));
+    }
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -334,6 +374,7 @@ function OpportunityPage({
                   <p aria-live="polite" className="v107-error" id="iv-error">
                     {error?.message ?? (places?.fullForViewer ? swissInvestorLimitMessage(places.maxInvestors) : "")}
                   </p>
+                  {savedNote ? <p className="u33-invest-amount-hint u33-saved-amount" role="status">{savedNote}</p> : null}
                   {usingUsual ? (
                     <p className="u33-invest-amount-hint u33-usual-amount">
                       {usualMinor !== null && usualMinor < loan.minimum_investment_minor
@@ -353,6 +394,10 @@ function OpportunityPage({
                       {error?.shortfall ? t("Add funds") : t("Review investment")} <NiIcon name="arrow-right" />
                     </button>
                     <p className="v107-fees">{t("No investment fees.")}</p>
+                    <button aria-pressed={isSaved} className="v107-save" disabled={savedActions.busy} onClick={() => void toggleSave()} title={isSaved ? t("Remove saved opportunity") : undefined} type="button">
+                      <NiIcon name="bookmark" /><span>{isSaved ? t("Saved") : t("Save for later")}</span>
+                    </button>
+                    {saveError ? <p className="v107-error" role="alert">{saveError}</p> : null}
                   </div>
                 </form>
               </section>
@@ -423,6 +468,21 @@ function OpportunityPage({
       ) : null}
     </main>
   );
+}
+
+/** U33-DEC-18: why a saved amount cannot be invested now; it is not changed. */
+function savedAmountNote(amountMinor: number, loan: MarketplaceLoanDetail, eligibleMinor: number, t: ReturnType<typeof useT>) {
+  if (amountMinor < loan.minimum_investment_minor) {
+    return t("Your saved amount is below the minimum of {amount} now. Change it to invest.", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) });
+  }
+  const available = loanAvailableMinor(loan);
+  if (amountMinor > available) {
+    return t("Your saved amount is more than the {amount} still available. Change it to invest.", { amount: formatMoneyLabel(loan.currency, available) });
+  }
+  if (amountMinor > eligibleMinor) {
+    return t("Your saved amount is more than your {currency} balance for this loan. Add funds or change the amount.", { currency: loan.currency });
+  }
+  return t("Your saved amount. You can change it.");
 }
 
 function statusPillOf(loan: MarketplaceLoanDetail, t: ReturnType<typeof useT>) {

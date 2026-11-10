@@ -36,6 +36,8 @@ NEWSLETTER_NEW_PROJECTS_JOB = "newsletter_new_projects"
 PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
 # U33-DEC-25: the sign-in history and ended device sessions are deleted after the period.
 ACCOUNT_SECURITY_RETENTION_JOB = "account_security_retention"
+# U33-DEC-18: the 7, 3 and 1 day closing reminders of saved opportunities.
+SAVED_OPPORTUNITY_REMINDERS_JOB = "saved_opportunity_reminders"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -46,6 +48,7 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
     ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB,
     # After the funding scans, so a project whose round just closed is not announced.
+    SAVED_OPPORTUNITY_REMINDERS_JOB,
     NEWSLETTER_NEW_PROJECTS_JOB,
     PUBLIC_SITE_RETENTION_JOB,
     ACCOUNT_SECURITY_RETENTION_JOB,
@@ -58,6 +61,7 @@ SYSTEM_JOB_NAMES = frozenset(
         NEWSLETTER_NEW_PROJECTS_JOB,
         PUBLIC_SITE_RETENTION_JOB,
         ACCOUNT_SECURITY_RETENTION_JOB,
+        SAVED_OPPORTUNITY_REMINDERS_JOB,
     }
 )
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
@@ -519,6 +523,11 @@ def _account_security_retention_summary(*, as_of: datetime) -> dict[str, Any]:
     return cast(dict[str, Any], sessions.purge_account_security_history(as_of=as_of))
 
 
+def _saved_opportunity_reminders_summary(*, as_of: datetime) -> dict[str, Any]:
+    saved: Any = import_module("backend.apps.marketplace_primary.saved_opportunities")
+    return cast(dict[str, Any], saved.send_saved_opportunity_reminders(as_of=as_of))
+
+
 def _execute_scheduled_job(
     *,
     job_name: str,
@@ -534,6 +543,8 @@ def _execute_scheduled_job(
         return _public_site_retention_summary(as_of=as_of)
     if job_name == ACCOUNT_SECURITY_RETENTION_JOB:
         return _account_security_retention_summary(as_of=as_of)
+    if job_name == SAVED_OPPORTUNITY_REMINDERS_JOB:
+        return _saved_opportunity_reminders_summary(as_of=as_of)
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
     if job_name == BALANCE_AGEING_SCAN_JOB:

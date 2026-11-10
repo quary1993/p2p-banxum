@@ -17,6 +17,7 @@ import type {
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
+  SavedOpportunityList,
   SmartInvestResponse
 } from "../api/generated/banxumApi";
 import { AUTO_RETURN_AFTER_DAYS } from "./balanceAgeing";
@@ -1186,6 +1187,9 @@ const comingSoonLoanDetailFixture: MarketplaceLoanDetail = {
 };
 
 export const comingSoonLoansFixture: MarketplaceLoanPreview[] = [comingSoonLoanDetailFixture];
+
+/** U33-DEC-18: nothing saved at first, as in the design; saving in the preview fills it. */
+export const savedOpportunitiesFixture: SavedOpportunityList = { saved: [] };
 
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [
   ...directLoanDetailsFixture,

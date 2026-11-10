@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
@@ -1000,6 +1000,55 @@ test("a Coming soon opportunity cannot be invested in and offers the opening ale
   fireEvent.click(screen.getByRole("button", { name: "Cancel the opening alert" }));
   expect(screen.getByRole("button", { name: "Tell me when it opens" })).toBeInTheDocument();
   expect(screen.queryByText("We will email you when this loan opens")).not.toBeInTheDocument();
+});
+
+test("Save for later keeps the opportunity and the amount, on Overview and on the cards, and reserves nothing (U33-DEC-18)", async () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/GA-2401");
+  const amount = () => screen.getByRole("textbox", { name: "Choose investment amount" });
+
+  // An amount below the minimum is not saved.
+  fireEvent.change(amount(), { target: { value: "10" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save for later" }));
+  expect(screen.getByText(/^The minimum investment is/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save for later" })).toHaveAttribute("aria-pressed", "false");
+
+  fireEvent.change(amount(), { target: { value: "5000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save for later" }));
+  const saved = await screen.findByRole("button", { name: "Saved" });
+  expect(saved).toHaveAttribute("aria-pressed", "true");
+  expect(saved).toHaveAttribute("title", "Remove saved opportunity");
+
+  goToPath("/dashboard");
+  const panel = screen.getByRole("region", { name: "Saved investment reviews" });
+  expect(within(panel).getByRole("heading", { name: "Continue your investment review" })).toBeInTheDocument();
+  expect(panel).toHaveTextContent("Saved for later · No funds reserved");
+  expect(within(panel).getByRole("heading", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
+  expect(panel).toHaveTextContent(/Your amount\s*CHF 5.000,00/);
+  fireEvent.click(within(panel).getByRole("button", { name: /Continue review/ }));
+  expect(window.location.pathname).toBe("/marketplace/GA-2401");
+  expect(amount()).toHaveValue("5000,00");
+  expect(screen.getByRole("button", { name: "Saved" })).toBeInTheDocument();
+
+  // The card has the Saved badge; it removes the saved opportunity. The order does not change.
+  goToPath("/marketplace");
+  fireEvent.click(screen.getByRole("button", { name: "Remove saved opportunity: Helvetia Logistik AG" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: /Remove saved opportunity/ })).not.toBeInTheDocument());
+  goToPath("/dashboard");
+  expect(screen.queryByRole("region", { name: "Saved investment reviews" })).not.toBeInTheDocument();
+
+  // Without an amount the opportunity is saved alone.
+  goToPath("/marketplace/GA-2402");
+  expect(amount()).toHaveValue("");
+  fireEvent.click(screen.getByRole("button", { name: "Save for later" }));
+  expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
+  goToPath("/dashboard");
+  const row = within(screen.getByRole("region", { name: "Saved investment reviews" }));
+  expect(row.getByRole("heading", { name: "Nordwind Energie GmbH" })).toBeInTheDocument();
+  expect(row.queryByText("Your amount")).not.toBeInTheDocument();
+  fireEvent.click(row.getByRole("button", { name: "Remove saved review: Nordwind Energie GmbH" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Saved investment reviews" })).not.toBeInTheDocument());
 });
 
 test("Investment opportunities search and filter by currency, and the opportunity explains how investing works", () => {

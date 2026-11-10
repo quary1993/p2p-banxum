@@ -3965,6 +3965,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/MarketplaceLoanDetail'
           description: ''
+  /api/v1/marketplace/primary/loans/{loan_id}/saved/:
+    put:
+      operationId: v1_marketplace_primary_loans_saved_update
+      description: 'U33-DEC-18: save an open opportunity (PUT, optional amount) or
+        remove it (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedOpportunityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SavedOpportunityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SavedOpportunityRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedOpportunity'
+          description: ''
+    delete:
+      operationId: v1_marketplace_primary_loans_saved_destroy
+      description: 'U33-DEC-18: save an open opportunity (PUT, optional amount) or
+        remove it (DELETE).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/marketplace/primary/opportunities/:
     get:
       operationId: v1_marketplace_primary_opportunities_list
@@ -4139,6 +4191,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicStatistics'
+          description: ''
+  /api/v1/marketplace/primary/saved/:
+    get:
+      operationId: v1_marketplace_primary_saved_retrieve
+      description: 'U33-DEC-18: the investor''s saved opportunities, checked again
+        now.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedOpportunityList'
           description: ''
   /api/v1/marketplace/secondary/admin/listings/:
     get:
@@ -6707,6 +6775,20 @@ components:
       required:
       - amount_minor
       - currency
+    AmountCheckEnum:
+      enum:
+      - ok
+      - none
+      - below_minimum
+      - above_available
+      - closed
+      type: string
+      description: |-
+        * `ok` - ok
+        * `none` - none
+        * `below_minimum` - below_minimum
+        * `above_available` - above_available
+        * `closed` - closed
     AuditEvent:
       type: object
       properties:
@@ -16278,6 +16360,89 @@ components:
         * `C` - C
         * `D` - D
         * `unrated` - Unrated
+    SavedOpportunity:
+      type: object
+      description: 'U33-DEC-18: a saved opportunity, checked again at each read.'
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        product_type:
+          type: string
+        currency:
+          type: string
+        borrower_display_name:
+          type: string
+          nullable: true
+        collateral_type:
+          type: string
+        amount_minor:
+          type: integer
+          nullable: true
+          description: The amount the investor chose; null when none was chosen.
+        saved_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_open:
+          type: boolean
+        funding_deadline:
+          type: string
+          format: date
+          nullable: true
+        minimum_investment_minor:
+          type: integer
+          nullable: true
+          description: The viewer's minimum now; null when not open.
+        available_minor:
+          type: integer
+          nullable: true
+          description: What the opportunity still takes; null when not open.
+        amount_check:
+          allOf:
+          - $ref: '#/components/schemas/AmountCheckEnum'
+          description: |-
+            ok; none: no amount saved; below_minimum / above_available: the saved amount no longer fits (it is never changed); closed: no longer open for investment.
+
+            * `ok` - ok
+            * `none` - none
+            * `below_minimum` - below_minimum
+            * `above_available` - above_available
+            * `closed` - closed
+      required:
+      - amount_check
+      - amount_minor
+      - available_minor
+      - borrower_display_name
+      - collateral_type
+      - currency
+      - funding_deadline
+      - is_open
+      - loan_id
+      - minimum_investment_minor
+      - product_type
+      - saved_at
+      - title
+      - updated_at
+    SavedOpportunityList:
+      type: object
+      properties:
+        saved:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedOpportunity'
+      required:
+      - saved
+    SavedOpportunityRequest:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          nullable: true
     SecondaryListingPortal:
       type: object
       properties:
