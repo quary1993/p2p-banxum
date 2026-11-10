@@ -400,7 +400,7 @@ export function HowItWorks() {
             </Cell>
             <Cell index="02" title="Add funds">
               A bank transfer in CHF or EUR from an account in your name, with your personal reference. It arrives in your
-              own segregated wallet. No fees.
+              own segregated wallet. No Banxum fee; your bank may charge for the transfer.
             </Cell>
             <Cell index="03" title="Invest">
               Choose a project and an amount from your available balance, and confirm with a code and your PIN. The amount
@@ -485,10 +485,12 @@ export function HowItWorks() {
                 <span>02</span>
               </div>
               <Eyebrow>Fees</Eyebrow>
-              <h3 className="site-h3">0% for investors</h3>
+              <h3 className="site-h3">Fees for investors</h3>
               <p className="site-text">
-                No fees for your wallet, for adding or withdrawing money, for investing or on interest and repayments.
-                Only when you sell on the secondary market, you pay 2% of the price.
+                No Banxum fee for your wallet, for adding or withdrawing money, for investing or on interest and repayments.
+                When you sell on the resale market, you pay 2% of the price, at most 2% of the outstanding principal. If a
+                loan is in recovery, real external costs (lawyer, court, enforcement) can be deducted from what is recovered;
+                Banxum takes no recovery fee. Your bank may charge for transfers.
               </p>
             </div>
           </div>

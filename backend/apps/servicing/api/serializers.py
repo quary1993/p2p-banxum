@@ -281,6 +281,7 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
         min_value=0,
         default=0,
     )
+    # U33-DEC-12: no Banxum recovery fee for investors; true or a rate above 0 is refused.
     recovery_fee_applied = serializers.BooleanField(required=False, default=False)
     recovery_fee_bps = serializers.IntegerField(
         required=False,

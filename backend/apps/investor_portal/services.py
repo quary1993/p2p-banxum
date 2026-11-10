@@ -767,9 +767,10 @@ def _notification_target(*, actor: Model, topic: str, payload: Any) -> dict[str,
         if first_holding:
             return target(NOTIFICATION_TARGET_HOLDING, first_holding)
         return target(NOTIFICATION_TARGET_PORTFOLIO)
-    if topic == "email.loan_risk_note_published" and str(
-        metadata_dict.get("visibility") or ""
-    ) == "public":
+    if (
+        topic == "email.loan_risk_note_published"
+        and str(metadata_dict.get("visibility") or "") == "public"
+    ):
         holding_id = field("holding_id")
         loan_id = field("loan_id")
         if not holding_id and loan_id:
@@ -1083,6 +1084,41 @@ def _loan_projection(
     }
 
 
+def _recovery_events_by_holding(
+    *, investor_user_id: str, holding_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """U33-DEC-12: each recovery of the loan with its gross, costs and net, and the investor's
+    own credited share, per holding. Closed recoveries are shown as recorded."""
+    if not holding_ids:
+        return {}
+    line_model = _model("servicing", "InvestorRecoveryDistributionLine")
+    events: dict[str, dict[str, dict[str, Any]]] = {}
+    lines = (
+        line_model.objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("recovery_event")
+        .order_by("recovery_event__value_date", "recovery_event__created_at", "id")
+    )
+    for line in lines:
+        event = line.recovery_event
+        by_event = events.setdefault(str(line.holding_id), {})
+        entry = by_event.get(str(event.pk))
+        if entry is None:
+            entry = {
+                "recovery_event_id": str(event.pk),
+                "value_date": event.value_date,
+                "gross_recovered_minor": int(event.gross_recovered_minor),
+                "external_costs_minor": int(event.externally_deducted_costs_minor)
+                + int(event.third_party_costs_from_received_minor),
+                "recovery_fee_minor": int(event.recovery_fee_minor),
+                "net_distributed_minor": int(event.net_available_for_distribution_minor)
+                - int(event.rounding_difference_minor),
+                "credited_to_you_minor": 0,
+            }
+            by_event[str(event.pk)] = entry
+        entry["credited_to_you_minor"] += int(line.amount_minor)
+    return {holding_id: list(rows.values()) for holding_id, rows in events.items()}
+
+
 def _aggregate_by_holding(
     *,
     model_label: tuple[str, str],
@@ -1222,6 +1258,9 @@ def get_investor_portfolio(
         holding_ids=all_holding_ids,
         fields=["amount_minor", "principal_minor", "interest_minor", "penalty_minor"],
     )
+    recovery_events = _recovery_events_by_holding(
+        investor_user_id=investor_user_id, holding_ids=all_holding_ids
+    )
     recovery_totals = _aggregate_by_holding(
         model_label=("servicing", "InvestorRecoveryDistributionLine"),
         investor_user_id=investor_user_id,
@@ -1342,6 +1381,7 @@ def get_investor_portfolio(
                 "recovered_default_interest_minor": int(recovery.get("default_interest_minor", 0)),
                 "recovered_penalties_minor": int(recovery.get("penalties_minor", 0)),
                 "recovered_other_costs_minor": int(recovery.get("other_costs_minor", 0)),
+                "recovery_events": recovery_events.get(str(holding.pk), []),
                 "latest_public_note": latest_notes.get(str(holding.loan_id)),
                 "open_secondary_listing": (
                     {

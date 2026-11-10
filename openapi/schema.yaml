@@ -8944,6 +8944,10 @@ components:
           type: integer
         recovered_other_costs_minor:
           type: integer
+        recovery_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/HoldingRecoveryEvent'
         latest_public_note:
           allOf:
           - $ref: '#/components/schemas/LatestPublicNote'
@@ -9007,6 +9011,35 @@ components:
       - status
       - transfer_price_minor
       - updated_at
+    HoldingRecoveryEvent:
+      type: object
+      description: 'U33-DEC-12: one recovery of the loan (whole-loan amounts) and
+        the investor''s share.'
+      properties:
+        recovery_event_id:
+          type: string
+          format: uuid
+        value_date:
+          type: string
+          format: date
+        gross_recovered_minor:
+          type: integer
+        external_costs_minor:
+          type: integer
+        recovery_fee_minor:
+          type: integer
+        net_distributed_minor:
+          type: integer
+        credited_to_you_minor:
+          type: integer
+      required:
+      - credited_to_you_minor
+      - external_costs_minor
+      - gross_recovered_minor
+      - net_distributed_minor
+      - recovery_event_id
+      - recovery_fee_minor
+      - value_date
     InvestorActivity:
       type: object
       properties:

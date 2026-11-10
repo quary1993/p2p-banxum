@@ -305,7 +305,7 @@ export const siteGuides: SiteGuide[] = [
         <h2>From day 60</h2>
         <p>The loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
         <h2>Recovery</h2>
-        <p>What is recovered, after the costs of enforcement, is shared in proportion to each share and credited to your Banxum balance. Recovery can take months or years and may not cover the full amount.</p>`
+        <p>What is recovered, after real external costs (lawyers, courts, enforcement), is shared in proportion to each share and credited to your Banxum balance. Banxum takes no recovery fee, and the investment page shows the gross amount, the costs and the net. Recovery can take months or years and may not cover the full amount.</p>`
   },
   {
     id: "first-year",

@@ -139,7 +139,23 @@ const repaidLo = holding(
 // Defaulted Direct holding: first installment overdue, the rest in the future.
 const defaulted = holding(
   "defaulted-direct",
-  { currency: "CHF", original_principal_minor: 400_000, current_principal_minor: 370_567 },
+  {
+    currency: "CHF",
+    original_principal_minor: 400_000,
+    current_principal_minor: 370_567,
+    // U33-DEC-12: the gross, the external costs and the net of each recovery, and the investor's share.
+    recovery_events: [
+      {
+        recovery_event_id: "rec-1",
+        value_date: "2026-12-15",
+        gross_recovered_minor: 1_000_000,
+        external_costs_minor: 150_000,
+        recovery_fee_minor: 0,
+        net_distributed_minor: 850_000,
+        credited_to_you_minor: 85_000
+      }
+    ]
+  },
   {
     loan_title: "Defaulted direct loan",
     loan_status: "defaulted",
@@ -242,6 +258,12 @@ test("a defaulted holding opens on the recovery, not on an upcoming payment", as
   expect(screen.getByRole("heading", { name: "Recovery in progress" })).toBeInTheDocument();
   expect(screen.getByText(/16 days since the first unpaid payment/)).toBeInTheDocument();
   expect(screen.getByText(/The loan contract was terminated on 18 Dec 2026\./)).toBeInTheDocument();
+  const recoveries = document.querySelector(".u33-recoveries") as HTMLElement;
+  expect(within(recoveries).getByText("Recovered for the whole loan").nextElementSibling).toHaveTextContent("CHF 10.000,00");
+  expect(within(recoveries).getByText("External costs deducted").nextElementSibling).toHaveTextContent("− CHF 1.500,00");
+  expect(within(recoveries).getByText("Net distributed to investors").nextElementSibling).toHaveTextContent("CHF 8.500,00");
+  expect(within(recoveries).getByText("Credited to your balance").nextElementSibling).toHaveTextContent("CHF 850,00");
+  expect(within(recoveries).queryByText(/Recovery fee/)).not.toBeInTheDocument();
   expect(screen.getByText("No scheduled payments. This loan is in default.")).toBeInTheDocument();
   expect(screen.queryByText("Next payment")).not.toBeInTheDocument();
   expect(screen.queryByText("Scheduled")).not.toBeInTheDocument();

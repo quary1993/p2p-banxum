@@ -128,7 +128,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       id: "fees",
       topic: "investing",
       question: t("What fees do I pay?"),
-      answer: t("Investing in an opportunity has no {brand} fee. If you sell an investment on the Resale market, a seller fee applies. Every fee is shown with its amount before you confirm, and nothing is charged without being shown first. Your bank may charge for transfers.", { brand }),
+      answer: t("Investing in an opportunity has no {brand} fee. If you sell an investment on the Resale market, a seller fee applies. Every fee is shown with its amount before you confirm, and nothing is charged without being shown first. If a loan is in recovery, {brand} takes no recovery fee; real external costs such as lawyers or courts can be deducted from the recovered amount, and the investment page shows the gross, the costs and the net. Your bank may charge for transfers.", { brand }),
       links: [{ label: t("Documents"), to: "documents" }]
     },
     {

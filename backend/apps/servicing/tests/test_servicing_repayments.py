@@ -1861,9 +1861,10 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
     assert both.status_code == 201
     assert note_emails().count() == 4
     # A replay does not send the emails again.
-    assert post_note(
-        email_affected_investors=True, idempotency_key="default-note-both"
-    ).json()["id"] == both.json()["id"]
+    assert (
+        post_note(email_affected_investors=True, idempotency_key="default-note-both").json()["id"]
+        == both.json()["id"]
+    )
     assert note_emails().count() == 4
     public_emails = list(note_emails().filter(payload__metadata__visibility="public"))
     assert len(public_emails) == 2
@@ -1957,8 +1958,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             gross_recovered_minor=10_000_00,
             externally_deducted_costs_minor=1_000_00,
             third_party_costs_from_received_minor=500_00,
-            recovery_fee_applied=True,
-            recovery_fee_bps=1000,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
             contractual_interest_due_minor=1_000_00,
             default_interest_due_minor=500_00,
             penalties_due_minor=100_00,
@@ -1981,10 +1982,11 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert event.net_received_minor == 9_000_00
     assert event.third_party_costs_from_received_minor == 500_00
     assert event.recovery_fee_base_minor == 8_500_00
-    assert event.recovery_fee_minor == 850_00
-    assert event.net_available_for_distribution_minor == 7_650_00
+    # U33-DEC-12: no Banxum recovery fee for investors.
+    assert event.recovery_fee_minor == 0
+    assert event.net_available_for_distribution_minor == 8_500_00
     assert event.rounding_difference_minor == 0
-    assert event.principal_recovered_minor == 6_050_00
+    assert event.principal_recovered_minor == 6_900_00
     assert event.contractual_interest_recovered_minor == 1_000_00
     assert event.default_interest_recovered_minor == 500_00
     assert event.penalties_recovered_minor == 100_00
@@ -2000,10 +2002,10 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     lines = {str(line.investor_user_id): line for line in result.distribution_lines}
     investor_one_line = lines[str(investor_one.pk)]
     investor_two_line = lines[str(investor_two.pk)]
-    assert investor_one_line.amount_minor == 2_550_00
-    assert investor_two_line.amount_minor == 5_100_00
-    assert investor_one_line.principal_minor == 2_016_67
-    assert investor_two_line.principal_minor == 4_033_33
+    assert investor_one_line.amount_minor == 2_833_33
+    assert investor_two_line.amount_minor == 5_666_67
+    assert investor_one_line.principal_minor == 2_300_00
+    assert investor_two_line.principal_minor == 4_600_00
     assert investor_one_line.contractual_interest_minor == 333_33
     assert investor_two_line.contractual_interest_minor == 666_67
     assert investor_one_line.default_interest_minor == 166_67
@@ -2014,8 +2016,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert investor_two_line.other_costs_minor == 0
     assert {line.balance_lot.source_type for line in lines.values()} == {"recovery_distribution"}
     assert {line.balance_lot.available_amount_minor for line in lines.values()} == {
-        2_550_00,
-        5_100_00,
+        2_833_33,
+        5_666_67,
     }
     recovery_emails = OutboxMessage.objects.filter(
         topic="email.recovery_distribution_credited"
@@ -2031,8 +2033,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         str(holding.investor_user_id): holding
         for holding in holding_model.objects.filter(loan=loan).order_by("investor_user_id")
     }
-    assert holdings[str(investor_one.pk)].current_principal_minor == 7_983_33
-    assert holdings[str(investor_two.pk)].current_principal_minor == 15_966_67
+    assert holdings[str(investor_one.pk)].current_principal_minor == 7_700_00
+    assert holdings[str(investor_two.pk)].current_principal_minor == 15_400_00
 
     postings = {
         (
@@ -2044,7 +2046,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         for posting in event.journal_entry.postings.select_related("account")
     }
     assert ("collection_cash", "", "debit", 9_000_00) in postings
-    assert ("platform_fee_revenue", "garanta", "credit", 850_00) in postings
+    assert not any(posting[0] == "platform_fee_revenue" for posting in postings)
     assert ("recovery_distribution_payable", "loan", "credit", 500_00) in postings
 
     ledger = import_module("backend.apps.ledger.services")
@@ -2057,8 +2059,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         )
     )
     assert snapshot.reconciliation_difference_minor == 0
-    assert snapshot.garanta_accrued_revenue_minor == 850_00
-    assert snapshot.metadata["platform_fee_revenue_minor"] == 850_00
+    assert snapshot.garanta_accrued_revenue_minor == 0
+    assert snapshot.metadata["platform_fee_revenue_minor"] == 0
     assert snapshot.metadata["recovery_distribution_payable_minor"] == 500_00
     assert AuditEvent.objects.filter(action="servicing.loan_recovery_recorded").exists()
     assert DomainEvent.objects.filter(event_type="LoanRecoveryRecorded").exists()
@@ -2071,8 +2073,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             gross_recovered_minor=10_000_00,
             externally_deducted_costs_minor=1_000_00,
             third_party_costs_from_received_minor=500_00,
-            recovery_fee_applied=True,
-            recovery_fee_bps=1000,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
             contractual_interest_due_minor=1_000_00,
             default_interest_due_minor=500_00,
             penalties_due_minor=100_00,
@@ -2089,6 +2091,28 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         )
     )
     assert replay.recovery_event.id == event.id
+
+    # U33-DEC-12: the investor sees the gross, the deducted costs and the net of the recovery,
+    # and the share credited to their balance.
+    _approve_financial_access(investor_one)
+    viewer = Client()
+    viewer.force_login(cast(Any, investor_one))
+    portfolio = viewer.get("/api/v1/investor/portal/portfolio/")
+    assert portfolio.status_code == 200, portfolio.content
+    [holding_payload] = [
+        row for row in portfolio.json()["holdings"] if row["loan"]["loan_id"] == str(loan.pk)
+    ]
+    assert holding_payload["recovery_events"] == [
+        {
+            "recovery_event_id": str(event.id),
+            "value_date": "2026-03-20",
+            "gross_recovered_minor": 10_000_00,
+            "external_costs_minor": 1_500_00,
+            "recovery_fee_minor": 0,
+            "net_distributed_minor": 8_500_00,
+            "credited_to_you_minor": 2_833_33,
+        }
+    ]
 
 
 @pytest.mark.django_db
@@ -2208,8 +2232,6 @@ def _admin_recovery_request(loan: Model, idempotency_key: str) -> dict[str, Any]
         "gross_recovered_minor": 1_000_00,
         "externally_deducted_costs_minor": 50_00,
         "third_party_costs_from_received_minor": 0,
-        "recovery_fee_applied": True,
-        "recovery_fee_bps": 500,
         "contractual_interest_due_minor": 66_67,
         "default_interest_due_minor": 100_00,
         "penalties_due_minor": 0,
@@ -2263,13 +2285,13 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     )
     assert response.status_code == 201, response.json()
     payload = response.json()
-    # 1000 gross - 50 external costs = 950 net; 5% fee = 47.50; 902.50 distributed
-    # as penalty 100.00, interest 66.67, principal 735.83.
-    assert payload["recovery_event"]["recovery_fee_minor"] == 47_50
-    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 902_50
+    # 1000 gross - 50 external costs = 950 net, all distributed (no recovery fee, U33-DEC-12)
+    # as penalty 100.00, interest 66.67, principal 783.33.
+    assert payload["recovery_event"]["recovery_fee_minor"] == 0
+    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 950_00
     assert payload["recovery_event"]["default_interest_recovered_minor"] == 100_00
     assert payload["recovery_event"]["contractual_interest_recovered_minor"] == 66_67
-    assert payload["recovery_event"]["principal_recovered_minor"] == 735_83
+    assert payload["recovery_event"]["principal_recovered_minor"] == 783_33
     recovery_event = LoanRecoveryEvent.objects.get(id=payload["recovery_event"]["id"])
     assert recovery_event.bank_operation.collection_account_identifier == "Garanta_CHF"
     assert recovery_event.bank_operation.payee_account_identifier == "Garanta_CHF"
@@ -2286,6 +2308,44 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     assert replay.status_code == 201
     assert replay.json()["recovery_event"]["id"] == payload["recovery_event"]["id"]
     assert LoanRecoveryEvent.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "fee_fields",
+    [
+        {"recovery_fee_applied": True, "recovery_fee_bps": 500},
+        {"recovery_fee_applied": False, "recovery_fee_bps": 500},
+        {"recovery_fee_applied": True, "recovery_fee_bps": 0},
+    ],
+)
+def test_recovery_with_a_banxum_fee_is_refused(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+    fee_fields: dict[str, Any],
+) -> None:
+    """U33-DEC-12: no Banxum recovery fee for investors."""
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
+        )
+    )
+    PlatformSetting.objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data={**_admin_recovery_request(loan, "servicing-recovery-fee-refused"), **fee_fields},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "no recovery fee" in response.json()["detail"]
+    assert not LoanRecoveryEvent.objects.exists()
 
 
 @pytest.mark.django_db

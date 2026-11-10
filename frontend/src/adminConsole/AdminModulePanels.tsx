@@ -5162,8 +5162,6 @@ function ManageLoanModal({
   const [recGross, setRecGross] = useState("");
   const [recExternalCosts, setRecExternalCosts] = useState("0");
   const [recThirdPartyCosts, setRecThirdPartyCosts] = useState("0");
-  const [recFeeApplied, setRecFeeApplied] = useState(false);
-  const [recFeeBps, setRecFeeBps] = useState("0");
   const [recContractualInterestDue, setRecContractualInterestDue] = useState("0");
   const [recDefaultInterestDue, setRecDefaultInterestDue] = useState("0");
   const [recPenaltiesDue, setRecPenaltiesDue] = useState("0");
@@ -5289,15 +5287,13 @@ function ManageLoanModal({
     setOriginalPaidInitializedFor(scheduleKey);
   }, [action, loan.id, loan.is_refinancing, originalPaidInitializedFor, originalScheduleRows]);
 
-  // The backend owns the allocation. The UI previews the same fixed order after
-  // external costs, third-party costs, and Garanta's recovery fee are deducted.
+  // The backend owns the allocation. The UI previews the same fixed order after external and
+  // third-party costs are deducted. There is no Banxum recovery fee for investors (U33-DEC-12).
   const recGrossMinor = intValue(recGross);
   const recExternalMinor = intValue(recExternalCosts);
   const recThirdPartyMinor = intValue(recThirdPartyCosts);
   const recNetReceivedMinor = recGrossMinor - recExternalMinor;
-  const recFeeBaseMinor = recNetReceivedMinor - recThirdPartyMinor;
-  const recFeeMinor = recFeeApplied ? Math.round((recFeeBaseMinor * intValue(recFeeBps)) / 10000) : 0;
-  const recNetAvailableMinor = recFeeBaseMinor - recFeeMinor;
+  const recNetAvailableMinor = recNetReceivedMinor - recThirdPartyMinor;
   const recPenaltyDueMinor = intValue(recDefaultInterestDue) + intValue(recPenaltiesDue);
   const recPenaltyAppliedMinor = Math.min(Math.max(recNetAvailableMinor, 0), recPenaltyDueMinor);
   const recAfterPenaltyMinor = Math.max(recNetAvailableMinor - recPenaltyAppliedMinor, 0);
@@ -5311,7 +5307,6 @@ function ManageLoanModal({
     recGross,
     recExternalCosts,
     recThirdPartyCosts,
-    recFeeApplied ? recFeeBps : "",
     recDefaultInterestDue,
     recPenaltiesDue,
     recContractualInterestDue
@@ -5415,8 +5410,6 @@ function ManageLoanModal({
       gross_recovered_minor: recGrossMinor,
       externally_deducted_costs_minor: recExternalMinor,
       third_party_costs_from_received_minor: recThirdPartyMinor,
-      recovery_fee_applied: recFeeApplied,
-      recovery_fee_bps: recFeeApplied ? intValue(recFeeBps) : 0,
       contractual_interest_due_minor: intValue(recContractualInterestDue),
       default_interest_due_minor: intValue(recDefaultInterestDue),
       penalties_due_minor: intValue(recPenaltiesDue),
@@ -5742,9 +5735,11 @@ function ManageLoanModal({
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
-                  Record funds recovered on this defaulted loan. The recovered amount, minus external and
-                  third-party costs and the optional Garanta recovery fee, is allocated by the server in one
-                  non-overridable order: penalty, contractual interest, then principal.
+                  Record funds recovered on this defaulted loan. The recovered amount, minus real external and
+                  third-party costs, is allocated by the server in one non-overridable order: penalty, contractual
+                  interest, then principal. There is no Banxum recovery fee for investors (U33-DEC-12); costs
+                  already recovered from the borrower are not deducted again. Lenders see the gross, the costs and
+                  the net.
                 </p>
                 <FieldGrid>
                   <MoneyMinorInput currency={loan.currency} label="Gross recovered" onChange={setRecGross} value={recGross} />
@@ -5752,19 +5747,10 @@ function ManageLoanModal({
                 </FieldGrid>
                 <FieldGrid>
                   <MoneyMinorInput currency={loan.currency} label="Third-party costs (from received)" onChange={setRecThirdPartyCosts} value={recThirdPartyCosts} />
-                  <Field hint="Applies the configured Garanta recovery fee on the net-of-third-party base.">
-                    <label className="check-row">
-                      <input checked={recFeeApplied} onChange={(event) => setRecFeeApplied(event.target.checked)} type="checkbox" />
-                      Apply Garanta recovery fee
-                    </label>
-                  </Field>
                 </FieldGrid>
-                {recFeeApplied ? (
-                  <TextInput integer hint="Basis points, e.g. 500 = 5%." label="Recovery fee bps" onChange={setRecFeeBps} value={recFeeBps} />
-                ) : null}
                 <div className="admin-context-bar admin-recovery-summary">
                   <span>Net received <Money amountMinor={recNetReceivedMinor} currency={loan.currency} /></span>
-                  <span>Fee <Money amountMinor={recFeeMinor} currency={loan.currency} /></span>
+                  <span>Costs <Money amountMinor={recExternalMinor + recThirdPartyMinor} currency={loan.currency} /></span>
                   <span>
                     Net to distribute <strong><Money amountMinor={recNetAvailableMinor} currency={loan.currency} /></strong>
                   </span>
@@ -5775,7 +5761,7 @@ function ManageLoanModal({
                 </FieldGrid>
                 <MoneyMinorInput currency={loan.currency} label="Outstanding contractual interest" onChange={setRecContractualInterestDue} value={recContractualInterestDue} />
                 <div className="admin-context-bar admin-recovery-summary">
-                  <span>1. Costs and recovery fee <Money amountMinor={Math.max(recGrossMinor - recNetAvailableMinor, 0)} currency={loan.currency} /></span>
+                  <span>1. External costs <Money amountMinor={Math.max(recGrossMinor - recNetAvailableMinor, 0)} currency={loan.currency} /></span>
                   <span>2. Penalty <Money amountMinor={recPenaltyAppliedMinor} currency={loan.currency} /></span>
                   <span>3. Interest <Money amountMinor={recInterestAppliedMinor} currency={loan.currency} /></span>
                   <span>4. Principal <strong><Money amountMinor={recProjectedPrincipalMinor} currency={loan.currency} /></strong></span>
@@ -5815,7 +5801,7 @@ function ManageLoanModal({
                 ) : null}
                 <OperationConfirmButton
                   confirmLabel={recDuplicatePending && recConfirmRepeat ? "Record repeat recovery" : "Record recovery"}
-                  description="Recording a recovery credits affected investor balance lots via the recovery waterfall, reduces current holding principal, and posts Garanta recovery-fee revenue. Recovery is only valid on a defaulted loan."
+                  description="Recording a recovery credits affected investor balance lots via the recovery waterfall and reduces current holding principal. No Banxum recovery fee is charged. Recovery is only valid on a defaulted loan."
                   details={[
                     { label: "Loan", value: loanId },
                     { label: "Gross recovered", value: `${recGrossMinor} minor units` },
@@ -5823,7 +5809,7 @@ function ManageLoanModal({
                     { label: "Penalty applied first", value: `${recPenaltyAppliedMinor} minor units` },
                     { label: "Interest applied next", value: `${recInterestAppliedMinor} minor units` },
                     { label: "Projected principal", value: `${recProjectedPrincipalMinor} minor units` },
-                    { label: "Fee applied", value: recFeeApplied ? `Yes (${intValue(recFeeBps)} bps)` : "No" }
+                    { label: "External costs", value: `${recExternalMinor + recThirdPartyMinor} minor units` }
                   ]}
                   disabled={recordRecovery.isPending || !recCanSubmit}
                   onConfirm={recordRecoveryPayment}

@@ -1105,7 +1105,7 @@ def _balance_ageing_dataset(
             lot.withdrawal_deadline_at.astimezone(business_timezone()).date() - end_date
         ).days
         # Same days as the ageing scan: money not invested goes back to the bank after the
-        # last day (day 58 by default); penalty mode only after the 60-day legal limit.
+        # last day (day 58 by default); there is no penalty (U33-DEC-04).
         last_day_days_left = (
             balance_last_day(
                 withdrawal_deadline_at=lot.withdrawal_deadline_at,

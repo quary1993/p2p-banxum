@@ -371,6 +371,19 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     schedule = PortfolioInstallmentSerializer(many=True)
 
 
+class HoldingRecoveryEventSerializer(serializers.Serializer[Any]):
+    """U33-DEC-12: one recovery of the loan (whole-loan amounts) and the investor's share."""
+
+    recovery_event_id = serializers.UUIDField()
+    value_date = serializers.DateField()
+    gross_recovered_minor = serializers.IntegerField()
+    external_costs_minor = serializers.IntegerField()
+    # A Banxum recovery fee recorded before U33-DEC-12; 0 for every later recovery.
+    recovery_fee_minor = serializers.IntegerField()
+    net_distributed_minor = serializers.IntegerField()
+    credited_to_you_minor = serializers.IntegerField()
+
+
 class LatestPublicNoteSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     note_type = serializers.CharField()
@@ -413,6 +426,7 @@ class HoldingSerializer(serializers.Serializer[Any]):
     recovered_default_interest_minor = serializers.IntegerField()
     recovered_penalties_minor = serializers.IntegerField()
     recovered_other_costs_minor = serializers.IntegerField()
+    recovery_events = HoldingRecoveryEventSerializer(many=True, required=False)
     latest_public_note = LatestPublicNoteSerializer(allow_null=True, required=False)
     open_secondary_listing = HoldingOpenSecondaryListingSerializer(allow_null=True)
 

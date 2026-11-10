@@ -315,7 +315,7 @@ export function CtaBand({ eyebrow, title }: { eyebrow?: string; title?: string }
             <strong>Follow</strong>
             <span>
               See every payment in your account. Interest counts every day, and repayments are credited to your balance,
-              to invest again or withdraw. No fees.
+              to invest again or withdraw. No Banxum fee on repayments.
             </span>
           </div>
         </div>

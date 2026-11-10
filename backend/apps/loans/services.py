@@ -273,6 +273,19 @@ def _validate_fee_bps(value: int, label: str) -> int:
     return value
 
 
+NO_RECOVERY_FEE_MESSAGE = (
+    "Banxum charges investors no recovery fee (U33-DEC-12). Real external recovery costs are "
+    "recorded with each recovery payment."
+)
+
+
+def _validate_no_recovery_fee(value: int) -> int:
+    """U33-DEC-12: no Banxum recovery fee for investors, so a loan's recovery fee is 0."""
+    if type(value) is not int or value != 0:
+        raise LoanValidationError(NO_RECOVERY_FEE_MESSAGE)
+    return value
+
+
 def _validate_minor_nonnegative(value: int, label: str) -> int:
     if type(value) is not int or value < 0:
         raise LoanValidationError(f"{label} must be a non-negative integer minor-unit amount.")
@@ -805,7 +818,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         "Default penalty interest",
         allow_zero=True,
     )
-    recovery_fee_bps = _validate_fee_bps(command.recovery_fee_bps, "Recovery fee")
+    recovery_fee_bps = _validate_no_recovery_fee(command.recovery_fee_bps)
     minimum_subscription_bps = int(command.minimum_subscription_bps)
     if minimum_subscription_bps < 0 or minimum_subscription_bps > 10_000:
         raise LoanValidationError("Minimum subscription must be between 0% and 100%.")
@@ -1146,7 +1159,7 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="recovery_fee_bps",
-            value=_validate_fee_bps(command.recovery_fee_bps, "Recovery fee"),
+            value=_validate_no_recovery_fee(command.recovery_fee_bps),
             changes=changes,
         )
     if command.minimum_subscription_bps is not None:

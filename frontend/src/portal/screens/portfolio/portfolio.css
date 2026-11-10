@@ -315,6 +315,24 @@ html.bxu .u33-recovered .u33-recovered-total dt {
   color: inherit;
   font-weight: 500;
 }
+html.bxu .u33-recoveries {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+html.bxu .u33-recoveries > li + li {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bxm-line, #e3e7eb);
+}
+html.bxu .u33-recoveries time {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+html.bxu .u33-recoveries .u33-recovered {
+  margin: 0;
+}
 html.bxu .u33-lot-date {
   margin-top: 2px;
 }

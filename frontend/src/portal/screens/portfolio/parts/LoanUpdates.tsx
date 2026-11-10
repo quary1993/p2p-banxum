@@ -4,7 +4,8 @@
 // public loan notes published by the team (the old "Loan notes"). No invented stages, next steps or
 // dates (U33-DEC-22: structured recovery stages come with Phase 17.4). The contract termination is a
 // separate recorded stage with its real date (U33-DEC-09). Banxum follows up; the investor is never
-// asked to act. Recoveries are credited to the Banxum balance (U33-DEC-02).
+// asked to act. Recoveries are credited to the Banxum balance (U33-DEC-02); each recovery shows the
+// gross, the real external costs and the net, with no Banxum recovery fee (U33-DEC-12).
 import { useEffect } from "react";
 
 import type { Holding, PublicLoanRiskNote } from "../../../../api/generated/banxumApi";
@@ -169,6 +170,7 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
     { label: t("Other recoveries"), amount: holding.recovered_other_costs_minor }
   ];
   const recoveredTotal = recovered.reduce((sum, item) => sum + item.amount, 0);
+  const recoveries = holding.recovery_events ?? [];
   const writtenOff = holding.loan.loan_status === "written_off";
   return (
     <div className="card card-bordered rid-followup r31m-default r75c-recovery" id="loan-notes">
@@ -185,7 +187,7 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
               {holding.loan.contract_terminated_on ? `${t("The loan contract was terminated on {date}.", { date: formatDate(holding.loan.contract_terminated_on) })} ` : null}
               {holding.loan.days_past_due > 0 ? t("{days} days since the first unpaid payment.", { days: holding.loan.days_past_due }) : null}{" "}
               {/* Design text adapted: recoveries go to the Banxum account, not to the IBAN (U33-DEC-02/12). */}
-              {t("Recovered amounts, after the costs of enforcement, are credited to each investor's Banxum account in proportion to their share.")}
+              {t("Recovered amounts, after real external costs such as lawyers, courts and enforcement, are credited to each investor's Banxum account in proportion to their share. Banxum takes no recovery fee.")}
             </p>
           </section>
           <section>
@@ -218,6 +220,27 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
             ) : (
               <p className="u33-muted">{t("Earlier updates appear here.")}</p>
             )}
+            {recoveries.length > 0 ? (
+              <>
+                <h3>{t("Recoveries")}</h3>
+                <ol className="u33-recoveries">
+                  {recoveries.map((recovery) => (
+                    <li key={recovery.recovery_event_id}>
+                      <time dateTime={recovery.value_date}>{formatDate(recovery.value_date)}</time>
+                      <dl className="u33-recovered">
+                        <div><dt>{t("Recovered for the whole loan")}</dt><dd>{money(recovery.gross_recovered_minor)}</dd></div>
+                        <div><dt>{t("External costs deducted")}</dt><dd>{`− ${money(recovery.external_costs_minor)}`}</dd></div>
+                        {recovery.recovery_fee_minor > 0 ? (
+                          <div><dt>{t("Recovery fee (charged before 10 Nov 2026)")}</dt><dd>{`− ${money(recovery.recovery_fee_minor)}`}</dd></div>
+                        ) : null}
+                        <div><dt>{t("Net distributed to investors")}</dt><dd>{money(recovery.net_distributed_minor)}</dd></div>
+                        <div className="u33-recovered-total"><dt>{t("Credited to your balance")}</dt><dd>{money(recovery.credited_to_you_minor)}</dd></div>
+                      </dl>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : null}
             <h3>{t("Recovered to date")}</h3>
             {recoveredTotal > 0 ? (
               <dl className="u33-recovered">

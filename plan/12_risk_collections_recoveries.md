@@ -132,6 +132,8 @@ Define public note visibility rules, authoring permissions, and whether historic
 ### RISK-DEC-005: Gross Recovery, Third-Party Costs, Recovery Fee, and Net Reporting
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: no Banxum recovery fee for investors; gross recovered, deducted external costs and net distributed are shown.
+>
+> Implemented 2026-11-10 (Phase 17.2): a recovery payment with `recovery_fee_applied` true or `recovery_fee_bps` above 0 is refused (HTTP 400, "Banxum charges investors no recovery fee"); loans can no longer carry a recovery fee rate (create and edit refuse it), and migration `loans.0020_remove_investor_recovery_fee` set the rate of existing loans to 0 with a system "updated" loan event. Recoveries already recorded keep their recorded fee. The investor portfolio API gives `recovery_events` per holding (date, gross recovered for the loan, external costs = externally deducted + third-party costs, a fee recorded before the change, net distributed, the investor's credited share); the investment page shows them under Recovery history. The admin recovery form has no fee fields. The lender payment fee stays configurable with default 0. Public and Help texts no longer say "0% for investors" or "No fees" without context.
 
 Status: Accepted.
 Date: 2026-05-16. Updated 2026-06-01.

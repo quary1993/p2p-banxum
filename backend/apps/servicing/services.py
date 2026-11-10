@@ -108,6 +108,10 @@ PROJECTABLE_LOAN_STATUSES = {
     LOAN_STATUS_LATE,
 }
 RECOVERY_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_DEFAULTED}
+NO_RECOVERY_FEE_MESSAGE = (
+    "Banxum charges investors no recovery fee (U33-DEC-12). Record real external costs as "
+    "externally deducted or third-party recovery costs."
+)
 # U33-DEC-09: Late / Default days come from loan_status_thresholds() (platform settings
 # servicing.late_threshold_days / servicing.default_threshold_days, or the loan's contract).
 PUBLIC_NOTE_LOAN_STATUSES = {
@@ -539,19 +543,6 @@ def _allocate_universal_waterfall(
         )
     except PaymentWaterfallError as exc:
         raise ServicingValidationError(str(exc)) from exc
-
-
-def _fee_from_bps(base_minor: int, bps: int) -> int:
-    if type(bps) is not int:
-        raise ServicingValidationError("Recovery fee bps must be an integer.")
-    if bps < 0:
-        raise ServicingValidationError("Recovery fee bps cannot be negative.")
-    return int(
-        (Decimal(base_minor) * Decimal(bps) / Decimal(10_000)).quantize(
-            Decimal("1"),
-            rounding=ROUND_HALF_UP,
-        )
-    )
 
 
 def _loan_model() -> Any:
@@ -2887,13 +2878,11 @@ def record_loan_recovery_payment(
         raise ServicingValidationError(
             "Recovery fee/cost base must leave funds available after third-party costs."
         )
-    if command.recovery_fee_bps > 10_000:
-        raise ServicingValidationError("Recovery fee bps cannot exceed 100%.")
-    recovery_fee_minor = (
-        _fee_from_bps(recovery_fee_base_minor, command.recovery_fee_bps)
-        if command.recovery_fee_applied
-        else 0
-    )
+    # U33-DEC-12: Banxum charges investors no recovery fee. Real external costs are the
+    # externally deducted and third-party costs above; the fee fields stay for history.
+    if command.recovery_fee_applied or command.recovery_fee_bps != 0:
+        raise ServicingValidationError(NO_RECOVERY_FEE_MESSAGE)
+    recovery_fee_minor = 0
     net_available_for_distribution_minor = (
         net_received_minor - third_party_costs_from_received_minor - recovery_fee_minor
     )
