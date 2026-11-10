@@ -1,11 +1,12 @@
 // IP of Webby-Soft SRL.
 /*
  * Credit file (design #/projects/:id/credit-file, slice S2): the U33 folder cover and the chapter
- * reader, filled only with data the platform has today: Summary, Borrower & business (the published
- * story and the public profile fields), Financials (the last-year figures, hidden when there are none),
- * Security (each security of the loan, U33-DEC-21), Loan terms (rate, term, repayment, schedule, originator
- * participation, refinanced loan) and Documents. "Checks & updates", structured statements over
- * several years and the document metadata come with U33-DEC-20 (Phase 17.4).
+ * reader, filled only with recorded data. U33-DEC-20: the seven chapters stay: Summary, Borrower &
+ * business (the published story and the public profile fields), Financials (the structured years with
+ * the key ratios and the existing debt; the last-year figures when no year is recorded), Security (each
+ * security of the loan, U33-DEC-21), Loan terms (rate, term, repayment, schedule, originator
+ * participation, refinanced loan), Checks & updates (recorded checks, monitoring, recovery stages and
+ * loan notes) and Documents (with their library metadata). An empty chapter says what is missing.
  */
 import { useState, type ReactNode } from "react";
 
@@ -42,9 +43,11 @@ import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
 import { AdditionalSecurityBlock, SecurityFacts, SecurityNotes } from "./parts/SecurityDetails";
+import { ChecksAndUpdates } from "./parts/CreditFileChecks";
+import { FinancialStatements } from "./parts/CreditFileFinancials";
 import { securityValueLabel } from "../portfolio/parts/labels";
 
-type ChapterId = "summary" | "business" | "financials" | "security" | "terms" | "documents";
+type ChapterId = "summary" | "business" | "financials" | "security" | "terms" | "checks" | "documents";
 
 function humanize(token: string) {
   const text = token.replaceAll("_", " ").trim();
@@ -101,11 +104,13 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
   const chapters: Array<{ id: ChapterId; label: string; short: string }> = [
     { id: "summary", label: t("Summary"), short: t("Summary") },
     { id: "business", label: isOriginatorClaimLoan(loan) ? t("Borrower & originator") : t("Borrower & business"), short: t("Business") },
-    ...(financials.length > 0 ? [{ id: "financials" as const, label: t("Financials"), short: t("Financials") }] : []),
+    { id: "financials", label: t("Financials"), short: t("Financials") },
     { id: "security", label: t("Security"), short: t("Security") },
     { id: "terms", label: t("Loan terms"), short: t("Terms") },
-    ...(documents.length > 0 ? [{ id: "documents" as const, label: t("Documents"), short: t("Documents") }] : [])
+    { id: "checks", label: t("Checks & updates"), short: t("Checks") },
+    { id: "documents", label: t("Documents"), short: t("Documents") }
   ];
+  const financialYears = loan.financial_years ?? [];
   const known = chapters.find((chapter) => chapter.id === initialChapter);
   const [opened, setOpened] = useState(Boolean(known));
   const [chapter, setChapter] = useState<ChapterId>(known?.id ?? "summary");
@@ -282,6 +287,10 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
           {chapter === "financials" ? (
             <section aria-labelledby="heading-financials" className="case-chapter r100-chapter" id="financials">
               {heading("financials", t("Financials"))}
+              {financialYears.length > 0 ? (
+                <FinancialStatements company={company} currency={financialsCurrency} facilities={loan.debt_facilities ?? []} years={financialYears} />
+              ) : financials.length > 0 ? (
+              <>
               <div className="r100-financial-context">
                 <span>{[company, t("last financial year")].filter(Boolean).join(" · ")}</span>
                 <span><span>{t("As disclosed")}</span> · {financialsCurrency}</span>
@@ -303,6 +312,17 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
                 </div>
               </section>
               <p className="bxm-muted small">{t("Figures as disclosed for the borrower's last financial year. They are not audited by Banxum.")}</p>
+              </>
+              ) : (
+                <p className="bxm-muted">{t("No financial figures are published for this borrower.")}</p>
+              )}
+            </section>
+          ) : null}
+
+          {chapter === "checks" ? (
+            <section aria-labelledby="heading-checks" className="case-chapter r100-chapter" id="checks">
+              {heading("checks", t("Checks & updates"))}
+              <ChecksAndUpdates loan={loan} />
             </section>
           ) : null}
 
@@ -354,7 +374,11 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
               <div className="r100-file-library">
                 <section className="r100-file-group">
                   <h3>{t("Borrower documents")}</h3>
-                  <LoanDocumentList disabled={isFixturePreview} documents={documents} humanize={humanize} loanId={loan.loan_id} />
+                  {documents.length > 0 ? (
+                    <LoanDocumentList disabled={isFixturePreview} documents={documents} humanize={humanize} loanId={loan.loan_id} />
+                  ) : (
+                    <p className="bxm-muted">{t("No document is published for this loan.")}</p>
+                  )}
                 </section>
               </div>
             </section>

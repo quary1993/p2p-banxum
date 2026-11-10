@@ -12,13 +12,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.loans import credit_checks as loan_credit_checks
 from backend.apps.loans import securities as loan_securities
 from backend.apps.loans.api.serializers import (
     LoanComingSoonRequestSerializer,
     LoanCreateRequestSerializer,
+    LoanCreditCheckRequestSerializer,
+    LoanCreditCheckSerializer,
+    LoanCreditChecksSerializer,
     LoanEventSerializer,
     LoanInstallmentSerializer,
     LoanListQuerySerializer,
+    LoanMonitoringRequestSerializer,
     LoanSecurityListSerializer,
     LoanSecurityRequestSerializer,
     LoanSecuritySerializer,
@@ -464,3 +469,107 @@ class LoanSecurityDetailView(APIView):
         except loan_securities.LoanSecurityError as exc:
             return _security_error(exc)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _credit_check_error(exc: Exception) -> Response:
+    if isinstance(exc, loan_credit_checks.CreditCheckAuthorizationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _credit_check_command(request: Request, loan_id: str, check_id: str | None) -> Any:
+    serializer = LoanCreditCheckRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data: dict[str, Any] = serializer.validated_data
+    return loan_credit_checks.SaveCreditCheckCommand(
+        actor=cast(Model, request.user), loan_id=str(loan_id), check_id=check_id, **data
+    )
+
+
+class LoanCreditCheckListView(APIView):
+    """U33-DEC-20: the loan's checks and monitoring text (GET) or record a check (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LoanCreditChecksSerializer})
+    def get(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            payload = loan_credit_checks.list_credit_checks(
+                actor=cast(Model, request.user), loan_id=str(loan_id)
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)
+
+    @extend_schema(
+        request=LoanCreditCheckRequestSerializer, responses={201: LoanCreditCheckSerializer}
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            payload = loan_credit_checks.save_credit_check(
+                _credit_check_command(request, loan_id, None)
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class LoanCreditCheckDetailView(APIView):
+    """U33-DEC-20: change (PUT) or remove (DELETE) a check."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanCreditCheckRequestSerializer, responses={200: LoanCreditCheckSerializer}
+    )
+    def put(self, request: Request, loan_id: str, check_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            payload = loan_credit_checks.save_credit_check(
+                _credit_check_command(request, loan_id, str(check_id))
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, loan_id: str, check_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            loan_credit_checks.remove_credit_check(
+                actor=cast(Model, request.user), loan_id=str(loan_id), check_id=str(check_id)
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LoanMonitoringView(APIView):
+    """U33-DEC-20: how often and on what the loan is followed."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanMonitoringRequestSerializer, responses={200: LoanCreditChecksSerializer}
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanMonitoringRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = loan_credit_checks.set_monitoring(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                frequency=serializer.validated_data["frequency"],
+                focus=serializer.validated_data["focus"],
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)

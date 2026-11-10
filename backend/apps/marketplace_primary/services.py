@@ -2355,6 +2355,17 @@ def loan_funding_progress(loan_id: str) -> dict[str, Any]:
     }
 
 
+def _recovery_stages_for(loan_ref: Any) -> dict[str, Any]:
+    """U33-DEC-22: the recorded stages and the known next step, for the credit file."""
+    loan_id = str(loan_ref.id)
+    return cast(
+        dict[str, Any],
+        import_module("backend.apps.servicing.recovery_stages").investor_recovery_stages([loan_id])[
+            loan_id
+        ],
+    )
+
+
 def _loan_securities_module() -> Any:
     return import_module("backend.apps.loans.securities")
 
@@ -2467,6 +2478,10 @@ def full_marketplace_listing_payload(
             "securities": _loan_securities_module().investor_securities([str(loan_ref.id)])[
                 str(loan_ref.id)
             ],
+            # U33-DEC-20: structured credit file (financial years, existing debt, checks).
+            **import_module("backend.apps.entities.credit_file").investor_credit_file(borrower),
+            **import_module("backend.apps.loans.credit_checks").investor_checks(loan_ref),
+            "recovery_stages": _recovery_stages_for(loan_ref),
             "default_penalty_interest_bps": int(loan_ref.default_penalty_interest_bps),
             "ltv_bps": loan_ref.ltv_bps,
             "ltv_warnings": loan_ref.ltv_warnings,

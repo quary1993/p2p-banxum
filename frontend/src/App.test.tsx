@@ -1447,6 +1447,53 @@ test("several securities show on the opportunity, in the credit file and in the 
   expect(screen.getByRole("heading", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
 });
 
+test("the credit file has seven chapters with structured financials, key ratios, checks and document metadata (U33-DEC-20)", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/GA-2401/credit-file");
+  fireEvent.click(screen.getByRole("button", { name: /Open credit file/ }));
+  const contents = within(screen.getByRole("navigation", { name: "Credit file contents" }));
+  expect(contents.getAllByRole("button").map((button) => button.textContent?.replace(/^\d+/, ""))).toEqual([
+    "Summary",
+    "Borrower & business",
+    "Financials",
+    "Security",
+    "Loan terms",
+    "Checks & updates",
+    "Documents"
+  ]);
+
+  fireEvent.click(contents.getByRole("button", { name: /Financials$/ }));
+  const chapter = document.getElementById("financials") as HTMLElement;
+  expect(chapter).toHaveTextContent(/2023–2025/);
+  expect(chapter).toHaveTextContent(/Historical · CHF thousands/);
+  const pl = within(chapter).getByRole("heading", { name: "Profit & loss" }).closest("section") as HTMLElement;
+  expect(within(pl).getByRole("row", { name: /^Revenue/ })).toHaveTextContent(/10.400\s*11.200\s*11.800/);
+  expect(within(pl).queryByText("Staff costs")).not.toBeInTheDocument();
+  fireEvent.click(within(pl).getByRole("button", { name: "Operating profit" }));
+  expect(within(pl).getByRole("row", { name: /Staff costs/ })).toHaveTextContent(/-2.500\s*-2.650\s*-2.770/);
+  const ratios = within(chapter).getByRole("heading", { name: "Key ratios" }).closest("section") as HTMLElement;
+  // 2025: equity 3,360 / assets 8,000 = 42.0%; debt 3,030 / equity 3,360 = 0.90x; 1,050 / 11,800 = 8.9%; 1,050 / 160 = 6.56x.
+  expect(within(ratios).getByRole("row", { name: /Equity \/ total assets/ })).toHaveTextContent(/42,0%$/);
+  expect(within(ratios).getByRole("row", { name: /Financial debt \/ equity/ })).toHaveTextContent(/0,90×$/);
+  expect(within(ratios).getByRole("row", { name: /Operating margin/ })).toHaveTextContent(/8,9%$/);
+  expect(within(ratios).getByRole("row", { name: /Interest coverage/ })).toHaveTextContent(/6,56×$/);
+  fireEvent.click(within(ratios).getByRole("button", { name: "Ratio formulas" }));
+  expect(within(screen.getByRole("dialog", { name: "Key ratios" })).getByText("Operating profit ÷ interest expense.")).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Key ratios" })).getByRole("button", { name: /Close/ }));
+  expect(within(chapter).getByRole("row", { name: /Property loan/ })).toHaveTextContent("Mortgage on separate premises");
+
+  fireEvent.click(contents.getByRole("button", { name: /Checks & updates$/ }));
+  const checks = document.getElementById("checks") as HTMLElement;
+  expect(checks).toHaveTextContent("Recorded by Banxum");
+  expect(within(checks).getByText("Company and owners")).toBeInTheDocument();
+  expect(checks).toHaveTextContent("Source: Commercial register and shareholder register");
+  expect(checks).toHaveTextContent("Warehouse occupancy, fleet costs and cash generation.");
+
+  fireEvent.click(contents.getByRole("button", { name: /Documents$/ }));
+  expect(screen.getByRole("button", { name: "Download Borrower financial summary" })).toHaveTextContent("Financial statements · FY 2025 · Helvetia Logistik AG · Version 1 · Final");
+});
+
 test("the credit file's Borrower & business chapter shows the published story, safely rendered", () => {
   renderApp();
   loginDemo();

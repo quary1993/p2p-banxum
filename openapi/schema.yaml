@@ -2022,6 +2022,126 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerEntity'
           description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/debt-facilities/:
+    get:
+      operationId: v1_entities_admin_borrowers_debt_facilities_retrieve
+      description: 'U33-DEC-20: the borrower''s existing debt (GET) or add a facility
+        (POST).'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDebtFacilityList'
+          description: ''
+    post:
+      operationId: v1_entities_admin_borrowers_debt_facilities_create
+      description: 'U33-DEC-20: the borrower''s existing debt (GET) or add a facility
+        (POST).'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDebtFacility'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/debt-facilities/{facility_id}/:
+    put:
+      operationId: v1_entities_admin_borrowers_debt_facilities_update
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a facility.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: facility_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerDebtFacilityRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDebtFacility'
+          description: ''
+    delete:
+      operationId: v1_entities_admin_borrowers_debt_facilities_destroy
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a facility.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: facility_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/entities/admin/borrowers/{borrower_id}/documents/:
     get:
       operationId: v1_entities_admin_borrowers_documents_list
@@ -2077,6 +2197,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerDocument'
           description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/documents/{document_id}/metadata/:
+    post:
+      operationId: v1_entities_admin_borrowers_documents_metadata_create
+      description: 'U33-DEC-20: set the library metadata of a borrower document.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentMetadataRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentMetadataRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentMetadataRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDocument'
+          description: ''
   /api/v1/entities/admin/borrowers/{borrower_id}/events/:
     get:
       operationId: v1_entities_admin_borrowers_events_list
@@ -2100,6 +2259,126 @@ paths:
                 items:
                   $ref: '#/components/schemas/BorrowerEntityEvent'
           description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/financial-years/:
+    get:
+      operationId: v1_entities_admin_borrowers_financial_years_retrieve
+      description: 'U33-DEC-20: the borrower''s financial years (GET) or record one
+        (POST).'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerFinancialYearList'
+          description: ''
+    post:
+      operationId: v1_entities_admin_borrowers_financial_years_create
+      description: 'U33-DEC-20: the borrower''s financial years (GET) or record one
+        (POST).'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerFinancialYear'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/financial-years/{financial_year_id}/:
+    put:
+      operationId: v1_entities_admin_borrowers_financial_years_update
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a financial year.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: financial_year_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerFinancialYearRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerFinancialYear'
+          description: ''
+    delete:
+      operationId: v1_entities_admin_borrowers_financial_years_destroy
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a financial year.'
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: financial_year_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/entities/admin/borrowers/{borrower_id}/investor-disclosure-preview/:
     get:
       operationId: v1_entities_admin_borrowers_investor_disclosure_preview_retrieve
@@ -3629,6 +3908,126 @@ paths:
               schema:
                 $ref: '#/components/schemas/Loan'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/credit-checks/:
+    get:
+      operationId: v1_loans_admin_loans_credit_checks_retrieve
+      description: 'U33-DEC-20: the loan''s checks and monitoring text (GET) or record
+        a check (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditChecks'
+          description: ''
+    post:
+      operationId: v1_loans_admin_loans_credit_checks_create
+      description: 'U33-DEC-20: the loan''s checks and monitoring text (GET) or record
+        a check (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditCheck'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/credit-checks/{check_id}/:
+    put:
+      operationId: v1_loans_admin_loans_credit_checks_update
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a check.'
+      parameters:
+      - in: path
+        name: check_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanCreditCheckRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditCheck'
+          description: ''
+    delete:
+      operationId: v1_loans_admin_loans_credit_checks_destroy
+      description: 'U33-DEC-20: change (PUT) or remove (DELETE) a check.'
+      parameters:
+      - in: path
+        name: check_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/loans/admin/loans/{loan_id}/events/:
     get:
       operationId: v1_loans_admin_loans_events_list
@@ -3651,6 +4050,39 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/LoanEvent'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/monitoring/:
+    post:
+      operationId: v1_loans_admin_loans_monitoring_create
+      description: 'U33-DEC-20: how often and on what the loan is followed.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanMonitoringRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanMonitoringRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanMonitoringRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditChecks'
           description: ''
   /api/v1/loans/admin/loans/{loan_id}/original-schedule/:
     get:
@@ -7440,6 +7872,88 @@ components:
     BlankEnum:
       enum:
       - ''
+    BorrowerDebtFacility:
+      type: object
+      description: 'U33-DEC-20: one facility of the borrower''s existing debt, at
+        a date.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        facility_type:
+          type: string
+        currency:
+          type: string
+        balance_minor:
+          type: integer
+        current_portion_minor:
+          type: integer
+          nullable: true
+        non_current_portion_minor:
+          type: integer
+          nullable: true
+        security_description:
+          type: string
+        as_at:
+          type: string
+          format: date
+        source_document:
+          allOf:
+          - $ref: '#/components/schemas/CreditFileDocumentRef'
+          nullable: true
+      required:
+      - as_at
+      - balance_minor
+      - currency
+      - current_portion_minor
+      - facility_type
+      - id
+      - non_current_portion_minor
+      - position
+      - security_description
+      - source_document
+    BorrowerDebtFacilityList:
+      type: object
+      properties:
+        debt_facilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/BorrowerDebtFacility'
+      required:
+      - debt_facilities
+    BorrowerDebtFacilityRequest:
+      type: object
+      properties:
+        facility_type:
+          type: string
+          maxLength: 255
+        currency:
+          type: string
+          maxLength: 3
+        balance_minor:
+          type: integer
+          minimum: 0
+        current_portion_minor:
+          type: integer
+          minimum: 0
+          nullable: true
+        security_description:
+          type: string
+          default: ''
+        as_at:
+          type: string
+          format: date
+        source_document_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - as_at
+      - balance_minor
+      - currency
+      - facility_type
     BorrowerDisbursementFinalizeRequest:
       type: object
       properties:
@@ -7529,6 +8043,20 @@ components:
           type: integer
         investor_visible:
           type: boolean
+        category:
+          type: string
+        document_date:
+          type: string
+          format: date
+          nullable: true
+        period_label:
+          type: string
+        issuer:
+          type: string
+        version:
+          type: string
+        document_status:
+          type: string
         created_by_admin_id:
           type: string
           format: uuid
@@ -7542,16 +8070,22 @@ components:
           format: date-time
       required:
       - borrower_id
+      - category
       - created_at
       - created_by_account_type
       - created_by_admin_id
       - description
       - display_name
+      - document_date
+      - document_status
       - document_type
       - id
       - investor_visible
+      - issuer
+      - period_label
       - stored_file_id
       - updated_at
+      - version
     BorrowerDocumentCreateRequest:
       type: object
       properties:
@@ -7573,6 +8107,33 @@ components:
       - display_name
       - document_type
       - stored_file_id
+    BorrowerDocumentMetadataRequest:
+      type: object
+      properties:
+        category:
+          type: string
+          default: ''
+          maxLength: 64
+        document_date:
+          type: string
+          format: date
+          nullable: true
+        period_label:
+          type: string
+          default: ''
+          maxLength: 64
+        issuer:
+          type: string
+          default: ''
+          maxLength: 255
+        version:
+          type: string
+          default: ''
+          maxLength: 32
+        document_status:
+          type: string
+          default: ''
+          maxLength: 64
     BorrowerDocumentTypeEnum:
       enum:
       - presentation
@@ -7864,6 +8425,164 @@ components:
         * `real_estate_project_company` - Real estate project company
         * `special_purpose_vehicle` - Special purpose vehicle
         * `other` - Other
+    BorrowerFinancialYear:
+      type: object
+      description: 'U33-DEC-20: the figures of one financial year (totals, and details
+        that add up).'
+      properties:
+        id:
+          type: string
+          format: uuid
+        year:
+          type: integer
+        period_end:
+          type: string
+          format: date
+        currency:
+          type: string
+        source_document:
+          allOf:
+          - $ref: '#/components/schemas/CreditFileDocumentRef'
+          nullable: true
+        revenue_minor:
+          type: integer
+          nullable: true
+        materials_costs_minor:
+          type: integer
+          nullable: true
+        staff_costs_minor:
+          type: integer
+          nullable: true
+        other_operating_costs_minor:
+          type: integer
+          nullable: true
+        depreciation_minor:
+          type: integer
+          nullable: true
+        operating_profit_minor:
+          type: integer
+          nullable: true
+        interest_expense_minor:
+          type: integer
+          nullable: true
+        profit_before_tax_minor:
+          type: integer
+          nullable: true
+        income_tax_minor:
+          type: integer
+          nullable: true
+        net_profit_minor:
+          type: integer
+          nullable: true
+        cash_minor:
+          type: integer
+          nullable: true
+        trade_receivables_minor:
+          type: integer
+          nullable: true
+        inventories_minor:
+          type: integer
+          nullable: true
+        other_current_assets_minor:
+          type: integer
+          nullable: true
+        current_assets_minor:
+          type: integer
+          nullable: true
+        property_plant_equipment_minor:
+          type: integer
+          nullable: true
+        other_non_current_assets_minor:
+          type: integer
+          nullable: true
+        total_assets_minor:
+          type: integer
+          nullable: true
+        current_financial_debt_minor:
+          type: integer
+          nullable: true
+        non_current_financial_debt_minor:
+          type: integer
+          nullable: true
+        financial_debt_minor:
+          type: integer
+          nullable: true
+        trade_payables_minor:
+          type: integer
+          nullable: true
+        other_operating_liabilities_minor:
+          type: integer
+          nullable: true
+        equity_minor:
+          type: integer
+          nullable: true
+      required:
+      - cash_minor
+      - currency
+      - current_assets_minor
+      - current_financial_debt_minor
+      - depreciation_minor
+      - equity_minor
+      - financial_debt_minor
+      - id
+      - income_tax_minor
+      - interest_expense_minor
+      - inventories_minor
+      - materials_costs_minor
+      - net_profit_minor
+      - non_current_financial_debt_minor
+      - operating_profit_minor
+      - other_current_assets_minor
+      - other_non_current_assets_minor
+      - other_operating_costs_minor
+      - other_operating_liabilities_minor
+      - period_end
+      - profit_before_tax_minor
+      - property_plant_equipment_minor
+      - revenue_minor
+      - source_document
+      - staff_costs_minor
+      - total_assets_minor
+      - trade_payables_minor
+      - trade_receivables_minor
+      - year
+    BorrowerFinancialYearList:
+      type: object
+      properties:
+        financial_years:
+          type: array
+          items:
+            $ref: '#/components/schemas/BorrowerFinancialYear'
+      required:
+      - financial_years
+    BorrowerFinancialYearRequest:
+      type: object
+      properties:
+        year:
+          type: integer
+          maximum: 2100
+          minimum: 1900
+        period_end:
+          type: string
+          format: date
+        currency:
+          type: string
+          maxLength: 3
+        source_document_id:
+          type: string
+          format: uuid
+          nullable: true
+        amounts:
+          type: object
+          additionalProperties:
+            type: integer
+            nullable: true
+          description: Minor units; costs, assets and debts as positive amounts.
+      required:
+      - amounts
+      - currency
+      - period_end
+      - year
     BorrowerInvestorDisclosure:
       type: object
       properties:
@@ -8370,6 +9089,17 @@ components:
       - holding
       type: string
       description: "* `` - \n* `holding` - holding"
+    CreditFileDocumentRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+      required:
+      - display_name
+      - id
     CurrentUserResponse:
       type: object
       properties:
@@ -11582,6 +12312,67 @@ components:
       - risk_rating
       - term_months
       - title
+    LoanCreditCheck:
+      type: object
+      description: 'U33-DEC-20: a recorded check (what, result, source, date).'
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        name:
+          type: string
+        result:
+          type: string
+        source:
+          type: string
+        checked_on:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - checked_on
+      - id
+      - name
+      - position
+      - result
+      - source
+    LoanCreditCheckRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        result:
+          type: string
+          maxLength: 4000
+        source:
+          type: string
+          default: ''
+          maxLength: 255
+        checked_on:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - name
+      - result
+    LoanCreditChecks:
+      type: object
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanCreditCheck'
+        monitoring_frequency:
+          type: string
+        monitoring_focus:
+          type: string
+      required:
+      - checks
+      - monitoring_focus
+      - monitoring_frequency
     LoanEvent:
       type: object
       properties:
@@ -11684,6 +12475,17 @@ components:
       - schedule_version
       - status
       - total_minor
+    LoanMonitoringRequest:
+      type: object
+      properties:
+        frequency:
+          type: string
+          default: ''
+          maxLength: 2000
+        focus:
+          type: string
+          default: ''
+          maxLength: 2000
     LoanOriginator:
       type: object
       properties:
@@ -12656,6 +13458,203 @@ components:
       - display_name
       - document_id
       - filename
+    MarketplaceCreditCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        name:
+          type: string
+        result:
+          type: string
+        source:
+          type: string
+        checked_on:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - checked_on
+      - id
+      - name
+      - position
+      - result
+      - source
+    MarketplaceCreditFileDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+      required:
+      - display_name
+      - id
+    MarketplaceDebtFacility:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        facility_type:
+          type: string
+        currency:
+          type: string
+        balance_minor:
+          type: integer
+        current_portion_minor:
+          type: integer
+          nullable: true
+        non_current_portion_minor:
+          type: integer
+          nullable: true
+        security_description:
+          type: string
+        as_at:
+          type: string
+          format: date
+        source_document:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceCreditFileDocument'
+          nullable: true
+      required:
+      - as_at
+      - balance_minor
+      - currency
+      - current_portion_minor
+      - facility_type
+      - id
+      - non_current_portion_minor
+      - position
+      - security_description
+      - source_document
+    MarketplaceFinancialYear:
+      type: object
+      description: 'U33-DEC-20: the figures of one financial year, in minor units
+        (costs as positive amounts).'
+      properties:
+        id:
+          type: string
+          format: uuid
+        year:
+          type: integer
+        period_end:
+          type: string
+          format: date
+        currency:
+          type: string
+        source_document:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceCreditFileDocument'
+          nullable: true
+        revenue_minor:
+          type: integer
+          nullable: true
+        materials_costs_minor:
+          type: integer
+          nullable: true
+        staff_costs_minor:
+          type: integer
+          nullable: true
+        other_operating_costs_minor:
+          type: integer
+          nullable: true
+        depreciation_minor:
+          type: integer
+          nullable: true
+        operating_profit_minor:
+          type: integer
+          nullable: true
+        interest_expense_minor:
+          type: integer
+          nullable: true
+        profit_before_tax_minor:
+          type: integer
+          nullable: true
+        income_tax_minor:
+          type: integer
+          nullable: true
+        net_profit_minor:
+          type: integer
+          nullable: true
+        cash_minor:
+          type: integer
+          nullable: true
+        trade_receivables_minor:
+          type: integer
+          nullable: true
+        inventories_minor:
+          type: integer
+          nullable: true
+        other_current_assets_minor:
+          type: integer
+          nullable: true
+        current_assets_minor:
+          type: integer
+          nullable: true
+        property_plant_equipment_minor:
+          type: integer
+          nullable: true
+        other_non_current_assets_minor:
+          type: integer
+          nullable: true
+        total_assets_minor:
+          type: integer
+          nullable: true
+        current_financial_debt_minor:
+          type: integer
+          nullable: true
+        non_current_financial_debt_minor:
+          type: integer
+          nullable: true
+        financial_debt_minor:
+          type: integer
+          nullable: true
+        trade_payables_minor:
+          type: integer
+          nullable: true
+        other_operating_liabilities_minor:
+          type: integer
+          nullable: true
+        equity_minor:
+          type: integer
+          nullable: true
+      required:
+      - cash_minor
+      - currency
+      - current_assets_minor
+      - current_financial_debt_minor
+      - depreciation_minor
+      - equity_minor
+      - financial_debt_minor
+      - id
+      - income_tax_minor
+      - interest_expense_minor
+      - inventories_minor
+      - materials_costs_minor
+      - net_profit_minor
+      - non_current_financial_debt_minor
+      - operating_profit_minor
+      - other_current_assets_minor
+      - other_non_current_assets_minor
+      - other_operating_costs_minor
+      - other_operating_liabilities_minor
+      - period_end
+      - profit_before_tax_minor
+      - property_plant_equipment_minor
+      - revenue_minor
+      - source_document
+      - staff_costs_minor
+      - total_assets_minor
+      - trade_payables_minor
+      - trade_receivables_minor
+      - year
     MarketplaceLoanDetail:
       type: object
       properties:
@@ -12806,6 +13805,22 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MarketplaceSecurity'
+        financial_years:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceFinancialYear'
+        debt_facilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceDebtFacility'
+        credit_checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceCreditCheck'
+        monitoring:
+          $ref: '#/components/schemas/MarketplaceMonitoring'
+        recovery_stages:
+          $ref: '#/components/schemas/MarketplaceRecoveryStages'
         ltv_warnings:
           type: array
           items:
@@ -13113,6 +14128,16 @@ components:
       - outstanding_after_minor
       - principal_minor
       - total_minor
+    MarketplaceMonitoring:
+      type: object
+      properties:
+        frequency:
+          type: string
+        focus:
+          type: string
+      required:
+      - focus
+      - frequency
     MarketplaceOriginalLoanScheduleRow:
       type: object
       properties:
@@ -13207,6 +14232,35 @@ components:
       - penalty_minor
       - principal_minor
       - total_minor
+    MarketplaceRecoveryStage:
+      type: object
+      properties:
+        title:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+          nullable: true
+        investor_note:
+          type: string
+      required:
+      - investor_note
+      - occurred_on
+      - title
+    MarketplaceRecoveryStages:
+      type: object
+      properties:
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceRecoveryStage'
+        next_step:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceRecoveryStage'
+          nullable: true
+      required:
+      - next_step
+      - stages
     MarketplaceSecurity:
       type: object
       description: 'U33-DEC-21: one security of the loan; only the fields that apply

@@ -8,6 +8,9 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  MarketplaceCreditCheck,
+  MarketplaceDebtFacility,
+  MarketplaceFinancialYear,
   MarketplaceSecurity,
   MarketplaceOriginalLoanScheduleRow,
   PortfolioExposure,
@@ -894,6 +897,67 @@ const helvetiaSecuritiesFixture: MarketplaceSecurity[] = [
   }
 ];
 
+// U33-DEC-20: a structured credit file (the design's packaging example, in CHF thousands).
+const thousandsMinor = (value: number) => amount(value * 1000);
+const helvetiaFinancialYearsFixture: MarketplaceFinancialYear[] = [
+  [2023, 10400, 5200, 2500, 1420, 500, 780, 140, 640, 160, 480, 720, 1450, 1230, 100, 3500, 3500, 200, 7200, 750, 2170, 2920, 1190, 340, 2750],
+  [2024, 11200, 5550, 2650, 1520, 560, 920, 150, 770, 180, 590, 850, 1560, 1340, 100, 3850, 3550, 200, 7600, 800, 2270, 3070, 1150, 340, 3040],
+  [2025, 11800, 5800, 2770, 1580, 600, 1050, 160, 890, 210, 680, 980, 1650, 1420, 150, 4200, 3600, 200, 8000, 830, 2200, 3030, 1270, 340, 3360]
+].map(([year, ...values]) => {
+  const [revenue, materials, staff, other, depreciation, operating, interest, beforeTax, tax, net, cash, receivables, inventories, otherCurrent, current, ppe, otherNonCurrent, assets, currentDebt, nonCurrentDebt, debt, payables, otherLiabilities, equity] = values.map(thousandsMinor);
+  return {
+    id: `fy-2401-${year}`,
+    year,
+    period_end: `${year}-12-31`,
+    currency: "CHF",
+    source_document: year === 2025 ? { id: "GA-2401-financial-summary", display_name: "Borrower financial summary" } : null,
+    revenue_minor: revenue,
+    materials_costs_minor: materials,
+    staff_costs_minor: staff,
+    other_operating_costs_minor: other,
+    depreciation_minor: depreciation,
+    operating_profit_minor: operating,
+    interest_expense_minor: interest,
+    profit_before_tax_minor: beforeTax,
+    income_tax_minor: tax,
+    net_profit_minor: net,
+    cash_minor: cash,
+    trade_receivables_minor: receivables,
+    inventories_minor: inventories,
+    other_current_assets_minor: otherCurrent,
+    current_assets_minor: current,
+    property_plant_equipment_minor: ppe,
+    other_non_current_assets_minor: otherNonCurrent,
+    total_assets_minor: assets,
+    current_financial_debt_minor: currentDebt,
+    non_current_financial_debt_minor: nonCurrentDebt,
+    financial_debt_minor: debt,
+    trade_payables_minor: payables,
+    other_operating_liabilities_minor: otherLiabilities,
+    equity_minor: equity
+  };
+});
+const helvetiaDebtFixture: MarketplaceDebtFacility[] = [
+  ["Property loan", 1700, 150, "Mortgage on separate premises"],
+  ["Production equipment financing", 950, 130, "Security over existing equipment"],
+  ["Working-capital facility", 380, 380, "Security over existing receivables"]
+].map(([type, balance, current, security], index) => ({
+  id: `debt-2401-${index}`,
+  position: index,
+  facility_type: String(type),
+  currency: "CHF",
+  balance_minor: thousandsMinor(Number(balance)),
+  current_portion_minor: thousandsMinor(Number(current)),
+  non_current_portion_minor: thousandsMinor(Number(balance) - Number(current)),
+  security_description: String(security),
+  as_at: "2025-12-31",
+  source_document: null
+}));
+const helvetiaChecksFixture: MarketplaceCreditCheck[] = [
+  { id: "check-2401-company", position: 0, name: "Company and owners", result: "Register details, ownership and authorised signatories reconciled.", source: "Commercial register and shareholder register", checked_on: "2026-03-02" },
+  { id: "check-2401-property", position: 1, name: "Property and charges", result: "Land register extract and existing mortgage reviewed.", source: "Land register extract", checked_on: "2026-03-09" }
+];
+
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
   ...loan,
   story: loan.loan_id === "GA-2401" ? helvetiaStoryFixture : { version: 1, blocks: [] },
@@ -934,7 +998,8 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         id: `${loan.loan_id}-financial-summary`,
         document_type: "financial_summary",
         display_name: "Borrower financial summary",
-        description: "Clean-scanned financial summary available to lenders."
+        description: "Clean-scanned financial summary available to lenders.",
+        ...(loan.loan_id === "GA-2401" ? { category: "Financial statements", period_label: "FY 2025", issuer: "Helvetia Logistik AG", version: "1", document_status: "Final" } : {})
       }
     ]
   },
@@ -952,7 +1017,15 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         : amount(2500000),
   collateral_description: loan.collateral_type,
   // U33-DEC-21: several securities, each on its own (the property and the owner's guarantee).
-  ...(loan.loan_id === "GA-2401" ? { securities: helvetiaSecuritiesFixture } : {}),
+  ...(loan.loan_id === "GA-2401"
+    ? {
+        securities: helvetiaSecuritiesFixture,
+        financial_years: helvetiaFinancialYearsFixture,
+        debt_facilities: helvetiaDebtFixture,
+        credit_checks: helvetiaChecksFixture,
+        monitoring: { frequency: "Quarterly, with the annual financial statements.", focus: "Warehouse occupancy, fleet costs and cash generation." }
+      }
+    : {}),
   ltv_bps:
     loan.collateral_type === "Unsecured exception"
       ? null

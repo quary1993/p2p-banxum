@@ -390,3 +390,10 @@ Each entry should include:
 - Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
 - Required admin-console improvement: pick the borrower documents of a security (the API takes `document_ids`; the form does not offer them yet); reorder securities; show the securities in the loan list and the loan detail; show the audit of security changes.
 - Priority: important.
+
+## 2026-11-10: Structured Credit File (U33-DEC-20)
+
+- Screen or component: Borrowers table, action "Credit file" (financial years, existing debt, document details), and the loan Manage action "Checks & updates" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: a financial year is entered as minor units by statement (profit & loss, balance sheet) with its year, period end, currency and source document; the server refuses details that do not add up. Facilities have a name, currency, balance, part due within a year, security and date. Document details (category, date, period, issuer, version, status) are edited per document. Loan checks have what was checked, the result, the source and the date; the monitoring text says how often and on what the loan is followed.
+- Required admin-console improvement: enter figures in currency units (not minor units) with a running total check; copy a year as the start of the next; pick the source document of a facility; reorder checks and facilities; show who changed what (audit).
+- Priority: important.

@@ -430,3 +430,35 @@ class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
     document_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list
     )
+
+
+class LoanCreditCheckSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: a recorded check (what, result, source, date)."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    name = serializers.CharField()
+    result = serializers.CharField()
+    # "source" is also a DRF Field attribute; the stubs type it differently.
+    source = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
+    checked_on = serializers.DateField(allow_null=True)
+
+
+class LoanCreditChecksSerializer(serializers.Serializer[Any]):
+    checks = LoanCreditCheckSerializer(many=True)
+    monitoring_frequency = serializers.CharField(allow_blank=True)
+    monitoring_focus = serializers.CharField(allow_blank=True)
+
+
+class LoanCreditCheckRequestSerializer(serializers.Serializer[Any]):
+    name = serializers.CharField(max_length=255)
+    result = serializers.CharField(max_length=4000)
+    source = serializers.CharField(  # type: ignore[assignment]
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    checked_on = serializers.DateField(required=False, allow_null=True, default=None)
+
+
+class LoanMonitoringRequestSerializer(serializers.Serializer[Any]):
+    frequency = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
+    focus = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)

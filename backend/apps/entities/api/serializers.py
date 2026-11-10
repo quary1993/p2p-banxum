@@ -183,6 +183,13 @@ class BorrowerDocumentSerializer(serializers.Serializer[Any]):
     description = serializers.CharField()
     stored_file_id = serializers.IntegerField()
     investor_visible = serializers.BooleanField()
+    # U33-DEC-20: library metadata.
+    category = serializers.CharField(allow_blank=True)
+    document_date = serializers.DateField(allow_null=True)
+    period_label = serializers.CharField(allow_blank=True)
+    issuer = serializers.CharField(allow_blank=True)
+    version = serializers.CharField(allow_blank=True)
+    document_status = serializers.CharField(allow_blank=True)
     created_by_admin_id = serializers.UUIDField()
     created_by_account_type = serializers.CharField()
     created_at = serializers.DateTimeField()
@@ -240,3 +247,103 @@ def serialize_borrower_document(document: BorrowerDocument) -> dict[str, Any]:
 
 def serialize_borrower_event(event: BorrowerEntityEvent) -> dict[str, Any]:
     return dict(BorrowerEntityEventSerializer(event).data)
+
+
+class CreditFileDocumentRefSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+FINANCIAL_YEAR_FIELD_HELP = "Minor units; costs, assets and debts as positive amounts."
+
+
+class BorrowerFinancialYearSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: the figures of one financial year (totals, and details that add up)."""
+
+    id = serializers.UUIDField()
+    year = serializers.IntegerField()
+    period_end = serializers.DateField()
+    currency = serializers.CharField()
+    source_document = CreditFileDocumentRefSerializer(allow_null=True)
+    revenue_minor = serializers.IntegerField(allow_null=True)
+    materials_costs_minor = serializers.IntegerField(allow_null=True)
+    staff_costs_minor = serializers.IntegerField(allow_null=True)
+    other_operating_costs_minor = serializers.IntegerField(allow_null=True)
+    depreciation_minor = serializers.IntegerField(allow_null=True)
+    operating_profit_minor = serializers.IntegerField(allow_null=True)
+    interest_expense_minor = serializers.IntegerField(allow_null=True)
+    profit_before_tax_minor = serializers.IntegerField(allow_null=True)
+    income_tax_minor = serializers.IntegerField(allow_null=True)
+    net_profit_minor = serializers.IntegerField(allow_null=True)
+    cash_minor = serializers.IntegerField(allow_null=True)
+    trade_receivables_minor = serializers.IntegerField(allow_null=True)
+    inventories_minor = serializers.IntegerField(allow_null=True)
+    other_current_assets_minor = serializers.IntegerField(allow_null=True)
+    current_assets_minor = serializers.IntegerField(allow_null=True)
+    property_plant_equipment_minor = serializers.IntegerField(allow_null=True)
+    other_non_current_assets_minor = serializers.IntegerField(allow_null=True)
+    total_assets_minor = serializers.IntegerField(allow_null=True)
+    current_financial_debt_minor = serializers.IntegerField(allow_null=True)
+    non_current_financial_debt_minor = serializers.IntegerField(allow_null=True)
+    financial_debt_minor = serializers.IntegerField(allow_null=True)
+    trade_payables_minor = serializers.IntegerField(allow_null=True)
+    other_operating_liabilities_minor = serializers.IntegerField(allow_null=True)
+    equity_minor = serializers.IntegerField(allow_null=True)
+
+
+class BorrowerFinancialYearListSerializer(serializers.Serializer[Any]):
+    financial_years = BorrowerFinancialYearSerializer(many=True)
+
+
+class BorrowerFinancialYearRequestSerializer(serializers.Serializer[Any]):
+    year = serializers.IntegerField(min_value=1900, max_value=2100)
+    period_end = serializers.DateField()
+    currency = serializers.CharField(max_length=3)
+    source_document_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    amounts = serializers.DictField(
+        child=serializers.IntegerField(allow_null=True), help_text=FINANCIAL_YEAR_FIELD_HELP
+    )
+
+
+class BorrowerDebtFacilitySerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: one facility of the borrower's existing debt, at a date."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    facility_type = serializers.CharField()
+    currency = serializers.CharField()
+    balance_minor = serializers.IntegerField()
+    current_portion_minor = serializers.IntegerField(allow_null=True)
+    non_current_portion_minor = serializers.IntegerField(allow_null=True)
+    security_description = serializers.CharField(allow_blank=True)
+    as_at = serializers.DateField()
+    source_document = CreditFileDocumentRefSerializer(allow_null=True)
+
+
+class BorrowerDebtFacilityListSerializer(serializers.Serializer[Any]):
+    debt_facilities = BorrowerDebtFacilitySerializer(many=True)
+
+
+class BorrowerDebtFacilityRequestSerializer(serializers.Serializer[Any]):
+    facility_type = serializers.CharField(max_length=255)
+    currency = serializers.CharField(max_length=3)
+    balance_minor = serializers.IntegerField(min_value=0)
+    current_portion_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    security_description = serializers.CharField(required=False, allow_blank=True, default="")
+    as_at = serializers.DateField()
+    source_document_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+
+
+class BorrowerDocumentMetadataRequestSerializer(serializers.Serializer[Any]):
+    category = serializers.CharField(required=False, allow_blank=True, default="", max_length=64)
+    document_date = serializers.DateField(required=False, allow_null=True, default=None)
+    period_label = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=64
+    )
+    issuer = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
+    version = serializers.CharField(required=False, allow_blank=True, default="", max_length=32)
+    document_status = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=64
+    )

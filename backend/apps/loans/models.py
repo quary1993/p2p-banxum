@@ -190,6 +190,9 @@ class Loan(TimestampedModel):
     contract_terminated_on = models.DateField(null=True, blank=True)
     # U33-DEC-17: a draft shown as "Coming soon" with its planned opening date. Nothing can be
     # invested or reserved until the admin publishes it; publishing sends the opening alerts.
+    # U33-DEC-20: how the loan is followed, for the credit file's "Checks & updates".
+    monitoring_frequency = models.TextField(blank=True, default="")
+    monitoring_focus = models.TextField(blank=True, default="")
     coming_soon_at = models.DateTimeField(null=True, blank=True)
     planned_opening_date = models.DateField(null=True, blank=True)
     recovery_waterfall_version = models.CharField(
@@ -421,3 +424,19 @@ class LoanSecurity(TimestampedModel):
                 name="loan_security_amounts_not_negative",
             ),
         ]
+
+
+class LoanCreditCheck(TimestampedModel):
+    """U33-DEC-20: a check made on the loan or the borrower, with its source, date and result."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name="credit_checks")
+    position = models.PositiveSmallIntegerField(default=0)
+    name = models.CharField(max_length=255)
+    result = models.TextField()
+    source = models.CharField(max_length=255, blank=True, default="")
+    checked_on = models.DateField(null=True, blank=True)
+    updated_by_admin_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "created_at", "id"]

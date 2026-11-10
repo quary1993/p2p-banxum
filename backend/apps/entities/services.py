@@ -773,6 +773,13 @@ def borrower_investor_disclosure(borrower: BorrowerEntity) -> dict[str, Any]:
                 "display_name": document.display_name,
                 "description": document.description,
                 "stored_file_id": str(document.stored_file_id),
+                # U33-DEC-20: library metadata.
+                "category": document.category,
+                "document_date": document.document_date,
+                "period_label": document.period_label,
+                "issuer": document.issuer,
+                "version": document.version,
+                "document_status": document.document_status,
             }
         )
     if documents:

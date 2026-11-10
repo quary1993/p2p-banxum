@@ -145,6 +145,8 @@ Legal counsel must confirm which acceptance evidence is sufficient for each docu
 ### DOC-DEC-004: Offline Borrower Documents as Optional Admin Uploads
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: the credit file keeps seven chapters with structured financial data, template-based texts/media, structured securities and a document library with metadata.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-20): `BorrowerFinancialYear` (one per borrower and year: revenue, operating costs, operating profit, interest, profit before tax, tax, net profit, the asset, debt and liability lines and equity, in minor units; costs, assets and debts positive; details must add up to the totals; optional source document), `BorrowerDebtFacility` (existing debt explained from the documents: facility, balance, part due within a year, its security, the date, the source) and `LoanCreditCheck` (what was checked, result, source, date) with the loan's monitoring text. Admin API under `/api/v1/entities/admin/borrowers/<id>/financial-years/`, `/debt-facilities/`, `/documents/<document_id>/metadata/` and `/api/v1/loans/admin/loans/<id>/credit-checks/`, `/monitoring/`; audit for each change. The opportunity detail carries `financial_years`, `debt_facilities`, `credit_checks`, `monitoring` and `recovery_stages`; the investor credit file always has the seven chapters and calculates the four key ratios (equity / total assets, financial debt / equity, operating margin, interest coverage) from the recorded figures. A source document is named to investors only when they can see it. Texts and media stay the borrower story; no projection is stored.
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -192,6 +194,8 @@ The Garanta project investment confirmation DOCX can be imported as the `primary
 ### DOC-DEC-006: Pre-Investment Borrower Documents
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: borrower documents become a credit-file library with category, period/date, issuer, version, status and access metadata.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-20): `BorrowerDocument.category`, `document_date`, `period_label`, `issuer`, `version`, `document_status` (free text set by the admin; access stays `investor_visible`), shown in the investor disclosure and the credit file's Documents chapter.
 
 Status: Accepted.
 Date: 2026-05-20.

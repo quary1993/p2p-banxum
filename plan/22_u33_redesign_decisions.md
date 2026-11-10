@@ -367,6 +367,8 @@ Decision: the seven chapters stay: Summary, Borrower & business, Financials, Sec
 
 Content is factual, with no ratings, opinions on the business or subjective assessments. The 16 demo files and PDFs show the standard; 9-12 PDFs per file is not a quota. In production, demo data, images/quotes and documents are replaced with real material, never presented as originals received from companies.
 
+Implemented 2026-11-10 (Phase 17.4): `plan/13_documents_contracting_esign.md` DOC-DEC-004 / DOC-DEC-006 notes. The four ratios are the design's (equity / total assets, financial debt / equity, operating margin, interest coverage).
+
 ### U33-DEC-23: Missing Descriptive Fields
 
 Status: Approved (design).

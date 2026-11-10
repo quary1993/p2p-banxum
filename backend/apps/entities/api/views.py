@@ -11,14 +11,22 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.entities import credit_file
 from backend.apps.entities.api.serializers import (
+    BorrowerDebtFacilityListSerializer,
+    BorrowerDebtFacilityRequestSerializer,
+    BorrowerDebtFacilitySerializer,
     BorrowerDocumentCreateRequestSerializer,
+    BorrowerDocumentMetadataRequestSerializer,
     BorrowerDocumentSerializer,
     BorrowerEntityCreateRequestSerializer,
     BorrowerEntityEventSerializer,
     BorrowerEntityListQuerySerializer,
     BorrowerEntitySerializer,
     BorrowerEntityUpdateRequestSerializer,
+    BorrowerFinancialYearListSerializer,
+    BorrowerFinancialYearRequestSerializer,
+    BorrowerFinancialYearSerializer,
     BorrowerInvestorDisclosureSerializer,
     serialize_borrower_document,
     serialize_borrower_entity,
@@ -301,3 +309,210 @@ class BorrowerInvestorDisclosurePreviewView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(borrower_investor_disclosure(borrower), status=status.HTTP_200_OK)
+
+
+def _credit_file_error(exc: Exception) -> Response:
+    if isinstance(exc, credit_file.CreditFileAuthorizationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _financial_year_command(
+    request: Request, borrower_id: str, financial_year_id: str | None
+) -> credit_file.SaveFinancialYearCommand:
+    serializer = BorrowerFinancialYearRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data: dict[str, Any] = serializer.validated_data
+    return credit_file.SaveFinancialYearCommand(
+        actor=cast(Model, request.user),
+        borrower_id=str(borrower_id),
+        financial_year_id=financial_year_id,
+        year=data["year"],
+        period_end=data["period_end"],
+        currency=data["currency"],
+        amounts=dict(data["amounts"]),
+        source_document_id=str(data["source_document_id"]) if data["source_document_id"] else None,
+    )
+
+
+class BorrowerFinancialYearListView(APIView):
+    """U33-DEC-20: the borrower's financial years (GET) or record one (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: BorrowerFinancialYearListSerializer})
+    def get(self, request: Request, borrower_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            rows = credit_file.list_financial_years(
+                actor=cast(Model, request.user), borrower_id=str(borrower_id)
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response({"financial_years": rows})
+
+    @extend_schema(
+        request=BorrowerFinancialYearRequestSerializer,
+        responses={201: BorrowerFinancialYearSerializer},
+    )
+    def post(self, request: Request, borrower_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            row = credit_file.save_financial_year(
+                _financial_year_command(request, borrower_id, None)
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(row, status=status.HTTP_201_CREATED)
+
+
+class BorrowerFinancialYearDetailView(APIView):
+    """U33-DEC-20: change (PUT) or remove (DELETE) a financial year."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BorrowerFinancialYearRequestSerializer,
+        responses={200: BorrowerFinancialYearSerializer},
+    )
+    def put(self, request: Request, borrower_id: str, financial_year_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            row = credit_file.save_financial_year(
+                _financial_year_command(request, borrower_id, str(financial_year_id))
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(row)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, borrower_id: str, financial_year_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            credit_file.remove_financial_year(
+                actor=cast(Model, request.user),
+                borrower_id=str(borrower_id),
+                financial_year_id=str(financial_year_id),
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _debt_facility_command(
+    request: Request, borrower_id: str, facility_id: str | None
+) -> credit_file.SaveDebtFacilityCommand:
+    serializer = BorrowerDebtFacilityRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data: dict[str, Any] = serializer.validated_data
+    return credit_file.SaveDebtFacilityCommand(
+        actor=cast(Model, request.user),
+        borrower_id=str(borrower_id),
+        facility_id=facility_id,
+        facility_type=data["facility_type"],
+        currency=data["currency"],
+        balance_minor=data["balance_minor"],
+        current_portion_minor=data["current_portion_minor"],
+        security_description=data["security_description"],
+        as_at=data["as_at"],
+        source_document_id=str(data["source_document_id"]) if data["source_document_id"] else None,
+    )
+
+
+class BorrowerDebtFacilityListView(APIView):
+    """U33-DEC-20: the borrower's existing debt (GET) or add a facility (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: BorrowerDebtFacilityListSerializer})
+    def get(self, request: Request, borrower_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            rows = credit_file.list_debt_facilities(
+                actor=cast(Model, request.user), borrower_id=str(borrower_id)
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response({"debt_facilities": rows})
+
+    @extend_schema(
+        request=BorrowerDebtFacilityRequestSerializer,
+        responses={201: BorrowerDebtFacilitySerializer},
+    )
+    def post(self, request: Request, borrower_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            row = credit_file.save_debt_facility(_debt_facility_command(request, borrower_id, None))
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(row, status=status.HTTP_201_CREATED)
+
+
+class BorrowerDebtFacilityDetailView(APIView):
+    """U33-DEC-20: change (PUT) or remove (DELETE) a facility."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BorrowerDebtFacilityRequestSerializer,
+        responses={200: BorrowerDebtFacilitySerializer},
+    )
+    def put(self, request: Request, borrower_id: str, facility_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            row = credit_file.save_debt_facility(
+                _debt_facility_command(request, borrower_id, str(facility_id))
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(row)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, borrower_id: str, facility_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        try:
+            credit_file.remove_debt_facility(
+                actor=cast(Model, request.user),
+                borrower_id=str(borrower_id),
+                facility_id=str(facility_id),
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class BorrowerDocumentMetadataView(APIView):
+    """U33-DEC-20: set the library metadata of a borrower document."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BorrowerDocumentMetadataRequestSerializer,
+        responses={200: BorrowerDocumentSerializer},
+    )
+    def post(self, request: Request, borrower_id: str, document_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BorrowerDocumentMetadataRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            document = credit_file.set_document_metadata(
+                credit_file.DocumentMetadataCommand(
+                    actor=cast(Model, request.user),
+                    borrower_id=str(borrower_id),
+                    document_id=str(document_id),
+                    **data,
+                )
+            )
+        except credit_file.CreditFileError as exc:
+            return _credit_file_error(exc)
+        return Response(serialize_borrower_document(document))

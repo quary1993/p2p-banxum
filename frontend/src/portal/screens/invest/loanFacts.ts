@@ -112,7 +112,18 @@ export function isReadonlyView() {
 
 // ---- Borrower disclosure ----------------------------------------------------------------------
 
-export type DisclosureDocument = { id?: string; document_type?: string; display_name?: string; description?: string };
+export type DisclosureDocument = {
+  id?: string;
+  document_type?: string;
+  display_name?: string;
+  description?: string;
+  category?: string;
+  document_date?: string | null;
+  period_label?: string;
+  issuer?: string;
+  version?: string;
+  document_status?: string;
+};
 
 export type BorrowerDisclosure = {
   legal_name?: string;

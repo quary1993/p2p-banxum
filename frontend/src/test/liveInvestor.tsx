@@ -117,6 +117,9 @@ export function investorShellHandlers(
     // Logged-in investors read the full list from /opportunities/ (A-44); /loans/ is the public preview.
     http.get("*/api/v1/marketplace/primary/opportunities/", () => HttpResponse.json(options.marketplaceLoans ? options.marketplaceLoans() : [])),
     http.get("*/api/v1/marketplace/primary/loans/", () => HttpResponse.json(options.marketplaceLoans ? options.marketplaceLoans() : [])),
+    // U33-DEC-17 / U33-DEC-18: Coming soon opportunities and the saved ones.
+    http.get("*/api/v1/marketplace/primary/coming-soon/", () => HttpResponse.json([])),
+    http.get("*/api/v1/marketplace/primary/saved/", () => HttpResponse.json({ saved: [] })),
     http.get("*/api/v1/investor/portal/balances/", () => {
       calls.balanceReads.push({});
       return HttpResponse.json(options.balances ? options.balances() : balancesPayload([{ currency: "CHF", investableMinor: 10_000_000 }]));

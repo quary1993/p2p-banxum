@@ -6,12 +6,20 @@ import { useState } from "react";
 import { ApiClientError } from "../api/client/httpClient";
 import { v1MarketplacePrimaryLoansDocumentsRetrieve } from "../api/generated/banxumApi";
 import { useT } from "../i18n";
+import { formatDate } from "./format";
 
 export type LoanDocumentItem = {
   id?: string;
   display_name?: string;
   document_type?: string;
   description?: string;
+  // U33-DEC-20: library metadata, when recorded.
+  category?: string;
+  document_date?: string | null;
+  period_label?: string;
+  issuer?: string;
+  version?: string;
+  document_status?: string;
 };
 
 type DownloadableFile = { content: string; content_type: string; content_encoding: string; filename: string };
@@ -68,7 +76,15 @@ export function LoanDocumentList({
       <div className="u33-invest-files">
         {documents.map((document, index) => {
           const name = document.display_name || t("Borrower document");
-          const meta = [document.document_type ? humanize(document.document_type) : "", document.description ?? ""].filter(Boolean).join(" · ");
+          const library = [
+            document.category ?? "",
+            document.period_label ?? "",
+            document.document_date ? formatDate(document.document_date) : "",
+            document.issuer ?? "",
+            document.version ? t("Version {version}", { version: document.version }) : "",
+            document.document_status ?? ""
+          ].filter(Boolean);
+          const meta = (library.length > 0 ? library : [document.document_type ? humanize(document.document_type) : "", document.description ?? ""].filter(Boolean)).join(" · ");
           return (
             <button
               aria-label={t("Download {name}", { name })}

@@ -4,9 +4,12 @@ from django.urls import path
 
 from backend.apps.loans.api.views import (
     LoanComingSoonView,
+    LoanCreditCheckDetailView,
+    LoanCreditCheckListView,
     LoanDetailView,
     LoanEventListView,
     LoanListCreateView,
+    LoanMonitoringView,
     LoanOriginalScheduleView,
     LoanScheduleView,
     LoanSecurityDetailView,
@@ -18,6 +21,21 @@ urlpatterns = [
     path("admin/loans/", LoanListCreateView.as_view(), name="loan-list-create"),
     path("admin/loans/<uuid:loan_id>/", LoanDetailView.as_view(), name="loan-detail"),
     path("admin/loans/<uuid:loan_id>/publish/", PublishLoanView.as_view(), name="loan-publish"),
+    path(
+        "admin/loans/<uuid:loan_id>/credit-checks/",
+        LoanCreditCheckListView.as_view(),
+        name="loan-credit-checks",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/credit-checks/<uuid:check_id>/",
+        LoanCreditCheckDetailView.as_view(),
+        name="loan-credit-check",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/monitoring/",
+        LoanMonitoringView.as_view(),
+        name="loan-monitoring",
+    ),
     path(
         "admin/loans/<uuid:loan_id>/securities/",
         LoanSecurityListView.as_view(),

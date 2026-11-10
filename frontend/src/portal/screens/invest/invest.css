@@ -190,3 +190,16 @@ html.bxu .u33-opening-alert {
   margin: 0 0 12px;
   color: var(--bxm-muted, #6c757d);
 }
+
+/* U33-DEC-20: existing debt table (no design table; the financial table's look) and check sources. */
+html.bxu .r100-debt-table th[scope="row"] {
+  font-weight: 500;
+  text-align: left;
+}
+html.bxu .r100-debt-table td:last-child {
+  text-align: left;
+  white-space: normal;
+}
+html.bxu .r100-credit .r100-check .r100-check-source {
+  font-style: italic;
+}

@@ -253,6 +253,34 @@ test("each security of a loan is managed on its own; a guarantee has a scope and
   expect(within(dialog).getByText(/A security would be added/)).toBeInTheDocument();
 });
 
+test("the credit file editors take the financial years, existing debt, document details and checks (U33-DEC-20)", () => {
+  renderAdmin("/admin/loans");
+  const borrowerRow = screen.getAllByText("Helvetic Wohnbau AG").map((cell) => cell.closest("tr")).find((row) => row && within(row).queryByRole("button", { name: "Credit file" })) as HTMLElement;
+  fireEvent.click(within(borrowerRow).getByRole("button", { name: "Credit file" }));
+  const editor = screen.getByRole("dialog", { name: "Credit file - Helvetic Wohnbau AG" });
+  expect(within(editor).getByText(/the details must add up to the totals/)).toBeInTheDocument();
+  fireEvent.click(within(editor).getByRole("button", { name: "Add a financial year" }));
+  expect(within(editor).getByLabelText("Revenue minor units")).toBeInTheDocument();
+  expect(within(editor).getByLabelText("Non-current financial debt minor units")).toBeInTheDocument();
+  fireEvent.change(within(editor).getByLabelText("Revenue minor units"), { target: { value: "1000000" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "Save financial year" }));
+  expect(within(editor).getByText(/Financial year \d{4} would be saved/)).toBeInTheDocument();
+  fireEvent.click(within(editor).getByRole("button", { name: "Add a facility" }));
+  expect(within(editor).getByRole("button", { name: "Save facility" })).toBeDisabled();
+  fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
+
+  const loanRow = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(loanRow).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Checks & updates/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add a check" }));
+  expect(within(dialog).getByRole("button", { name: "Save check" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("What was checked"), { target: { value: "Company and owners" } });
+  fireEvent.change(within(dialog).getByLabelText("Result"), { target: { value: "Register details reconciled." } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save check" }));
+  expect(within(dialog).getByText(/The check "Company and owners" would be saved/)).toBeInTheDocument();
+});
+
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {
   renderAdmin("/admin/loans");
   fireEvent.click(screen.getByRole("button", { name: "Create direct loan" }));
