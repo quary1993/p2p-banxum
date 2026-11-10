@@ -2,8 +2,8 @@
 // Profile & Settings -> Security (design: sign-in methods, recovery, signed-in devices, sign-in
 // history). Today's platform, stated truthfully: sign-in with a single-use link sent to the email
 // address, and the PIN with an email code for money actions (ACC-DEC-001/009). Password + second
-// factor comes with Phase 17.3 (U33-DEC-01); signed-in devices and sign-in history need backend data
-// (U33-DEC-25). Neither is shown until it exists.
+// factor comes with Phase 17.3 (U33-DEC-01). Signed-in devices and sign-in history (U33-DEC-25) are in
+// SecurityDevices.
 import { useState } from "react";
 
 import { useT } from "../../../../i18n";
@@ -12,6 +12,7 @@ import { formatPinLockTime } from "../../../../investorPortal/pinRules";
 import { Button } from "../../../components";
 import { ChangePinDialog, CreatePinDialog, ForgotPinDialog } from "../parts/PinDialogs";
 import { Notice, PsPanel, PsStatus, SettingsRow } from "../parts/ui";
+import { SecurityDevices } from "./SecurityDevices";
 import type { AccountData } from "./useAccountData";
 
 export function SecurityTab({ account }: { account: AccountData }) {
@@ -67,6 +68,7 @@ export function SecurityTab({ account }: { account: AccountData }) {
           />
         </div>
       </PsPanel>
+      <SecurityDevices account={account} />
       {query.isError && !isFixturePreview && !account.readonly ? (
         <Notice action={<Button onClick={() => void query.refetch()} size="sm">{t("Retry")}</Button>} title={t("Could not load your PIN status")} tone="danger" />
       ) : null}

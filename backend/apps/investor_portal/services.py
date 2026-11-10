@@ -45,6 +45,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.smart_invest_opportunity_match",
         "notice.smart_invest_opportunity_match",
         "email.support_request_received",
+        "email.security_new_sign_in",
         "email.originator_claim_purchase_confirmation",
         "email.originator_claim_repayment_credited",
         "email.originator_subscription_activated",
@@ -84,6 +85,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.smart_invest_opportunity_match": "Smart-Invest",
     "notice.smart_invest_opportunity_match": "Smart-Invest",
     "email.support_request_received": "Support",
+    "email.security_new_sign_in": "Security",
     "email.document_acceptance_pdf": "Documents",
     "email.account_login_blocked": "Account",
 }

@@ -88,6 +88,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "backend.apps.accounts_auth.middleware.SessionLifetimeMiddleware",
+    "backend.apps.accounts_auth.middleware.UserSessionMiddleware",
     "backend.apps.platform_core.middleware.RejectReadonlyImpersonationWritesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -170,6 +171,9 @@ CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
 # Absolute lifetime of an authenticated investor or admin session, counted from login.
 # Enforced server-side by accounts_auth.middleware.SessionLifetimeMiddleware.
 AUTH_SESSION_MAX_AGE_SECONDS = env.int("AUTH_SESSION_MAX_AGE_SECONDS", default=2 * 60 * 60)
+# U33-DEC-25: the request header a trusted edge proxy sets with the visitor's country (two
+# letters, for example "CF-IPCountry"). Empty: no approximate location is recorded or shown.
+SIGN_IN_COUNTRY_HEADER = env("SIGN_IN_COUNTRY_HEADER", default="")
 # TLS ends at the edge proxy (Caddy); Django sees the scheme in X-Forwarded-Proto.
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not IS_LOCAL)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if IS_LOCAL else 31536000)

@@ -31,8 +31,11 @@ from backend.apps.accounts_auth.api.serializers import (
     PhoneVerificationConfirmResponseSerializer,
     PhoneVerificationRequestResponseSerializer,
     PhoneVerificationRequestSerializer,
+    RevokeOtherSessionsResponseSerializer,
     SensitiveActionCodeRequestResponseSerializer,
     SensitiveActionCodeRequestSerializer,
+    SignInHistoryResponseSerializer,
+    UserSessionsResponseSerializer,
     serialize_account_access_event,
     serialize_user,
 )
@@ -50,7 +53,18 @@ from backend.apps.accounts_auth.models import (
     AccountAccessReason,
     AccountStatus,
     SensitiveAction,
+    SignInMethod,
     User,
+)
+from backend.apps.accounts_auth.security_sessions import (
+    SESSION_RECORD_KEY,
+    SessionNotFoundError,
+    end_current_session,
+    list_open_sessions,
+    list_sign_in_history,
+    retention_days,
+    revoke_other_sessions,
+    revoke_session,
 )
 from backend.apps.accounts_auth.services import (
     AccountAccessControlError,
@@ -207,7 +221,9 @@ class MagicLinkConsumeView(APIView):
         except InvalidOrExpiredTokenError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        start_authenticated_session(request._request, user)  # noqa: SLF001
+        start_authenticated_session(  # noqa: SLF001
+            request._request, user, method=SignInMethod.EMAIL_LINK
+        )
         return Response({"user": serialize_user(user)})
 
 
@@ -292,7 +308,9 @@ class AdminLoginConfirmView(APIView):
         except TooManyCodeAttemptsError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-        start_authenticated_session(request._request, user)  # noqa: SLF001
+        start_authenticated_session(  # noqa: SLF001
+            request._request, user, method=SignInMethod.ADMIN_PASSWORD_CODE
+        )
         return Response({"user": serialize_user(user)})
 
 
@@ -443,6 +461,7 @@ class LogoutView(APIView):
 
     @extend_schema(request=None, responses={204: None})
     def post(self, request: Request) -> Response:
+        end_current_session(request._request)  # noqa: SLF001
         logout(request._request)  # noqa: SLF001
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -534,3 +553,62 @@ class PhoneVerificationConfirmView(APIView):
 
         user = User.objects.get(id=cast(User, request.user).id)
         return Response({"user": serialize_user(user)})
+
+
+def _current_session_record_id(request: Request) -> str:
+    session = getattr(request._request, "session", None)  # noqa: SLF001
+    return str(session.get(SESSION_RECORD_KEY, "")) if session is not None else ""
+
+
+class UserSessionsView(APIView):
+    """U33-DEC-25: the signed-in browsers of the account, this one first."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: UserSessionsResponseSerializer})
+    def get(self, request: Request) -> Response:
+        user = cast(User, request.user)
+        sessions = list_open_sessions(user, current_id=_current_session_record_id(request))
+        return Response({"sessions": sessions})
+
+
+class UserSessionRevokeView(APIView):
+    """End one other signed-in session; that browser is signed out on its next request."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={204: None})
+    def post(self, request: Request, session_id: str) -> Response:
+        try:
+            revoke_session(
+                cast(User, request.user),
+                session_id=str(session_id),
+                current_id=_current_session_record_id(request),
+            )
+        except SessionNotFoundError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class UserSessionsRevokeOthersView(APIView):
+    """End every signed-in session of the account except this one."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: RevokeOtherSessionsResponseSerializer})
+    def post(self, request: Request) -> Response:
+        count = revoke_other_sessions(
+            cast(User, request.user), current_id=_current_session_record_id(request)
+        )
+        return Response({"sessions_ended": count})
+
+
+class SignInHistoryView(APIView):
+    """U33-DEC-25: the account's recent sign-ins (date, device, place, method, result)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: SignInHistoryResponseSerializer})
+    def get(self, request: Request) -> Response:
+        events = list_sign_in_history(cast(User, request.user))
+        return Response({"events": events, "retention_days": retention_days()})

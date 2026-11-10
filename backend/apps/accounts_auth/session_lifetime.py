@@ -17,6 +17,7 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 
 from backend.apps.accounts_auth.models import User
+from backend.apps.accounts_auth.security_sessions import start_tracked_session
 from backend.apps.platform_core.domain.access import actor_ref_for_user
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
@@ -37,11 +38,13 @@ def _wall_clock_seconds() -> int:
     return int(timezone.now().timestamp())
 
 
-def start_authenticated_session(request: HttpRequest, user: User) -> None:
-    """Log the user in and start the absolute session lifetime clock."""
+def start_authenticated_session(request: HttpRequest, user: User, *, method: str) -> None:
+    """Log the user in, start the absolute session lifetime clock and record the sign-in
+    and the signed-in device (U33-DEC-25)."""
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     request.session.pop(SESSION_EXPIRED_AT_KEY, None)
     request.session[SESSION_AUTHENTICATED_AT_KEY] = _wall_clock_seconds()
+    start_tracked_session(request, user, method=method)
 
 
 def end_session_if_expired(request: HttpRequest) -> bool:
@@ -92,6 +95,19 @@ def end_session_if_expired(request: HttpRequest) -> bool:
 def session_expired_response() -> JsonResponse:
     response = JsonResponse(
         {"detail": SESSION_EXPIRED_DETAIL, "code": SESSION_EXPIRED_CODE},
+        status=401,
+    )
+    response["WWW-Authenticate"] = 'Session realm="api"'
+    return response
+
+
+SESSION_ENDED_DETAIL = "This session was signed out from another device. Please log in again."
+
+
+def session_ended_response() -> JsonResponse:
+    """U33-DEC-25: same code as an expired session, so the apps return to the login screen."""
+    response = JsonResponse(
+        {"detail": SESSION_ENDED_DETAIL, "code": SESSION_EXPIRED_CODE},
         status=401,
     )
     response["WWW-Authenticate"] = 'Session realm="api"'

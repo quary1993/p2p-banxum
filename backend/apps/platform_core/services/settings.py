@@ -192,6 +192,13 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Display-only penalty policy text.",
     ),
     SettingDefinition(
+        "security.sign_in_history_retention_days",
+        365,
+        "integer",
+        "Days the sign-in history and ended device sessions are kept (U33-DEC-25), then "
+        "deleted by the account security retention job (30 to 3650).",
+    ),
+    SettingDefinition(
         "servicing.late_threshold_days",
         DEFAULT_LATE_THRESHOLD_DAYS,
         "integer",

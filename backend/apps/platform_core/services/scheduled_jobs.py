@@ -34,6 +34,8 @@ ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB = "originator_opportunity_lifecycle_sc
 # the retention clean-up of public forms and newsletter rows.
 NEWSLETTER_NEW_PROJECTS_JOB = "newsletter_new_projects"
 PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
+# U33-DEC-25: the sign-in history and ended device sessions are deleted after the period.
+ACCOUNT_SECURITY_RETENTION_JOB = "account_security_retention"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -46,11 +48,17 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     # After the funding scans, so a project whose round just closed is not announced.
     NEWSLETTER_NEW_PROJECTS_JOB,
     PUBLIC_SITE_RETENTION_JOB,
+    ACCOUNT_SECURITY_RETENTION_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 # Jobs that change no financial or admin state run as the system, without the admin actor.
 SYSTEM_JOB_NAMES = frozenset(
-    {EMAIL_OUTBOX_DISPATCH_JOB, NEWSLETTER_NEW_PROJECTS_JOB, PUBLIC_SITE_RETENTION_JOB}
+    {
+        EMAIL_OUTBOX_DISPATCH_JOB,
+        NEWSLETTER_NEW_PROJECTS_JOB,
+        PUBLIC_SITE_RETENTION_JOB,
+        ACCOUNT_SECURITY_RETENTION_JOB,
+    }
 )
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
 DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
@@ -506,6 +514,11 @@ def _public_site_retention_summary(*, as_of: datetime) -> dict[str, Any]:
     return cast(dict[str, Any], jobs.public_site_retention_job(as_of=as_of))
 
 
+def _account_security_retention_summary(*, as_of: datetime) -> dict[str, Any]:
+    sessions: Any = import_module("backend.apps.accounts_auth.security_sessions")
+    return cast(dict[str, Any], sessions.purge_account_security_history(as_of=as_of))
+
+
 def _execute_scheduled_job(
     *,
     job_name: str,
@@ -519,6 +532,8 @@ def _execute_scheduled_job(
         return _newsletter_new_projects_summary(as_of=as_of)
     if job_name == PUBLIC_SITE_RETENTION_JOB:
         return _public_site_retention_summary(as_of=as_of)
+    if job_name == ACCOUNT_SECURITY_RETENTION_JOB:
+        return _account_security_retention_summary(as_of=as_of)
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
     if job_name == BALANCE_AGEING_SCAN_JOB:

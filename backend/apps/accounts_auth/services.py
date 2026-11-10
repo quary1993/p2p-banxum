@@ -34,6 +34,8 @@ from backend.apps.accounts_auth.models import (
     RegistrationTermsAcceptance,
     SensitiveAction,
     SensitiveActionCode,
+    SignInMethod,
+    SignInResult,
     User,
 )
 from backend.apps.accounts_auth.phone_numbers import (
@@ -45,6 +47,7 @@ from backend.apps.accounts_auth.phone_providers import (
     check_twilio_verify,
     start_twilio_verify,
 )
+from backend.apps.accounts_auth.security_sessions import record_sign_in
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     has_admin_role,
@@ -987,6 +990,14 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                     f"{_support_email()} for further details.",
                     account_status=str(token.user.status),
                 )
+                # U33-DEC-25: a refused sign-in of a known account is in its history.
+                record_sign_in(
+                    user=token.user,
+                    method=SignInMethod.EMAIL_LINK,
+                    result=SignInResult.BLOCKED,
+                    user_agent=command.user_agent,
+                    ip_address=command.ip_address or "",
+                )
             else:
                 failure = InvalidOrExpiredTokenError("Account cannot log in.")
         else:
@@ -1831,6 +1842,15 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
     else:
         _spend_password_hash_time(command.password)
         password_ok = False
+    if user is not None and is_admin_actor(user) and not password_ok:
+        # U33-DEC-25: a wrong password of a known admin account is in its sign-in history.
+        record_sign_in(
+            user=user,
+            method=SignInMethod.ADMIN_PASSWORD_CODE,
+            result=SignInResult.FAILED,
+            user_agent=command.user_agent,
+            ip_address=command.ip_address or "",
+        )
     if user is None or not password_ok:
         _audit_auth_failure(
             action="auth.admin_login_failed",

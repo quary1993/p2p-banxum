@@ -1538,6 +1538,71 @@ paths:
               schema:
                 $ref: '#/components/schemas/SensitiveActionCodeRequestResponse'
           description: ''
+  /api/v1/auth/sessions/:
+    get:
+      operationId: v1_auth_sessions_retrieve
+      description: 'U33-DEC-25: the signed-in browsers of the account, this one first.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionsResponse'
+          description: ''
+  /api/v1/auth/sessions/{session_id}/revoke/:
+    post:
+      operationId: v1_auth_sessions_revoke_create
+      description: End one other signed-in session; that browser is signed out on
+        its next request.
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/sessions/revoke-others/:
+    post:
+      operationId: v1_auth_sessions_revoke_others_create
+      description: End every signed-in session of the account except this one.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeOtherSessionsResponse'
+          description: ''
+  /api/v1/auth/sign-in-history/:
+    get:
+      operationId: v1_auth_sign_in_history_retrieve
+      description: 'U33-DEC-25: the account''s recent sign-ins (date, device, place,
+        method, result).'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInHistoryResponse'
+          description: ''
   /api/v1/documents/acceptances/:
     post:
       operationId: v1_documents_acceptances_create
@@ -15998,6 +16063,13 @@ components:
       description: |-
         * `seed` - seed
         * `snapshot` - snapshot
+    RevokeOtherSessionsResponse:
+      type: object
+      properties:
+        sessions_ended:
+          type: integer
+      required:
+      - sessions_ended
     RiskRatingEnum:
       enum:
       - AAA
@@ -17192,6 +17264,45 @@ components:
       - code_id
       - expires_at
       - status
+    SignInEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        device_label:
+          type: string
+        device_kind:
+          type: string
+        country_code:
+          type: string
+        method:
+          type: string
+        result:
+          type: string
+      required:
+      - country_code
+      - device_kind
+      - device_label
+      - id
+      - method
+      - occurred_at
+      - result
+    SignInHistoryResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignInEvent'
+        retention_days:
+          type: integer
+      required:
+      - events
+      - retention_days
     SmartInvestChannels:
       type: object
       description: 'U33-DEC-30: the in-app and email channels of the match alerts.'
@@ -17602,6 +17713,48 @@ components:
         * `auto` - auto
         * `seed` - seed
         * `snapshot` - snapshot
+    UserSession:
+      type: object
+      description: 'U33-DEC-25: one signed-in browser. The place is a country code,
+        never GPS.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_label:
+          type: string
+        device_kind:
+          type: string
+        country_code:
+          type: string
+        method:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+      required:
+      - country_code
+      - current
+      - device_kind
+      - device_label
+      - id
+      - last_activity_at
+      - method
+      - started_at
+    UserSessionsResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSession'
+      required:
+      - sessions
     UserSummary:
       type: object
       properties:

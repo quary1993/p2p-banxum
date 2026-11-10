@@ -5182,6 +5182,10 @@ export interface ReportGenerateResponse {
   manifest: unknown;
 }
 
+export interface RevokeOtherSessionsResponse {
+  sessions_ended: number;
+}
+
 export interface SecondaryListingPortal {
   id: string;
   holding_id: string;
@@ -5608,6 +5612,21 @@ export interface SensitiveActionCodeRequestResponse {
   expires_at: string;
 }
 
+export interface SignInEvent {
+  id: string;
+  occurred_at: string;
+  device_label: string;
+  device_kind: string;
+  country_code: string;
+  method: string;
+  result: string;
+}
+
+export interface SignInHistoryResponse {
+  events: SignInEvent[];
+  retention_days: number;
+}
+
 /**
  * U33-DEC-30: the in-app and email channels of the match alerts.
  */
@@ -5830,6 +5849,24 @@ export interface StoryImage {
 
 export interface StoryImageUpload {
   file: string;
+}
+
+/**
+ * U33-DEC-25: one signed-in browser. The place is a country code, never GPS.
+ */
+export interface UserSession {
+  id: string;
+  device_label: string;
+  device_kind: string;
+  country_code: string;
+  method: string;
+  started_at: string;
+  last_activity_at: string;
+  current: boolean;
+}
+
+export interface UserSessionsResponse {
+  sessions: UserSession[];
 }
 
 export type V1AdminOpsAuditEventsListParams = {
@@ -10449,6 +10486,344 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1AuthSensitiveActionCodeRequestCreateMutationOptions(options), queryClient);
     }
+
+export const getV1AuthSessionsRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/auth/sessions/`
+}
+
+/**
+ * U33-DEC-25: the signed-in browsers of the account, this one first.
+ */
+export const v1AuthSessionsRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<UserSessionsResponse> => {
+
+  return httpClient<UserSessionsResponse>(getV1AuthSessionsRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSessionsRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/sessions/`
+    ] as const;
+    }
+
+
+export const getV1AuthSessionsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthSessionsRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>> = ({ signal }) => v1AuthSessionsRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthSessionsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>>
+export type V1AuthSessionsRetrieveQueryError = unknown
+
+
+export function useV1AuthSessionsRetrieve<TData = Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSessionsRetrieve<TData = Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSessionsRetrieve<TData = Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthSessionsRetrieve<TData = Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSessionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthSessionsRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1AuthSessionsRevokeCreateUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/v1/auth/sessions/${sessionId}/revoke/`
+}
+
+/**
+ * End one other signed-in session; that browser is signed out on its next request.
+ */
+export const v1AuthSessionsRevokeCreate = async (sessionId: string, options?: Parameters<typeof httpClient>[1]): Promise<void> => {
+
+  return httpClient<void>(getV1AuthSessionsRevokeCreateUrl(sessionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSessionsRevokeCreateMutationKey = () => ['v1AuthSessionsRevokeCreate'] as const;
+
+export const getV1AuthSessionsRevokeCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>, TError,V1AuthSessionsRevokeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>, TError,V1AuthSessionsRevokeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSessionsRevokeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>, V1AuthSessionsRevokeCreateMutationVariables> = (props) => {
+          const {sessionId} = props ?? {};
+
+          return  v1AuthSessionsRevokeCreate(sessionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSessionsRevokeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>>
+
+    export type V1AuthSessionsRevokeCreateMutationError = unknown
+    export type V1AuthSessionsRevokeCreateMutationVariables = {sessionId: string}
+
+    export const useV1AuthSessionsRevokeCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>, TError,V1AuthSessionsRevokeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSessionsRevokeCreate>>,
+        TError,
+        V1AuthSessionsRevokeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSessionsRevokeCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSessionsRevokeOthersCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/sessions/revoke-others/`
+}
+
+/**
+ * End every signed-in session of the account except this one.
+ */
+export const v1AuthSessionsRevokeOthersCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<RevokeOtherSessionsResponse> => {
+
+  return httpClient<RevokeOtherSessionsResponse>(getV1AuthSessionsRevokeOthersCreateUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSessionsRevokeOthersCreateMutationKey = () => ['v1AuthSessionsRevokeOthersCreate'] as const;
+
+export const getV1AuthSessionsRevokeOthersCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>, TError,void, TContext> => {
+
+const mutationKey = getV1AuthSessionsRevokeOthersCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>, void> = () => {
+
+
+          return  v1AuthSessionsRevokeOthersCreate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSessionsRevokeOthersCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>>
+
+    export type V1AuthSessionsRevokeOthersCreateMutationError = unknown
+
+
+    export const useV1AuthSessionsRevokeOthersCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSessionsRevokeOthersCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getV1AuthSessionsRevokeOthersCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSignInHistoryRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/auth/sign-in-history/`
+}
+
+/**
+ * U33-DEC-25: the account's recent sign-ins (date, device, place, method, result).
+ */
+export const v1AuthSignInHistoryRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<SignInHistoryResponse> => {
+
+  return httpClient<SignInHistoryResponse>(getV1AuthSignInHistoryRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSignInHistoryRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/sign-in-history/`
+    ] as const;
+    }
+
+
+export const getV1AuthSignInHistoryRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthSignInHistoryRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>> = ({ signal }) => v1AuthSignInHistoryRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthSignInHistoryRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>>
+export type V1AuthSignInHistoryRetrieveQueryError = unknown
+
+
+export function useV1AuthSignInHistoryRetrieve<TData = Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSignInHistoryRetrieve<TData = Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSignInHistoryRetrieve<TData = Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthSignInHistoryRetrieve<TData = Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSignInHistoryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthSignInHistoryRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1DocumentsAcceptancesCreateUrl = () => {
 
@@ -21951,6 +22326,12 @@ export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideRespons
 
 export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial<Extract<SensitiveActionCodeRequestResponse, object>> = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
+export const getV1AuthSessionsRetrieveResponseMock = (overrideResponse: Partial<Extract<UserSessionsResponse, object>> = {}): UserSessionsResponse => ({sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_activity_at: faker.date.past().toISOString().slice(0, 19) + 'Z', current: faker.datatype.boolean()})), ...overrideResponse})
+
+export const getV1AuthSessionsRevokeOthersCreateResponseMock = (overrideResponse: Partial<Extract<RevokeOtherSessionsResponse, object>> = {}): RevokeOtherSessionsResponse => ({sessions_ended: faker.number.int(), ...overrideResponse})
+
+export const getV1AuthSignInHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<SignInHistoryResponse, object>> = {}): SignInHistoryResponse => ({events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}})})), retention_days: faker.number.int(), ...overrideResponse})
+
 export const getV1DocumentsAcceptancesCreateResponseMock = (overrideResponse: Partial<Extract<DocumentAcceptanceEvidence, object>> = {}): DocumentAcceptanceEvidence => ({id: faker.string.uuid(), user_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_id: faker.string.uuid(), template_version_id: faker.string.uuid(), template_version_number: faker.number.int(), template_hash: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.string.alpha({length: {min: 10, max: 20}}), context_id: faker.string.alpha({length: {min: 10, max: 20}}), accepted_checkbox_labels: {}, data_snapshot: {
         [faker.string.alphanumeric(5)]: {}
       }, accepted_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ip_address: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), user_agent: faker.string.alpha({length: {min: 10, max: 20}}), idempotency_key: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), metadata: {}, created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
@@ -22732,6 +23113,52 @@ export const getV1AuthSensitiveActionCodeRequestCreateMockHandler = (overrideRes
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthSensitiveActionCodeRequestCreateResponseMock(),
       { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthSessionsRetrieveMockHandler = (overrideResponse?: UserSessionsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<UserSessionsResponse> | UserSessionsResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/sessions/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSessionsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSessionsRevokeCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/sessions/:sessionId/revoke/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 204
+      })
+  }, options)
+}
+
+export const getV1AuthSessionsRevokeOthersCreateMockHandler = (overrideResponse?: RevokeOtherSessionsResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<RevokeOtherSessionsResponse> | RevokeOtherSessionsResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/sessions/revoke-others/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSessionsRevokeOthersCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSignInHistoryRetrieveMockHandler = (overrideResponse?: SignInHistoryResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SignInHistoryResponse> | SignInHistoryResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/sign-in-history/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSignInHistoryRetrieveResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -24402,6 +24829,10 @@ export const getBanxumApiMock = () => [
   getV1AuthPreferencesMarketingPartialUpdateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1AuthSensitiveActionCodeRequestCreateMockHandler(),
+  getV1AuthSessionsRetrieveMockHandler(),
+  getV1AuthSessionsRevokeCreateMockHandler(),
+  getV1AuthSessionsRevokeOthersCreateMockHandler(),
+  getV1AuthSignInHistoryRetrieveMockHandler(),
   getV1DocumentsAcceptancesCreateMockHandler(),
   getV1DocumentsAcceptancesArtifactCreateMockHandler(),
   getV1DocumentsAdminTemplatesVersionsListMockHandler(),

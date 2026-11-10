@@ -23,6 +23,10 @@ from backend.apps.accounts_auth.api.views import (
     PhoneVerificationConfirmView,
     PhoneVerificationRequestView,
     SensitiveActionCodeRequestView,
+    SignInHistoryView,
+    UserSessionRevokeView,
+    UserSessionsRevokeOthersView,
+    UserSessionsView,
 )
 
 urlpatterns = [
@@ -52,4 +56,16 @@ urlpatterns = [
     path("me/", CurrentUserView.as_view(), name="auth-me"),
     path("preferences/marketing/", MarketingConsentView.as_view(), name="auth-marketing-consent"),
     path("logout/", LogoutView.as_view(), name="auth-logout"),
+    path("sessions/", UserSessionsView.as_view(), name="auth-sessions"),
+    path(
+        "sessions/revoke-others/",
+        UserSessionsRevokeOthersView.as_view(),
+        name="auth-sessions-revoke-others",
+    ),
+    path(
+        "sessions/<uuid:session_id>/revoke/",
+        UserSessionRevokeView.as_view(),
+        name="auth-session-revoke",
+    ),
+    path("sign-in-history/", SignInHistoryView.as_view(), name="auth-sign-in-history"),
 ]

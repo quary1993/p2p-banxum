@@ -306,3 +306,39 @@ def serialize_user(user: User) -> dict[str, Any]:
 
 def serialize_account_access_event(event: AccountAccessEvent) -> dict[str, Any]:
     return dict(AccountAccessEventSerializer(event).data)
+
+
+class UserSessionSerializer(serializers.Serializer[Any]):
+    """U33-DEC-25: one signed-in browser. The place is a country code, never GPS."""
+
+    id = serializers.UUIDField()
+    device_label = serializers.CharField()
+    device_kind = serializers.CharField(allow_blank=True)
+    country_code = serializers.CharField(allow_blank=True)
+    method = serializers.CharField(allow_blank=True)
+    started_at = serializers.DateTimeField()
+    last_activity_at = serializers.DateTimeField()
+    current = serializers.BooleanField()
+
+
+class UserSessionsResponseSerializer(serializers.Serializer[Any]):
+    sessions = UserSessionSerializer(many=True)
+
+
+class SignInEventSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    occurred_at = serializers.DateTimeField()
+    device_label = serializers.CharField()
+    device_kind = serializers.CharField(allow_blank=True)
+    country_code = serializers.CharField(allow_blank=True)
+    method = serializers.CharField()
+    result = serializers.CharField()
+
+
+class SignInHistoryResponseSerializer(serializers.Serializer[Any]):
+    events = SignInEventSerializer(many=True)
+    retention_days = serializers.IntegerField()
+
+
+class RevokeOtherSessionsResponseSerializer(serializers.Serializer[Any]):
+    sessions_ended = serializers.IntegerField()

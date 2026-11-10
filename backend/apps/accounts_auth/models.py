@@ -346,3 +346,73 @@ class AccountAccessEvent(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["new_status"]),
             models.Index(fields=["reason_code"]),
         ]
+
+
+class SignInMethod(models.TextChoices):
+    EMAIL_LINK = "email_link", "Email link"
+    ADMIN_PASSWORD_CODE = "admin_password_code", "Password and email code"
+
+
+class SignInResult(models.TextChoices):
+    SIGNED_IN = "signed_in", "Signed in"
+    BLOCKED = "blocked", "Account blocked"
+    FAILED = "failed", "Wrong password"
+
+
+class SessionEndReason(models.TextChoices):
+    LOGOUT = "logout", "Signed out"
+    REVOKED = "revoked", "Signed out from another device"
+    REVOKED_OTHERS = "revoked_others", "Signed out with all other devices"
+    REPLACED = "replaced", "Replaced by a new sign-in"
+
+
+class UserSession(TimestampedModel):
+    """One signed-in browser (U33-DEC-25), linked to the server-side session by its id.
+
+    The device is read from the browser's user agent; the place is the country a trusted
+    proxy header gives (``SIGN_IN_COUNTRY_HEADER``), never GPS. Ending a session here ends
+    the access: the session middleware signs that browser out on its next request.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tracked_sessions")
+    method = models.CharField(max_length=32, choices=SignInMethod.choices, blank=True)
+    device_label = models.CharField(max_length=120, blank=True)
+    device_kind = models.CharField(max_length=16, blank=True)
+    country_code = models.CharField(max_length=2, blank=True)
+    ip_hash = models.CharField(max_length=64, blank=True)
+    last_activity_at = PlatformDateTimeField(null=True, blank=True)
+    ended_at = PlatformDateTimeField(null=True, blank=True)
+    end_reason = models.CharField(max_length=32, choices=SessionEndReason.choices, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["user", "ended_at"]),
+            models.Index(fields=["ended_at"]),
+        ]
+
+
+class SignInEvent(TimestampedModel):
+    """One sign-in attempt of a known account (U33-DEC-25), kept after the session ends.
+
+    Deleted after ``security.sign_in_history_retention_days`` by the scheduled job.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sign_in_events")
+    method = models.CharField(max_length=32, choices=SignInMethod.choices)
+    result = models.CharField(max_length=16, choices=SignInResult.choices)
+    device_label = models.CharField(max_length=120, blank=True)
+    device_kind = models.CharField(max_length=16, blank=True)
+    country_code = models.CharField(max_length=2, blank=True)
+    ip_hash = models.CharField(max_length=64, blank=True)
+    new_device = models.BooleanField(default=False)
+    occurred_at = PlatformDateTimeField()
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+        indexes = [
+            models.Index(fields=["user", "occurred_at"]),
+            models.Index(fields=["occurred_at"]),
+        ]

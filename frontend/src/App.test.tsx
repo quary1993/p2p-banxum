@@ -2195,6 +2195,13 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(window.location.pathname).toBe("/settings/security");
   expect(screen.getByText("Sign-in link by email")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Change PIN" })).toBeInTheDocument();
+  // U33-DEC-25: signed-in devices with this device first, and the sign-in history.
+  expect(screen.getByText("This device")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sign out on all other devices" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  expect(screen.getByText("Safari on iPhone is signed out.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign out on all other devices" })).not.toBeInTheDocument();
+  expect(within(screen.getByRole("table")).getByRole("columnheader", { name: "Device and place" })).toBeInTheDocument();
 
   fireEvent.click(within(tabs).getByRole("link", { name: "Bank accounts" }));
   expect(window.location.pathname).toBe("/settings/bank-accounts");
