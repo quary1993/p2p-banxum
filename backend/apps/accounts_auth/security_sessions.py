@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -107,6 +108,47 @@ def ip_hash(ip_address: str) -> str:
     return hmac.new(pepper, ip_address.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+# Audit G-03: a random value in a long-lived, HTTP-only cookie names the browser, so a second
+# computer with the same browser and system is still a new device. Only its keyed hash is
+# stored. It is a security cookie: no tracking, no use outside sign-in alerts.
+DEVICE_COOKIE_NAME = "banxum_device"
+DEVICE_COOKIE_MAX_AGE_SECONDS = 2 * 365 * 24 * 60 * 60
+NEW_DEVICE_TOKEN_ATTRIBUTE = "_banxum_new_device_token"
+_DEVICE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
+
+
+def device_hash(token: str) -> str:
+    if not token:
+        return ""
+    pepper = hashlib.sha256(f"{settings.SECRET_KEY}:accounts-device:v1".encode()).digest()
+    return hmac.new(pepper, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def device_token_for_request(request: HttpRequest) -> str:
+    """The browser's device value; a new one is made (and set by the middleware) if missing."""
+    token = str(request.COOKIES.get(DEVICE_COOKIE_NAME, "") or "")
+    if _DEVICE_TOKEN_PATTERN.fullmatch(token):
+        return token
+    token = secrets.token_urlsafe(32)
+    setattr(request, NEW_DEVICE_TOKEN_ATTRIBUTE, token)
+    return token
+
+
+def set_device_cookie(request: HttpRequest, response: Any) -> None:
+    """Called by the middleware: store a device value made during this request."""
+    token = getattr(request, NEW_DEVICE_TOKEN_ATTRIBUTE, None)
+    if not token:
+        return
+    response.set_cookie(
+        DEVICE_COOKIE_NAME,
+        token,
+        max_age=DEVICE_COOKIE_MAX_AGE_SECONDS,
+        secure=bool(getattr(settings, "SESSION_COOKIE_SECURE", False)),
+        httponly=True,
+        samesite="Lax",
+    )
+
+
 def _request_ip(request: HttpRequest) -> str:
     return client_ip(request) or ""
 
@@ -137,18 +179,26 @@ def record_sign_in(
     user_agent: str,
     ip_address: str = "",
     country_code: str = "",
+    device_token: str = "",
 ) -> SignInEvent:
     label, kind = describe_user_agent(user_agent)
+    digest = device_hash(device_token)
     new_device = False
     if result == SignInResult.SIGNED_IN:
         earlier = SignInEvent.objects.filter(user=user, result=SignInResult.SIGNED_IN)
-        new_device = earlier.exists() and not earlier.filter(device_label=label).exists()
+        if earlier.exists():
+            known = bool(digest) and earlier.filter(device_hash=digest).exists()
+            # Sign-ins recorded before the device cookie have no device value: their browser
+            # label still counts as known, so the new cookie itself raises no alert.
+            known = known or earlier.filter(device_hash="", device_label=label).exists()
+            new_device = not known
     event = SignInEvent.objects.create(
         user=user,
         method=method,
         result=result,
         device_label=label,
         device_kind=kind,
+        device_hash=digest,
         country_code=country_code,
         ip_hash=ip_hash(ip_address),
         new_device=new_device,
@@ -209,6 +259,7 @@ def start_tracked_session(request: HttpRequest, user: User, *, method: str) -> U
         user_agent=user_agent,
         ip_address=_request_ip(request),
         country_code=country,
+        device_token=device_token_for_request(request),
     )
     label, kind = describe_user_agent(user_agent)
     record = UserSession.objects.create(

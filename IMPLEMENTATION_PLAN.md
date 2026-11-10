@@ -2188,7 +2188,7 @@ Status 2026-11-10 (branch `u33-17-2`): the other items without open questions ar
 - Security review before release.
 - Open: operational procedure, SMS provider, migration plan, history retention.
 
-Status 2026-11-10: U33-DEC-25 is done: device sessions and sign-in events (device and browser, country from a trusted proxy header when configured, method, result, IP only as a keyed hash), the investor's signed-in devices with "Sign out" and "Sign out on all other devices", the sign-in history (last 50, retention setting, default 365 days, daily clean-up job) and a security email for a sign-in from a new device. U33-DEC-01 (password + second factor, PIN-only confirmation, migration) waits for answers (17.10).
+Status 2026-11-10: U33-DEC-25 is done: device sessions and sign-in events (device and browser, country from a trusted proxy header when configured, method, result, IP only as a keyed hash), the investor's signed-in devices with "Sign out" and "Sign out on all other devices", the sign-in history (last 50, retention setting, default 365 days, daily clean-up job) and a security email for a sign-in from a new device (a device is a browser with its own random, HTTP-only `banxum_device` cookie, stored only as a keyed hash; sign-ins from before the cookie count by browser label; audit G-03). Owner action: list this security cookie in the privacy page's cookie list. U33-DEC-01 (password + second factor, PIN-only confirmation, migration) waits for answers (17.10).
 
 #### 17.4 Loan data and opportunity features
 

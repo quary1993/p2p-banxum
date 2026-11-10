@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
 
-from backend.apps.accounts_auth.security_sessions import track_session_activity
+from backend.apps.accounts_auth.security_sessions import set_device_cookie, track_session_activity
 from backend.apps.accounts_auth.session_lifetime import (
     end_session_if_expired,
     session_ended_response,
@@ -46,6 +46,8 @@ class UserSessionMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         still_open = track_session_activity(request)
         response = self.get_response(request)
+        # A sign-in in this request may have given the browser its device value (audit G-03).
+        set_device_cookie(request, response)
         if (
             not still_open
             and request.path.startswith("/api/")

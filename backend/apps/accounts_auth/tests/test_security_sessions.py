@@ -18,6 +18,7 @@ from backend.apps.accounts_auth.models import (
     UserSession,
 )
 from backend.apps.accounts_auth.security_sessions import (
+    DEVICE_COOKIE_NAME,
     describe_user_agent,
     purge_account_security_history,
 )
@@ -50,8 +51,9 @@ def investor(db: None) -> User:
     )
 
 
-def _sign_in(user: User, user_agent: str, **headers: Any) -> Client:
-    client = Client(HTTP_USER_AGENT=user_agent)
+def _sign_in(user: User, user_agent: str, client: Client | None = None, **headers: Any) -> Client:
+    """A sign-in from a browser: a new one by default, or the given one (same device cookie)."""
+    client = client or Client(HTTP_USER_AGENT=user_agent)
     link = issue_magic_link(MagicLinkRequestCommand(email=user.email))
     response = client.post(
         "/api/v1/auth/magic-link/consume/",
@@ -138,9 +140,9 @@ def test_a_new_device_sends_a_security_email_but_the_first_sign_in_does_not(
     investor: User,
 ) -> None:
     alerts = OutboxMessage.objects.filter(topic="email.security_new_sign_in")
-    _sign_in(investor, MAC_CHROME)
+    mac = _sign_in(investor, MAC_CHROME)
     assert not alerts.exists()
-    _sign_in(investor, MAC_CHROME)
+    _sign_in(investor, MAC_CHROME, client=mac)
     assert not alerts.exists()
     _sign_in(investor, IPHONE_SAFARI)
     [alert] = alerts
@@ -195,3 +197,37 @@ def test_retention_deletes_old_history_and_ended_sessions(investor: User) -> Non
     assert result == {"sign_in_events_deleted": 1, "sessions_deleted": 1}
     assert SignInEvent.objects.filter(user=investor).count() == 1
     assert UserSession.objects.filter(user=investor).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_second_computer_with_the_same_browser_is_a_new_device(investor: User) -> None:
+    """Audit G-03: the device cookie, not the browser label, tells devices apart."""
+    alerts = OutboxMessage.objects.filter(topic="email.security_new_sign_in")
+    office = _sign_in(investor, MAC_CHROME)
+    cookie = office.cookies[DEVICE_COOKIE_NAME]
+    assert cookie["httponly"] and cookie["samesite"] == "Lax"
+    assert len(cookie.value) >= 32
+
+    _sign_in(investor, MAC_CHROME, client=office)
+    assert not alerts.exists()
+    # Same browser and system, other computer: no device cookie yet.
+    _sign_in(investor, MAC_CHROME)
+
+    [alert] = alerts
+    assert ["Device", "Chrome on macOS"] in alert.payload["data_rows"]
+    # Only the keyed hash of the cookie is stored.
+    stored = set(SignInEvent.objects.filter(user=investor).values_list("device_hash", flat=True))
+    assert cookie.value not in stored
+    assert len(stored) == 2
+
+
+@pytest.mark.django_db
+def test_sign_ins_from_before_the_device_cookie_still_count_as_known(investor: User) -> None:
+    """The cookie's arrival raises no alert for a browser already seen without it."""
+    _sign_in(investor, MAC_CHROME)
+    SignInEvent.objects.filter(user=investor).update(device_hash="")
+    alerts = OutboxMessage.objects.filter(topic="email.security_new_sign_in")
+
+    _sign_in(investor, MAC_CHROME)
+
+    assert not alerts.exists()

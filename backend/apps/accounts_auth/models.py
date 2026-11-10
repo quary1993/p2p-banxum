@@ -413,6 +413,9 @@ class SignInEvent(TimestampedModel):
     device_kind = models.CharField(max_length=16, blank=True)
     country_code = models.CharField(max_length=2, blank=True)
     ip_hash = models.CharField(max_length=64, blank=True)
+    # Keyed hash of the browser's random device cookie (audit G-03): tells two devices with
+    # the same browser and system apart. Empty for sign-ins recorded before the cookie.
+    device_hash = models.CharField(max_length=64, blank=True, default="")
     new_device = models.BooleanField(default=False)
     occurred_at = PlatformDateTimeField()
 
@@ -421,4 +424,5 @@ class SignInEvent(TimestampedModel):
         indexes = [
             models.Index(fields=["user", "occurred_at"]),
             models.Index(fields=["occurred_at"]),
+            models.Index(fields=["user", "device_hash"]),
         ]
