@@ -1466,7 +1466,7 @@ paths:
   /api/v1/auth/preferences/display/:
     patch:
       operationId: v1_auth_preferences_display_partial_update
-      description: 'U33-DEC-32: the number format saved in the account.'
+      description: 'U33-DEC-31/-32: the language and number format saved in the account.'
       tags:
       - v1
       requestBody:
@@ -11771,6 +11771,14 @@ components:
       - risk_classification
       - status
       - verification_url
+    LanguageEnum:
+      enum:
+      - en
+      - de-CH
+      type: string
+      description: |-
+        * `en` - en
+        * `de-CH` - de-CH
     LatestPublicNote:
       type: object
       properties:
@@ -15670,6 +15678,8 @@ components:
       properties:
         number_format:
           $ref: '#/components/schemas/NumberFormatEnum'
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
     PatchedLoanOriginatorUpdate:
       type: object
       properties:
@@ -19785,6 +19795,8 @@ components:
           type: boolean
         number_format:
           type: string
+        language:
+          type: string
         pin_set:
           type: boolean
           readOnly: true
@@ -19799,6 +19811,7 @@ components:
       - full_name
       - id
       - investor_reference
+      - language
       - marketing_consent
       - number_format
       - phone_verified

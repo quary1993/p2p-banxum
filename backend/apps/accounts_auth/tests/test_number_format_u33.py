@@ -103,3 +103,27 @@ def test_emails_show_amounts_in_the_recipient_format(investor: User) -> None:
     swiss = rendered()
     assert swiss.subject == "Repayment of CHF 1'250.50"
     assert "8.25%" in swiss.body_text
+
+
+def test_english_is_the_default_language_and_german_is_saved_in_the_account(
+    investor: User,
+) -> None:
+    client = _client(investor)
+    assert client.get("/api/v1/auth/me/").json()["user"]["language"] == "en"
+
+    changed = client.patch(
+        "/api/v1/auth/preferences/display/",
+        data={"language": "de-CH"},
+        content_type="application/json",
+    )
+
+    assert changed.status_code == 200, changed.content
+    assert changed.json()["user"]["language"] == "de-CH"
+    # The other preference is unchanged.
+    assert changed.json()["user"]["number_format"] == "european"
+    assert AuditEvent.objects.filter(action="account.language_changed").count() == 1
+    for data in ({"language": "fr"}, {}):
+        refused = client.patch(
+            "/api/v1/auth/preferences/display/", data=data, content_type="application/json"
+        )
+        assert refused.status_code == 400

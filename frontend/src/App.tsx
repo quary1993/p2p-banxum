@@ -1,6 +1,8 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { setNumberFormatPreference } from "./investorPortal/format";
+import { useAccountLanguageSync } from "./investorPortal/languagePreference";
+import { setInvestorScope } from "./i18n/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
@@ -667,6 +669,14 @@ export function App() {
     canonicalSiteAddress();
   }, []);
 
+  // U33-DEC-31: the investor area (sign-in, registration, portal) uses the chosen language; the public
+  // site and the admin console stay English for now. App re-renders everything when it changes.
+  useT();
+  const investorArea = !window.location.pathname.startsWith("/admin") && route.name !== "public" && route.name !== "site";
+  useLayoutEffect(() => {
+    void setInvestorScope(investorArea);
+  }, [investorArea]);
+
   useEffect(() => {
     if (window.location.pathname.startsWith("/admin")) return;
     // The public site sets its own titles ("Projects · Banxum").
@@ -867,6 +877,8 @@ function InvestorShell({
   useEffect(() => {
     if (accountNumberFormat === "european" || accountNumberFormat === "swiss") setNumberFormatPreference(accountNumberFormat);
   }, [accountNumberFormat]);
+  // U33-DEC-31: the language saved in the account applies on every device.
+  useAccountLanguageSync(sessionUser?.language, { canSave: Boolean(sessionUser) && !readonlyImpersonation.active });
   // Signed in at "/": show the screen's own address, so reload and sharing work.
   const routeAddress = routePath(route);
   useEffect(() => {

@@ -109,7 +109,7 @@ function CreateReportDialog({
                   <input aria-describedby="rr-period-note wl-report-error" className="form-control" id="wl-report-from" max={today} onChange={(event) => setFrom(event.target.value)} required type="date" value={from} />
                 </div>
                 <div>
-                  <label className="form-label" htmlFor="wl-report-to">{t("To")}</label>
+                  <label className="form-label" htmlFor="wl-report-to">{t("date|To")}</label>
                   <input aria-describedby="rr-period-note wl-report-error" className="form-control" id="wl-report-to" max={today} onChange={(event) => setTo(event.target.value)} required type="date" value={to} />
                 </div>
               </div>
@@ -180,7 +180,7 @@ function ReportRow({ document, busyKey, onDownload }: { document: InvestorDocume
                 type="button"
               >
                 {/* The design's "View" opens the PDF; the CSV of the same statement stays available. */}
-                {busyKey === key ? t("Preparing...") : format === "pdf" ? t("View") : format.toUpperCase()} <NiIcon name="download" />
+                {busyKey === key ? t("Preparing...") : format === "pdf" ? t("action|View") : format.toUpperCase()} <NiIcon name="download" />
               </button>
             );
           })}
@@ -276,7 +276,7 @@ export function ReportsScreen() {
                 <input className="form-control" id="rr-from" onChange={(event) => setCustom({ ...custom, from: event.target.value })} type="date" value={custom.from} />
               </div>
               <div className="r30-date-field">
-                <label htmlFor="rr-to">{t("To")}</label>
+                <label htmlFor="rr-to">{t("date|To")}</label>
                 <input className="form-control" id="rr-to" onChange={(event) => setCustom({ ...custom, to: event.target.value })} type="date" value={custom.to} />
               </div>
             </div>

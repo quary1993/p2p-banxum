@@ -14,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { t } from "../i18n";
 import { handleTabListKeyDown, useDialog } from "./dialog";
 import { formatMoneyMinor, humanizeEnum } from "./format";
 
@@ -695,7 +696,7 @@ export function Modal({
       <div aria-busy={blocked || undefined} aria-labelledby={titleId} aria-modal="true" className={`modal ${wide ? "wide" : ""} ${xwide ? "xwide" : ""} ${drawer ? "drawer" : ""}`} ref={dialogRef} role="dialog">
         <div className="modal-head">
           <h3 id={titleId}>{title}</h3>
-          <button aria-label="Close" className="x-btn" disabled={blocked} onClick={onClose} type="button">
+          <button aria-label={t("Close")} className="x-btn" disabled={blocked} onClick={onClose} type="button">
             <Icon name="x" size={17} />
           </button>
         </div>

@@ -17,7 +17,7 @@ import { useAccountData, type PreviewProfile } from "./settings/useAccountData";
 
 const TAB_LABELS: Array<[SettingsTab, string]> = [
   ["personal", "Personal details"],
-  ["security", "Security"],
+  ["security", "account|Security"],
   ["bank-accounts", "Bank accounts"],
   ["notifications", "Notifications"],
   ["preferences", "Preferences"]

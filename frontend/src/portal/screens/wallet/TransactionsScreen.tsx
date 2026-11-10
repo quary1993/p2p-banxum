@@ -281,7 +281,7 @@ export function TransactionsScreen() {
             <input aria-describedby="tr-date-error" aria-invalid={rangeError} className="form-control" id="tr-from" onChange={(event) => setDraft({ ...draft, from: event.target.value })} required type="date" value={draft.from} />
           </div>
           <div className="r30-date-field">
-            <label htmlFor="tr-to">{t("To")}</label>
+            <label htmlFor="tr-to">{t("date|To")}</label>
             <input aria-describedby="tr-date-error" aria-invalid={rangeError} className="form-control" id="tr-to" onChange={(event) => setDraft({ ...draft, to: event.target.value })} required type="date" value={draft.to} />
           </div>
           <button className="btn btn-outline-light" type="submit">{t("Apply")}</button>

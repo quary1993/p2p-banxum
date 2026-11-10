@@ -100,7 +100,7 @@ export function ConfirmFields({
           error={pin.error || undefined}
           focusSignal={pin.wrongCount}
           hint={isFixturePreview ? t("Preview: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")}
-          label="PIN"
+          label={t("PIN")}
           onChange={pin.setValue}
           value={pin.value}
         />

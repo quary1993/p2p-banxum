@@ -16,4 +16,13 @@ describe("message catalog", () => {
     expect(t("Available balance")).toBe("Verfügbares Guthaben");
     expect(t("Not translated yet")).toBe("Not translated yet");
   });
+
+  it("shows the English text of a context key and its own German text", () => {
+    expect(t("account|Security")).toBe("Security");
+    registerMessages("de-CH", { Security: "Sicherheiten", "account|Security": "Kontosicherheit" });
+    setLocale("de-CH");
+    expect(t("Security")).toBe("Sicherheiten");
+    expect(t("account|Security")).toBe("Kontosicherheit");
+    expect(t("date|Until {day}", { day: 3 })).toBe("Until 3");
+  });
 });

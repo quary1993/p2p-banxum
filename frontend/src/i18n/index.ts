@@ -4,14 +4,16 @@
  *
  * Gettext style: the English text is the key. `t("Available balance")` returns the text in the
  * active language, or the English text when no translation exists. Placeholders use braces:
- * `t("Welcome back, {name}", { name })`. English is the only active language until Phase 17.8
- * adds de-CH (investor area) and DE/FR (public site); the design's German dictionary keys are the
- * same English strings, so it can be imported without touching the components again.
+ * `t("Welcome back, {name}", { name })`. The investor area has English and Swiss Standard German
+ * (language.ts, locales/de-CH.ts); the public site stays English until its DE/FR texts exist.
  *
  * Rules for new UI code:
  * - Wrap every user-facing string in t() (labels, buttons, headings, messages, aria-labels).
  * - Keep one sentence per key; do not build sentences from fragments.
  * - Never put amounts or dates in the key: pass them as placeholders, formatted by format.ts.
+ * - A label kept in a list or a function and translated later with t(label) needs its German text
+ *   in locales/de-CH.drafts.json too; catalog.test.ts only finds the literal t("...") calls.
+ * - When one English text needs two German texts, prefix a context: t("date|To") shows "To".
  */
 import { useSyncExternalStore } from "react";
 
@@ -51,10 +53,14 @@ function interpolate(text: string, vars?: MessageVars) {
   );
 }
 
+// "context|English": the same English text with two meanings ("Security" of a loan, the account's
+// "Security" settings). English shows the text after "|"; the catalog has an entry per context.
+const CONTEXT_KEY = /^([a-z][a-z-]*)\|([\s\S]+)$/;
+
 /** Translates one English message. */
 export function t(english: string, vars?: MessageVars): string {
   const translated = activeLocale === "en" ? undefined : catalogs.get(activeLocale)?.[english];
-  return interpolate(translated ?? english, vars);
+  return interpolate(translated ?? CONTEXT_KEY.exec(english)?.[2] ?? english, vars);
 }
 
 function subscribe(listener: () => void) {

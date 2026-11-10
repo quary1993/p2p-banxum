@@ -77,7 +77,7 @@ export function InvestmentDocuments({ orderId, holdingId, loanTitle, footer }: {
                 </div>
               </div>
               <div className="rid-document-actions">
-                <button className="link" disabled={download.isPending} onClick={() => open(document)} type="button">{t("View")}</button>
+                <button className="link" disabled={download.isPending} onClick={() => open(document)} type="button">{t("action|View")}</button>
               </div>
             </div>
           ))

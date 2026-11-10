@@ -13,6 +13,7 @@ import {
   type ReactNode
 } from "react";
 
+import { useT } from "../i18n";
 import { isFixturePreview } from "./data";
 import { useCreatePinFlow, useForgotPinFlow, type FlowEmailCode } from "./pinFlows";
 import { PIN_LENGTH, formatPinLockTime, isRepeatedDigit, isStraightRun } from "./pinRules";
@@ -37,6 +38,7 @@ type PinInputProps = {
 
 /** Six square boxes for a 6-digit PIN: digits only, focus moves on, paste fills all. */
 export function PinInput({ label, value, onChange, error, hint, disabled = false, autoFocus = false, aside, focusSignal = 0 }: PinInputProps) {
+  const t = useT();
   const id = useId();
   const labelId = `${id}label`;
   const messageId = `${id}message`;
@@ -138,8 +140,8 @@ export function PinInput({ label, value, onChange, error, hint, disabled = false
       <div className="pin-field-head">
         <span className="pin-field-label" id={labelId}>{label}</span>
         <span className="pin-field-tools">
-          <button aria-label={shown ? `Hide ${label}` : `Show ${label}`} aria-pressed={shown} className="pin-text-btn" disabled={disabled} onClick={() => setShown((current) => !current)} type="button">
-            {shown ? "Hide" : "Show"}
+          <button aria-label={shown ? t("Hide {label}", { label }) : t("Show {label}", { label })} aria-pressed={shown} className="pin-text-btn" disabled={disabled} onClick={() => setShown((current) => !current)} type="button">
+            {shown ? t("Hide") : t("Show")}
           </button>
           {aside}
         </span>
@@ -151,7 +153,7 @@ export function PinInput({ label, value, onChange, error, hint, disabled = false
             <input
               aria-describedby={error || hint ? messageId : undefined}
               aria-invalid={error ? true : undefined}
-              aria-label={`${label} digit ${index + 1} of ${PIN_LENGTH}`}
+              aria-label={t("{label} digit {position} of {count}", { label, position: index + 1, count: PIN_LENGTH })}
               autoComplete="off"
               className={`pin-box${digit ? " is-filled" : ""}`}
               disabled={disabled}
@@ -191,22 +193,23 @@ export function PinInput({ label, value, onChange, error, hint, disabled = false
 // ---- Rules checklist ----------------------------------------------------------------------
 
 export function PinRules({ pin, confirmation }: { pin: string; confirmation: string }) {
+  const t = useT();
   const complete = pin.length === PIN_LENGTH;
   const rules = [
-    { key: "length", label: "6 digits", met: complete },
-    { key: "repeat", label: "Not one digit repeated, like 111111", met: complete && !isRepeatedDigit(pin) },
-    { key: "run", label: "Not a straight run, like 123456 or 654321", met: complete && !isStraightRun(pin) },
-    { key: "match", label: "Both entries match", met: complete && confirmation === pin }
+    { key: "length", label: t("6 digits"), met: complete },
+    { key: "repeat", label: t("Not one digit repeated, like 111111"), met: complete && !isRepeatedDigit(pin) },
+    { key: "run", label: t("Not a straight run, like 123456 or 654321"), met: complete && !isStraightRun(pin) },
+    { key: "match", label: t("Both entries match"), met: complete && confirmation === pin }
   ];
   return (
     <div className="pin-rules">
-      <div className="pin-rules-title">Your PIN</div>
-      <ul aria-label="PIN rules">
+      <div className="pin-rules-title">{t("Your PIN")}</div>
+      <ul aria-label={t("PIN rules")}>
         {rules.map((rule) => (
           <li className={rule.met ? "is-met" : ""} key={rule.key}>
             <span aria-hidden="true" className="pin-rule-mark">{rule.met ? <Icon name="check" size={12} /> : null}</span>
             <span>{rule.label}</span>
-            <span className="sr-only">{rule.met ? " (done)" : " (not yet)"}</span>
+            <span className="sr-only">{rule.met ? ` (${t("done")})` : ` (${t("not yet")})`}</span>
           </li>
         ))}
       </ul>
@@ -217,7 +220,7 @@ export function PinRules({ pin, confirmation }: { pin: string; confirmation: str
 // ---- Email code for the PIN flows ---------------------------------------------------------
 
 function EmailCodeInput({
-  label = "Email confirmation code",
+  label,
   value,
   onChange,
   code
@@ -227,11 +230,13 @@ function EmailCodeInput({
   onChange: (value: string) => void;
   code: FlowEmailCode;
 }) {
+  const t = useT();
+  const fieldLabel = label ?? t("Email confirmation code");
   return (
-    <Field error={code.error || undefined} hint={isFixturePreview ? "Demo: any 6 digits" : undefined} label={label}>
+    <Field error={code.error || undefined} hint={isFixturePreview ? t("Demo: any 6 digits") : undefined} label={fieldLabel}>
       <div className="code-request-row">
         <input
-          aria-label={label}
+          aria-label={fieldLabel}
           autoComplete="one-time-code"
           className="input mono"
           inputMode="numeric"
@@ -261,6 +266,7 @@ type CreatePinFormProps = {
 };
 
 export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", autoFocus = true, footer }: CreatePinFormProps) {
+  const t = useT();
   const flow = useCreatePinFlow({ requiresEmailCode, onSaved });
   const { pin, confirmation, code, weakness, error, confirmationError, ready } = flow;
   const save = flow.save;
@@ -270,13 +276,13 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
       <PinInput
         autoFocus={autoFocus}
         error={weakness ?? undefined}
-        label="PIN"
+        label={t("PIN")}
         value={pin}
         onChange={flow.setPin}
       />
       <PinInput
-        error={confirmationError || (flow.mismatch ? "The two PINs do not match." : undefined)}
-        label="Repeat PIN"
+        error={confirmationError || (flow.mismatch ? t("The two PINs do not match.") : undefined)}
+        label={t("Repeat PIN")}
         value={confirmation}
         onChange={flow.setConfirmation}
       />
@@ -301,10 +307,10 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
         {entry}
         <PinRules confirmation={confirmation} pin={pin} />
       </div>
-      {error ? <Banner tone="bad" title="Could not save your PIN">{error}</Banner> : null}
+      {error ? <Banner tone="bad" title={t("Could not save your PIN")}>{error}</Banner> : null}
       <div className="pin-create-actions">
         <Button disabled={!ready || flow.saving} size="lg" type="submit" variant="primary">
-          {flow.saving ? "Saving PIN..." : "Save PIN"}
+          {flow.saving ? t("Saving PIN...") : t("Save PIN")}
         </Button>
         {footer}
       </div>
@@ -313,12 +319,13 @@ export function CreatePinForm({ requiresEmailCode, onSaved, layout = "stacked", 
 }
 
 export function CreatePinDialog({ onClose, onSaved, intro }: { onClose: () => void; onSaved: (pin: string) => void; intro?: ReactNode }) {
+  const t = useT();
   const { status } = usePinStatus();
   return (
-    <Modal onClose={onClose} title="Create your PIN">
+    <Modal onClose={onClose} title={t("Create your PIN")}>
       <div className="col gap-16 pin-dialog">
         <p className="pin-dialog-intro">
-          {intro ?? "You will enter it with the email code for every investment, withdrawal and bank change."}
+          {intro ?? t("You will enter it with the email code for every investment, withdrawal and bank change.")}
         </p>
         <CreatePinForm requiresEmailCode={status?.setup_requires_email_code ?? true} onSaved={onSaved} />
       </div>
@@ -329,14 +336,15 @@ export function CreatePinDialog({ onClose, onSaved, intro }: { onClose: () => vo
 // ---- Forgot -------------------------------------------------------------------------------
 
 export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onReset: (pin: string) => void }) {
+  const t = useT();
   const flow = useForgotPinFlow();
   const { started, start, lastDigits, resetAvailable, code, smsCode, pin, confirmation, weakness, error, done, ready } = flow;
 
   if (done) {
     return (
-      <Modal footer={<Button variant="primary" onClick={() => onReset(pin)}>Done</Button>} onClose={() => onReset(pin)} title="New PIN saved">
-        <Banner icon="checkCircle" tone="ok" title="Your new PIN is active">
-          Any PIN lock is lifted. We sent you an email about this change.
+      <Modal footer={<Button variant="primary" onClick={() => onReset(pin)}>{t("Done")}</Button>} onClose={() => onReset(pin)} title={t("New PIN saved")}>
+        <Banner icon="checkCircle" tone="ok" title={t("Your new PIN is active")}>
+          {t("Any PIN lock is lifted. We sent you an email about this change.")}
         </Banner>
       </Modal>
     );
@@ -345,18 +353,19 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
   if (!started) {
     return (
       <Modal
-        footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!resetAvailable} variant="primary" onClick={start}>Send the codes</Button></>}
+        footer={<><Button variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button disabled={!resetAvailable} variant="primary" onClick={start}>{t("Send the codes")}</Button></>}
         onClose={onClose}
-        title="Forgot PIN"
+        title={t("Forgot PIN")}
       >
         <div className="col gap-16 pin-dialog">
           <p className="pin-dialog-intro">
-            To set a new PIN, confirm it is you with two codes: one by email and one by SMS
-            {lastDigits ? <> to your phone number ending in <b>{lastDigits}</b></> : " to your verified phone number"}.
+            {lastDigits
+              ? t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your phone number ending in {digits}.", { digits: lastDigits })
+              : t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your verified phone number.")}
           </p>
           {!resetAvailable ? (
-            <Banner tone="warn" title="No verified phone number">
-              We cannot send an SMS code. Contact support to reset your PIN.
+            <Banner tone="warn" title={t("No verified phone number")}>
+              {t("We cannot send an SMS code. Contact support to reset your PIN.")}
             </Banner>
           ) : null}
         </div>
@@ -366,16 +375,16 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
 
   return (
     <Modal
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ready || flow.saving} variant="primary" onClick={flow.submit}>{flow.saving ? "Saving PIN..." : "Save new PIN"}</Button></>}
+      footer={<><Button variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button disabled={!ready || flow.saving} variant="primary" onClick={flow.submit}>{flow.saving ? t("Saving PIN...") : t("Save new PIN")}</Button></>}
       onClose={onClose}
-      title="Forgot PIN"
+      title={t("Forgot PIN")}
     >
       <div className="col gap-16 pin-dialog">
         <EmailCodeInput code={flow.emailCode} value={code} onChange={flow.setCode} />
-        <Field error={flow.smsError || undefined} hint={isFixturePreview ? "Demo: any 6 digits" : lastDigits ? `Sent to your phone number ending in ${lastDigits}.` : undefined} label="SMS code">
+        <Field error={flow.smsError || undefined} hint={isFixturePreview ? t("Demo: any 6 digits") : lastDigits ? t("Sent to your phone number ending in {digits}.", { digits: lastDigits }) : undefined} label={t("SMS code")}>
           <div className="code-request-row">
             <input
-              aria-label="SMS code"
+              aria-label={t("SMS code")}
               autoComplete="one-time-code"
               className="input mono"
               inputMode="numeric"
@@ -389,15 +398,15 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
             </Button>
           </div>
         </Field>
-        <PinInput error={weakness ?? undefined} label="New PIN" value={pin} onChange={flow.setPin} />
+        <PinInput error={weakness ?? undefined} label={t("New PIN")} value={pin} onChange={flow.setPin} />
         <PinInput
-          error={flow.mismatch ? "The two PINs do not match." : undefined}
-          label="Repeat new PIN"
+          error={flow.mismatch ? t("The two PINs do not match.") : undefined}
+          label={t("Repeat new PIN")}
           value={confirmation}
           onChange={flow.setConfirmation}
         />
         <PinRules confirmation={confirmation} pin={pin} />
-        {error ? <Banner tone="bad" title="Could not reset your PIN">{error}</Banner> : null}
+        {error ? <Banner tone="bad" title={t("Could not reset your PIN")}>{error}</Banner> : null}
       </div>
     </Modal>
   );
@@ -406,17 +415,18 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
 // ---- The PIN of a sensitive action --------------------------------------------------------
 
 function PinLockedBanner({ lockedUntil, onForgot }: { lockedUntil: string; onForgot: () => void }) {
+  const t = useT();
   const time = lockedUntil ? formatPinLockTime(lockedUntil) : "";
   return (
     <Banner
-      actions={<Button size="sm" onClick={onForgot}>Forgot PIN?</Button>}
+      actions={<Button size="sm" onClick={onForgot}>{t("Forgot PIN?")}</Button>}
       icon="lock"
       tone="bad"
-      title="PIN locked"
+      title={t("PIN locked")}
     >
       {time
-        ? `Too many wrong PINs. You can try again after ${time}, or set a new PIN now.`
-        : "Too many wrong PINs. Try again later, or set a new PIN now."}
+        ? t("Too many wrong PINs. You can try again after {time}, or set a new PIN now.", { time })
+        : t("Too many wrong PINs. Try again later, or set a new PIN now.")}
     </Banner>
   );
 }
@@ -427,6 +437,7 @@ function PinLockedBanner({ lockedUntil, onForgot }: { lockedUntil: string; onFor
  * a PIN. After the PIN is created the action continues (``onContinue``).
  */
 export function SensitivePinField({ pin, onContinue }: { pin: SensitivePin; onContinue?: () => void }) {
+  const t = useT();
   const continueRef = useRef(onContinue);
   useLayoutEffect(() => {
     continueRef.current = onContinue;
@@ -440,18 +451,18 @@ export function SensitivePinField({ pin, onContinue }: { pin: SensitivePin; onCo
     <div className="pin-sensitive">
       {pin.lockedUntil !== null ? <PinLockedBanner lockedUntil={pin.lockedUntil} onForgot={pin.openForgot} /> : null}
       <PinInput
-        aside={pin.lockedUntil === null ? <button className="pin-text-btn" onClick={pin.openForgot} type="button">Forgot PIN?</button> : null}
+        aside={pin.lockedUntil === null ? <button className="pin-text-btn" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button> : null}
         disabled={pin.lockedUntil !== null}
         error={pin.error || undefined}
         focusSignal={pin.wrongCount}
-        hint={isFixturePreview ? "Demo: any 6 digits that are not all the same or a straight run" : "The 6-digit PIN of your account."}
-        label="PIN"
+        hint={isFixturePreview ? t("Demo: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")}
+        label={t("PIN")}
         value={pin.value}
         onChange={pin.setValue}
       />
       {pin.createOpen ? (
         <CreatePinDialog
-          intro="You need a PIN to confirm this action. Create it now; the action continues right after."
+          intro={t("You need a PIN to confirm this action. Create it now; the action continues right after.")}
           onClose={pin.closeDialogs}
           onSaved={(newPin) => {
             pin.afterCreate(newPin);

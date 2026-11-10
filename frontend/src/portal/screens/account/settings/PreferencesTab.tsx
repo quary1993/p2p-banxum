@@ -1,8 +1,8 @@
 // IP of Webby-Soft SRL.
 // Profile & Settings -> Preferences (design: Display panel with Appearance, Language, Number format and
-// Time zone, then "Close your account"). Appearance and number format are saved per browser (S1
-// hooks); English is the only language until Phase 17.8 (U33-DEC-31); one time reference,
-// Europe/Zurich, no selector (U33-DEC-32). "Close account" sends a closure request to the team
+// Time zone, then "Close your account"). Appearance is saved per browser; the language (U33-DEC-31,
+// English or Deutsch) and the number format (U33-DEC-32) apply at once and are saved in the account;
+// one time reference, Europe/Zurich, no selector. "Close account" sends a closure request to the team
 // (U33-DEC-28): the receipt (reference and email) is not the closure itself, which is confirmed by
 // a separate email after the team's checks.
 import { useState } from "react";
@@ -16,8 +16,10 @@ import {
   type InvestorSupportRequestReceipt
 } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
+import { INTERFACE_LANGUAGES, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
 import { isFixturePreview } from "../../../../investorPortal/data";
 import { useNumberFormat, type NumberFormat } from "../../../../investorPortal/format";
+import { useSetInterfaceLanguage } from "../../../../investorPortal/languagePreference";
 import { useAppearance, type Appearance } from "../../../appearance";
 import { Dialog, NiIcon } from "../../../components";
 import { errorMessage, idempotencyKey } from "../../portfolio/parts/errors";
@@ -93,6 +95,8 @@ export function PreferencesTab({ account }: { account: AccountData }) {
   const [closing, setClosing] = useState(false);
   const queryClient = useQueryClient();
   const saveFormat = useV1AuthPreferencesDisplayPartialUpdate();
+  const language = usePreferredLanguage();
+  const setLanguage = useSetInterfaceLanguage();
   // U33-DEC-32: the choice applies at once and is saved in the account (all devices, emails, reports).
   const setFormat = (next: NumberFormat) => {
     setLocalFormat(next);
@@ -118,12 +122,21 @@ export function PreferencesTab({ account }: { account: AccountData }) {
           />
           <SettingsRow
             actions={
-              <select aria-label={t("Language")} className="form-select bxm-row-select" onChange={() => undefined} value="en">
-                <option value="en">English</option>
-                <option disabled value="de">{t("Deutsch · Soon")}</option>
+              <select
+                aria-label={t("Language")}
+                className="form-select bxm-row-select"
+                onChange={(event) => {
+                  const next = parseInterfaceLanguage(event.target.value);
+                  if (next) setLanguage(next);
+                }}
+                value={language}
+              >
+                {/* Each language is named in its own language (design). */}
+                {INTERFACE_LANGUAGES.map((option) => (
+                  <option key={option.value} lang={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             }
-            description={t("German is coming soon.")}
             title={t("Language")}
           />
           <SettingsRow

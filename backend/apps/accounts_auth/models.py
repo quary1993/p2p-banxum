@@ -106,6 +106,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     # U33-DEC-32: "european" (1.234,56, the default) or "swiss" (1'234.56), for the interface,
     # notifications, emails and new personal reports.
     number_format = models.CharField(max_length=16, default="european")
+    # U33-DEC-31: "en" (the default on the first visit) or "de-CH", for the investor platform,
+    # notifications and emails. Contracts and source documents keep their own language.
+    language = models.CharField(max_length=8, default="en")
     is_env_managed_superadmin = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

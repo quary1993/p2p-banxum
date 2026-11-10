@@ -39,6 +39,7 @@ function adminMe() {
       phone_verified: true,
       marketing_consent: false,
       number_format: "european",
+      language: "en",
       pin_set: false,
       pin_locked_until: null
     },

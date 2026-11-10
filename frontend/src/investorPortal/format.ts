@@ -4,7 +4,7 @@
  *
  * Number format (U33-DEC-32): European "1.234,56" by default, Swiss "1’234.56" (typographic
  * apostrophe U+2019, as in the design) as the alternative, independent of the language. The
- * investor's choice is saved in localStorage for now (TODO Phase 17.8: save it in the account).
+ * investor's choice is saved in the account (and in localStorage for the signed-out screens).
  * The choice applies to the investor area only: InvestorShell enters the "number format scope"
  * (useNumberFormatScope) while it is mounted. Everywhere else (admin console, sign-in screens) the
  * formatters keep the platform's previous format "1'234.56" (ASCII apostrophe); the public site
@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-import { t } from "../i18n";
+import { getLocale, t } from "../i18n";
 
 const currencyMinorUnitDecimals: Record<string, number> = {
   BHD: 3,
@@ -235,6 +235,22 @@ export function formatRateBps(bps: number, style: NumberFormatStyle = activeNumb
 
 /** The design's month abbreviations (B.date: "Sep", never the "Sept" of newer browsers). */
 export const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The design's German month abbreviations (U33-DEC-31: "4. Okt. 2026"). */
+const GERMAN_SHORT_MONTHS = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."];
+
+function isGerman() {
+  return getLocale().startsWith("de");
+}
+
+/** "Oct" (English) or "Okt." (German) for a month number 1-12. */
+export function shortMonthName(month: number) {
+  return (isGerman() ? GERMAN_SHORT_MONTHS : SHORT_MONTHS)[month - 1] ?? "";
+}
+
+/** "4 Oct" or "4. Okt." for a day and a month number. */
+export function formatDayMonth(day: number, month: number) {
+  return isGerman() ? `${day}. ${shortMonthName(month)}` : `${day} ${shortMonthName(month)}`;
+}
 
 function validDate(value: string | null | undefined) {
   if (!value) return null;
@@ -242,29 +258,29 @@ function validDate(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** "4 Oct 2026" in Zurich time (design B.date). */
+/** "4 Oct 2026" (German "4. Okt. 2026") in Zurich time (design B.date). */
 export function formatDate(value: string | null | undefined) {
   const date = validDate(value);
   if (!date) return "-";
   const parts = zurichParts(date);
-  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]} ${parts.year}`;
+  return `${formatDayMonth(parts.day, parts.month)} ${parts.year}`;
 }
 
-/** "4 Oct" in Zurich time (design B.dateShort). */
+/** "4 Oct" (German "4. Okt.") in Zurich time (design B.dateShort). */
 export function formatDateShort(value: string | null | undefined) {
   const date = validDate(value);
   if (!date) return "-";
   const parts = zurichParts(date);
-  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]}`;
+  return formatDayMonth(parts.day, parts.month);
 }
 
-/** "4 Oct 2026, 14:30" in Zurich time (design B.dateTime). */
+/** "4 Oct 2026, 14:30" (German "4. Okt. 2026, 14:30") in Zurich time (design B.dateTime). */
 export function formatDateTime(value: string | null | undefined) {
   const date = validDate(value);
   if (!date) return "-";
   const parts = zurichParts(date);
   const two = (number: number) => String(number).padStart(2, "0");
-  return `${parts.day} ${SHORT_MONTHS[parts.month - 1]} ${parts.year}, ${two(parts.hour)}:${two(parts.minute)}`;
+  return `${formatDayMonth(parts.day, parts.month)} ${parts.year}, ${two(parts.hour)}:${two(parts.minute)}`;
 }
 
 export function zurichDateKey(value: string | Date | null | undefined) {
@@ -437,8 +453,8 @@ export function zurichMonthKey(value: string | Date, offset = 0) {
 /** Month name for a "YYYY-MM" or "YYYY-MM-DD" key, independent of the browser time zone. */
 export function monthLabelFromKey(key: string, options: Intl.DateTimeFormatOptions = { month: "long" }) {
   const [year, month] = key.split("-").map(Number);
-  if (options.month === "short" && !options.year && !options.day) return SHORT_MONTHS[month - 1] ?? "";
-  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-GB", { ...options, timeZone: "UTC" });
+  if (options.month === "short" && !options.year && !options.day) return shortMonthName(month);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString(isGerman() ? "de-CH" : "en-GB", { ...options, timeZone: "UTC" });
 }
 
 /** Whole calendar days from one business date to another (negative when `to` is earlier). */

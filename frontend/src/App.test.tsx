@@ -2448,7 +2448,8 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(document.documentElement.dataset.theme).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: /^Swiss/ }));
   expect(screen.getByRole("button", { name: /^Swiss/ })).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("option", { name: "Deutsch · Soon" })).toBeDisabled();
+  // U33-DEC-31: German can be chosen; each language is named in its own language.
+  expect(screen.getByRole("option", { name: "Deutsch" })).toBeEnabled();
   // Closing is a request to support, not an instant closure (U33-DEC-28).
   fireEvent.click(screen.getByRole("button", { name: "Close account" }));
   const closure = screen.getByRole("dialog", { name: "Request account closure" });

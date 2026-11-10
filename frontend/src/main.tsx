@@ -12,6 +12,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { preloadPreferredLanguage } from "./i18n/language";
 import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
 import "./styles.css";
 import "./banxumSkin.css";
@@ -43,10 +44,13 @@ const queryClient = new QueryClient({
 // Take a login-link token out of the address bar before the first request (audit A-49).
 captureMagicLinkTokenFromLocation();
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </StrictMode>
+// U33-DEC-31: a visitor who chose German gets the German texts before the first render.
+void preloadPreferredLanguage().then(() =>
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </StrictMode>
+  )
 );

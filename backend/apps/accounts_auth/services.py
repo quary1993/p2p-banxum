@@ -719,33 +719,52 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
     return user
 
 
+# U33-DEC-31: the interface languages of the investor platform (the public site adds DE/FR).
+INTERFACE_LANGUAGES = ("en", "de-CH")
+
+
 @dataclass(frozen=True, slots=True)
 class UpdateDisplayPreferencesCommand:
     user: User
-    number_format: str
+    number_format: str | None = None
+    language: str | None = None
 
 
 def update_display_preferences(command: UpdateDisplayPreferencesCommand) -> User:
-    """U33-DEC-32: save the number format in the account (all devices, emails, reports)."""
-    if command.number_format not in NUMBER_FORMATS:
+    """U33-DEC-31/-32: save the language and number format in the account (all devices, emails,
+    reports)."""
+    if command.number_format is None and command.language is None:
+        raise AccountsAuthError("Choose a language or a number format.")
+    if command.number_format is not None and command.number_format not in NUMBER_FORMATS:
         raise AccountsAuthError("Unknown number format.")
+    if command.language is not None and command.language not in INTERFACE_LANGUAGES:
+        raise AccountsAuthError("Unknown language.")
     user = User.objects.select_for_update().filter(id=command.user.id).first()
     if user is None:
         raise AccountsAuthError("Account does not exist.")
-    previous = user.number_format
-    if previous == command.number_format:
-        return user
-    user.number_format = command.number_format
-    user.save(update_fields=["number_format"])
-    record_audit_event(
-        AuditCommand(
-            actor=actor_for_user(user),
-            action="account.number_format_changed",
-            target_type="User",
-            target_id=str(user.id),
-            metadata={"previous_value": previous, "new_value": command.number_format},
+    changes = [
+        (field, action, getattr(user, field), value)
+        for field, action, value in (
+            ("number_format", "account.number_format_changed", command.number_format),
+            ("language", "account.language_changed", command.language),
         )
-    )
+        if value is not None and getattr(user, field) != value
+    ]
+    if not changes:
+        return user
+    for field, _action, _previous, value in changes:
+        setattr(user, field, value)
+    user.save(update_fields=[field for field, *_rest in changes])
+    for _field, action, previous, value in changes:
+        record_audit_event(
+            AuditCommand(
+                actor=actor_for_user(user),
+                action=action,
+                target_type="User",
+                target_id=str(user.id),
+                metadata={"previous_value": previous, "new_value": value},
+            )
+        )
     return user
 
 

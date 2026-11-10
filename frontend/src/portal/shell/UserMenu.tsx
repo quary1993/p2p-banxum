@@ -1,8 +1,12 @@
 // IP of Webby-Soft SRL.
 // Account dropdown of the U33 header (design: #bxm-user-dropdown): user card, available balances with
 // "Add funds", the Profile & Settings pages (Personal information, Security, Bank accounts,
-// Preferences), Language (English only until Phase 17.8), Sign out. Help is in the sidebar footer.
+// Preferences), Language (English / Deutsch, U33-DEC-31), Sign out. Help is in the sidebar footer.
+import { useState } from "react";
+
 import { useT } from "../../i18n";
+import { INTERFACE_LANGUAGES, usePreferredLanguage } from "../../i18n/language";
+import { useSetInterfaceLanguage } from "../../investorPortal/languagePreference";
 import { Dropdown, MoneyAmount, NiIcon, PortalLink } from "../components";
 import { brandDisplayName } from "../brand";
 import { clickOnSpace } from "../components/keyboard";
@@ -12,7 +16,7 @@ export type ShellBalance = { currency: string; availableMinor: number };
 // The design's account-menu entries: Profile & Settings tabs (/settings/<tab>), with its icons.
 const SETTINGS_ENTRIES: Array<[string, string, string]> = [
   ["personal", "user-alt", "Personal information"],
-  ["security", "lock-alt", "Security"],
+  ["security", "lock-alt", "account|Security"],
   ["bank-accounts", "building", "Bank accounts"],
   ["preferences", "setting", "Preferences"]
 ];
@@ -40,6 +44,10 @@ export function UserMenu({
 }) {
   const t = useT();
   const [first, ...others] = balances;
+  const language = usePreferredLanguage();
+  const setLanguage = useSetInterfaceLanguage();
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const current = INTERFACE_LANGUAGES.find((option) => option.value === language) ?? INTERFACE_LANGUAGES[0];
   return (
     <Dropdown
       className="user-dropdown"
@@ -97,12 +105,36 @@ export function UserMenu({
                 <li key={tab}><PortalLink onNavigate={close} params={{ tab }} to="settings"><NiIcon name={icon} /><span>{t(label)}</span></PortalLink></li>
               ))}
               <li className="p30-language">
-                {/* One language until Phase 17.8 adds de-CH: shown, not selectable. */}
-                <button aria-disabled="true" className="p30-language-toggle" disabled type="button">
+                <button
+                  aria-controls="p30-language-options"
+                  aria-expanded={languageOpen}
+                  className="p30-language-toggle"
+                  onClick={() => setLanguageOpen((open) => !open)}
+                  type="button"
+                >
                   <NiIcon name="globe" />
                   <span className="p30-language-label">{t("Language")}</span>
-                  <span className="p30-language-current">English</span>
+                  <span className="p30-language-current">{current.label}</span>
+                  <NiIcon className="p30-language-chevron" name="chevron-down" />
                 </button>
+                <div aria-label={t("Language")} className="p30-language-options" hidden={!languageOpen} id="p30-language-options" role="group">
+                  {INTERFACE_LANGUAGES.map((option) => (
+                    <button
+                      aria-pressed={option.value === language}
+                      data-p30-language={option.value}
+                      key={option.value}
+                      lang={option.value}
+                      onClick={() => {
+                        setLanguage(option.value);
+                        setLanguageOpen(false);
+                      }}
+                      type="button"
+                    >
+                      <span>{option.label}</span>
+                      <NiIcon name="check" />
+                    </button>
+                  ))}
+                </div>
               </li>
             </ul>
           </div>

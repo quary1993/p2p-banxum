@@ -618,7 +618,7 @@ class SignInHistoryView(APIView):
 
 
 class DisplayPreferencesView(APIView):
-    """U33-DEC-32: the number format saved in the account."""
+    """U33-DEC-31/-32: the language and number format saved in the account."""
 
     permission_classes = [IsAuthenticated]
 
@@ -633,7 +633,8 @@ class DisplayPreferencesView(APIView):
             user = update_display_preferences(
                 UpdateDisplayPreferencesCommand(
                     user=cast(User, request.user),
-                    number_format=serializer.validated_data["number_format"],
+                    number_format=serializer.validated_data.get("number_format"),
+                    language=serializer.validated_data.get("language"),
                 )
             )
         except AccountsAuthError as exc:

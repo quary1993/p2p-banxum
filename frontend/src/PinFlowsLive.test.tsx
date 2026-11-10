@@ -182,7 +182,7 @@ test("a locked PIN says until when; Forgot PIN resets it with the email and SMS 
 
   fireEvent.click(screen.getAllByRole("button", { name: "Forgot PIN?" })[0]);
   const forgot = await screen.findByRole("dialog", { name: "Forgot PIN" });
-  expect(await within(forgot).findByText("42")).toBeInTheDocument();
+  expect(await within(forgot).findByText(/by SMS to your phone number ending in 42\./)).toBeInTheDocument();
   fireEvent.click(within(forgot).getByRole("button", { name: "Send the codes" }));
   await waitFor(() => expect(calls.pinResetStart).toHaveLength(1));
   await waitFor(() => expect(calls.codes).toContainEqual({ action: "pin_reset" }));

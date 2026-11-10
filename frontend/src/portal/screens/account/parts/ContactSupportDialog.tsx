@@ -77,7 +77,7 @@ export function ContactSupportDialog({ onClose, topic: initialTopic }: { onClose
         <div className="form-group">
           <label className="form-label" htmlFor="msg-topic">{t("Topic")}</label>
           <select className="form-select" id="msg-topic" onChange={(event) => edit(() => setTopic(event.target.value))} value={topic}>
-            {SUPPORT_TOPICS.map((value) => <option key={value} value={value}>{t(value)}</option>)}
+            {SUPPORT_TOPICS.map((value) => <option key={value} value={value}>{t(value === "Security" ? "account|Security" : value)}</option>)}
           </select>
         </div>
         <div className="form-group">

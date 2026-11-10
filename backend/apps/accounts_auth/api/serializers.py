@@ -42,6 +42,8 @@ class UserSummarySerializer(serializers.Serializer[Any]):
     marketing_consent = serializers.BooleanField()
     # U33-DEC-32: "european" (default) or "swiss".
     number_format = serializers.CharField()
+    # U33-DEC-31: "en" (default) or "de-CH".
+    language = serializers.CharField()
     # ACC-DEC-009: the portal asks for a PIN before anything else while this is false.
     pin_set = serializers.SerializerMethodField()
     # Only while the PIN is locked after too many wrong attempts.
@@ -129,7 +131,8 @@ class MarketingConsentUpdateRequestSerializer(serializers.Serializer[Any]):
 
 
 class DisplayPreferencesUpdateRequestSerializer(serializers.Serializer[Any]):
-    number_format = serializers.ChoiceField(choices=["european", "swiss"])
+    number_format = serializers.ChoiceField(choices=["european", "swiss"], required=False)
+    language = serializers.ChoiceField(choices=["en", "de-CH"], required=False)
 
 
 class AdminLoginStartRequestSerializer(serializers.Serializer[Any]):

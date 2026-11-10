@@ -9,7 +9,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useV1AuthMeRetrieve } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
+import { INTERFACE_LANGUAGES, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
 import { isFixturePreview } from "../../../../investorPortal/data";
+import { useSetInterfaceLanguage } from "../../../../investorPortal/languagePreference";
 import { useAppearance } from "../../../appearance";
 import { brandDisplayName, isBanxumBrand, operatorName } from "../../../brand";
 import { PortalLink, usePortalNav } from "../../../components";
@@ -94,6 +96,8 @@ export function AuthLayout({ children, step, stepsDone = false }: { children: Re
   const t = useT();
   const nav = usePortalNav();
   const { appearance, setAppearance } = useAppearance();
+  const language = usePreferredLanguage();
+  const setLanguage = useSetInterfaceLanguage();
   const brand = brandDisplayName();
   return (
     <U33Skin layout="auth">
@@ -122,10 +126,18 @@ export function AuthLayout({ children, step, stepsDone = false }: { children: Re
               >
                 <CaIcon name={appearance === "dark" ? "sun" : "moon"} />
               </button>
-              {/* English only until Phase 17.8 adds de-CH (U33-DEC-31). */}
-              <select aria-label={t("Language")} onChange={() => undefined} value="en">
-                <option value="en">EN</option>
-                <option disabled title={t("Soon")} value="de">DE</option>
+              {/* U33-DEC-31: saved in this browser now and in the account after sign-in. */}
+              <select
+                aria-label={t("Language")}
+                onChange={(event) => {
+                  const next = parseInterfaceLanguage(event.target.value);
+                  if (next) setLanguage(next);
+                }}
+                value={language}
+              >
+                {INTERFACE_LANGUAGES.map((option) => (
+                  <option key={option.value} lang={option.value} value={option.value}>{option.short}</option>
+                ))}
               </select>
             </div>
           </header>
