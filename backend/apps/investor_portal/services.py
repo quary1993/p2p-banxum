@@ -1344,6 +1344,10 @@ def get_investor_portfolio(
     recovery_events = _recovery_events_by_holding(
         investor_user_id=investor_user_id, holding_ids=all_holding_ids
     )
+    # U33-DEC-22: the recorded stages and the known next step of each loan.
+    recovery_stages = import_module(
+        "backend.apps.servicing.recovery_stages"
+    ).investor_recovery_stages(sorted({str(holding.loan_id) for holding in holdings}))
     recovery_totals = _aggregate_by_holding(
         model_label=("servicing", "InvestorRecoveryDistributionLine"),
         investor_user_id=investor_user_id,
@@ -1465,6 +1469,12 @@ def get_investor_portfolio(
                 "recovered_penalties_minor": int(recovery.get("penalties_minor", 0)),
                 "recovered_other_costs_minor": int(recovery.get("other_costs_minor", 0)),
                 "recovery_events": recovery_events.get(str(holding.pk), []),
+                "recovery_stages": recovery_stages.get(str(holding.loan_id), {}).get(
+                    "stages", []
+                ),
+                "recovery_next_step": recovery_stages.get(str(holding.loan_id), {}).get(
+                    "next_step"
+                ),
                 "latest_public_note": latest_notes.get(str(holding.loan_id)),
                 "open_secondary_listing": (
                     {

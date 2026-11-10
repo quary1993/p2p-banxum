@@ -2017,6 +2017,11 @@ export const portfolioFixture: InvestorPortfolio = {
       recovered_default_interest_minor: 0,
       recovered_penalties_minor: 0,
       recovered_other_costs_minor: 0,
+      // U33-DEC-22: the stages the team recorded, and the next step when it is known.
+      recovery_stages: [
+        { title: "Reminder sent", occurred_on: fixtureIsoDateFromToday(-18), investor_note: "Banxum reminded the borrower in writing." }
+      ],
+      recovery_next_step: { title: "Formal notice", occurred_on: fixtureIsoDateFromToday(7), investor_note: "Planned if the payment has not arrived by then." },
       latest_public_note: {
         id: "note-late",
         note_type: "payment_update",
@@ -2072,6 +2077,11 @@ export const portfolioFixture: InvestorPortfolio = {
       recovered_default_interest_minor: 0,
       recovered_penalties_minor: 0,
       recovered_other_costs_minor: 0,
+      recovery_stages: [
+        { title: "Formal notice", occurred_on: fixtureIsoDateFromToday(-150), investor_note: "Banxum sent the borrower a formal notice." },
+        { title: "Enforcement of the security", occurred_on: fixtureIsoDateFromToday(-60), investor_note: "Banxum is collecting the assigned receivables for all investors." }
+      ],
+      recovery_next_step: { title: "Collection from the debtors", occurred_on: null, investor_note: "The debtors of the assigned receivables are being contacted. A date is not known yet." },
       latest_public_note: {
         id: "note-default",
         note_type: "default_update",

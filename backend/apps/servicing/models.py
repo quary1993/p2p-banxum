@@ -520,3 +520,45 @@ class InvestorLossRecognitionLine(AppendOnlyModel):
             models.Index(fields=["holding", "occurred_at"]),
             models.Index(fields=["investor_user_id", "occurred_at"]),
         ]
+
+
+class LoanRecoveryStageStatus(models.TextChoices):
+    # A step that happened, with its real date.
+    DONE = "done", "Done"
+    # The step that really comes next; shown only when the admin knows it.
+    NEXT = "next", "Next"
+
+
+class LoanRecoveryStage(TimestampedModel):
+    """U33-DEC-22: a real stage of the follow-up of a late or defaulted loan, recorded by an admin.
+
+    Titles follow the real process (no fixed list and no automatic progress); the note is written
+    for the loan's investors. One "next" step at most is current. A wrong entry is removed with a
+    reason, never deleted.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey("loans.Loan", on_delete=models.PROTECT, related_name="recovery_stages")
+    status = models.CharField(max_length=8, choices=LoanRecoveryStageStatus.choices)
+    title = models.CharField(max_length=120)
+    occurred_on = models.DateField(null=True, blank=True)
+    investor_note = models.TextField(blank=True, default="")
+    created_by_admin_id = models.UUIDField()
+    removed_at = PlatformDateTimeField(null=True, blank=True)
+    removed_by_admin_id = models.UUIDField(null=True, blank=True)
+    removed_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["occurred_on", "created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status="next") | models.Q(occurred_on__isnull=False),
+                name="loan_recovery_stage_done_has_date",
+            ),
+            models.UniqueConstraint(
+                fields=["loan"],
+                condition=models.Q(status="next", removed_at__isnull=True),
+                name="loan_recovery_stage_one_next_step",
+            ),
+        ]
+        indexes = [models.Index(fields=["loan", "removed_at"])]

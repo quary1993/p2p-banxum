@@ -7,6 +7,8 @@ from backend.apps.servicing.api.views import (
     BorrowerRepaymentRecordView,
     LoanContractTerminationView,
     LoanRecoveryPaymentRecordView,
+    LoanRecoveryStageListView,
+    LoanRecoveryStageRemoveView,
     LoanRiskNoteAdminListCreateView,
     LoanServicingStatusScanView,
     LoanStatusThresholdsView,
@@ -49,6 +51,16 @@ urlpatterns = [
         "admin/loans/<uuid:loan_id>/status-thresholds/",
         LoanStatusThresholdsView.as_view(),
         name="servicing-loan-status-thresholds",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/recovery-stages/",
+        LoanRecoveryStageListView.as_view(),
+        name="servicing-loan-recovery-stages",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/recovery-stages/<uuid:stage_id>/remove/",
+        LoanRecoveryStageRemoveView.as_view(),
+        name="servicing-loan-recovery-stage-remove",
     ),
     path(
         "admin/loans/<uuid:loan_id>/contract-termination/",

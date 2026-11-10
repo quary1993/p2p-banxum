@@ -74,6 +74,10 @@ import {
   useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
   useV1ServicingAdminLoansContractTerminationCreate,
+  getV1ServicingAdminLoansRecoveryStagesRetrieveQueryKey,
+  useV1ServicingAdminLoansRecoveryStagesCreate,
+  useV1ServicingAdminLoansRecoveryStagesRemoveCreate,
+  useV1ServicingAdminLoansRecoveryStagesRetrieve,
   useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
@@ -4741,6 +4745,7 @@ type ManageLoanActionId =
   | "recovery"
   | "status_days"
   | "terminate"
+  | "recovery_stages"
   | "note";
 
 const MANAGE_LOAN_ACTIONS: Array<{
@@ -4822,6 +4827,13 @@ const MANAGE_LOAN_ACTIONS: Array<{
       "Record the date the loan contract was terminated. The status does not change; lenders see the date on their investment.",
     statuses: ["late", "defaulted"],
     danger: true
+  },
+  {
+    id: "recovery_stages",
+    title: "Recovery stages",
+    description:
+      "Record what was done with its real date and, when it is known, what comes next. Lenders see the stages on their investment (U33-DEC-22).",
+    statuses: ["late", "defaulted", "written_off"]
   },
   {
     id: "note",
@@ -5749,6 +5761,8 @@ function ManageLoanModal({
 
             {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
 
+            {action === "recovery_stages" ? <LoanRecoveryStagesForm loan={loan} /> : null}
+
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
@@ -6209,6 +6223,155 @@ function LoanComingSoonForm({ loan, onDone }: { loan: Loan; onDone: () => void }
         </OperationConfirmButton>
       ) : null}
       {failure ? <Banner tone="bad" title="Could not save">{errorMessage(failure)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+// Examples only: the admin writes the title of the real step; there is no fixed workflow (U33-DEC-22).
+const RECOVERY_STAGE_SUGGESTIONS = [
+  "Reminder sent",
+  "Formal notice",
+  "Enforcement of the security",
+  "Debt collection proceedings",
+  "Claim filed in insolvency",
+  "Sale of the security",
+  "Recovery closed"
+];
+
+/** U33-DEC-22: the real stages of a late or defaulted loan, and the next step when it is known. */
+function LoanRecoveryStagesForm({ loan }: { loan: Loan }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const listId = useId();
+  const stagesQuery = useV1ServicingAdminLoansRecoveryStagesRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const [kind, setKind] = useState<"done" | "next">("done");
+  const [title, setTitle] = useState("");
+  const [occurredOn, setOccurredOn] = useState(businessDate);
+  const [investorNote, setInvestorNote] = useState("");
+  const [removeId, setRemoveId] = useState<string | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: getV1ServicingAdminLoansRecoveryStagesRetrieveQueryKey(loan.id) });
+  const record = useV1ServicingAdminLoansRecoveryStagesCreate({
+    mutation: {
+      onSuccess: (stage) => {
+        setSuccess(stage.status === "next" ? `Next step saved: ${stage.title}.` : `Stage recorded: ${stage.title}.`);
+        setTitle("");
+        setInvestorNote("");
+        refresh();
+      }
+    }
+  });
+  const remove = useV1ServicingAdminLoansRecoveryStagesRemoveCreate({
+    mutation: {
+      onSuccess: (stage) => {
+        setSuccess(`Removed: ${stage.title}.`);
+        setRemoveId(null);
+        setRemoveReason("");
+        refresh();
+      }
+    }
+  });
+  const stages = stagesQuery.data?.stages ?? [];
+  const active = stages.filter((stage) => !stage.removed_at);
+  const removed = stages.filter((stage) => stage.removed_at);
+  const futureDone = kind === "done" && occurredOn > businessDate;
+  const pastNext = kind === "next" && Boolean(occurredOn) && occurredOn < businessDate;
+  const blocked = !title.trim() || (kind === "done" && !occurredOn) || futureDone || pastNext || record.isPending;
+
+  function submit() {
+    const data = { status: kind, title: title.trim(), occurred_on: occurredOn || null, investor_note: investorNote.trim() };
+    if (isFixturePreview) {
+      setPreview(`${kind === "next" ? "Next step" : "Stage"} "${data.title}" would be recorded for ${loan.id}.`);
+      return;
+    }
+    record.mutate({ loanId: loan.id, data });
+  }
+
+  function confirmRemove() {
+    if (!removeId) return;
+    if (isFixturePreview) {
+      setPreview(`The stage would be removed for ${loan.id}.`);
+      return;
+    }
+    remove.mutate({ loanId: loan.id, stageId: removeId, data: { reason: removeReason.trim() } });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Write what really happened, with its real date and a short note for lenders. Add the next step only when you know
+        it; its date can stay empty. Lenders see the stages on their investment. Banxum follows up: do not ask lenders to
+        act. To email lenders, publish a loan note.
+      </p>
+      {active.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr><th>Stage</th><th>Date</th><th>Note for lenders</th><th><span className="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {active.map((stage) => (
+                <tr key={stage.id}>
+                  <td>{stage.status === "next" ? `Next step: ${stage.title}` : stage.title}</td>
+                  <td>{stage.occurred_on ? formatDate(stage.occurred_on) : "Not known"}</td>
+                  <td>{stage.investor_note || "-"}</td>
+                  <td><button className="link" onClick={() => setRemoveId(stage.id)} type="button">Remove</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">{stagesQuery.isLoading ? "Loading the stages..." : "No stage is recorded for this loan."}</p>
+      )}
+      {removed.length > 0 ? <p className="muted">{removed.length} removed {removed.length === 1 ? "entry is" : "entries are"} kept for the audit.</p> : null}
+      {removeId ? (
+        <div className="admin-form-panel">
+          <TextAreaInput label="Reason for the removal" onChange={setRemoveReason} required value={removeReason} />
+          <Button disabled={!removeReason.trim() || remove.isPending} onClick={confirmRemove} variant="danger">Remove the stage</Button>{" "}
+          <Button onClick={() => setRemoveId(null)}>Cancel</Button>
+        </div>
+      ) : null}
+      <FieldGrid>
+        <SelectInput<"done" | "next">
+          label="Type"
+          onChange={(value) => {
+            setKind(value);
+            setOccurredOn(value === "done" ? businessDate : "");
+          }}
+          optionLabel={(option) => (option === "done" ? "It happened" : "Next step")}
+          options={["done", "next"]}
+          value={kind}
+        />
+        <Field hint="Write the real step. The list only gives examples." label="Title">
+          <input aria-label="Title" list={listId} maxLength={120} onChange={(event) => setTitle(event.target.value)} required value={title} />
+          <datalist id={listId}>{RECOVERY_STAGE_SUGGESTIONS.map((item) => <option key={item} value={item} />)}</datalist>
+        </Field>
+        <TextInput hint={kind === "next" ? "Leave empty when the date is not known." : undefined} label={kind === "next" ? "Planned date" : "Date"} onChange={setOccurredOn} required={kind === "done"} type="date" value={occurredOn} />
+      </FieldGrid>
+      <TextAreaInput hint="Shown to the loan's lenders. Facts only." label="Note for lenders" onChange={setInvestorNote} value={investorNote} />
+      {futureDone ? <Banner tone="bad" title="Date in the future">A stage that happened cannot have a future date.</Banner> : null}
+      {pastNext ? <Banner tone="bad" title="Date in the past">The date of the next step cannot be in the past.</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel={kind === "next" ? "Save next step" : "Record stage"}
+        description={kind === "next" ? "The next step replaces the current one. Lenders see it on their investment." : "The stage is shown to the loan's lenders with its date and note."}
+        details={[
+          { label: "Loan", value: loan.title },
+          { label: "Title", value: title.trim() || "-" },
+          { label: "Date", value: occurredOn || "Not known" }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title={kind === "next" ? "Confirm the next step" : "Confirm the stage"}
+        variant="primary"
+      >
+        {kind === "next" ? "Save next step" : "Record stage"}
+      </OperationConfirmButton>
+      {record.error || remove.error ? <Banner tone="bad" title="Could not save">{errorMessage(record.error ?? remove.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>

@@ -199,6 +199,30 @@ test("a draft loan can be shown as Coming soon only with a planned date before t
   expect(within(dialog).queryByRole("button", { name: "Stop showing as Coming soon" })).not.toBeInTheDocument();
 });
 
+test("recovery stages are written by the admin with real dates, and the next step only when known (U33-DEC-22)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Luzern Quartier renovation")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Luzern Quartier renovation" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Recovery stages/ }));
+
+  expect(within(dialog).getByText(/Add the next step only when you know/)).toBeInTheDocument();
+  expect(within(dialog).getByText("No stage is recorded for this loan.")).toBeInTheDocument();
+  const record = within(dialog).getByRole("button", { name: "Record stage" });
+  expect(record).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Formal notice" } });
+  fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2099-01-01" } });
+  expect(within(dialog).getByText("Date in the future")).toBeInTheDocument();
+  expect(record).toBeDisabled();
+
+  // A next step can have no date.
+  fireEvent.change(within(dialog).getByLabelText("Type"), { target: { value: "next" } });
+  expect(within(dialog).getByLabelText("Planned date")).toHaveValue("");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save next step" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Confirm the next step" })).getByRole("button", { name: "Save next step" }));
+  expect(within(dialog).getByText(/Next step "Formal notice" would be recorded/)).toBeInTheDocument();
+});
+
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {
   renderAdmin("/admin/loans");
   fireEvent.click(screen.getByRole("button", { name: "Create direct loan" }));

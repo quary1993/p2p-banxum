@@ -1840,15 +1840,53 @@ test("an unknown holding link shows a not-found investment page", () => {
 });
 
 test("the investment page shows every public loan update with its full message, newest first", async () => {
+  const holding = portfolioFixture.holdings.find((item) => item.id === "H-2201") as (typeof portfolioFixture.holdings)[number];
+  const saved = { stages: holding.recovery_stages, next: holding.recovery_next_step };
+  // Without recorded stages (U33-DEC-22) the public notes are the stages, as before.
+  holding.recovery_stages = [];
+  holding.recovery_next_step = null;
+  try {
+    renderApp("/portfolio/H-2201#loan-notes");
+
+    const heading = await screen.findByRole("heading", { name: "Recovery in progress" });
+    const updates = heading.closest("#loan-notes") as HTMLElement;
+    expect(within(updates).getByText("Latest update").nextElementSibling).toHaveTextContent("Recovery process update");
+    expect(within(updates).getByText(/Garanta has instructed external recovery counsel/)).toBeInTheDocument();
+    expect(within(updates).getByRole("heading", { level: 6, name: "Formal demand issued" })).toBeInTheDocument();
+    expect(within(updates).getByText(/Garanta has issued a formal payment demand/)).toBeInTheDocument();
+    expect(window.location.hash).toBe("#loan-notes");
+  } finally {
+    holding.recovery_stages = saved.stages;
+    holding.recovery_next_step = saved.next;
+  }
+});
+
+test("a late payment shows the missed payment, the recorded stages and the known next step (U33-DEC-22)", async () => {
+  renderApp("/portfolio/H-2256");
+
+  const heading = await screen.findByRole("heading", { name: "Payment update" });
+  const card = heading.closest(".rc-payment-update") as HTMLElement;
+  const steps = card.querySelector(".rc-payment-body .rc-steps") as HTMLElement;
+  expect(Array.from(steps.querySelectorAll("strong")).map((node) => node.textContent)).toEqual(["Payment missed", "Reminder sent", "Next step · Formal notice"]);
+  expect(steps.querySelectorAll(".rc-step-dot.next")).toHaveLength(1);
+  expect(steps).toHaveTextContent("Planned if the payment has not arrived by then.");
+});
+
+test("recorded recovery stages give the current stage and the known next milestone, with every note kept (U33-DEC-22)", async () => {
   renderApp("/portfolio/H-2201#loan-notes");
 
   const heading = await screen.findByRole("heading", { name: "Recovery in progress" });
   const updates = heading.closest("#loan-notes") as HTMLElement;
-  expect(within(updates).getByText("Latest update").nextElementSibling).toHaveTextContent("Recovery process update");
-  expect(within(updates).getByText(/Garanta has instructed external recovery counsel/)).toBeInTheDocument();
+  expect(within(updates).getByText("Current stage").nextElementSibling).toHaveTextContent("Enforcement of the security");
+  expect(within(updates).getByText(/Banxum is collecting the assigned receivables for all investors\./, { selector: "section p" })).toBeInTheDocument();
+  const next = within(updates).getByText("Next milestone");
+  expect(next.nextElementSibling).toHaveTextContent("Collection from the debtors");
+  // No date is shown when the team does not know it.
+  expect(next.parentElement?.querySelector("time")).toBeNull();
+  expect(within(updates).queryByText("Latest update")).not.toBeInTheDocument();
+  expect(within(updates).getByRole("heading", { level: 6, name: "Formal notice" })).toBeInTheDocument();
+  expect(within(updates).getByRole("heading", { level: 6, name: "Recovery process update" })).toBeInTheDocument();
   expect(within(updates).getByRole("heading", { level: 6, name: "Formal demand issued" })).toBeInTheDocument();
-  expect(within(updates).getByText(/Garanta has issued a formal payment demand/)).toBeInTheDocument();
-  expect(window.location.hash).toBe("#loan-notes");
 });
 
 test("originator claim holdings disclose the retained claim without implying protection", () => {

@@ -85,6 +85,8 @@ None for v1. Late/default day counts are calendar days.
 ### RISK-DEC-003: Notes and Document Uploads Instead of Notice Templates
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-22: stage-by-stage presentation of arrears and recovery, with admin-recorded real stages, events (including termination) and the next step only when known.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-22): `LoanRecoveryStage` (servicing). The admin records, for a late, defaulted or written-off loan, a stage that happened (title, real date not in the future, note for investors) or the step that really comes next (title, date only when known and not in the past, note); a new next step replaces the current one. Titles are free text (the admin form only suggests examples); no fixed workflow and no automatic progress. A wrong entry is removed with a reason and kept for the audit. API: `GET`/`POST /api/v1/servicing/admin/loans/<id>/recovery-stages/`, `POST .../recovery-stages/<stage_id>/remove/`; audit `servicing.recovery_stage_recorded` / `servicing.recovery_stage_removed`. The investor holding has `recovery_stages` and `recovery_next_step`: the late payment card shows the first missed payment, the recorded stages and "Next step · …"; the recovery card shows the latest stage as "Current stage" and the next step as "Next milestone"; without recorded stages the public notes are shown as before. Emails to investors stay the loan notes.
 
 Status: Accepted.
 Date: 2026-05-16.

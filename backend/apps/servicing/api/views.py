@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.platform_core.selectors.settings import loan_status_thresholds
+from backend.apps.servicing import recovery_stages
 from backend.apps.servicing.api.serializers import (
     BorrowerRepaymentAdvancePreviewRequestSerializer,
     BorrowerRepaymentAdvancePreviewResponseSerializer,
@@ -21,6 +22,10 @@ from backend.apps.servicing.api.serializers import (
     LoanContractTerminationRequestSerializer,
     LoanRecoveryPaymentRecordRequestSerializer,
     LoanRecoveryPaymentRecordResponseSerializer,
+    LoanRecoveryStageListSerializer,
+    LoanRecoveryStageRemoveRequestSerializer,
+    LoanRecoveryStageRequestSerializer,
+    LoanRecoveryStageSerializer,
     LoanRiskNoteCreateRequestSerializer,
     LoanRiskNoteListQuerySerializer,
     LoanRiskNoteSerializer,
@@ -482,3 +487,73 @@ class LoanContractTerminationView(APIView):
         except ServicingValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(_loan_status_stages_payload(loan))
+
+
+class LoanRecoveryStageListView(APIView):
+    """U33-DEC-22: the recorded stages of a loan (GET) or record one (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LoanRecoveryStageListSerializer})
+    def get(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        stages = recovery_stages.list_recovery_stages(
+            actor=cast(Model, request.user), loan_id=str(loan_id)
+        )
+        return Response({"stages": stages})
+
+    @extend_schema(
+        request=LoanRecoveryStageRequestSerializer,
+        responses={201: LoanRecoveryStageSerializer},
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanRecoveryStageRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            stage = recovery_stages.record_recovery_stage(
+                recovery_stages.RecordRecoveryStageCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(loan_id),
+                    status=data["status"],
+                    title=data["title"],
+                    occurred_on=data["occurred_on"],
+                    investor_note=data["investor_note"],
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(stage, status=status.HTTP_201_CREATED)
+
+
+class LoanRecoveryStageRemoveView(APIView):
+    """U33-DEC-22: remove a wrong stage with a reason (kept for the audit)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanRecoveryStageRemoveRequestSerializer,
+        responses={200: LoanRecoveryStageSerializer},
+    )
+    def post(self, request: Request, loan_id: str, stage_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanRecoveryStageRemoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            stage = recovery_stages.remove_recovery_stage(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                stage_id=str(stage_id),
+                reason=serializer.validated_data["reason"],
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(stage)

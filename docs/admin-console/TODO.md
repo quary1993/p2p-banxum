@@ -376,3 +376,10 @@ Each entry should include:
 - Current first-version behavior: for a draft loan, the admin sets the planned opening date (from today up to the funding deadline) and an optional internal note; the form refuses a past date, a date after the funding deadline, a loan that is not a draft Direct loan and an unsecured loan. When the loan is already shown, the form shows the dates, changes the date, and "Stop showing as Coming soon" hides it again (the opening alerts are then not sent). The opening alerts go out when the admin publishes the loan.
 - Required admin-console improvement: show "Coming soon" and the planned date in the loan list; show the number of investors who asked for the opening alert; show the `coming_soon_announced` / `coming_soon_withdrawn` events in the loan history.
 - Priority: important.
+
+## 2026-11-10: Recovery Stages (U33-DEC-22)
+
+- Screen or component: loan Manage modal, action "Recovery stages" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: for a late, defaulted or written-off loan, the form lists the recorded stages and the next step, records a stage that happened (title, real date, note for lenders) or the next step (title, date when known, note), and removes a wrong entry with a reason (the number of removed entries is shown; they stay for the audit). Titles are free text; the field suggests examples only.
+- Required admin-console improvement: show the removed entries with their reason and author; show the stages in the loan history; link to "Publish a loan note" to email lenders about a new stage.
+- Priority: important.

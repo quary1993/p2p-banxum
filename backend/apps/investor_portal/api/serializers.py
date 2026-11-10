@@ -371,6 +371,16 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     schedule = PortfolioInstallmentSerializer(many=True)
 
 
+class HoldingRecoveryStageSerializer(serializers.Serializer[Any]):
+    """U33-DEC-22: a real stage of the loan's follow-up, recorded by the team."""
+
+    title = serializers.CharField()
+    occurred_on = serializers.DateField(
+        allow_null=True, help_text="The real date; for the next step, null when not known."
+    )
+    investor_note = serializers.CharField(allow_blank=True)
+
+
 class HoldingRecoveryEventSerializer(serializers.Serializer[Any]):
     """U33-DEC-12: one recovery of the loan (whole-loan amounts) and the investor's share."""
 
@@ -427,6 +437,8 @@ class HoldingSerializer(serializers.Serializer[Any]):
     recovered_penalties_minor = serializers.IntegerField()
     recovered_other_costs_minor = serializers.IntegerField()
     recovery_events = HoldingRecoveryEventSerializer(many=True, required=False)
+    recovery_stages = HoldingRecoveryStageSerializer(many=True, required=False)
+    recovery_next_step = HoldingRecoveryStageSerializer(allow_null=True, required=False)
     latest_public_note = LatestPublicNoteSerializer(allow_null=True, required=False)
     open_secondary_listing = HoldingOpenSecondaryListingSerializer(allow_null=True)
 

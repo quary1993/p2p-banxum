@@ -5412,6 +5412,103 @@ paths:
               schema:
                 $ref: '#/components/schemas/LoanStatusStages'
           description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/recovery-stages/:
+    get:
+      operationId: v1_servicing_admin_loans_recovery_stages_retrieve
+      description: 'U33-DEC-22: the recorded stages of a loan (GET) or record one
+        (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanRecoveryStageList'
+          description: ''
+    post:
+      operationId: v1_servicing_admin_loans_recovery_stages_create
+      description: 'U33-DEC-22: the recorded stages of a loan (GET) or record one
+        (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanRecoveryStage'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/recovery-stages/{stage_id}/remove/:
+    post:
+      operationId: v1_servicing_admin_loans_recovery_stages_remove_create
+      description: 'U33-DEC-22: remove a wrong stage with a reason (kept for the audit).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: stage_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRemoveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRemoveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryStageRemoveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanRecoveryStage'
+          description: ''
   /api/v1/servicing/admin/loans/{loan_id}/status-thresholds/:
     post:
       operationId: v1_servicing_admin_loans_status_thresholds_create
@@ -9284,6 +9381,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/HoldingRecoveryEvent'
+        recovery_stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/HoldingRecoveryStage'
+        recovery_next_step:
+          allOf:
+          - $ref: '#/components/schemas/HoldingRecoveryStage'
+          nullable: true
         latest_public_note:
           allOf:
           - $ref: '#/components/schemas/LatestPublicNote'
@@ -9376,6 +9481,24 @@ components:
       - recovery_event_id
       - recovery_fee_minor
       - value_date
+    HoldingRecoveryStage:
+      type: object
+      description: 'U33-DEC-22: a real stage of the loan''s follow-up, recorded by
+        the team.'
+      properties:
+        title:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+          nullable: true
+          description: The real date; for the next step, null when not known.
+        investor_note:
+          type: string
+      required:
+      - investor_note
+      - occurred_on
+      - title
     InvestorActivity:
       type: object
       properties:
@@ -11797,6 +11920,78 @@ components:
       required:
       - distribution_lines
       - recovery_event
+    LoanRecoveryStage:
+      type: object
+      description: 'U33-DEC-22: a recorded stage (done) or the known next step (next)
+        of a loan.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/Status260Enum'
+        title:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+          nullable: true
+        investor_note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        removed_at:
+          type: string
+          format: date-time
+          nullable: true
+        removed_reason:
+          type: string
+      required:
+      - created_at
+      - id
+      - investor_note
+      - occurred_on
+      - removed_at
+      - removed_reason
+      - status
+      - title
+    LoanRecoveryStageList:
+      type: object
+      properties:
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanRecoveryStage'
+      required:
+      - stages
+    LoanRecoveryStageRemoveRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 2000
+      required:
+      - reason
+    LoanRecoveryStageRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/Status260Enum'
+        title:
+          type: string
+          maxLength: 120
+        occurred_on:
+          type: string
+          format: date
+          nullable: true
+        investor_note:
+          type: string
+          default: ''
+          maxLength: 4000
+      required:
+      - status
+      - title
     LoanRiskNote:
       type: object
       properties:
@@ -17981,6 +18176,14 @@ components:
         * `not_set_up` - Not set up
         * `active` - Active
         * `paused` - Paused
+    Status260Enum:
+      enum:
+      - done
+      - next
+      type: string
+      description: |-
+        * `done` - done
+        * `next` - next
     Status828Enum:
       enum:
       - active

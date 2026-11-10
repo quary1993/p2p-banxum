@@ -266,6 +266,8 @@ Decision:
 - The admin records the arrears, recovery amounts/dates, events and real stages, including termination, plus the note for investors. The next step/date shows only when known. The investor sees what was done, the current stage and what really comes next; no fictitious automatic progress or invented universal calendar.
 - The history stays accessible on request, and updates are still published, including the existing email to the relevant investors. Messages explain Banxum's actions and do not ask the investor to manage the recovery. Recoveries go to the Banxum balance (U33-DEC-02). Stage names and fields follow the real process, with no promises about a team or procedures that do not exist.
 
+Implemented 2026-11-10 (Phase 17.4): `plan/12_risk_collections_recoveries.md` RISK-DEC-003 note. Stage titles are free text with suggested examples; the list of real stage names is in the open questions of Phase 17.
+
 ### U33-DEC-29: Missing States and Screens, Including Company Accounts
 
 Status: Approved as later design work. Not declared done and not visually approved.

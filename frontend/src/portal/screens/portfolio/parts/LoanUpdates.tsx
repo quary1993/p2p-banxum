@@ -1,14 +1,15 @@
 // IP of Webby-Soft SRL.
-// Late and default information of an investment in the U33 presentation, from today's data only: the
-// overdue rows of the investor's schedule, the loan's days past due, the recorded recoveries and the
-// public loan notes published by the team (the old "Loan notes"). No invented stages, next steps or
-// dates (U33-DEC-22: structured recovery stages come with Phase 17.4). The contract termination is a
-// separate recorded stage with its real date (U33-DEC-09). Banxum follows up; the investor is never
+// Late and default information of an investment in the U33 presentation, from recorded data only: the
+// overdue rows of the investor's schedule, the loan's days past due, the stages the team recorded and
+// the next step when the team knows it (U33-DEC-22), the recorded recoveries and the public loan notes
+// (the old "Loan notes"). No invented stages, next steps or dates: without recorded stages the public
+// notes are shown as before. The contract termination is a separate recorded stage with its real date
+// (U33-DEC-09). Banxum follows up; the investor is never
 // asked to act. Recoveries are credited to the Banxum balance (U33-DEC-02); each recovery shows the
 // gross, the real external costs and the net, with no Banxum recovery fee (U33-DEC-12).
 import { useEffect } from "react";
 
-import type { Holding, PublicLoanRiskNote } from "../../../../api/generated/banxumApi";
+import type { Holding, HoldingRecoveryStage, PublicLoanRiskNote } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { useLoanRiskNotesData } from "../../../../investorPortal/data";
 import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
@@ -55,6 +56,52 @@ function NoteSteps({ notes }: { notes: PublicLoanRiskNote[] }) {
   );
 }
 
+/** U33-DEC-22: the design's steps from recorded facts: the first missed payment, the recorded stages
+ * and the next step only when it is known (with its date when known). */
+function RecordedSteps({ holding, missedOn }: { holding: Holding; missedOn: string | null }) {
+  const t = useT();
+  const stages = holding.recovery_stages ?? [];
+  const next = holding.recovery_next_step ?? null;
+  return (
+    <ol className="rc-steps">
+      {missedOn ? (
+        <li>
+          <span aria-hidden="true" className="rc-step-dot done" />
+          <div>
+            <strong>{t("Payment missed")}</strong>
+            <time dateTime={missedOn}>{formatDate(missedOn)}</time>
+          </div>
+          <p>{t("Your scheduled payment has not been received.")}</p>
+        </li>
+      ) : null}
+      {stages.map((stage, index) => (
+        <li key={`${stage.title}-${stage.occurred_on ?? ""}-${index}`}>
+          <span aria-hidden="true" className="rc-step-dot done" />
+          <div>
+            <strong>{stage.title}</strong>
+            {stage.occurred_on ? <time dateTime={stage.occurred_on}>{formatDate(stage.occurred_on)}</time> : null}
+          </div>
+          {stage.investor_note ? <p>{stage.investor_note}</p> : null}
+        </li>
+      ))}
+      {next ? (
+        <li>
+          <span aria-hidden="true" className="rc-step-dot next" />
+          <div>
+            <strong>{t("Next step · {title}", { title: next.title })}</strong>
+            {next.occurred_on ? <time dateTime={next.occurred_on}>{formatDate(next.occurred_on)}</time> : null}
+          </div>
+          {next.investor_note ? <p>{next.investor_note}</p> : null}
+        </li>
+      ) : null}
+    </ol>
+  );
+}
+
+function hasRecordedStages(holding: Holding) {
+  return (holding.recovery_stages ?? []).length > 0 || Boolean(holding.recovery_next_step);
+}
+
 function NotesState({ query, empty }: { query: ReturnType<typeof usePublicNotes>["query"]; empty: string }) {
   const t = useT();
   if (query.isError) {
@@ -89,6 +136,9 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
   const overdue = overdueRows(holding);
   const overdueMinor = overdue.reduce((sum, row) => sum + row.projected_total_minor, 0);
   const onlyInterest = overdue.every((row) => row.projected_principal_minor === 0);
+  const recorded = hasRecordedStages(holding);
+  // With recorded stages every public note goes to the further steps.
+  const furtherNotes = recorded ? notes : notes.slice(2);
   return (
     <div className="card card-bordered rc-payment-update rid-followup r31m-late" id="loan-notes">
       <header className="rc-payment-head">
@@ -108,7 +158,13 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
             <b>{overdue.length > 0 ? formatDate(overdue[0].due_date) : holding.loan.days_past_due}</b>
           </div>
         </div>
-        {notes.length > 0 ? <NoteSteps notes={notes.slice(0, 2)} /> : <NotesState empty={t("No update has been published for this loan yet.")} query={query} />}
+        {recorded ? (
+          <RecordedSteps holding={holding} missedOn={overdue[0]?.due_date ?? null} />
+        ) : notes.length > 0 ? (
+          <NoteSteps notes={notes.slice(0, 2)} />
+        ) : (
+          <NotesState empty={t("No update has been published for this loan yet.")} query={query} />
+        )}
       </div>
       <details className="rc-further">
         <summary>
@@ -144,7 +200,7 @@ export function LatePaymentUpdate({ holding, focus }: { holding: Holding; focus:
             ) : (
               <p className="u33-muted">{t("The borrower is {days} days late. The overdue amounts are shown once the schedule is updated.", { days: holding.loan.days_past_due })}</p>
             )}
-            {notes.length > 2 ? <NoteSteps notes={notes.slice(2)} /> : null}
+            {furtherNotes.length > 0 ? <NoteSteps notes={furtherNotes} /> : null}
           </section>
           <h3>{t("Default interest")}</h3>
           <DefaultInterestNote holding={holding} />
@@ -172,6 +228,11 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
   const recoveredTotal = recovered.reduce((sum, item) => sum + item.amount, 0);
   const recoveries = holding.recovery_events ?? [];
   const writtenOff = holding.loan.loan_status === "written_off";
+  // U33-DEC-22: the latest recorded stage is the current stage; the next step shows only when known.
+  const stages = holding.recovery_stages ?? [];
+  const currentStage: HoldingRecoveryStage | null = stages.length > 0 ? stages[stages.length - 1] : null;
+  const nextStep = holding.recovery_next_step ?? null;
+  const historyNotes = nextStep ? notes : notes.slice(1);
   return (
     <div className="card card-bordered rid-followup r31m-default r75c-recovery" id="loan-notes">
       <div className="r75c-recovery-content">
@@ -180,6 +241,16 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
           <p>{t("Banxum manages recovery. No action is needed from you.")}</p>
         </div>
         <div className="r75c-recovery-grid">
+          {currentStage ? (
+            <section>
+              <span>{t("Current stage")}</span>
+              <h3>{currentStage.title}</h3>
+              <p>
+                {currentStage.investor_note}{" "}
+                {currentStage.occurred_on ? <time dateTime={currentStage.occurred_on}>({formatDate(currentStage.occurred_on)})</time> : null}
+              </p>
+            </section>
+          ) : (
           <section>
             <span>{t("Current stage")}</span>
             <h3>{writtenOff ? t("Written off") : t("Default")}</h3>
@@ -190,6 +261,17 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
               {t("Recovered amounts, after real external costs such as lawyers, courts and enforcement, are credited to each investor's Banxum account in proportion to their share. Banxum takes no recovery fee.")}
             </p>
           </section>
+          )}
+          {nextStep ? (
+            <section>
+              <span>{t("Next milestone")}</span>
+              <h3>{nextStep.title}</h3>
+              <p>
+                {nextStep.investor_note}{" "}
+                {nextStep.occurred_on ? <time dateTime={nextStep.occurred_on}>({formatDate(nextStep.occurred_on)})</time> : null}
+              </p>
+            </section>
+          ) : (
           <section>
             <span>{t("Latest update")}</span>
             {latest ? (
@@ -201,6 +283,7 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
               <NotesState empty={t("No update has been published for this loan yet. You are informed when there is one.")} query={query} />
             )}
           </section>
+          )}
         </div>
         <details className="r31m-disclosure r31m-recovery-history">
           <summary>
@@ -208,9 +291,31 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
             <NiIcon name="chevron-down" />
           </summary>
           <div>
-            {notes.length > 1 ? (
+            {stages.length > 0 || holding.loan.contract_terminated_on ? (
+              <>
+                <h3>{t("Stages")}</h3>
+                <ol className="bxm-timeline">
+                  {holding.loan.contract_terminated_on ? (
+                    <li className="is-done">
+                      <h6>{t("Contract terminated")}</h6>
+                      <p>{formatDate(holding.loan.contract_terminated_on)}</p>
+                    </li>
+                  ) : null}
+                  {[...stages].reverse().map((stage, index) => (
+                    <li className="is-done" key={`${stage.title}-${index}`}>
+                      <h6>{stage.title}</h6>
+                      <p>{stage.occurred_on ? formatDate(stage.occurred_on) : ""}{stage.investor_note ? ` · ${stage.investor_note}` : ""}</p>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : null}
+            {currentStage ? (
+              <p className="u33-muted">{t("Recovered amounts, after real external costs such as lawyers, courts and enforcement, are credited to each investor's Banxum account in proportion to their share. Banxum takes no recovery fee.")}</p>
+            ) : null}
+            {historyNotes.length > 0 ? (
               <ol className="bxm-timeline">
-                {notes.slice(1).map((note) => (
+                {historyNotes.map((note) => (
                   <li className="is-done" id={`loan-note-${note.id}`} key={note.id}>
                     <h6>{note.title || t("Loan update")}</h6>
                     <p>{formatDate(note.occurred_at)}{note.body ? ` · ${note.body}` : ""}</p>

@@ -513,3 +513,33 @@ class LoanStatusStagesSerializer(serializers.Serializer[Any]):
     effective_default_threshold_days = serializers.IntegerField()
     threshold_source = serializers.CharField()
     contract_terminated_on = serializers.DateField(allow_null=True)
+
+
+class LoanRecoveryStageSerializer(serializers.Serializer[Any]):
+    """U33-DEC-22: a recorded stage (done) or the known next step (next) of a loan."""
+
+    id = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=["done", "next"])
+    title = serializers.CharField()
+    occurred_on = serializers.DateField(allow_null=True)
+    investor_note = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()
+    removed_at = serializers.DateTimeField(allow_null=True)
+    removed_reason = serializers.CharField(allow_blank=True)
+
+
+class LoanRecoveryStageListSerializer(serializers.Serializer[Any]):
+    stages = LoanRecoveryStageSerializer(many=True)
+
+
+class LoanRecoveryStageRequestSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=["done", "next"])
+    title = serializers.CharField(max_length=120)
+    occurred_on = serializers.DateField(required=False, allow_null=True, default=None)
+    investor_note = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+
+
+class LoanRecoveryStageRemoveRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField(max_length=2000)
