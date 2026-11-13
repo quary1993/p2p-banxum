@@ -736,6 +736,8 @@ An immutable parent batch record binds the investor, per-currency cash totals, i
 
 ### MKT-DEC-028: Swiss-Borrower Investor Limit
 
+> **Changed 2026-11-13** (owner answer Q03, `plan/22` "Final Answers Of 2026-11-13"; WW validation pending): the CHF 500,000 ban of U33-DEC-08 is replaced by three regimes per Swiss borrower UID: total below CHF 500,000 with the sandbox applicable, no creditor limit (working assumption); below CHF 500,000 without the sandbox, at most 20 relevant creditors per borrower; CHF 500,000 or more, at most 10 non-bank creditors per financing on identical terms and 20 per borrower. Debts outside Banxum count. Where a limit applies, the minimum for a new place is `min(R, max(1,000, ceil(max(0, P - F) / N)))` with `P` the success threshold (not the full target). The 20-investor code below is the base for this rule (IMPLEMENTATION_PLAN 17.13).
+
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-08: the 20-investor limit and the raised minimum are removed; each Swiss borrower's total loans must stay strictly below CHF 500,000 (basis to confirm); the usual EUR/CHF 1,000 minimum stays.
 
 Status: Accepted.

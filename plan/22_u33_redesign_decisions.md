@@ -1,6 +1,6 @@
 # U33 Redesign Reconciliation Decisions
 
-Status: Approved product decisions, current at 2026-11-08 (group 2 approved 2026-11-04, group 3 completed 2026-11-08).
+Status: Approved product decisions, current at 2026-11-13 (group 2 approved 2026-11-04, group 3 completed 2026-11-08, final answers 2026-11-13 at the end of this file; they prevail where they say so).
 Source: "Lot 113 - Register of reconciliation decisions with Vlad" (Romanian original, received 2026-11-09), answering the 39 items of `BANXUM_redesign_nov3_decisions` (design package `website_redesign_nov3`, edition "Banxum unified U33", 3 Nov 2026).
 Owner: Banxum product (decisions); Vlad (implementation).
 
@@ -30,6 +30,9 @@ Owner: Banxum product (decisions); Vlad (implementation).
 ### U33-DEC-01: Sign-In and Confirmation of Operations
 
 Status: Approved (new solution). Open implementation confirmations below.
+
+> Updated 2026-11-13 (Q05): password rules, Twilio SMS, trusted device 30 days, 10 recovery codes, migration at next sign-in, assisted recovery (Vlad validates first), admins with authenticator app. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: ACC-DEC-001 (magic-link login), ACC-DEC-008 (email code for sensitive actions), ACC-DEC-009 (email code + PIN).
 
 Decision:
@@ -56,6 +59,9 @@ To clarify with Vlad: the operational procedure, migration of existing accounts,
 ### U33-DEC-25: Sessions, Sign-In History and Security Alerts
 
 Status: Approved (design).
+
+> Updated 2026-11-13 (Q06): approximate city from a server-side IP database; 365 days kept, last 50 shown. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: ACC-DEC-007 (device list was "nice to have").
 
 Decision:
@@ -79,6 +85,9 @@ Decision:
 ### U33-DEC-27: Self-Declaration and Periodic Review
 
 Status: Approved (extension). Operational/compliance details open.
+
+> Updated 2026-11-13 (Q12): declarations, review triggers, blocking of new investments, re-verification notices 30/7 days, company form. Details: "Final Answers Of 2026-11-13".
+
 Supersedes in part: KYC-DEC-007 (no platform monitoring).
 
 Decision:
@@ -115,6 +124,9 @@ Decision:
 ### U33-DEC-03: Return Deadline and Return Notices
 
 Status: Approved (mixed variant).
+
+> Updated 2026-11-13 (Q01): day 56 last day, request on day 57, previous settlement day for holidays, debit of the Garanta account within 60 days, notices 14/10/3 days before. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: the 58-day return of PAY-DEC-017 (2026-10-16) and the reminder days 25/46/53/56/57/58.
 
 Decision:
@@ -126,6 +138,9 @@ Decision:
 ### U33-DEC-04: Impossible Return and Penalty
 
 Status: Approved (adapted solution).
+
+> Updated 2026-11-13 (Q02): state "Return failed", daily notices, compliance after 5 days or at once when the 60-day limit is threatened. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: the 1% daily penalty and penalty mode of PAY-DEC-017 / PAY-DEC-022.
 
 Decision:
@@ -138,6 +153,9 @@ Decision:
 ### U33-DEC-05: Bank Accounts and Deposits
 
 Status: Approved (Vlad's platform, with adaptations).
+
+> Updated 2026-11-13 (Q02.5): returns only to a verified account; the deposit transfer can serve as proof of the holder. Details: "Final Answers Of 2026-11-13".
+
 Updates: PAY-DEC-022 payout-IBAN controls.
 
 Decision:
@@ -149,6 +167,9 @@ Decision:
 ### U33-DEC-33: Currency Exchange
 
 Status: Approved (the existing function stays switched off).
+
+> Updated 2026-11-13 (Q25): the old exchange screen is removed from the investor area. Details: "Final Answers Of 2026-11-13".
+
 Confirms: PAY-DEC-018 as switched off on 2026-10-16.
 
 Decision: CHF and EUR are separate, with no implicit conversion. The FX code can stay, with no active FX offer or fee. Switching it on later needs a separate decision, the display of rate and costs, confirmation and verification.
@@ -158,6 +179,8 @@ Decision: CHF and EUR are separate, with no implicit conversion. The FX code can
 ### U33-DEC-15: Banxum Co-Investment
 
 Status: Approved (new/adapted function).
+
+> Updated 2026-11-13 (Q04): Garanta investor account; label "Banxum invests" without amount from the confirmed reservation; equal terms. Details: "Final Answers Of 2026-11-13".
 
 Decision:
 
@@ -178,6 +201,9 @@ Decision:
 ### U33-DEC-21: Several Securities and Structured Details
 
 Status: Approved (design).
+
+> **Changed 2026-11-13** (Q15, C06): vehicles type, invoices closed for new securities; main security chosen explicitly; LTV on the sum of the distinct relevant assets. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: PROD-DEC-002 / PROD-DEC-003 (one collateral item per loan).
 
 Decision:
@@ -191,6 +217,9 @@ Implemented 2026-11-10 (Phase 17.4): `plan/07_loan_product_catalog.md` PROD-DEC-
 ### U33-DEC-38: Public Wording and Security Eligibility
 
 Status: Approved (final).
+
+> Updated 2026-11-13 (Q13): publication blocked until all required documents and a named verification exist; a dedicated verifier role. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: the "unsecured exception" collateral type for new loans (PROD-DEC-002).
 
 Decision:
@@ -204,6 +233,9 @@ Decision:
 ### U33-DEC-08: Cap for Swiss Borrowers and Minimum Investment
 
 Status: Approved product rule; legal framing to confirm.
+
+> **Changed 2026-11-13** (Q03): three creditor regimes (none / 20 / 10+20) replace "strictly below CHF 500,000"; external debts count; a dynamic minimum to the success threshold returns where a limit applies. WW validation pending. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: MKT-DEC-028 (20 investors per Swiss-borrower loan and the raised "minimum now").
 
 Decision:
@@ -217,6 +249,9 @@ Before the real implementation: confirm the basis of the total (external loans, 
 ### U33-DEC-10: Interest Calculation and Start Date
 
 Status: Approved (final): Actual/365 Fixed.
+
+> **Changed 2026-11-13** (Q07): interest from the payout; base interest stops before the adjusted due date even when unpaid; daily penalty X to the payment day included; previous-business-day rule; fractional cents carried. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: the monthly rate (annual rate / 12) of PROD-DEC-008 and the schedule engine.
 
 Decision: interest accrues on actual days, on the outstanding principal, with a fixed denominator of **365**, also in leap years:
@@ -236,6 +271,9 @@ To clarify with Vlad: the contractual start date (not the reservation date), inc
 ### U33-DEC-11: Repayment Types and Frequencies
 
 Status: Approved (extension as designed).
+
+> Updated 2026-11-13 (Q08): four frequencies from the start, equal total installments, custom schedules by import, filter groups confirmed. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: PROD-DEC-005 / SERV-DEC-001 (monthly-only launch types).
 
 Decision:
@@ -249,6 +287,9 @@ Decision:
 ### U33-DEC-09: Late, Default and Termination
 
 Status: Approved (mixed variant).
+
+> **Changed 2026-11-13** (C01-C03): Late 15 / Default 60 for all records, demo records included; real contracts with other terms differ case by case. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: SERV-DEC-008 (Late day 5, Default day 16).
 
 Decision:
@@ -260,6 +301,9 @@ Decision:
 ### U33-DEC-22: Late Payment and Recovery Information
 
 Status: Approved (mixed variant).
+
+> Updated 2026-11-13 (Q16, C08): eight standard English stage names, own titles allowed, EN/DE variants. Details: "Final Answers Of 2026-11-13".
+
 Updates: RISK-DEC-003 / RISK-DEC-007.
 
 Decision:
@@ -273,6 +317,8 @@ Implemented 2026-11-10 (Phase 17.4): `plan/12_risk_collections_recoveries.md` RI
 ### U33-DEC-29: Missing States and Screens, Including Company Accounts
 
 Status: Approved as later design work. Not declared done and not visually approved.
+
+> Updated 2026-11-13 (Q23): Vlad builds first versions with maximum care; Vlad chooses the order. Details: "Final Answers Of 2026-11-13".
 
 Decision: the following are prepared later on the existing mechanisms:
 
@@ -319,6 +365,9 @@ Decision:
 ### U33-DEC-12: Fees and Platform Wording
 
 Status: Approved (own variant).
+
+> **Changed 2026-11-13** (Q24.2): the Help text "0% fees for investors" stays word for word. Recovery-cost clause from lawyers (Q11.2). Details: "Final Answers Of 2026-11-13".
+
 Updates: PAY-DEC-006 (lender payment fee), PROD-DEC-009 / RISK-DEC-005 (recovery fee).
 
 Decision:
@@ -333,6 +382,9 @@ Decision:
 ### U33-DEC-13: Acceptance of the Investment and the Assignment Document
 
 Status: Approved (design with the new authentication). Validation open.
+
+> **Changed 2026-11-13** (Q10): the QES is a condition of settlement; chain originator -> Garanta -> investors; resale assignment signed by Garanta for the seller; one managing-director signature; EN/DE templates. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: DOC-DEC-003 (no e-signature) for the post-closing assignment declaration; updates DOC-DEC-005.
 
 Decision:
@@ -346,6 +398,9 @@ To validate: the contractual and signature chain (including resale), templates, 
 ### U33-DEC-14: Documents and Acceptance Checkboxes
 
 Status: Approved (Vlad's platform, adapted).
+
+> Updated 2026-11-13 (Q11): templates reused and adapted to Q09-Q10 in EN/DE; thresholds corrected before the first new loan. Details: "Final Answers Of 2026-11-13".
+
 Confirms: MKT-DEC-015, DOC-DEC-001.
 
 Decision:
@@ -356,6 +411,9 @@ Decision:
 ### U33-DEC-20: Credit File Content and Administration
 
 Status: Approved (mixed administration, keeping the full approved depth and presentation).
+
+> Updated 2026-11-13 (C07): ratio formulas confirmed; "n/a" for missing data or a non-positive denominator. Details: "Final Answers Of 2026-11-13".
+
 Updates: DOC-DEC-004 / DOC-DEC-006 and the borrower story model.
 
 Decision: the seven chapters stay: Summary, Borrower & business, Financials, Security, Loan terms, Checks & updates, Documents. Navigation, depth and document access stay; simpler administration does not justify a smaller file.
@@ -378,6 +436,9 @@ Decision: the borrower's city and number of employees (with the relevant period)
 ### U33-DEC-24: Refinancing and Economic Rights on Originator Claims
 
 Status: Approved (Vlad's mechanism, explained in the design). Clarifications open.
+
+> **Changed 2026-11-13** (Q09): no installment retained by the originator; price = principal at settlement + accrued unpaid interest; rights from settlement. Details: "Final Answers Of 2026-11-13".
+
 Confirms: PROD-DEC-013, MKT-DEC-022, MKT-DEC-025.
 
 Decision:
@@ -395,6 +456,8 @@ To clarify with Vlad: the first installment assigned to the originator (principa
 
 Status: Approved (design).
 
+> Updated 2026-11-13 (Q17, C04): Coming soon also for originator claims; email at the real opening. Details: "Final Answers Of 2026-11-13".
+
 Decision:
 
 - Projects can be visible before opening, with the planned date and an explicit request for an email notification. The admin manages the state and the opening; the alert fires at the real opening, not only when the date passes.
@@ -405,6 +468,8 @@ Implemented 2026-11-10 (Phase 17.4) for Direct loans: `plan/09_marketplace_inves
 ### U33-DEC-18: Save for Later
 
 Status: Approved (design with automatic alerts).
+
+> **Changed 2026-11-13** (Q18, C05): reminder rules confirmed; saved opportunities first, then Closing soonest. Details: "Final Answers Of 2026-11-13".
 
 Decision:
 
@@ -419,6 +484,9 @@ Implemented 2026-11-10 (Phase 17.4) with the proposed details: `plan/09_marketpl
 ### U33-DEC-19: Smart Invest
 
 Status: Approved (final, mixed variant).
+
+> Updated 2026-11-13 (Q14.2): one-click "Stop these alerts" link in Smart Invest emails. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: MKT-DEC-027 (batch placement); updates MKT-DEC-026 and COMMS-DEC-008.
 
 Decision:
@@ -431,6 +499,9 @@ Decision:
 ### U33-DEC-30: Notification Preferences
 
 Status: Approved (Vlad's platform, adapted).
+
+> Updated 2026-11-13 (Q14): classification approved; stop links per alert; News from Banxum and the public newsletter are one preference. Details: "Final Answers Of 2026-11-13".
+
 Updates: COMMS-DEC-002, COMMS-DEC-003, COMMS-DEC-008.
 
 Decision:
@@ -445,6 +516,9 @@ Decision:
 ### U33-DEC-31: Languages of the Interface, Messages and Documents
 
 Status: Approved (design).
+
+> **Changed 2026-11-13** (Q19, Q10.6, C10): contract documents of the flow in EN and DE from launch; all communications in the account language; public DE/FR from the design translations. Details: "Final Answers Of 2026-11-13".
+
 Supersedes: DOC-DEC-002 for the interface and emails (contracts may stay English at first).
 
 Decision: investor platform **EN / Swiss Standard German (de-CH)**; public site **EN / DE / FR**. Desktop/mobile and Light/Dark. English by default on the first visit; the choice is saved in the account. Changing the language keeps the page, the state and the entered data.
@@ -459,6 +533,8 @@ Implemented 2026-11-10 (Phase 17.8, investor interface): `User.language` (`en` b
 ### U33-DEC-32: Number Format and Time Zone
 
 Status: Approved (mixed variant).
+
+> Updated 2026-11-13 (C09): the number format applies to all newly generated personal reports. Details: "Final Answers Of 2026-11-13".
 
 Decision:
 
@@ -484,6 +560,8 @@ Decision:
 
 Status: Principle approved; operational confirmations needed.
 
+> Updated 2026-11-13 (Q20): withdrawal 1-3 business days, repayments within 2 business days, support hours, complaint times; public only after capacity is confirmed. Details: "Final Answers Of 2026-11-13".
+
 Decision: texts describe the real service, not the prototype's promises at any cost. Bank payments are operated by hand by the team; deadlines are confirmed against that process.
 
 | Area | Requirement / open confirmation |
@@ -498,17 +576,23 @@ Decision: texts describe the real service, not the prototype's promises at any c
 
 Status: Organization approved; actual addresses deferred.
 
+> Updated 2026-11-13 (Q21): main domain + `app` subdomain; roles support / partnerships / notifications; replies to monitored addresses. Details: "Final Answers Of 2026-11-13".
+
 Decision: few coherent channels for investors/support and partnerships. The domain and exact addresses are decided after they are created; the example addresses discussed earlier are not final. Interface, form recipients, senders and email replies are aligned.
 
 ### U33-DEC-37: Fonts, Icons and Demo Material
 
 Status: Template purchased; licences to check.
 
+> Updated 2026-11-13 (Q22): Vlad clarifies the licence with Eduard's father; buy if not expensive. Details: "Final Answers Of 2026-11-13".
+
 Decision: check the proof of purchase, the licence and the resources actually included: fonts (including Archivo), Nioicon/other icons, images and portraits. It is assumed neither that all are licensed nor that all must be replaced. Material with sufficient rights is kept. Where rights are not confirmed or do not cover the real use/distribution, close visual alternatives with clear rights are chosen, keeping the approved identity. Demo images/quotes/documents do not automatically become production material; the origin and permissions of real ones are checked separately.
 
 ### U33-DEC-39: Public Functions That Already Exist in the Platform
 
 Status: Preference for the current public area of the design; individual analysis deferred.
+
+> **Changed 2026-11-13** (Q24): pages kept/merged; first-year article removed; privacy and cookie texts drafted by Vlad. Details: "Final Answers Of 2026-11-13".
 
 Decision:
 
@@ -545,3 +629,219 @@ Still to clarify, without changing the approved choices:
 | 17-18, 30 | Vlad/operations: alert events and de-duplication, the details still proposed, preferences and unsubscribe implementation |
 | 31-32, 35-37 | Team + Vlad: content/legal translations, format coverage, real deadlines, contacts and licences |
 | 29, 39 | Eduard + design: the missing screens and the individual choices on public functions |
+
+## Final Answers Of 2026-11-13
+
+Source: "Banxum - răspunsuri finale pentru implementarea U33", edition of 13 Nov 2026, revision 1 (Romanian original; issuer Eduard for the Banxum product decisions; addressee Vlad). It answers the questionnaire of 10 Nov 2026 (`Q01`-`Q27`, `C01`-`C10`, `A01`-`A04`). The questionnaire IDs are kept below.
+
+How to read this section:
+
+- These answers replace the text above **where they say so**. Elsewhere the decisions above stay.
+- **Approved** = a product decision to implement. **To validate** = a technical, legal, bank or operational condition that is still open. "WW" is the external Swiss legal/tax validation named by the owner. An approved rule is not used with real money before its validation.
+- Items "for Vlad" are delegated to the implementation (Vlad decides and confirms).
+- There is no real money, no real loan and no real investor on the platform yet. Transition rules apply only to real pre-existing contracts that are imported later; those keep their own contract terms.
+- A difficulty found in implementation is reported before an approved rule is changed.
+
+### Rules That Changed (signalled)
+
+| Item | Rule before | Rule now |
+| --- | --- | --- |
+| C01 (DEC-09) | Contracts that existed before U33-DEC-09 keep Late day 5 / Default day 16 (migration `loans` 0025, audit G-01, 2026-11-10). | **Changed:** every record, demo records included, uses Late from day 15 and Default from day 60. Only a real contract with other terms differs, case by case. |
+| Q03 (DEC-08) | Total per Swiss borrower strictly below CHF 500,000; no lender limit; places rule and dynamic minimum removed. | **Changed:** three regimes with creditor limits (none / 20 per borrower / 10 per financing + 20 per borrower); CHF 500,000 and more is allowed in the 10/20 regime; debts outside Banxum count; a dynamic minimum based on the success threshold applies where a creditor limit applies. |
+| Q07 (DEC-10) | Open details. | **Changed / new:** base interest on matured principal stops before the adjusted due date even when unpaid; a daily penalty rate X applies to every overdue amount from the next day to the payment day included, never on X; due dates on non-business days move to the previous business day; fractional cents are carried per investor and the last cents go by largest remainder at final settlement. |
+| Q09 (DEC-24) | The first installment after the funding deadline belongs entirely to the originator; investors buy the principal after it, at par. | **Changed:** no retained installment. The investor pays the principal at the settlement of the assignment plus the accrued unpaid interest of the rights bought; the rights transfer at settlement; the originator keeps its contractual interest share. |
+| Q10 (DEC-13) | One signed assignment document per investment after closing. | **Changed / extended:** the QES signature is a condition of the assignment. No transfer is settled before the signature. Originator claims use two assignments: originator -> Garanta -> investors. A resale is documented by a signed assignment, signed for the seller by Garanta as representative (mandate to validate). One signature: the Garanta managing director, personal QES, batch signing allowed. |
+| Q10.6, Q19 (DEC-31) | Contracts may stay in English at first. | **Changed:** the assignment templates and the contract documents of the flow exist in English and German from launch. All communications follow the account language. |
+| Q24.2 (DEC-12) | No universal "0 fees" wording. | **Changed for one text:** the Help text "0% fees for investors" stays word for word (owner choice). The economic rules stay. |
+| Q24.2 (DEC-39) | The "Our first year in figures" article is kept word for word (2026-10-15). | **Changed:** the article is removed from the public launch version; the source is archived. |
+| Q24.4, A04 (DEC-39) | Lawyers deliver the privacy and cookie texts. | **Changed:** Vlad drafts both texts from existing references (Swiss examples), adapted to the real application, in EN/DE/FR. The other legal documents keep their legal validation. |
+| C05 (DEC-18) | Saved items do not change the "Closing soonest" order. | **Changed:** saved opportunities come first, visually marked; "Closing soonest" orders each group. |
+| C06 (DEC-21) | The first security gives the summary and the loan-to-value. | **Changed:** the admin chooses the main security explicitly; the loan-to-value uses the sum of the values of the distinct relevant assets. |
+
+### Group 1 - Access, Security and Profile
+
+**U33-DEC-01 (Q05).**
+
+- Password: at least 12 and at most 128 characters; very common passwords are refused; no forced change at fixed intervals. Composition rules (upper case, digits, symbols) are required in some form; Vlad sets the exact set. The rule "no composition rules" is not approved.
+- SMS provider: Twilio preferred, subject to Vlad's confirmation. Account and contract in the name of Garanta Finanzgruppe AG, which pays. SMS must work in Switzerland, the EU and the rest of the EEA.
+- Trusted device: optional, for 30 days, after a sign-in with both factors. On that device the second factor is not asked at sign-in during the 30 days; the password is still asked; PIN confirmations stay. It is separate from the new-device cookie `banxum_device`.
+- Recovery codes: 10 single-use codes at enrolment. A code replaces the second factor, not the password. Assisted recovery stays for a lost factor with no code left.
+- Migration: existing accounts use the email link one last time, then must set a password and enrol a second factor before normal access. The PIN stays. Asking for the existing PIN to authorize the migration is a recommendation; Vlad confirms the protection of the migration. New accounts use the new sign-in directly.
+- Assisted recovery (lost factor and no recovery code): support takes the case; an authorized security/compliance person approves; a new Didit check compared with the existing identity; notice and 24 hours of waiting after verification/approval; a record of the request, check, approval and access changes; the old factor and the sessions are invalidated; the new factor is enrolled and verified under control. The 24 hours do not apply to a forgotten password or PIN when the factor is available. **Vlad must validate this procedure and its security measures before implementation** and report adjustments.
+- Admins: password + authenticator app, no SMS.
+- Security review: Vlad chooses an internal review or an external provider before launch.
+
+**U33-DEC-25 (Q06).** Approximate city and country from an IP-range database kept on the Banxum server (for example MaxMind GeoLite2); no IP goes to an outside service. Shown as approximate; the country when the city is unknown. The IP stays stored only as a keyed hash. History kept 365 days; the last 50 sign-ins are shown (a display limit). The privacy text states the purpose and the retention.
+
+**U33-DEC-27 (Q12).**
+
+- Declarations in registration and profile: beneficial owner (Yes/No, name if No, opens a review); source of funds (several allowed: salary, savings with their origin, sale of property, inheritance, business income, dividends, investment income, rent, other with explanation); PEP status of the investor, a close family member or close associate (Yes / No / Not sure; Yes asks for person, relation, function and country); expected yearly volume (four bands: under 10,000; 10,000-50,000; 50,000-250,000; over 250,000; final bands without overlap; compliance sets the currency, CHF/EUR treatment and reinvestment).
+- A review is opened by: PEP Yes or Not sure, beneficial owner is another person, source "Other", volume over 250,000, and other cases compliance defines. A review is an analysis, not a refusal.
+- While a necessary review is open: no new investment, reservation or resale purchase. Account, documents and existing investments stay accessible.
+- Owner: the Garanta compliance role with a deputy; support may collect documents. Target: first analysis of a complete file in 3 business days (operational proposal, not a promise).
+- Re-verification: a date per investor set by compliance from the internal compliance risk (not a loan rating); notices 30 and 7 days before; after the date the investor cannot invest but can withdraw when the delay is the only problem. No automatic yearly re-verification.
+- Existing accounts: asked at the next sign-in; mandatory before the next investment; compliance sets an update deadline for active accounts.
+- Company investors: the same structure with company data (company, representative and authority, controlling persons, beneficial owners of the funds, source of funds, PEP of relevant persons, yearly volume). Compliance sets the documents.
+- To validate (compliance): texts, forms, bands, currency, company set, intervals.
+
+### Group 2 - Money and Bank Accounts
+
+**U33-DEC-03 (Q01).**
+
+- The value date of each lot is day 0; calendar days.
+- Day 56 is the last day (withdraw only). The return request is created on day 57 to the default return account; the team makes the transfer by hand. Days 57-59 are the intended margin before day 60.
+- If the return day is not a settlement day of the relevant Swiss interbank system, the return moves to the **previous** settlement day. Operations keep the yearly calendar in the admin and confirm it for the CHF/EUR transfers and the bank used. The request and the blocking of the amount are prepared early enough; the date shown to the investor includes the adjustment.
+- Requirement (2026-11-11): the effective **debit of the Garanta account** happens within the 60 days. It is proven by the bank's debit confirmation, not by the request or the payment order. Day 57 is the normal start; it moves earlier when the calendar, cut-off times or the bank's processing time need it. To confirm before launch: the bank's processing time and cut-offs, and which bank event proves settlement (legal reading of BankV art. 5 para. 3 let. c and FINMA circular 2008/3 no. 16).
+- Notices 14, 10 and 3 days before the scheduled (adjusted) return date; a confirmation when the request is created; a second confirmation after the team made the transfer (not a claim that the beneficiary bank credited it). The old reminders on days 25/46/53/56/57/58 stop. Urgent notices for a missing usable account stay separate.
+- Transition: lots with a value date on or after the change follow 56 days; older lots, if any, keep 58 days and their announced dates.
+
+**U33-DEC-04 (Q02).**
+
+- New state "Return failed". The amount the bank sends back returns to the balance as "due back" (withdraw/return only), with its original age; no new 56/60-day period; no penalty. The request state and the reconciliation of the returned amount stay separate, so the balance is never credited twice.
+- The cause shown follows the bank's answer; a technical error or a bank restriction is not blamed on the investor.
+- Email and in-app notice at once; an admin task with the bank's reason; the team contacts the investor and follows the case. Support and documents stay accessible.
+- No automatic retry. The team sends again, as fast as possible, after the account is corrected or a new account is verified; never again to the same invalid data.
+- Urgent notices every day while unresolved (saying the real action needed). Compliance takes the case after 5 calendar days at the latest, and **at once** when the 60-day limit is threatened or passed (the age of the money is tracked, not only the age of the task).
+- To validate before launch (Swiss lawyer and bank): the exception procedure when a return is impossible, and how settlement is proven after a rejected transfer. Keeping money after day 60 is not allowed only because the problem comes from the investor. Court deposit ("Hinterlegung", CO art. 91-92, 96) is an option to analyse, not an approved procedure.
+
+**U33-DEC-05 (Q02.5).** Returns go only to a verified account of the investor. The team can verify the account that sent the deposit from the bank's data (holder and IBAN against the verified identity), keeping the proof, when the proof is sufficient; no automatic micro-transfer or extra statement. If the holder is unclear, the data differ or the transfer came through a collecting/intermediary account, the team asks for a statement or bank confirmation first. This does not allow sending to any IBAN that once sent money.
+
+**U33-DEC-33 (Q25).** The old currency exchange screen is removed from the investor area; the function code can stay. Vlad checks shared style files before removing them.
+
+### Group 3 - Product and Security
+
+**U33-DEC-15 (Q04).** Garanta Finanzgruppe AG invests its own money through an ordinary investor account, with the same flow and controls; the interface says "Banxum". The decision is taken before publication or just after. The label **"Banxum invests"** (design component, position and style) shows as soon as a confirmed reservation exists, **without amount or percentage**; no new "Reserved/Invested" indicator. After closing the label stays for a real participation; a cancelled participation removes it. Same interest, rank and calendar as the other investors, pro-rata receipts, no priority, no obligation to cover losses. The participation counts in the Q03 creditor counts. Contract wording to validate with WW.
+
+**U33-DEC-21 (Q15, C06).**
+
+- Vehicles: a security type from the start (Vlad confirms the effort; a significant effort is reported for discussion, not assumed).
+- Invoices: closed for new securities; use "Receivables" for the pledged claim and attach the invoice as a document.
+- New records: each security separate with its concrete type; "Mixed collateral" and "asset backed" not available for new securities; "Other" needs a description; real verified data only. No migration project is needed (no real loans).
+- Loan-to-value: the admin chooses the main security for the summary. `LTV = loan amount / sum of the values of the distinct assets included x 100`. The same asset never counts twice; a guarantor's wealth is never added; personal/corporate guarantees without an adequate valued basis do not produce an LTV. The investor sees the assets included, their values and valuation dates. Prior-ranking debt and the cumulative ratio are shown separately and labelled. A released security is recorded as "released" and leaves the summary and the calculation.
+
+**U33-DEC-38 (Q13).** Publication of a new loan is blocked until each security has **all** the documents its type and situation need (the questionnaire's list per type is the working base; legal validates it per type and jurisdiction) and an authorized person records the verification with name and date. A change of an essential document, guarantor, asset or scope needs a new verification, with history. The right to verify is a specific role (credit and security analysis, with a deputy), not general admin access. A file present is not a legal verification.
+
+### Group 4 - Minimum, Interest and Repayment
+
+**U33-DEC-08 (Q03).** Approved 2026-11-11; WW validation pending; no real use of a regime before WW validation. Premise: no public solicitation.
+
+- `T` = total in CHF per Swiss borrower (same UID): the **original amount** of each loan still active (also after partial repayments; fully repaid loans excluded); the whole published amount of projects in funding (one reservation of capacity, replaced by the active loan at funding, released only for the part not granted); originator claims on the borrower (the underlying loan counted once); active debts outside Banxum (banks and other platforms), from a verified borrower declaration. The outstanding-principal basis may be used case by case with a documented legal justification, never automatically.
+
+| Total and regime | Creditor limit |
+| --- | --- |
+| T < CHF 500,000, sandbox applicable (approved working assumption) | No numerical limit. |
+| T < CHF 500,000, sandbox not applicable (safety alternative) | At most 20 relevant creditors in total per borrower. |
+| T >= CHF 500,000 (exactly 500,000 included) | At most 10 non-bank creditors for the same financing on identical terms, and at most 20 in total per borrower. |
+
+- No new money cap in these regimes; the CHF 1 million limit belongs to the sandbox regime. A borrower that already has more than 20 relevant creditors cannot enter the 10/20 regime. The same financing is never split into projects to avoid the limit of 10.
+- Check at publication with the whole new amount; again before closing and at relevant changes. Simultaneous operations are controlled per borrower UID in every path (direct investment, originator claims, resale).
+- UID mandatory for Swiss borrowers (direct loans and originator claims).
+- EUR -> CHF at the SNB reference rate of the day of the check (the last official rate when there is no new one; source and date kept). No FX for investors.
+- Borrower declaration verified before publication and before closing; a contractual duty to notify new financing.
+- Dynamic minimum where a creditor limit applies, for a participation that takes a new place: `minimum = min(R, max(1,000, round up to the currency unit of max(0, P - F) / N))` for `N > 0` and `R > 0`. `P` = minimum success threshold of the offer; `F` = amount validly allocated (confirmed reservations included); `R` = amount still available to the full target; `N` = places really available under all limits. An investor already in the same offer adds with the usual minimum, capped at `R`. After the threshold, or with no creditor limit, the usual minimum EUR/CHF 1,000 capped at `R`. No places left -> no new creditor. The minimum is checked again before confirmation and never raises a chosen amount silently. Resale stays a whole-position sale; creditor limits are checked, no fund-raising minimum.
+- The old 20-investor rule is replaced at once (no real loans to migrate).
+- To validate (WW): sandbox applicability and conditions (prior individual information, no interest-margin business), the total and creditor definitions, assignments, regime changes. Vlad/operations: SNB source, verified external debts, simultaneous controls, threshold monitoring.
+
+**U33-DEC-10 (Q07).** Final 2026-11-12. Actual/365 Fixed: `outstanding principal x annual rate x actual days / 365` per interval of constant principal and rate, leap years included.
+
+- New direct loans: interest starts on the value date of the payout to the borrower.
+- Base interest: intervals include the start and exclude the end. For each principal component the end is its adjusted due date, or the receipt date that repays it early if earlier. No base interest on the due date or after on matured principal, even when unpaid. Principal not yet due keeps base interest. 1 Jan - 1 Feb = 31 days ("1-31 January", paid 1 February). Each day and each right counts once, also at assignment.
+- Penalty X: for an amount unpaid at the adjusted due date, from the next calendar day to the receipt day **included**, weekends and holidays included; zero for an amount paid at or before the due date. `X amount = overdue base x X / 100 x calendar days` (X is a daily % rate set by the contract, not divided by 365); split by interval when base or rate changes. X applies to every overdue amount: principal, base interest and other contractual money obligations. Never X on X or on penalties; no capitalization; components recorded separately. The whole remaining principal is in the X base only if it became due under the contract (a Default label alone does not do this). Admin records rate, eligible components, start, day convention and beneficiaries (investors, originator, Banxum/legal entity).
+- Early repayment: base interest on the repaid principal stops from the receipt value date (the receipt day is excluded). This also applies to principal paid on the adjusted due date; the old exception that kept interest to the original date ends.
+- Non-business due date: the due date moves to the nearest **previous** business day of the currency's calendar; the interest period adapts; the first late day is the next calendar day. The original date and the adjusted date are both kept.
+- Payment = effective receipt on the account at the relevant value date.
+- Cents: precision kept; investors receive whole cents at each distribution and the fraction is carried to the next one; at final settlement the remaining cents of the distributable amount go by largest remainder with full reconciliation. Remainders are kept per investor, loan and currency; not passed to a resale buyer; an investor's exit is regularized without deleting fractions. Never more than the distributable amount. Vlad validates precision, reconciliation and ties.
+- No real portfolio to migrate; imported pre-existing claims keep their source contract convention, never recalculated retroactively.
+- To validate (WW): the complete clause (base interest stop when unpaid, X from the next day to the payment day included, the rate, the components; CO art. 102, 104-105). Until then the mechanism is an implementation requirement, not an obligation applied to borrowers.
+
+**U33-DEC-11 (Q08).** All four frequencies (monthly, quarterly, half-yearly, annual) from the start, each with periodic interest and principal at the end, or periodic principal and interest; separately full payment of principal and interest at the end; initial interest-only phases and the relevant approved structures stay.
+
+- Principal and interest: the **total installment stays equal**; interest on actual days and outstanding principal; principal = installment - interest; the last installment settles the difference. No "equal principal" type is added as a second standard type by this answer. No return to equal monthly interest or rate / 12.
+- Custom schedules from the start through an import (one row per installment: due date and principal; the platform computes the interest), unless Vlad shows a significant effort; then only the custom schedules may be deferred. Checks: increasing dates; first due date after the interest start; principal total = loan amount; zero principal allowed (interest-only), never negative; remaining principal never negative; full calculated schedule and errors shown before confirmation; original and adjusted dates kept. Imported originator schedules stay.
+- Filter groups: "Periodic repayments" (any frequency, interest-only or principal and interest) and "Payment at maturity" (all principal and all interest at the end). The offer shows frequency, principal structure and phases; irregular schedules keep the real calendar.
+
+### Group 5 - States and Exceptions
+
+**U33-DEC-09 (C01-C03).** Standard Late from day 15 and Default from day 60 for all records (see "Rules That Changed"). The due date is day 0; for new direct loans it is the adjusted due date (Q07); the next calendar day is late day 1; Due on days 0-14. Changes of the thresholds apply at the next daily check. Originator offers close at the loan's own Late threshold (standard day 15); the purchase is blocked when the threshold is reached, also between periodic checks.
+
+**U33-DEC-22 (Q16, C08).** Standard English stage names: Reminder sent; Formal notice; Enforcement of the security; Debt collection proceedings; Claim filed in insolvency; Sale of the security; Recovery closed; Loan agreement terminated. The admin picks a standard name or types an own title; English and German variants (German names to be set later by the team); the investor note stays free text. Only real actions with dates; termination separate from Default; enforcement separate from sale; "Recovery closed" states the result (full, partial or no recovery); the next step only when known. Recording a stage sends no email; the admin can send a note separately.
+
+**U33-DEC-29 (Q23).** Vlad builds first versions of the seven cases with the existing U33 components, with **maximum care**: coherent with the approved visual language, as beautiful as possible, finished already at the first review; desktop/mobile, EN/de-CH, Light/Dark; behaviour checked, not only looks. Vlad chooses the order.
+
+### Group 6 - Resale and Fees
+
+**U33-DEC-12 (Q11.2, Q24.2).** No Banxum recovery fee. Real documented external costs are claimed from the borrower; if not covered they may be deducted from recoveries under the applicable conditions and order; never twice; internal costs are not external. The investor sees gross, deducted costs and net. Lawyers provide the clause (eligible costs, proof, order, shared costs, cross-border). The Help text "0% fees for investors" stays (see "Rules That Changed").
+
+### Group 7 - Credit File and Contracts
+
+**U33-DEC-13 (Q10).**
+
+- Provider not chosen; Vlad states technical preferences. Swiss QES (ZertES) with qualified time stamp.
+- One signature for Garanta: the managing director (person to be named). To verify: the commercial-register signing authority allows a single signature; if not, report before implementation.
+- Personal QES, not the company seal. Batch signing allowed; each investment keeps its own declaration and verifiable signature; the investor's PIN confirmation stays.
+- Originator claims: first assignment originator -> Garanta (signatory and form validated separately; Garanta's QES does not replace it); second assignment Garanta -> investors by the normal procedure. No extra margin or own-funds financing between the steps is assumed.
+- Resale: each resale documented by a signed assignment; seller and buyer keep their PIN confirmations; Garanta signs for the seller as authorized representative with its own QES (Swiss law allows representation, CO 32-33, 165, 14 para. 2bis). To validate (WW): governing law, mandate clause and form, limits, representation of both parties, revocation (CO 34). The PIN is not declared a sufficient mandate without legal check.
+- Templates in English and German from launch, legally validated.
+- Archive: PDF/A prepared before signing; the signed original and the verification data kept. Retention period and start to set legally.
+- The signature is necessary for the assignment. On error: agreement and operation/reservation state kept; document "in preparation"; retries; team alert; escalation after 24 hours; never "signed" before success; the assignment is not declared done and not settled before the signature.
+
+**U33-DEC-14 (Q11.1, Q11.3, A01).** Two unchecked acceptances (investment/assignment terms; risks) and the resale agreements stay; two acceptances do not mean exactly two PDFs. Existing templates are reused with legal review and adapted to Q09-Q10 (chain, accrued interest, transfer at settlement, QES, resale representation), in EN and DE. The terms use Due (days 0-14), Late from day 15, Default from day 60 or the contract's days, the Q07 interest and penalty rules; they are corrected and validated before the first new loan (A01). The questionnaire default (current templates unchanged) is not accepted for launch.
+
+**U33-DEC-20 (C07).** Ratios: equity ratio = equity / total assets x 100 (%); financial debt / equity (multiple); operating margin = operating profit / revenue x 100 (%); interest coverage = operating profit / absolute interest expense (multiple). Figures in thousands with currency and unit; units aligned before division; missing data or a non-positive denominator shows "n/a", never an invented zero. The admin sets the reporting plan per loan; the design's standard plan is the start and stays "proposed" until agreed.
+
+**U33-DEC-24 (Q09).** Final 2026-11-11 at product level.
+
+- The investor buys the principal of the participation at the settlement of the assignment plus the accrued unpaid interest of the transferred rights; the investor receives the rights bought, including the next payment. A reservation or the funding close alone transfers nothing.
+- No installment is retained by the originator; a shorter or longer first period does not justify it.
+- The originator's contractual share of interest (and of penalty interest where the contract says so) stays per loan; the accrued interest in the price covers only the transferred share.
+- `Total to pay = principal bought at settlement + accrued unpaid interest of the transferred rights`. Example: principal 10,000 + accrued 40 = 10,040; next payment 500 principal + 100 interest -> 600 to the investor; 40 recovers the bought interest, 60 is interest earned after the transfer. The resale analogy does not extend resale fees or premium/discount limits to originator sales.
+- Before confirmation the investor sees: principal bought, accrued interest in the price, total, the receipts of the investor's rights (first estimated payment), and the actual percentages of investor and originator. The old message "the first installment belongs to the originator" is not used. Bought interest is never shown as new earnings.
+- Direct loans: no retained first installment; interest from the payout value date.
+- For Vlad to confirm: the event and date that prove settlement (with the payment to the originator), the accrued interest to settlement and the difference between reservation and payment (never a silent extra debit), reconciliation, arrears and penalties per transferred rights.
+
+### Group 8 - Smart Invest, Saved Items and Notifications
+
+**U33-DEC-17 (Q17, C04).** Coming soon also for originator claims, from the start (Vlad confirms the effort). The opening email is sent when the admin's publication really opens investing, before or after the planned date; not when the page shows or the date passes; only to active requests; never duplicated with the Smart Invest email. A temporarily withdrawn opportunity keeps its active requests ("Cancel the opening alert" stays); one email at the real opening; not moved to another project; a definitively cancelled project sends no alert.
+
+**U33-DEC-18 (Q18, C05).** Reminders 7, 3 and 1 day before closing, in-app and email per active channel. A daily job, weekends included, no fixed hour; only milestones after the saving day (none on the saving day, none retroactive); one reminder per milestone, deadline and channel; after a missed run only the latest relevant reminder, with the real remaining time; stop on removal or closing/cancellation and on the Q14 unsubscribe; recalculated when the deadline changes. Saved opportunities come first, visually marked; "Closing soonest" inside each group. The amount stays optional; no balance check and no reservation at saving.
+
+**U33-DEC-19 / U33-DEC-30 (Q14).** Vlad's classification is approved: service messages always on; alerts the investor asked for (Smart Invest matches, "Tell me when it opens", "Save for later" reminders) can be stopped; marketing ("News from Banxum", public newsletter) by explicit consent, unchecked at sign-up, double opt-in for the public form.
+
+- Each alert email has a one-click "Stop these alerts" link, without sign-in: Smart Invest -> stops Smart Invest emails (in-app setting and matching stay); "Tell me when it opens" -> stops the request for that project; "Save for later" -> stops the reminder emails for that project (the saved item and in-app reminders stay). The confirmation says exactly what stopped. Pause of Smart Invest stays separate (both channels).
+- "News from Banxum" and the public newsletter are one preference when they cover the same communications and the same verified address: unsubscribing from one updates the other; account creation never reactivates a stopped subscription; consent only for new-project news is not extended to other promotions; the confirmation of the public subscription and the proof of consent are kept. A request to stop all commercial communications is respected.
+- To validate (legal): classification of each template, consent and unsubscribe texts (Swiss law, EU ePrivacy).
+
+### Group 9 - Localization
+
+**U33-DEC-31 (Q19, C10).**
+
+- Investor platform EN / de-CH; public site EN / DE / FR (French uses "vous"); English by default; preference saved in the account.
+- A professional reviewer for Swiss Standard German and financial terms reviews the ~1,280 draft texts (and consistency with the ~830 design texts) before the functional launch. Vlad exports a table: English, German, context.
+- Emails, notifications, confirmations, server messages and errors in the account language only (German or English), not both.
+- Public DE/FR: start from the translations in the design, updated to later decisions; owners for content, reviewers for de-CH and Swiss French, lawyers where legal validation applies (privacy/cookies: Q24.4).
+- Admin content with reviewed language variants: loan title, summary and purpose; borrower and originator presentation; loan updates and recovery notes; security descriptions. EN/de-CH for investors, EN/DE/FR when public. The reviewer marks a translation as checked; the Banxum owner confirms the meaning; a substantial change of the original needs a new check. Figures come from one source.
+- Temporary English for a missing translation of an individual admin content item, with a discreet note in the interface language ("Available in English only"). Not allowed for the interface, standard communications or mandatory contract documents.
+- C10: after sign-in the account preference applies on all devices; an explicit choice before sign-in may become the saved preference; without one the account language stays; browser detection never overrides it.
+
+**U33-DEC-32 (C09).** European `1.234,56` default, Swiss `1'234.56` alternative, independent of the language; emails use the preference at sending. The preference applies to **all newly generated personal reports** (the account statement included); Vlad lists the personal reports. Source documents, signed contracts and issued documents keep their form.
+
+### Group 10 - Public Area, Identity, Texts and Resources
+
+**U33-DEC-35 (Q20).** Operational proposals; shown as public promises only after the team confirms its capacity.
+
+- Withdrawals: processing in 1-3 business days from a complete eligible request; processing is separate from the credit at the investor's bank (duration to confirm). No same-day cut-off promise yet. No Banxum fee.
+- Repayments: credited to the balances within 2 business days of the effective receipt (identification and reconciliation included); the receipt date stays the date used in calculations.
+- Support: Monday-Friday 10:00-12:00 and 13:00-17:00 Europe/Zurich; holidays to state; English confirmed; German wished, to confirm; only languages really available are published; a Garanta owner and a deputy before launch; no numeric answer time for ordinary support.
+- Complaints: receipt confirmed within 2 business days; reasoned answer within 14 calendar days from receipt; an update with reason and new estimate before expiry if more time is needed. FINOS affiliation of Garanta Finanzgruppe AG stays (owner confirmed 2026-10-26). Final wording checked by lawyers.
+
+**U33-DEC-36 (Q21, A03).** Main domain for the public site, subdomain `app` for the investor area; the exact domain is still to set. Three email roles (exact addresses later): `support` (investors: support, Help, closure, complaints), `partnerships` (borrowers, originators), `notifications` (automatic sender). The sender may be send-only, but the reply of an email must go to a monitored address (support or partnerships). The public contact form routes by subject. Operations alerts go to the designated internal recipients. Official data: Garanta Finanzgruppe AG, Schauplatzgasse 26, 3011 Bern, Switzerland, UID CHE-302.757.239 (checked in the UID register 2026-11-12); "Complaints" may stay in the postal address; lawyers check the final legal mentions.
+
+**U33-DEC-37 (Q22).** Vlad clarifies the proof of purchase, licence type and holder and the coverage of the real use with Eduard's father (the template DashLite HTML 3.4.0 by Softnio, bought on ThemeForest; the certificate is not in the received material). Vlad lists exactly the template material used (Nioicon, the reduced icon font, template styles). "If it is not expensive, we buy. If it is expensive, we see how we adapt." No budget set; the Extended licence was listed at USD 899 on 2026-11-12, not confirmed as needed or sufficient. Replacing icons alone does not settle rights on template styles.
+
+**U33-DEC-39 (Q24, A02, A04).**
+
+- Keep All projects (open, funded, repaid, with filters), Statistics (correct data, coherent presentation; a larger redesign later; CHF/EUR separate), Help (full questions; Home has a selection), Guides (useful ones, updated), Newsletter (with Q14 rules), Cookies and the legal pages. Move the unique content of How it works into Help and retire the page; Home keeps the short version. Kept pages follow the U33 public design with the Q23 care. Unique content is listed before a page is retired. Catalogue and statistics show real activity, never demo figures as history.
+- Texts: "0% fees for investors" stays; "Our first year in figures" is removed from the launch version; sign-in texts follow Q05 (with the last-link transition and the separate PIN role); return texts follow Q01 (day 56 last day, request normally on day 57, calendar advances, manual transfer described separately); the "50-day return" on the Terms outline is corrected.
+- Privacy and Cookies: Vlad proposes the source and drafts the texts from the real application (data, purposes, recipients/providers, places, retention, transfers, cookies, settings), with Garanta's data and the final contacts; EN/DE/FR. The security cookie `banxum_device` is listed as necessary after checking its function and two-year duration (A02).
+
+**Other answers.** Q26: a released reservation is an entry in Transactions (project, amount, currency, date, reason, link to the reservation), not duplicated in My investments. Q27: the two invalid selectors are removed; the visible U33 look stays.

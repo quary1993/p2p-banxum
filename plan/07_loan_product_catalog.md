@@ -379,6 +379,8 @@ Admin imports the full schedule and all pre-publication payments as versioned ev
 
 ### PROD-DEC-013: Originator Claim Economics
 
+> **Changed 2026-11-13** (owner answer Q09 and Q10.4, `plan/22` "Final Answers Of 2026-11-13"): the boundary installment is no longer the originator's. The investor pays the principal at the settlement of the assignment plus the accrued unpaid interest of the transferred rights, and receives the rights from settlement, the next payment included. The originator keeps its contractual interest share. The claim passes originator -> Garanta -> investors, each assignment signed (QES for Garanta). Settlement date, price fixing and arrears are follow-up questions F02-F05 (IMPLEMENTATION_PLAN 17.15-17.16).
+
 > Implemented 2026-11-10 (Phase 17.4, U33-DEC-24 display part): the credit file's Loan terms show the investor's and the originator's shares of interest and of penalty interest; the review step states both splits in one line before confirmation. The explanation of the first installment with amounts waits for the open question of U33-DEC-24.
 
 For `par_component_v2`, one unit of investor cash buys one unit of outstanding principal when the subscription activates. The administrator declares separate investor participation rates for contractual interest and penalty components. For each eligible post-boundary payment component, the investor pool receives:

@@ -2172,7 +2172,7 @@ Status 2026-11-10 (branch `u33-17-2`): the other items without open questions ar
 
 - U33-DEC-04 part: the 1% daily penalty and penalty mode are removed; after the 60-day limit money stays on the balance as "due back", withdraw-only, with no charge and no freeze (a data migration moves lots out of penalty mode; earlier penalties stay in the history). Every investment (primary order, claim purchase, resale purchase) needs a verified bank account in its currency. Open (17.10): the failed-return procedure.
 - U33-DEC-06/07: listing price 0-102% of the outstanding principal; seller fee = min(2% x price, 2% x outstanding principal), no minimum, no fee on accrued interest; open listings reconciled by a data migration (all were at par or a discount, so the fee did not change).
-- U33-DEC-09: Due for the first 14 days, Late from day 15, Default from day 60, as platform settings with a per-loan contract override (admin, with a reason); contract termination is a separate admin event shown to investors. Existing contracts keep Late from day 5 and Default from day 16 as their contract days (migration loans 0025, audit G-01); Loan Originator claim offers use the loan's Late day (audit G-02). Owner action: the investment terms template must state the new days before the first new loan is published.
+- U33-DEC-09: Due for the first 14 days, Late from day 15, Default from day 60, as platform settings with a per-loan contract override (admin, with a reason); contract termination is a separate admin event shown to investors. Existing contracts keep Late from day 5 and Default from day 16 as their contract days (migration loans 0025, audit G-01); Loan Originator claim offers use the loan's Late day (audit G-02). **Changed 2026-11-13 (C01):** every record, demo records included, uses Late 15 / Default 60; the days set by 0025 are cleared in 17.11. Owner action: the investment terms template must state the new days before the first new loan is published.
 - U33-DEC-12: no Banxum recovery fee (refused; loan fee rates set to 0 by a migration); recoveries show gross, external costs, any fee recorded before the change, net and the investor's share.
 - U33-DEC-28/35: Help messages (SUP-YYYY-NNNN) and closure requests (CLS-YYYY-NNNN) are stored, emailed to the support mailbox with the investor as Reply-To and confirmed to the investor; a closure request opens an admin review task and does not close the account. Open (17.10): support hours and answer times, final support address.
 - U33-DEC-30: Smart Invest in-app and email switches per rule; service emails stay fixed; "News from Banxum" is the only marketing switch.
@@ -2188,7 +2188,7 @@ Status 2026-11-10 (branch `u33-17-2`): the other items without open questions ar
 - Security review before release.
 - Open: operational procedure, SMS provider, migration plan, history retention.
 
-Status 2026-11-10: U33-DEC-25 is done: device sessions and sign-in events (device and browser, country from a trusted proxy header when configured, method, result, IP only as a keyed hash), the investor's signed-in devices with "Sign out" and "Sign out on all other devices", the sign-in history (last 50, retention setting, default 365 days, daily clean-up job) and a security email for a sign-in from a new device (a device is a browser with its own random, HTTP-only `banxum_device` cookie, stored only as a keyed hash; sign-ins from before the cookie count by browser label; audit G-03). Owner action: list this security cookie in the privacy page's cookie list. U33-DEC-01 (password + second factor, PIN-only confirmation, migration) waits for answers (17.10).
+Status 2026-11-10: U33-DEC-25 is done: device sessions and sign-in events (device and browser, country from a trusted proxy header when configured, method, result, IP only as a keyed hash), the investor's signed-in devices with "Sign out" and "Sign out on all other devices", the sign-in history (last 50, retention setting, default 365 days, daily clean-up job) and a security email for a sign-in from a new device (a device is a browser with its own random, HTTP-only `banxum_device` cookie, stored only as a keyed hash; sign-ins from before the cookie count by browser label; audit G-03). Owner action: list this security cookie in the privacy page's cookie list. U33-DEC-01 (password + second factor, PIN-only confirmation, migration) waits for answers (17.10). Answered 2026-11-13: the work continues in 17.14 (Q05-Q06).
 
 #### 17.4 Loan data and opportunity features
 
@@ -2214,7 +2214,7 @@ Status 2026-11-10: done except U33-DEC-15 and the open points listed in 17.10.
 
 #### 17.5 Interest and schedules (U33-DEC-10, -11)
 
-Status 2026-11-10: waits for answers (17.10).
+Status 2026-11-10: waits for answers (17.10). Answered 2026-11-13: the work continues in 17.15 (Q07-Q09).
 
 - Actual/365 Fixed accrual engine for new loans, broken periods, early/late repayments and assignments; existing and imported contracts keep their convention.
 - Frequencies monthly/quarterly/half-yearly/annual, interest-only or principal+interest, payment at maturity, initial interest-only phases, custom schedules (editor and import validation).
@@ -2223,7 +2223,7 @@ Status 2026-11-10: waits for answers (17.10).
 
 #### 17.6 Contracts (U33-DEC-13, -14)
 
-Status 2026-11-10: waits for answers (17.10).
+Status 2026-11-10: waits for answers (17.10). Answered 2026-11-13: the work continues in 17.16 (Q10-Q11).
 
 
 - QES (ZertES) assignment declaration per investment at successful closing, signed by Garanta's authorized representative, stored in Documents; never "signed" before success. Provider selection, templates, archiving and error handling.
@@ -2232,7 +2232,7 @@ Status 2026-11-10: waits for answers (17.10).
 
 #### 17.7 Compliance and limits (U33-DEC-27, -08)
 
-Status 2026-11-10: waits for answers (17.10).
+Status 2026-11-10: waits for answers (17.10). Answered 2026-11-13: the work continues in 17.13 (Q03, three creditor regimes replace the CHF 500,000 cap below) and 17.17 (Q12-Q13).
 
 
 - Self-declarations (beneficial owner, source of funds, PEP, expected yearly volume) in onboarding and profile; admin record and review; per-investor re-verification date and notifications (manual handling allowed).
@@ -2244,7 +2244,7 @@ Status 2026-11-10: waits for answers (17.10).
 - Number format European (default) / Swiss with a saved preference, applied to interface, input parsing, emails and new personal reports; Europe/Zurich only.
 - Open: legal translations of contracts.
 
-Status 2026-11-10: U33-DEC-32 is done (number format saved in the account and used in the interface, emails, notifications and new personal statements). U33-DEC-31 is done for the investor interface: language saved in the account, English or Deutsch in the investor area, German texts from the design plus drafted texts for the rest, German dates (details in plan/22). Waiting for answers (17.10): review of the drafted German texts, German emails/notifications/server messages, public site DE/FR, language variants of admin-managed content.
+Status 2026-11-10: U33-DEC-32 is done (number format saved in the account and used in the interface, emails, notifications and new personal statements). U33-DEC-31 is done for the investor interface: language saved in the account, English or Deutsch in the investor area, German texts from the design plus drafted texts for the rest, German dates (details in plan/22). Waiting for answers (17.10): review of the drafted German texts, German emails/notifications/server messages, public site DE/FR, language variants of admin-managed content. Answered 2026-11-13: the work continues in 17.18 (Q19).
 
 #### 17.9 Owner inputs and later design
 
@@ -2254,9 +2254,35 @@ Status 2026-11-10: U33-DEC-32 is done (number format saved in the account and us
 - U33-DEC-37: licence check of fonts, Nioicon and images.
 - U33-DEC-35: confirmation of withdrawal and repayment times and support hours.
 
-#### 17.10 Waiting for answers (last slice)
+Answered 2026-11-13 (Q20-Q24): the work continues in 17.11 and 17.18; operations still confirm capacity, addresses and the licence.
 
-Every item below needs an answer from the owner, legal or operations before it can be built correctly. Until then the platform keeps the behaviour in the right-hand column. When an item is answered, it moves back to its step above.
+#### 17.10 Answers received (2026-11-13) and the next slices
+
+The owner answered every question on 2026-11-13 ("Banxum - răspunsuri finale pentru implementarea U33", revision 1). The rules are in `plan/22_u33_redesign_decisions.md`, section "Final Answers Of 2026-11-13", with the changed rules listed first. The table at the end of this step is the questionnaire of 2026-11-10, kept for history.
+
+Changed rules that touch built work (signalled to the owner on 2026-11-13):
+
+- C01 (U33-DEC-09): every record uses Late 15 / Default 60. The contract days that migration `loans` 0025 (audit G-01) set to 5/16 must be cleared by a new migration with a loan event.
+- C05 (U33-DEC-18): saved opportunities come first, then "Closing soonest". C06 (U33-DEC-21): the main security is chosen explicitly and the LTV uses the sum of the distinct relevant assets.
+- Q03 (U33-DEC-08): the 20-investor rule is replaced by three creditor regimes; a dynamic minimum to the success threshold stays where a limit applies.
+- Q07, Q09, Q10: new interest and penalty rules, the originator price with accrued interest and rights at settlement, and the QES as a condition of settlement.
+
+Before building the money, interest and contract slices, the follow-up questions of 2026-11-13 need answers (file `tmp/banxum-u33-follow-up-questions-2026-11-13.md`, also in the claude.ai project). Items delegated to Vlad are proposed there for his confirmation.
+
+| Slice | Scope | Waits for |
+| --- | --- | --- |
+| 17.11 Rule and display updates | C01 migration (clear 5/16 days set by 0025); C05 saved-first order; C06 explicit main security and cumulative LTV; C07 "n/a" for missing data or a non-positive denominator; C09 number format in all new personal reports; Q04 "Banxum invests" label from a Garanta investor account; Q14 one-click stop links and the shared News/newsletter preference; Q15 vehicles type, invoices closed for new securities; Q16 standard stage names with EN/DE titles and the recovery result; Q17 Coming soon for originator claims; Q24 page decisions and texts; Q25 removal of the exchange screen (S7 clean-up); Q26 released reservations in Transactions; Q27 removal of the two invalid selectors. | F15 (C09 CSV) and F16 (LTV asset set). |
+| 17.12 Return deadline and failed returns | Q01: 56/57 days, settlement-day calendar per currency in the admin, earlier return when needed, notices 14/10/3 days, debit-confirmation date and monitoring, transition rule for older lots. Q02: "Return failed", daily notices, admin task, compliance escalation (5 days, or at once near day 60). | F01, F17; bank processing time and cut-offs (operations). |
+| 17.13 Swiss creditor regimes | Q03: mandatory UID, external-debt declarations, the total `T`, regimes and creditor counts per borrower and per financing, dynamic minimum, SNB rate source, checks at publication and before closing, simultaneous control per UID. | F06-F09; WW validation before real use. |
+| 17.14 Sign-in and security | Q05: password + TOTP or SMS (Twilio), trusted device 30 days, 10 recovery codes, migration at next sign-in, PIN-only operation authorization, admins with TOTP, assisted recovery after Vlad's validation; Q06 city from a server-side IP database. | D1-D6 (Vlad); Twilio account; IP database licence. |
+| 17.15 Interest, schedules and originator prices | Q07: payout start, Actual/365F intervals, previous-business-day due dates, penalty X, cent carry with final largest remainder, allocation order; Q08: four frequencies, equal total installments, custom schedule import, filter groups; Q09: originator price = principal + accrued interest, rights at settlement. | F02-F04, F10-F14, F17; WW validation of the clause before applying it to borrowers. |
+| 17.16 Contracts and QES | Q10: provider integration, batch signing by the managing director, signing states that gate settlement, originator -> Garanta -> investor chain, resale assignment signed for the seller, EN/DE templates, PDF/A archive; Q11: adapted acceptance documents. | F01, F05; provider choice; legal templates. |
+| 17.17 Compliance | Q12: declarations, reviews, blocking, re-verification dates and notices, company form; Q13: required documents per security type, named verification, verifier role, publication block, re-verification after changes. | Compliance texts; legal list of proofs (working base exists). |
+| 17.18 Languages, texts and owner inputs | Q19: de-CH export and review, German emails/notifications/server messages, public site DE/FR, admin content variants; Q24.4/A04 privacy and cookie texts (EN/DE/FR) drafted from the real app; Q20/Q21 service texts and address settings (Reply-To to monitored addresses); Q23 the seven states with maximum care. | Reviewer; domain and addresses; operations confirmations. |
+
+Questionnaire of 2026-11-10 (answered 2026-11-13; history):
+
+Every item below needed an answer from the owner, legal or operations before it could be built correctly. Until then the platform kept the behaviour in the right-hand column.
 
 | Item | Question | Behaviour until the answer |
 | --- | --- | --- |
@@ -2279,7 +2305,7 @@ Every item below needs an answer from the owner, legal or operations before it c
 | U33-DEC-30 | Legal classification of each message type (service or marketing). | Service emails fixed; "News from Banxum" is the only marketing switch. |
 | U33-DEC-29, -35, -36, -37, -39 | Owner inputs from 17.9: designs of the missing states, support hours and answer times, final contact addresses and domain, licence check of fonts/icons/images, decision per extra public page. | As listed in 17.9. |
 
-Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close. Status 2026-11-10: every item without an open question is done on branch `u33-17-2`; 17.10 lists the items that wait for answers.
+Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close. Status 2026-11-10: every item without an open question is done on branch `u33-17-2`. Status 2026-11-13: all questions are answered; the next slices are 17.11-17.18 in 17.10. Suggested order: 17.11 first (no new questions except F16/F18), then 17.12 and 17.14 in parallel, then 17.15 + 17.16 together (settlement depends on both), 17.13, 17.17, with 17.18 alongside.
 
 ## 9. Critical End-to-End Scenarios
 

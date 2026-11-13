@@ -94,6 +94,8 @@ Define how payments covering multiple installments are displayed in investor-fac
 
 ### SERV-DEC-004: Repayment Allocation Waterfall
 
+> Updated 2026-11-13 (owner answer Q07, `plan/22` "Final Answers Of 2026-11-13"): new direct loans get a daily penalty rate X per contract on every overdue amount (principal, base interest, other money obligations) from the day after the adjusted due date to the receipt day included, never on X; base interest on matured principal stops before the adjusted due date even when unpaid; a regular installment paid early stops interest from the receipt day. The answer says the allocation of a payment follows the contract; whether this universal order stays the contract standard is follow-up question F11.
+
 Status: Accepted.
 Date: 2026-05-16.
 Owner: Garanta finance / operations / legal.
@@ -174,6 +176,8 @@ Follow-ups:
 Define lender notification wording. Launch recalculation preserves the remaining due dates with lower remaining principal, annual nominal interest, monthly installment defaults, currency minor-unit rounding, and final installment rounding-residue absorption.
 
 ### SERV-DEC-008: Late and Default Status Timing
+
+> **Changed 2026-11-13** (owner answer C01-C02, `plan/22` "Final Answers Of 2026-11-13"): every record, demo records included, uses Late from day 15 and Default from day 60; only a real contract with other terms differs. The 5/16 contract days set by migration `loans` 0025 are cleared (IMPLEMENTATION_PLAN 17.11). For new direct loans day 0 is the adjusted due date (previous business day, U33-DEC-10 / Q07.4).
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-09: Due on the due date and the first 14 days overdue, Late from day 15, Default at 60 days, thresholds adaptable per contract; termination and recovery stages are separate events.
 >

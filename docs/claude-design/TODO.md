@@ -110,12 +110,20 @@
 - Suggested improvement: move the `.modal` reset into `u33-overrides.css` at the merge and drop it from `invest.css`; after all slices are merged, prune the unused rules of `styles.css` and `banxumSkin.css` in one pass.
 - Priority: important.
 
+## 2026-11-13: Owner Answers That Change Investor Screens
+
+- Screen or component: Investment opportunities, Overview, credit file, Transactions, public pages, exchange screen.
+- Current first-version behavior: saved opportunities keep their place in "Closing soonest"; the loan-to-value uses the first security; released reservations are not listed; How it works, the first-year article and the October texts are still public; the exchange screen uses the old skin.
+- Suggested improvement (decided 2026-11-13, `plan/22` "Final Answers Of 2026-11-13"): saved opportunities first and visually marked, then "Closing soonest" (C05); main security chosen by the admin and LTV on the sum of the distinct relevant assets, with the assets, values and dates shown (C06); "Banxum invests" label without amount (Q04); released reservations as a Transactions entry (Q26); How it works merged into Help, the first-year article removed, return and sign-in texts updated with their rules, "0% fees for investors" kept (Q24); the exchange screen removed (Q25); the seven missing states built with maximum care, coherent with U33 (Q23).
+- Priority: important.
+
 ## 2026-11-10: Two Invalid Selectors From The Design CSS (audit G-05)
 
 - Screen or component: generated `frontend/src/portal/u33/u33.css` (dialog close control `.close`, Overview widget list `.nk-iv-wg3-list`).
 - Current behavior: the design's own stylesheet has `.close:not(:disabled):not(.disabled):hover-focus` (opacity .75 on hover) and `.nk-iv-wg3-list:last-child() li:nth-last-child(2)` (no bottom border on the second-last item). The selectors are not valid, so browsers ignore both rules in the design and in our screens; the production build warns about them. Our screens look like the design. The generated file is not edited by hand, and the generator `tools/u33-design/investor/build-u33-css.mjs` needs the design package to run again.
 - Suggested improvement: ask the designer if the two rules are intended. If yes, add correct selectors in `u33-overrides.css` (`.close:hover`, `.close:focus`; `.nk-iv-wg3-list li:nth-last-child(2)`). If no, drop them when `u33.css` is next regenerated (S7 clean-up).
 - Priority: nice-to-have.
+- Decided 2026-11-13 (owner answer Q27, B): remove both rules; the visible U33 look stays (IMPLEMENTATION_PLAN 17.11).
 
 ## 2026-11-10: Bundle Size, Lazy Routes And CSS Per Area (audit G-07)
 
