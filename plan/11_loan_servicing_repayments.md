@@ -94,6 +94,8 @@ Define how payments covering multiple installments are displayed in investor-fac
 
 ### SERV-DEC-004: Repayment Allocation Waterfall
 
+> **Changed 2026-11-16** (round 2, F11, `plan/22` "Round 2 Answers Of 2026-11-16"): the order in each loan contract prevails, per loan, imported claims included. The standard order for new contracts is: contractual recovery costs -> penalty X -> ordinary interest -> principal. The order creates no new costs. Cent fractions are carried per investor; an investor who leaves keeps his fraction until the final largest-remainder distribution of the loan (F13 B). A regular installment paid early is recalculated at the receipt value date and the future installments get smaller, keeping the final maturity date (F12).
+
 > Updated 2026-11-13 (owner answer Q07, `plan/22` "Final Answers Of 2026-11-13"): new direct loans get a daily penalty rate X per contract on every overdue amount (principal, base interest, other money obligations) from the day after the adjusted due date to the receipt day included, never on X; base interest on matured principal stops before the adjusted due date even when unpaid; a regular installment paid early stops interest from the receipt day. The answer says the allocation of a payment follows the contract; whether this universal order stays the contract standard is follow-up question F11.
 
 Status: Accepted.
@@ -177,7 +179,7 @@ Define lender notification wording. Launch recalculation preserves the remaining
 
 ### SERV-DEC-008: Late and Default Status Timing
 
-> **Changed 2026-11-13** (owner answer C01-C02, `plan/22` "Final Answers Of 2026-11-13"): every record, demo records included, uses Late from day 15 and Default from day 60; only a real contract with other terms differs. The 5/16 contract days set by migration `loans` 0025 are cleared (IMPLEMENTATION_PLAN 17.11). For new direct loans day 0 is the adjusted due date (previous business day, U33-DEC-10 / Q07.4).
+> **Changed 2026-11-13** (owner answer C01-C02, `plan/22` "Final Answers Of 2026-11-13"): every record, demo records included, uses Late from day 15 and Default from day 60; only a real contract with other terms differs. Updated 2026-11-16 (round 2): moving the demo records is no longer required; they keep the 5/16 days of migration `loans` 0025 (Vlad, 2026-11-17). For new direct loans day 0 is the adjusted due date (previous business day, U33-DEC-10 / Q07.4).
 
 > Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-09: Due on the due date and the first 14 days overdue, Late from day 15, Default at 60 days, thresholds adaptable per contract; termination and recovery stages are separate events.
 >

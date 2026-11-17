@@ -1,6 +1,6 @@
 # U33 Redesign Reconciliation Decisions
 
-Status: Approved product decisions, current at 2026-11-13 (group 2 approved 2026-11-04, group 3 completed 2026-11-08, final answers 2026-11-13 at the end of this file; they prevail where they say so).
+Status: Approved product decisions, current at 2026-11-13 (group 2 approved 2026-11-04, group 3 completed 2026-11-08, final answers 2026-11-13 and round 2 of 2026-11-16 at the end of this file; they prevail where they say so).
 Source: "Lot 113 - Register of reconciliation decisions with Vlad" (Romanian original, received 2026-11-09), answering the 39 items of `BANXUM_redesign_nov3_decisions` (design package `website_redesign_nov3`, edition "Banxum unified U33", 3 Nov 2026).
 Owner: Banxum product (decisions); Vlad (implementation).
 
@@ -32,6 +32,8 @@ Owner: Banxum product (decisions); Vlad (implementation).
 Status: Approved (new solution). Open implementation confirmations below.
 
 > Updated 2026-11-13 (Q05): password rules, Twilio SMS, trusted device 30 days, 10 recovery codes, migration at next sign-in, assisted recovery (Vlad validates first), admins with authenticator app. Details: "Final Answers Of 2026-11-13".
+
+> Updated 2026-11-17 (Vlad, D1/D3): NIST password rules; no migration flow (no real investors; Eduard to confirm). Details: "Round 2 Answers Of 2026-11-16".
 
 Supersedes: ACC-DEC-001 (magic-link login), ACC-DEC-008 (email code for sensitive actions), ACC-DEC-009 (email code + PIN).
 
@@ -236,6 +238,8 @@ Status: Approved product rule; legal framing to confirm.
 
 > **Changed 2026-11-13** (Q03): three creditor regimes (none / 20 / 10+20) replace "strictly below CHF 500,000"; external debts count; a dynamic minimum to the success threshold returns where a limit applies. WW validation pending. Details: "Final Answers Of 2026-11-13".
 
+> Updated 2026-11-16 (round 2: F06-F09): sandbox checkbox per project, off by default; counts per borrower UID; WW notice with explicit confirmation; F07 counting rules; F09 external-debt record with creditor identification. Details: "Round 2 Answers Of 2026-11-16".
+
 Supersedes: MKT-DEC-028 (20 investors per Swiss-borrower loan and the raised "minimum now").
 
 Decision:
@@ -251,6 +255,8 @@ Before the real implementation: confirm the basis of the total (external loans, 
 Status: Approved (final): Actual/365 Fixed.
 
 > **Changed 2026-11-13** (Q07): interest from the payout; base interest stops before the adjusted due date even when unpaid; daily penalty X to the payment day included; previous-business-day rule; fractional cents carried. Details: "Final Answers Of 2026-11-13".
+
+> Updated 2026-11-16 (round 2: F10-F13, F17): due dates from the payout day; per-loan payment order; early payment keeps the final maturity; exited investors keep cent fractions until the final distribution; CHF/EUR calendars. Details: "Round 2 Answers Of 2026-11-16".
 
 Supersedes: the monthly rate (annual rate / 12) of PROD-DEC-008 and the schedule engine.
 
@@ -289,6 +295,8 @@ Decision:
 Status: Approved (mixed variant).
 
 > **Changed 2026-11-13** (C01-C03): Late 15 / Default 60 for all records, demo records included; real contracts with other terms differ case by case. Details: "Final Answers Of 2026-11-13".
+
+> Updated 2026-11-16 (round 2: C01, C03): demo records may keep 5/16; claim purchases blocked at Due. Details: "Round 2 Answers Of 2026-11-16".
 
 Supersedes: SERV-DEC-008 (Late day 5, Default day 16).
 
@@ -385,6 +393,8 @@ Status: Approved (design with the new authentication). Validation open.
 
 > **Changed 2026-11-13** (Q10): the QES is a condition of settlement; chain originator -> Garanta -> investors; resale assignment signed by Garanta for the seller; one managing-director signature; EN/DE templates. Details: "Final Answers Of 2026-11-13".
 
+> Updated 2026-11-16 (round 2: F05, Q10.2): first assignment upload required; authorized deputy signer. Details: "Round 2 Answers Of 2026-11-16".
+
 Supersedes: DOC-DEC-003 (no e-signature) for the post-closing assignment declaration; updates DOC-DEC-005.
 
 Decision:
@@ -438,6 +448,8 @@ Decision: the borrower's city and number of employees (with the relevant period)
 Status: Approved (Vlad's mechanism, explained in the design). Clarifications open.
 
 > **Changed 2026-11-13** (Q09): no installment retained by the originator; price = principal at settlement + accrued unpaid interest; rights from settlement. Details: "Final Answers Of 2026-11-13".
+
+> **Changed 2026-11-16** (round 2: F02-F04, C03): price fixed for the planned settlement day (1 business day after the funding end), originator bears delays; offer fails on any payment or due date before settlement; purchases blocked at Due. Details: "Round 2 Answers Of 2026-11-16".
 
 Confirms: PROD-DEC-013, MKT-DEC-022, MKT-DEC-025.
 
@@ -518,6 +530,8 @@ Decision:
 Status: Approved (design).
 
 > **Changed 2026-11-13** (Q19, Q10.6, C10): contract documents of the flow in EN and DE from launch; all communications in the account language; public DE/FR from the design translations. Details: "Final Answers Of 2026-11-13".
+
+> **Changed 2026-11-16** (round 2): English first; all translations in a final phase before launch. Details: "Round 2 Answers Of 2026-11-16".
 
 Supersedes: DOC-DEC-002 for the interface and emails (contracts may stay English at first).
 
@@ -845,3 +859,46 @@ How to read this section:
 - Privacy and Cookies: Vlad proposes the source and drafts the texts from the real application (data, purposes, recipients/providers, places, retention, transfers, cookies, settings), with Garanta's data and the final contacts; EN/DE/FR. The security cookie `banxum_device` is listed as necessary after checking its function and two-year duration (A02).
 
 **Other answers.** Q26: a released reservation is an entry in Transactions (project, amount, currency, date, reason, link to the reservation), not duplicated in My investments. Q27: the two invalid selectors are removed; the visible U33 look stays.
+
+## Round 2 Answers Of 2026-11-16 And Vlad's Decisions Of 2026-11-17
+
+Source: "Banxum - Răspunsuri pentru Vlad, runda 2", 16 Nov 2026 (Eduard's decisions; Romanian original), answering the explained follow-up questions (F01-F17, D1-D11) and the explained radical changes of 13 Nov 2026. It completes "Final Answers Of 2026-11-13" and prevails where it corrects it. Vlad's decisions of 17 Nov 2026 (delegated items) are marked "Vlad".
+
+Product approvals are not technical, legal (WW), bank or operational validations. Eduard's agreement to D1-D11 is "in principle": Vlad checks fitness, security and feasibility and reports any adjustment that would change an approved rule before applying it.
+
+### Changes To The Answers Of 2026-11-13
+
+| Item | Answer of 2026-11-13 | Now |
+| --- | --- | --- |
+| C01 | Every record, demo records included, moves to Late 15 / Default 60. | New loans use 15/60; real contracts with other terms keep them. Moving the demo records is no longer required. **Vlad:** the demo records keep the 5/16 days of migration `loans` 0025; no new migration; QA data can be re-seeded. |
+| C03 | Originator offers close at the loan's Late day (15). | **Changed:** a claim purchase is blocked as soon as an amount is due and unpaid (status Due), the due date included. The team plans each offer by hand between two due dates (after the previous installment is paid on time, ending before the next due date, with time for signing and settlement). The purchase check runs live at each purchase, also between scheduled checks. |
+| F04 / Q09 | Open (proposal: wait for the overdue installment). | **Changed:** if, during the offer and up to the effective settlement, the borrower pays anything on the offered claim (also partial or early) or an installment falls due, the offer fails and every participation is cancelled; reserved money goes back to the investors' available balances. A due date alone is enough. Participations are not reactivated if the borrower later catches up. Checked again before Garanta's account is debited, also after the price reference day. |
+| F02 / Q09 | Open. | **Changed:** settlement = the day Garanta's account is debited for the payment to the originator, with the required assignments signed (F02.1). Price **fixed** for the planned settlement day (F02.2 B): one reference day for all investors; the investor's own confirmation day does not set the price and transfers no rights. If settlement is late, the accepted price stays and the originator bears the interest of the extra days, by an explicit rule in the transaction documents; no extra money is asked from investors; no reservation at a maximum price and no reconfirmation. **Vlad:** planned settlement day = 1 business day after the funding end (success day). |
+| F06.1 / Q03 | Proposal: "sandbox applies" per borrower, default "applies". | **Changed:** a checkbox **per project**, **off by default**, set by the admin from a documented confirmation (person and date). Totals and creditor counts stay per borrower (UID), external debts included; the checkbox does not split them and does not remove the 10/20 limits when the total reaches CHF 500,000. **Vlad (2026-11-17, to confirm by Eduard):** the mode is per borrower, pre-selected "sandbox" for a Swiss borrower and confirmed by the admin; sandbox mode = total below CHF 500,000 with no creditor limit; 10/20 mode = 10 creditors per financing and 20 per borrower at any total; switching only when the target mode's limits are already met (no project in funding). |
+| F06.2 / Q03 | Open. | Approved: the WW text before the investment, short on the offer page and separate in the confirmation step, with an explicit, unchecked confirmation and proof of the text and the confirmation; publication blocked until the WW text exists. The notice does not move the duty to check limits to the investor (FINMA circular 2008/3 no. 8.3: individual information, at the latest at commitment, before the deposit; a mention in general terms is not enough). |
+| F07 / Q03 | Proposals. | Approved: (1) eligible banks do not count in the tax count, their amounts stay in the money total; the categories for the banking check are confirmed separately; (2) a non-bank originator counts as one creditor while it keeps part of the claim; Garanta's strictly temporary holding between the two assignments does not count (legal treatment to confirm by WW); (3) Garanta's remaining co-investment counts as one creditor; (4) an investor in two financings takes a place in each financing and is counted once in the borrower total (WW validates this per legal limit). |
+| F08 / Q03 | Proposal. | Approved: a failed check before closing stops the automatic close; the admin decides to wait or to cancel and release the money. |
+| F09 / Q03 | Proposal (8 fields). | Approved with additions: creditor identification, a unique financing ID and the link to the group on identical terms, and the signed declaration attached. An aggregated number of creditors alone is not enough. The same loan is never added twice (import, assignment). |
+| F10 / Q07 | Open. | Approved A: due dates follow the effective payout day by frequency; short months use their last day, then the reference day returns (31 Jan -> 28 Feb -> 31 Mar). An estimated schedule before funding from the planned payout; the schedule is confirmed at the payout. |
+| F11 / Q07 | Proposal: one universal order. | **Changed:** the order in the loan contract prevails, per loan (imported claims included). Standard: contractual recovery costs -> penalty X -> ordinary interest -> principal. No new costs are created by the order. Lawyers confirm the clause in the templates (CO art. 85-87). |
+| F12 / Q07 | Proposal. | Approved: a regular installment paid early is recalculated at the receipt value date (receipt day excluded); the rest repays principal; future installments are recalculated, smaller, **keeping the final maturity date**. |
+| F13 / Q07 | Recommendation A. | **Changed to B:** the exited investor keeps his recorded fraction until the final largest-remainder distribution of the loan (from the amount really distributable); not transferred to the buyer; not shown as an active investment after the sale. A cent may be credited long after the exit. |
+| F14 / Q08 | Proposal. | Approved A: the equal-principal type is closed for new direct loans; existing/imported contracts keep their terms. |
+| F15 / C09 | Recommendation C. | Approved C: the decimal sign follows the account's number format, no thousands separator (European `1234,56` with `;` columns; Swiss `1234.56` with `,` columns), independent of the language. Vlad checks the Excel import, also when the account preference differs from Excel's settings. |
+| F16 / C06 | Proposal. | Approved: assets with a documented valuation count (real estate, equipment, inventory, vehicles, pledged securities, cash); personal/corporate guarantees add nothing (distinct assets given as security follow the rule, never the guarantor's wealth); pledged receivables only if valued (invoice nominal is not enough); the admin can exclude an asset (exclusion is not release); values in the loan currency (converted value, rate and rate date recorded; no FX). |
+| F17 / Q01, Q07 | Proposal. | Approved: separate CHF/EUR calendars in the admin, shared by returns and due dates: SIC for CHF, TARGET/T2 for ordinary EUR payments. Vlad checks with the bank and operations that the calendars fit the real systems and transfer types (instant payments may differ); operations confirm them yearly. Linked with the bank's processing time and cut-offs (D9) and the F01 margin. |
+| F01 / Q01 | Proposal A. | Approved A: money that funds a loan must reach the borrower by day 56 of its lot; the close is planned early enough, with an initial margin of 3 business days for signing and payment, confirmed with the bank (not a legal deadline). Order: close -> signatures (managing director or authorized deputy) -> payout; interest from the payout value date. |
+| F03 / Q09 | Proposal A. | Approved A: required field, no default; the admin records the exact convention of the claim contract (for example Actual/365 Fixed, Actual/360, the exact 30/360 variant); an unknown or unsupported convention is clarified before it is used in a price; the originator's contract is never overwritten by the direct-loan standard. |
+| F05 / Q10 | Proposal A. | Approved A: signing the assignments to investors and the settlement are blocked until the signed first assignment (originator -> Garanta) is uploaded. |
+| Q10.2 | One signature: the managing director. | **Completed:** an authorized deputy with his own QES and confirmed single signing right signs when the director is absent. Each document keeps one signature (director or deputy); the person is still to be named. Without the required signature the operation waits (Q10.8). |
+| Q19 / Q10.6 | Translations at launch. | **Work order changed:** the whole platform is finished and checked in English first (functions, interface, texts, communications, generated documents); only then, before launch, the other approved languages are translated, integrated and checked. Launch scope stays (EN/de-CH platform and communications; EN/DE contract documents; public EN/DE/FR; reviewed variants of published admin content, not the admin interface). **Vlad:** no multilanguage work until that final phase. |
+| Q24.4 | Vlad drafts privacy and cookies. | Confirmed; English first; Vlad gathers the technical facts and contacts Eduard's father for the operational facts, with a precise list of gaps. A short later legal read is recommended, not required. |
+| Q05.5 / D3 | Migration of existing accounts (last email link + PIN). | **Vlad (proposal to confirm by Eduard):** no migration flow, because there are no real investors; test accounts are reset or re-created at the release of the new sign-in. |
+| D1 | Proposal with a mix rule. | **Vlad, after the NIST SP 800-63B-4 re-check:** 12-128 characters, no forced mix of character types, refusal of common passwords (server list) and of leaked passwords (Have I Been Pwned range API: only the first 5 characters of the SHA-1 hash leave the server); no forced periodic change. |
+| D2-D11 | Proposals. | Accepted in principle with Eduard's precisions: D2 Twilio Verify (Garanta account; Vlad checks delivery CH/EU/EEA, cost, limits, abuse protection; SMS at sign-in never replaces the operation PIN); D4 assisted recovery with approval by another person, 24 h dispute window, single-use link; "closing operations" means invalidating unfinished authorizations (valid investments, reservations and contracts stay); 72 h without new bank accounts or a change of the default return account after a completed recovery; Vlad validates the limits and the flow; D5 internal OWASP ASVS level 2 review plus an independent external test before real money, scope including financial authorization, account isolation and recovery; D6 MaxMind GeoLite2 City with a Garanta account and licence key, used locally (licence, attribution, update/deletion terms checked); D7 evaluate Skribble, then compare Swisscom Trust Services (provider not chosen); D8 custom schedules, vehicles and Coming soon for originators all from the start; D9 1 business day and 12:00 cut-off only as configuration/test values; D10 all three service times (withdrawals included) need confirmed capacity before they are public promises; D11 inventory of Nioicon, DashLite-derived styles and images used. |
+
+### Confirmed Without Change
+
+C05 (saved first), C06 (LTV on the distinct assets), Q24.2 ("0% fees for investors" word for word; the "first year" article retired), the three Swiss regimes and the dynamic minimum to the success threshold, the penalty X rule (all overdue contractual amounts, never on penalties; a point legal check before real contracts is recommended, CO art. 105 and 163), Q01 (day 56 withdraw-only; initiation and debit are distinct), Q12 (blocking only for a necessary unresolved review, not for a reminder before a future date), Q14 (one News/newsletter preference only for the same category and the same verified address).
+
+Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to Friday 13 Nov; a payment on 18 Nov then has five penalty days (14-18 Nov), not three.

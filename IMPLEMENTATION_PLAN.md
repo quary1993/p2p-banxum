@@ -2267,7 +2267,7 @@ Changed rules that touch built work (signalled to the owner on 2026-11-13):
 - Q03 (U33-DEC-08): the 20-investor rule is replaced by three creditor regimes; a dynamic minimum to the success threshold stays where a limit applies.
 - Q07, Q09, Q10: new interest and penalty rules, the originator price with accrued interest and rights at settlement, and the QES as a condition of settlement.
 
-Before building the money, interest and contract slices, the follow-up questions of 2026-11-13 need answers (file `tmp/banxum-u33-follow-up-questions-2026-11-13.md`, also in the claude.ai project). Items delegated to Vlad are proposed there for his confirmation.
+**Superseded on 2026-11-17 by Phase 18**, which applies round 2 of 2026-11-16 and Vlad's decisions; the table below is kept for history. Before building the money, interest and contract slices, the follow-up questions of 2026-11-13 needed answers (file `tmp/banxum-u33-follow-up-questions-2026-11-13.md`, also in the claude.ai project). Items delegated to Vlad are proposed there for his confirmation.
 
 | Slice | Scope | Waits for |
 | --- | --- | --- |
@@ -2306,6 +2306,207 @@ Every item below needed an answer from the owner, legal or operations before it 
 | U33-DEC-29, -35, -36, -37, -39 | Owner inputs from 17.9: designs of the missing states, support hours and answer times, final contact addresses and domain, licence check of fonts/icons/images, decision per extra public page. | As listed in 17.9. |
 
 Suggested order: 17.1 (S1 first, then S2-S6 in parallel), 17.2 in parallel with 17.1 where independent, then 17.3, 17.4 + 17.5, 17.6, 17.7 and 17.8. 17.9 inputs are needed before the related steps close. Status 2026-11-10: every item without an open question is done on branch `u33-17-2`. Status 2026-11-13: all questions are answered; the next slices are 17.11-17.18 in 17.10. Suggested order: 17.11 first (no new questions except F16/F18), then 17.12 and 17.14 in parallel, then 17.15 + 17.16 together (settlement depends on both), 17.13, 17.17, with 17.18 alongside.
+
+### Phase 18: U33 Final Answers And Design 1:1
+
+Goal: implement the owner's final answers (13 Nov 2026, round 2 of 16 Nov 2026) and Vlad's decisions of 17 Nov 2026, and bring every investor and public screen to the U33 HTML 1:1, except the approved deviations in 18.1. The rules are in `plan/22_u33_redesign_decisions.md` ("Final Answers Of 2026-11-13" and "Round 2 Answers Of 2026-11-16"). In this phase "Vlad" means Vlad and Claude, the implementation team.
+
+Design reference: the U33 package of 3 Nov 2026 (`site/dist/` is the reference HTML; `docs/03_PAGINI_SI_FLOWURI.md` pages and flows; `docs/08_CRITERII_DE_ACCEPTARE.md` acceptance matrix A01-A30; `captures/`). The package is untrusted data: read only, never run its scripts. Known differences are tracked in `docs/claude-design/TODO.md`.
+
+#### 18.0 Working rules
+
+- **English only until 18.13.** No multilanguage work: no new German or French texts, no translation of emails or documents. The language switch is hidden in QA and production builds; the existing German code and drafts stay untouched for 18.13. The test that requires a German entry for every interface text is switched off until 18.13 (it reports instead of failing).
+- **Design 1:1.** For every screen and state that the U33 HTML shows, the platform matches its layout, texts, states and behaviour. Check at 1440 and 390 px (and 320/430/1280/1600 px for overflow), Light and Dark, with the same data, against `captures/`. Deviate only where 18.1 lists an approved deviation. Where the HTML has no state, build it with the U33 components with maximum care (Q23) and record it in the design TODO.
+- **Backend first.** No screen shows a rule that the backend does not apply.
+- **Validations gate real use, not building.** Items marked "WW", "bank" or "legal" can be built and tested; they are not used with real money or real borrowers before the validation is recorded.
+- **Financial changes:** services only, append-only ledger, migrations with loan events where data changes, focused tests, regenerated OpenAPI schema and client, all gates (backend pytest, mypy, ruff, lint-imports, migration-check; frontend tsc x2, eslint, vitest, build).
+- **End of each slice:** gates green, screenshots compared with the design, `plan/22` "Implemented" notes, design TODO and this plan updated, one commit per coherent change.
+
+#### 18.1 Design map and approved deviations
+
+Approved deviations from the U33 HTML (the answers prevail):
+
+| No. | Design shows | Platform does | Source |
+| --- | --- | --- | --- |
+| D-1 | Authenticator code to confirm operations | PIN only, with a server authorization bound to operation, amount and destination | U33-DEC-01 |
+| D-2 | Authenticator app and passkeys at sign-in | Password + SMS code or authenticator app (one, chosen), 10 recovery codes, trusted device 30 days; no passkeys | U33-DEC-01, Q05 |
+| D-3 | Three acceptances in Review & sign | Two (investment/assignment terms; risks); resale agreements per side | U33-DEC-14 |
+| D-4 | Resale up to 101%, seller fee 1% | 0-102% of the outstanding principal; fee = min(2% x price, 2% x outstanding principal) | U33-DEC-06/07 |
+| D-5 | Some texts: repayments to the bank account | Repayments to the Banxum balance | U33-DEC-02 |
+| D-6 | "Banxum co-investment" line with amount | Label "Banxum invests", no amount | Q04 |
+| D-7 | Email preference switches | Service emails always on; "News from Banxum" is the only marketing switch | U33-DEC-30, Q14 |
+| D-8 | Editable personal data | Read-only, "Contact support to change" | U33-DEC-26 |
+| D-9 | Smart Invest automatic options | Individual confirmation only | U33-DEC-19 |
+| D-10 | No extra public pages | All projects, Statistics, Help, Guides, newsletter, cookie settings, imprint stay (in the U33 public style) | Q24 |
+| D-11 | (not in the design) | Kept functions: amount line (minimum, amount open, usable balance), funding close date, Transactions CSV, report currency and summary, account closure request, CHF IBAN beside the QR-IBAN, QR code PNG, cookie settings, imprint | design TODO 2026-11-09 |
+| D-12 | QES at the funding close | QES before settlement (direct, originator, resale); director or authorized deputy | Q10, round 2 |
+
+Route map (design route -> platform route: work left, slice):
+
+| Design | Platform | Work left in Phase 18 |
+| --- | --- | --- |
+| `#/overview` | `/dashboard` | Reserved per lot (18.3); return texts and dates 56/57 (18.4); income from the new engine (18.6); saved panel order (18.2). |
+| `#/projects` | `/marketplace` | Saved first (18.2); "Banxum invests" (18.2); repayment groups and Smart Invest step 5 (18.3, final in 18.6); creditor places (18.9). |
+| `#/projects/archive` | `/marketplace/archive` | Done (anonymous names stay). |
+| `#/projects/:id` | `/marketplace/:id` | Cumulative LTV with the asset list (18.2); originator price breakdown (18.7); sandbox notice (18.9); schedule from the new engine (18.6). |
+| `#/projects/:id/invest` | `/marketplace/:id/invest` | PIN-only confirmation (18.5); originator total and first payment (18.7); WW confirmation (18.9); "Help with this step" (18.3). |
+| `#/projects/:id/credit-file` | `/marketplace/:id/credit-file` | "Updated" date and "Source of repayment" fields (18.3); in-app PDF reader (18.3). |
+| `#/investments` | `/portfolio` | Received payments per installment (18.3); sold / written-off / reserved states (18.11). |
+| `#/investments/:id` | `/portfolio/:id` | "All payments" with received rows (18.3); signed assignment in documents (18.8); Sell with PIN (18.5). |
+| `#/secondary` | `/secondary-market` | Borrower country and maturity in the buyer list, My listings states (18.3); PIN (18.5); settlement after signature (18.8). |
+| `#/auto-invest` | `/smart-invest` | Fifth step Repayments and "No preference" (18.3; groups final in 18.6). |
+| `#/account` | `/balances` | Reserved column per lot (18.3); 56-day return and "Return failed" states (18.4); PIN withdraw (18.5). |
+| `#/transactions` | `/transactions` | Server filters, date range, pagination, "available after" per movement, reservation / release / closing entries (Q26) (18.2-18.3). |
+| `#/reports` | `/reports` | The design's four reports generated by the backend: Portfolio report, Interest and repayments, Tax report (interest by borrower country and currency), Monthly statement; period summary; PDF reader (18.3). |
+| `#/settings/*` | `/settings/*` | Security tab (password, factor, recovery codes, trusted devices, sessions) (18.5); Declarations (18.10); bank name on the bank card (18.3); verified address, birth date and nationality from Didit when available (18.3). |
+| `#/documents` | `/documents` | Signed assignments (18.8); PDF reader (18.3). |
+| `#/notifications` | `/notifications` | Categories and tones, navigation targets (18.3). |
+| `#/help` | `/portal/help` | Contextual "Help with this step" (18.3); answer texts per rule (each slice). |
+| `#/originators` | `/marketplace/originators` | Originator "About" text from the admin (18.3). |
+| `#/login`, `#/signup`, `#/onboarding/:step` | `/login`, `/register`, `/verification` | Password + factor + PIN + Didit flow 1:1, recovery screens (18.5). |
+| Public pages (home, about, opportunities, project pages, companies, originators, contact, terms/privacy/risks) | `/`, site routes | Empty and form states, cookie notice, funded-loan record, footer links, public asset name per security (18.3); public calculator on the new engine (18.6); privacy and cookie texts (18.12); kept pages in U33 style (18.11). |
+| (FX) | `/fx` | Removed (18.2). |
+
+#### 18.2 Small rule and display changes
+
+- **C03 / round 2:** a claim purchase is refused when any amount of the loan is due and unpaid (from the due date itself), checked live at quote and at execution; the admin sees why an offer is not buyable.
+- **C05:** saved opportunities first, marked as saved, then "Closing soonest" inside each group (cards, list, Overview panel).
+- **C06 / F16:** an explicit "main security" on each loan (summary); `LTV = loan amount / sum of the valued distinct assets x 100`; per security a "counts in LTV" flag (default: types real estate, equipment, inventory, vehicles, securities pledge, cash collateral with a documented valuation; receivables only when valued; guarantees never); values in the loan currency with converted value, rate and rate date when the valuation is in another currency; exclusion is not release; credit file shows the assets, values and valuation dates; filters and Smart Invest max-LTV use the same figure; prior-ranking debt stays separate and labelled.
+- **C07:** interest coverage uses the absolute interest expense; missing data or a non-positive denominator shows "n/a".
+- **C09 / F15:** the number format in every new personal report (account statement, annual tax information, the 18.3 reports); CSV: decimal sign of the account format, no thousands separator, `;` columns for European, `,` for Swiss. Check the import in Excel with matching and different regional settings.
+- **Q04:** an admin setting names the Garanta investor account(s); a loan with a confirmed reservation or allocation of that account shows the design's "Banxum invests" label (no amount); a cancelled participation removes it.
+- **Q14:** one-click "Stop these alerts" links (signed token, no sign-in) in Smart Invest, opening-alert and saved-reminder emails, with the exact effect and a confirmation page; "News from Banxum" and the public newsletter become one preference when the verified address is the same (unsubscribe in one updates the other; account creation never re-subscribes).
+- **Q15:** security type "Vehicle"; "Invoices" closed for new securities (existing records keep it).
+- **Q16:** standard stage titles (Reminder sent, Formal notice, Enforcement of the security, Debt collection proceedings, Claim filed in insolvency, Sale of the security, Recovery closed, Loan agreement terminated) or an own title; "Recovery closed" records the result (full, partial, none). German titles in 18.13.
+- **Q24:** How it works content moved into Help and the page retired (redirect); "Our first year in figures" removed from the public site (source archived); the Terms outline fallback no longer says "50-day return"; "0% fees for investors" stays.
+- **Q25 + S7 clean-up:** the exchange screen leaves the investor area (backend stays); delete `LegacyBody`, `UserSkin`, `banxumSkin.css` and `skin/*.css`; regenerate `u33.css` with `--no-legacy-guard`; keep in `styles.css` only what the admin console uses; then lazy route groups with one CSS entry per area (audit G-07).
+- **Q26:** reservation, release and closing are separate entries in Transactions (project, amount, currency, date, reason, link).
+- **Q27:** remove the two invalid selectors in the generator and in the generated file.
+- **F14:** "Amortizing principal and interest" (equal principal) closed for new direct loans.
+- **D10:** withdrawal time, repayment time and support hours become settings with a "confirmed" flag; unconfirmed values are not shown as promises (neutral text: "We process withdrawals by hand on business days.").
+- **Multilanguage pause** (18.0).
+
+Done when: each item has backend tests (where backend changes), screens match the design, and the design TODO entries are updated.
+
+#### 18.3 Design 1:1 pass (screens and data without new rules)
+
+- **Account and Transactions:** reserved amount per lot in the balances API (the design's "Reserved" column); activity endpoint with server filters (period, currency, type, search), pagination, "available after" balance per movement and a server CSV of the whole history.
+- **My investments:** the investor's share of each paid installment in the portfolio API, so "All payments" lists received rows like the design.
+- **Resale:** borrower country and maturity in the buyer list; My listings states (listed, sold, cancelled).
+- **Smart Invest:** the design's fifth step (Repayments) with the groups "Periodic repayments" / "Payment at maturity" mapped from today's repayment types; "No preference" allowed (matches every open loan, exclusive with restrictions).
+- **Reports:** backend generation, storage and download of the design's four reports, with currency and period, issue date and a "Document ready" notification; period summary endpoint.
+- **PDF reader:** in-app reader (pages, zoom, download, error + retry, Escape/Close, back to origin) for credit-file documents, Documents and Reports (library `pdfjs-dist`, Apache-2.0).
+- **Notifications:** categories (positive, late, default, neutral) for the design's tones; navigation targets for transactions, reports, documents.
+- **Help with this step:** contextual help in the amount, review, withdraw and sell steps, with the step's live values.
+- **Data fields the design shows:** originator "About" text; credit-file "Updated" date and "Source of repayment"; bank name on the bank card (CH/LI IBANs from the SIX bank master file; other IBANs: optional name typed by the investor); verified address, birth date and nationality stored from the Didit decision when Didit provides them (privacy inventory updated).
+- **Public site:** empty opportunities state, funded-loan record, cookie notice, form consent/sent/error states, footer links to the kept pages, a public asset name per security.
+
+Done when: every route of 18.1 without a later-slice dependency matches the design; acceptance A01-A03, A05-A08, A14, A17, A18, A21, A25-A27, A29-A30 pass in English.
+
+#### 18.4 Return deadline and failed returns (Q01, Q02, F01, F17, D9)
+
+- **Calendars (F17):** CHF (SIC) and EUR (TARGET/T2) settlement-day calendars in the admin (dates, source, confirmed by and on); a missing next-year calendar raises an operations alert; shared with 18.6.
+- **Bank values (D9):** settings for processing business days (1) and cut-off (12:00 Europe/Zurich) as test values until the bank confirms.
+- **56-day rule:** day 0 = value date; day 56 last day (withdraw only); return request normally on day 57, moved to the previous settlement day and earlier when processing time or cut-off need it; the date shown includes the adjustment; notices 14, 10 and 3 days before the scheduled return, confirmation at request and after the transfer; old reminders stop.
+- **Transition:** each lot stores its return days; lots with a value date before the switch keep 58.
+- **Debit proof:** the team records the bank debit date (and proof) for each return; a job alerts compliance when a lot reaches day 59 without a recorded debit.
+- **F01:** a lot can fund a direct loan only if `funding close + 3 business days (setting) <= day 56 of the lot`; the opportunity page and Review & sign show the usable balance accordingly.
+- **Failed return (Q02):** new state "Return failed" when the bank sends a return back (returned amount reconciled once, back to "due back" with its original age, no new period, no penalty); bank reason recorded; email + in-app notice at once and daily while unresolved; admin task; compliance takes over after 5 calendar days, at once when the lot is at day 57 or later; send again only to a corrected or newly verified account.
+- **Q02.5:** admin action "verify from deposit" with the evidence (holder and IBAN of the incoming transfer against the verified identity).
+
+Waits for: the bank's processing time, cut-offs and debit proof (operations); legal procedure for an impossible return (WW/lawyer, before real money). Acceptance A21-A22.
+
+#### 18.5 Sign-in and security (U33-DEC-01, Q05, Q06, D1-D6)
+
+- **Sign-in:** password (12-128 characters, no forced mix, common-password list, leaked-password check through the Have I Been Pwned range API with k-anonymity; if the API is unreachable, the common list still applies and the event is logged) + one second factor chosen at registration: SMS (Twilio Verify) or authenticator app (TOTP, RFC 6238); 10 single-use recovery codes (stored hashed); optional trusted device for 30 days (server record bound to the device cookie hash; password still asked; separate from `banxum_device` alerts).
+- **Registration (design 1:1):** data and agreements -> email -> SMS/app enrolment -> PIN -> Didit -> verification states.
+- **Operations:** PIN only, after a review step; a server authorization bound to operation, amount and destination, single use, short expiry; changed data needs a new authorization; attempt limits, audit and alerts stay. Replaces the email code in invest, withdraw, bank account, sell and buy flows.
+- **Recovery:** forgotten password = single-use email link + second factor; forgotten PIN = password + second factor; lost factor without codes = assisted recovery (support case -> new Didit check compared with the stored identity -> approval by another authorized person -> unfinished authorizations invalidated, valid investments untouched -> 24 h notice with a "This was not me" link -> single-use link, password, new factor). Limits: 3 assisted recovery requests per account per 7 days. After a completed recovery: 72 h without new bank accounts or a change of the default return account (withdrawals to verified accounts stay possible; mandatory returns are not blocked). Every reset is notified; password or factor reset ends all other sessions.
+- **No migration flow** (no real investors): test accounts are reset or re-created at the release (pending Eduard's confirmation, see the questions file).
+- **Admins:** password + authenticator app (no SMS).
+- **Sign-in place (Q06, D6):** MaxMind GeoLite2 City used locally (Garanta account and licence key; attribution; update and deletion terms checked); "City, Country (approximate)", country when no city.
+- **Design 1:1:** login, signup, onboarding, Security tab and recovery screens from the U33 HTML, minus passkeys, plus the SMS choice.
+
+Waits for: Garanta's Twilio and MaxMind accounts (keys in the environment, never in the repository). Security review in 18.12. Acceptance A10, A12, A28.
+
+#### 18.6 Interest engine and schedules (Q07, Q08, F10-F14, F11, F13, F17)
+
+- **Engine (new direct loans):** Actual/365 Fixed; intervals include the start and exclude the end; interest starts at the payout value date; due dates from the payout day by frequency (month-end rule, then back to the reference day); due dates on non-settlement days move to the previous business day of the currency calendar (both dates kept); base interest on matured principal stops before the adjusted due date even when unpaid.
+- **Types:** monthly, quarterly, half-yearly, annual; periodic interest with principal at the end, or equal total installments (installment solved so the last payment settles the rest); full payment at maturity; initial interest-only phases; custom schedules by import (due date + principal per row; checks: increasing dates, first date after the interest start, principal total = loan amount, no negative principal, full preview with errors).
+- **Penalty X:** per loan: daily rate (% per day), eligible components, beneficiaries and shares; accrues on every overdue contractual amount from the day after the adjusted due date to the receipt day included; never on penalties; no capitalization; separate components in ledger and statements.
+- **Payment order (F11):** recorded per loan, default costs -> X -> interest -> principal; imported claims keep their contract order.
+- **Early payment (F12):** interest to the day before receipt; the rest repays principal; future installments recalculated smaller, final maturity unchanged.
+- **Cents (F13 B):** investors get whole cents; fractions carried per investor, loan and currency (a ledger position for undistributed fractions); kept after an exit; final largest-remainder distribution of the distributable amount.
+- **Everywhere the same engine:** calculator (platform and public), projections, schedules, contracts, resale accrued interest, Smart Invest repayment groups (final), Overview income.
+- **Imported claims:** keep their source convention (18.7).
+- **Tests:** leap years, broken periods, all frequencies, holidays, early, partial and late payments with X, resales mid-period, exits and final cents.
+
+Waits for: WW check of the penalty clause before real contracts (CO art. 102, 104-105, 163). Acceptance A19-A20.
+
+#### 18.7 Originator claims (Q09, F02, F03, F04, C03, Q17)
+
+- **Price:** `principal at the planned settlement day + accrued interest of the transferred rights` (the originator's contractual share excluded), one reference day for all investors: planned settlement = 1 business day after the funding end (success day). Shown before confirmation: principal, accrued interest in the price, total, first estimated payment, investor and originator percentages; bought interest never shown as earnings.
+- **Settlement:** the day Garanta's account is debited for the payment to the originator, with both assignments signed (18.8); holdings and rights start then; if late, the price stays and the originator bears the extra days (transaction-document rule).
+- **Failure (F04):** any borrower payment on the claim or any due date between publication and the debit makes the offer fail; all participations cancelled, money released to the available balances; re-checked right before the debit; never reactivated.
+- **Scheduling:** the admin plans the offer between two due dates; publication is refused when the planned settlement day is not before the next due date or an installment is unpaid.
+- **Convention (F03):** required field at import: Actual/365 Fixed, Actual/360, Actual/Actual ISDA, 30/360 Bond Basis, 30E/360; anything else is refused until supported.
+- **Coming soon (Q17):** for originator offers too, with the opening email at the real opening.
+- **Removes** the boundary-installment model (entitlement start, par purchase after the boundary, the old sentence).
+
+Waits for: the originator agreement wording (who bears the extra days) and the first-assignment form (legal). Acceptance A13, A19.
+
+#### 18.8 Qualified signature and settlement (Q10, F01, F05, D7)
+
+- **Provider:** evaluate Skribble, then compare Swisscom Trust Services (batch QES by one signer through the API, qualified time stamp, price, data location, long-term validation); a provider-neutral signing interface with a fake provider for development and tests.
+- **Documents:** one assignment declaration per investment (EN first, DE in 18.13), PDF/A, signed by the managing director or the authorized deputy with a personal QES, in batches; stored in Documents with the verification data; never "signed" before success.
+- **Flows:** direct loan: close -> signatures -> payout (interest from the payout); originator: upload of the signed first assignment (originator -> Garanta) required -> investor assignments signed -> debit to the originator = settlement; resale: both PIN confirmations -> Garanta signs for the seller -> settlement (money and holding move only then).
+- **Errors:** "in preparation", retries, team alert, escalation after 24 h, the operation waits; retries respect the F04 cancellation and the money deadlines (18.4).
+- **Archive:** signed originals and verification data kept for the legal period (to set).
+
+Waits for: provider contract, the deputy's name and signing right, templates and the resale mandate clause (legal/WW). Acceptance A10, A13, A24, A27.
+
+#### 18.9 Swiss creditor regimes (Q03, F06-F09)
+
+- **Data:** UID mandatory for Swiss borrowers (direct and originator); external debts with creditor identification, financing ID, identical-terms group, signed declaration, checked by/on; the borrower's **mode** ("sandbox" or "10/20") with the confirmation person and date.
+- **Total and counts per borrower UID:** original amounts of active loans, whole amounts in funding, originator claims (underlying loan once), external debts; EUR at the SNB rate of the day (source and date stored; manual entry when the rate source is down); counting rules of F07.
+- **Modes (Vlad's model of 2026-11-17, pending Eduard's confirmation because round 2 set a per-project checkbox, off by default):** the mode is set per **borrower**, pre-selected "sandbox" for a new Swiss borrower (with an explanation), and confirmed by the admin before the first publication. **Sandbox mode:** total `T` below CHF 500,000, no creditor limit (the sandbox's CHF 1 million limit is then always met). **10/20 mode:** at most 10 relevant creditors per financing and 20 per borrower, no amount limit (applied at any total; stricter than the approved rule, which needs the 10 only from CHF 500,000, and it prevents an earlier project with more than 10 creditors from blocking a later large loan). **Switching:** to 10/20 only when the borrower has at most 20 relevant creditors and every open financing at most 10; to sandbox only when `T` is below CHF 500,000; never while a project is in funding; creditors and amounts of fully repaid loans no longer count. Banking Act (more than 20 depositors needs the sandbox, CHF 1 million) and withholding tax (ESTV circular 47: 10/20 non-bank creditors from CHF 500,000) are both met in each mode.
+- **Dynamic minimum** where a limit applies: `min(R, max(1,000, ceil(max(0, P - F) / N)))`; usual minimum for investors already in the offer.
+- **Checks:** at publication with the whole amount, at every investment path (order, claim, resale) under a lock per UID, and before closing (failure stops the close; admin decides, F08).
+- **WW notice:** for borrowers in sandbox mode, a short text on the offer page and a separate notice with an **unchecked** confirmation in Review & sign (not supervised by FINMA; not covered by the Swiss depositor protection); proof of text version and confirmation stored; publication blocked until the WW text exists. No final text is in the design or the repository; a draft is proposed for WW in the questions file.
+- **Pending:** Eduard's confirmation of the borrower-level mode and its default (questions file, E-02); WW: the notice text and whether creditors taken before a switch to sandbox mode must also receive it.
+
+Waits for: WW validation of the regimes, counts and notice before real use. Acceptance A09.
+
+#### 18.10 Compliance (Q12, Q13)
+
+- **Declarations:** beneficial owner, sources of funds (several), PEP (Yes / No / Not sure, details for Yes), yearly volume bands; company version; versioned records; review triggers; a necessary unresolved review blocks new investments, reservations and resale purchases (not a reminder before a future date); compliance role with deputy; re-verification date per investor with notices 30 and 7 days before; existing accounts asked at the next sign-in, required before the next investment.
+- **Proof of securities:** required document categories per security type (configurable; the Q13 list as the start); named verification (person, date) by a dedicated "security verifier" role; publication blocked until complete; a new verification after an essential change, with history.
+
+Waits for: compliance texts and bands; legal list of proofs per type and jurisdiction.
+
+#### 18.11 States without an HTML reference and kept public pages (Q23, Q24)
+
+- The seven cases: funding closed / payout pending; funding failed or cancelled; written-off claim; restricted, locked or closed account; re-verification in progress; security for accounts (password + factor + PIN); company investor and representative (team-managed).
+- Kept public pages in the U33 public style: All projects (open, funded, repaid, filters), Statistics (real data, CHF/EUR separate), Help (full list, with the How it works content), Guides (useful ones), newsletter pages.
+- Built with U33 components, desktop and phone, Light and Dark, with the same care as the designed screens; listed in the design TODO for the designer's later review.
+
+#### 18.12 Privacy, cookies and security review (Q24.4, A02, D5)
+
+- Inventory of data, purposes, providers, storage countries, transfers, retention and cookies from the code and the settings; a precise list of gaps for Eduard's father (Garanta operations).
+- Privacy and cookie texts in English from Swiss references, adapted to the real app (`banxum_device` and the trusted-device cookie listed); cookie settings match the texts.
+- Internal security review against OWASP ASVS level 2 (sign-in, sessions, recovery, financial authorization, account isolation) with a written report and fixes; prepare the scope of the independent external test before real money.
+
+#### 18.13 Translations (final phase before launch)
+
+- Switch the multilanguage work back on: export all texts with context; professional de-CH review (the ~1,280 drafts first, consistency with the design's ~830 texts); German emails, notifications, confirmations, server messages and generated documents (account language only); German contract documents (legal); public site DE/FR from the design translations, updated; reviewed language variants of published admin content (not the admin interface); "Available in English only" note for a single missing content item.
+- Check A04 and A06 in both languages.
+
+#### 18.14 Launch readiness
+
+- Recorded validations: WW (regimes, counts, notice, penalty clause, resale mandate, first assignment, 60-day reading), bank (processing time, cut-offs, debit proof, calendars), legal (templates EN/DE, recovery costs, proofs), operations (service capacity, owners and deputies), licence (Q22), external security test.
+- Test accounts reset; production settings (addresses, domain, keys); the design acceptance matrix A01-A30 passed in the implemented app; the go-live checklist (section 19).
+
+Order: 18.2 -> 18.3 -> 18.4 -> 18.5 -> 18.6 -> 18.7 + 18.8 (together: settlement needs both) -> 18.9 -> 18.10, with 18.11 alongside from 18.3; then 18.12, 18.13 and 18.14.
 
 ## 9. Critical End-to-End Scenarios
 
