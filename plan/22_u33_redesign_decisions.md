@@ -919,23 +919,21 @@ Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to 
 
 ### Vlad's Decisions Of 2026-11-17 (Operations Facts And The Installment Rule)
 
-**Changed: late installments, pending window and grace (Vlad with Eduard, 2026-11-17, final).** For new direct loans. It replaces Vlad's earlier presumed-payment rule of the same day.
+**Changed: late installments, Default and instant maturity (Vlad with Eduard, 2026-11-17, final).** For new direct loans. It replaces Vlad's earlier rules of the same day.
 
-- **Per project:** Late days (input default 15), Default days (input default 60) and **grace days** (input default 0; the documents give no value). The grace moves each due date forward by that number of calendar days, then the previous-business-day rule applies (due Thu 10 Dec + 2 days = Sat 12 Dec -> Fri 11 Dec); everything then behaves as if that were the due date (interest to it, penalty from the day after, Late and Default days counted from it).
-- **Operational window:** for 2 business days after the (adjusted) due date, an installment without a recorded payment shows **"Pending"** (not paid, not overdue), because the admin may record the payment late. Without a payment after the window, it shows as unpaid ("Due" with the real overdue days), then Late from the Late day and Default automatically on the Default day. Claim and resale purchases stay allowed during the pending window (Vlad's choice; Eduard's round-2 C03 blocks them from the due date) and are blocked once the window ends unpaid.
-- **Penalty from t+1:** if the bank value date is after the (adjusted) due date, even by one day, penalty X applies from the day after the due date to the receipt day included, retroactively when the admin records the value date later (value date t+1 recorded on t+2). No discretionary "paid in time".
-- **Before Default:** X applies to the principal and interest of each overdue installment, each from the day after its own due date, replacing normal interest on that overdue principal (normal interest continues on principal not yet due). Never X on X; no capitalization.
-- **From Default** (from the day after the Default day): X applies to **the whole amount owed**: all outstanding principal, unpaid interest and the recorded expenses, replacing all normal interest (through the contract's acceleration clause).
-- **Expenses on Default loans:** the admin records each expense with amount, currency, value date, an observation and a file attachment; X applies to it from its value date. Expenses are real, documented external costs (U33-DEC-12: no internal Banxum costs, never deducted twice) and are paid first in the loan's payment order.
+- **Per project:** Late days (input default 15), Default days (input default 60), grace in **business days** (input default 0).
+- **Due date (t):** from the payout day by frequency (F10); a non-business day moves to the previous business day (Q07.4); then the grace adds its business days. Interest, penalty and status counts use this date.
+- **Pending:** from the due date itself until the payment is recorded, at most t + 2 business days. The installment shows "Pending"; new investments in the loan are blocked; an originator offer disappears from the opportunities list; the loan's resale listings disappear from the secondary market, and the seller sees his listing as "Pending" and disabled. A payment recorded on time ends it; offers and listings return.
+- **Unpaid after pending:** status "Due" with the real days; the loan stays blocked, hidden from new buyers, while an installment is unpaid (C03).
+- **Penalty X from t+1:** a value date after t (even by one day) means X from t+1 to the receipt day included, recalculated retroactively when the admin records the value date later.
+- **Before Default:** X on each overdue installment's principal + interest, each from its own t+1, replacing normal interest on that principal; normal interest continues on principal not yet due; never X on X; no capitalization.
+- **Status after any change:** the oldest unpaid installment decides: under the Late days "Due" (after the pending window), from the Late days "Late", from the Default days "Default" (automatic); nothing unpaid = on schedule.
+- **Default (automatic):** from the day after the Default day, X on the whole amount owed (all outstanding principal, unpaid interest and recorded expenses), replacing all normal interest. The loan keeps its schedule and can recover: if payments bring the oldest unpaid installment under the Default days, the status goes back to Late, Due or on schedule, X goes back to the overdue installments only, and normal interest resumes on principal not yet due.
+- **Expenses on Default loans:** the admin records each with amount, currency, value date, an observation and a file attachment; X applies from its value date; real documented external costs only (U33-DEC-12).
+- **Instant maturity (admin action on a Default loan; the contract-termination event):** the whole amount becomes due and final; the schedule stops; X continues on the whole amount until paid; the loan no longer returns to Late, Due or on schedule.
+- **Payment order:** expenses first; then the oldest installment first, each in full: its penalty, its interest, its principal; then the next. After instant maturity: expenses, penalties, interest, principal.
 
-Example: outstanding 10,000 at 12%, X = 0.05% per day, installment due Friday 11 Dec = 900 + 100. Pending on Mon 14 and Tue 15 Dec. The admin records on Tue 15 Dec a value date of Mon 14 Dec: X on 1,000 for 12, 13 and 14 Dec = 1.50; normal interest on the 900 stopped on 10 Dec.
-
-Points that differ from Eduard's written rules (to signal):
-
-1. Purchases stay allowed during the pending window (round-2 C03: blocked from the due date while unpaid).
-2. "Pending" is shown for 2 business days instead of "Due" (U33-DEC-09: the real overdue days are shown before Late); the penalty still counts from t+1.
-3. X on the whole amount from Default (Q07: only when the whole principal became due under the contract): needs the acceleration clause in the loan contract.
-4. The grace days per project are new (not in the documents).
+Points that differ from Eduard's written rules (to signal): X on the whole amount from Default without instant maturity (Q07: only when the whole principal became due under the contract; the contract template needs a clause that Default makes the whole amount carry X); the 2-business-day "Pending" label instead of "Due" (U33-DEC-09; the penalty still counts from t+1); grace days per project (new).
 
 **Operations facts:**
 
