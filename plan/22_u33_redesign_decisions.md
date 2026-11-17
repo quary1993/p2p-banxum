@@ -919,13 +919,25 @@ Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to 
 
 ### Vlad's Decisions Of 2026-11-17 (Operations Facts And The Installment Rule)
 
-**Changed (signalled to Eduard): presumed payment of installments.** It replaces, for new direct loans, the Q07 rules "base interest on matured principal stops at the adjusted due date even when unpaid" and "penalty X from the day after the due date", and the round-2 C03 rule "purchases blocked from the due date itself".
+**Changed (signalled to Eduard): presumed payment of installments (final, Vlad 2026-11-17).** For new direct loans it changes parts of Q07 and the round-2 C03 rule (see "Differences from Eduard's rules" below).
 
-- On the (adjusted) due date a scheduled installment is **presumed paid on time**: the schedule continues as if it was paid (its principal no longer bears interest); investors see it as paid; the money reaches their balances only when the admin confirms it.
-- Within **10 calendar days** the admin either confirms it as **paid in time**, with the bank statement uploaded (the installment is distributed as scheduled; everything is as if the borrower paid exactly on the due date; no penalty and no interest on its principal, also when the money arrived a few days later), or marks it **not received**. Without an action, it becomes "not received" automatically on day 11 and the admin is alerted.
-- **Not received:** recalculated from the due date as if the installment never arrived: normal interest on the whole outstanding principal, the unpaid installment's principal included (no interest on unpaid interest); **no penalty X before Default**. Statuses count from the due date: Due (days 0-14), Late from day 15, **Default automatically on day 60** (or the contract's day). A later receipt is recorded with its value date: interest on the unpaid principal runs to the day before the receipt; the payment follows the loan's payment order and is distributed.
-- **From the Default day:** penalty X (the contract's daily rate) on the unpaid amounts from the day after the Default day (Default on 13 Feb -> X from 14 Feb), **replacing** normal interest on those amounts (no retroactive X); principal not yet due keeps normal interest; never X on X; no capitalization.
-- **Purchases** (originator claims, resale) stay allowed during the 10-day window (risk accepted: a buyer can buy just before the admin marks "not received"); they are blocked once an installment is marked not received. The F04 rule for originator offers (a due date before settlement makes the offer fail) is unchanged. Early payments (F12) are unchanged.
+- On the (adjusted) due date a scheduled installment is **presumed paid on time**: the schedule continues as if it was paid (its principal no longer bears interest); investors see it as paid; the money reaches their balances only when the admin confirms it. Purpose: no penalty and no "late" state for acceptable delays (holidays, bank closing days, admin delays).
+- Within **10 calendar days** the admin decides:
+  - **Paid in time** (bank statement uploaded): the installment is distributed as scheduled; everything is as if the borrower paid exactly on the due date (no penalty, no interest on its principal), also when the money arrived a few days later.
+  - **Late** (also automatic on day 11, with an admin alert): recalculated back to the due date. From the day after the due date (due 15 Dec -> from 16 Dec) to the receipt day included, penalty X applies to **the installment's amount only** (its principal + its interest), replacing normal interest on that principal. The rest of the principal keeps normal interest. Never X on X; no capitalization. Statuses count from the due date: Due (days 0-14), Late from day 15, **Default automatically on day 60** (or the contract's day).
+- **At Default:** from the day after the Default day, penalty X applies to **the whole amount owed** (all outstanding principal and unpaid interest), replacing normal interest.
+- **Purchases** (originator claims, resale) stay allowed during the 10-day window (risk accepted); they are blocked once an installment is declared late. The F04 rule for originator offers is unchanged. Early payments (F12) are unchanged.
+
+Example: outstanding 10,000 at 12%; installment 15 Dec = 900 + 100; X = 0.05% per day; declared late on 23 Dec (day 8); money on 28 Dec. Normal interest runs on 9,100 from 15 Dec; X on 1,000 from 16 to 28 Dec (13 days) = 6.50; the loan shows Due until 29 Dec and Late from 30 Dec.
+
+Differences from Eduard's rules (to signal):
+
+1. Eduard (Q07): X applies to every amount unpaid at the due date, and "payment = effective receipt". Now the admin can confirm a payment that arrived up to 10 days late as "paid in time" (no penalty).
+2. Eduard (U33-DEC-09, round-2 C03): "Due" never means paid, and purchases are blocked from the due date. Now the installment is shown as paid during the window, and purchases stay allowed until it is declared late.
+3. Eduard (Q07): the whole remaining principal enters the X base only if it became due under the contract; a Default label alone does not do this. Now X applies to the whole amount at Default. Proposal to reconcile: the new loan contract template says that Default makes the whole loan due (acceleration clause); a contract without that clause keeps X on the unpaid amounts.
+4. Eduard (Q07): the X base also includes other contractual money obligations (for example costs). Now: the installment's principal and interest; other obligations follow the contract.
+
+Same as Eduard: X back-dated from the day after the due date, replacing normal interest on the unpaid installment; Due/Late/Default thresholds; Default automatic on day 60; never X on X.
 
 **Operations facts:**
 

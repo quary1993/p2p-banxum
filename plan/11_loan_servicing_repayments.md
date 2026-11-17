@@ -179,7 +179,7 @@ Define lender notification wording. Launch recalculation preserves the remaining
 
 ### SERV-DEC-008: Late and Default Status Timing
 
-> **Changed 2026-11-17** (Vlad, `plan/22` "Vlad's Decisions Of 2026-11-17"): for new direct loans an installment is presumed paid on its due date; the admin confirms it within 10 calendar days (bank statement) or marks it "not received" (automatic on day 11). Only a "not received" installment counts as overdue: Due 0-14, Late from day 15, Default automatically on day 60; normal interest continues on the whole principal until Default; penalty X only from the Default day, replacing normal interest on the unpaid amounts.
+> **Changed 2026-11-17** (Vlad, `plan/22` "Vlad's Decisions Of 2026-11-17"): for new direct loans an installment is presumed paid on its due date; the admin confirms it within 10 calendar days as "paid in time" (bank statement; as if paid on the due date) or declares it "late" (automatic on day 11). A late installment is recalculated back to the due date: penalty X on the installment's principal + interest from the day after the due date, replacing normal interest on that principal; Due 0-14, Late from day 15, Default automatically on day 60; from the day after Default, X on the whole amount owed (acceleration clause in the contract).
 
 > **Changed 2026-11-13** (owner answer C01-C02, `plan/22` "Final Answers Of 2026-11-13"): every record, demo records included, uses Late from day 15 and Default from day 60; only a real contract with other terms differs. Updated 2026-11-16 (round 2): moving the demo records is no longer required; they keep the 5/16 days of migration `loans` 0025 (Vlad, 2026-11-17). For new direct loans day 0 is the adjusted due date (previous business day, U33-DEC-10 / Q07.4).
 
