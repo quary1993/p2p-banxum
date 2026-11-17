@@ -919,25 +919,23 @@ Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to 
 
 ### Vlad's Decisions Of 2026-11-17 (Operations Facts And The Installment Rule)
 
-**Changed (signalled to Eduard): presumed payment of installments (final, Vlad 2026-11-17).** For new direct loans it changes parts of Q07 and the round-2 C03 rule (see "Differences from Eduard's rules" below).
+**Changed: late installments, pending window and grace (Vlad with Eduard, 2026-11-17, final).** For new direct loans. It replaces Vlad's earlier presumed-payment rule of the same day.
 
-- On the (adjusted) due date a scheduled installment is **presumed paid on time**: the schedule continues as if it was paid (its principal no longer bears interest); investors see it as paid; the money reaches their balances only when the admin confirms it. Purpose: no penalty and no "late" state for acceptable delays (holidays, bank closing days, admin delays).
-- Within **10 calendar days** the admin decides:
-  - **Paid in time** (bank statement uploaded): the installment is distributed as scheduled; everything is as if the borrower paid exactly on the due date (no penalty, no interest on its principal), also when the money arrived a few days later.
-  - **Late** (also automatic on day 11, with an admin alert): recalculated back to the due date. From the day after the due date (due 15 Dec -> from 16 Dec) to the receipt day included, penalty X applies to **the installment's amount only** (its principal + its interest), replacing normal interest on that principal. The rest of the principal keeps normal interest. Never X on X; no capitalization. Statuses count from the due date: Due (days 0-14), Late from day 15, **Default automatically on day 60** (or the contract's day).
-- **At Default:** from the day after the Default day, penalty X applies to **the whole amount owed** (all outstanding principal and unpaid interest), replacing normal interest.
-- **Purchases** (originator claims, resale) stay allowed during the 10-day window (risk accepted); they are blocked once an installment is declared late. The F04 rule for originator offers is unchanged. Early payments (F12) are unchanged.
+- **Per project:** Late days (input default 15), Default days (input default 60) and **grace days** (input default 0; the documents give no value). The grace moves each due date forward by that number of calendar days, then the previous-business-day rule applies (due Thu 10 Dec + 2 days = Sat 12 Dec -> Fri 11 Dec); everything then behaves as if that were the due date (interest to it, penalty from the day after, Late and Default days counted from it).
+- **Operational window:** for 2 business days after the (adjusted) due date, an installment without a recorded payment shows **"Pending"** (not paid, not overdue), because the admin may record the payment late. Without a payment after the window, it shows as unpaid ("Due" with the real overdue days), then Late from the Late day and Default automatically on the Default day. Claim and resale purchases stay allowed during the pending window (Vlad's choice; Eduard's round-2 C03 blocks them from the due date) and are blocked once the window ends unpaid.
+- **Penalty from t+1:** if the bank value date is after the (adjusted) due date, even by one day, penalty X applies from the day after the due date to the receipt day included, retroactively when the admin records the value date later (value date t+1 recorded on t+2). No discretionary "paid in time".
+- **Before Default:** X applies to the principal and interest of each overdue installment, each from the day after its own due date, replacing normal interest on that overdue principal (normal interest continues on principal not yet due). Never X on X; no capitalization.
+- **From Default** (from the day after the Default day): X applies to **the whole amount owed**: all outstanding principal, unpaid interest and the recorded expenses, replacing all normal interest (through the contract's acceleration clause).
+- **Expenses on Default loans:** the admin records each expense with amount, currency, value date, an observation and a file attachment; X applies to it from its value date. Expenses are real, documented external costs (U33-DEC-12: no internal Banxum costs, never deducted twice) and are paid first in the loan's payment order.
 
-Example: outstanding 10,000 at 12%; installment 15 Dec = 900 + 100; X = 0.05% per day; declared late on 23 Dec (day 8); money on 28 Dec. Normal interest runs on 9,100 from 15 Dec; X on 1,000 from 16 to 28 Dec (13 days) = 6.50; the loan shows Due until 29 Dec and Late from 30 Dec.
+Example: outstanding 10,000 at 12%, X = 0.05% per day, installment due Friday 11 Dec = 900 + 100. Pending on Mon 14 and Tue 15 Dec. The admin records on Tue 15 Dec a value date of Mon 14 Dec: X on 1,000 for 12, 13 and 14 Dec = 1.50; normal interest on the 900 stopped on 10 Dec.
 
-Differences from Eduard's rules (to signal):
+Points that differ from Eduard's written rules (to signal):
 
-1. Eduard (Q07): X applies to every amount unpaid at the due date, and "payment = effective receipt". Now the admin can confirm a payment that arrived up to 10 days late as "paid in time" (no penalty).
-2. Eduard (U33-DEC-09, round-2 C03): "Due" never means paid, and purchases are blocked from the due date. Now the installment is shown as paid during the window, and purchases stay allowed until it is declared late.
-3. Eduard (Q07): the whole remaining principal enters the X base only if it became due under the contract; a Default label alone does not do this. Now X applies to the whole amount at Default. Proposal to reconcile: the new loan contract template says that Default makes the whole loan due (acceleration clause); a contract without that clause keeps X on the unpaid amounts.
-4. Eduard (Q07): the X base also includes other contractual money obligations (for example costs). Now: the installment's principal and interest; other obligations follow the contract.
-
-Same as Eduard: X back-dated from the day after the due date, replacing normal interest on the unpaid installment; Due/Late/Default thresholds; Default automatic on day 60; never X on X.
+1. Purchases stay allowed during the pending window (round-2 C03: blocked from the due date while unpaid).
+2. "Pending" is shown for 2 business days instead of "Due" (U33-DEC-09: the real overdue days are shown before Late); the penalty still counts from t+1.
+3. X on the whole amount from Default (Q07: only when the whole principal became due under the contract): needs the acceleration clause in the loan contract.
+4. The grace days per project are new (not in the documents).
 
 **Operations facts:**
 
@@ -951,7 +949,7 @@ Same as Eduard: X back-dated from the day after the due date, replacing normal i
 | Analytics | Google Analytics on the public site (Vlad adds it); it loads only after the visitor's consent in the cookie settings, and the cookie text lists it. |
 | Bank | Regular Swiss bank schedules: processing 1 business day, cut-off 12:00 Europe/Zurich (settings). The proof of the debit is the bank statement, outside the platform; the platform uses the date the team marks the transfer as made. |
 | Calendars | Regular bank holidays: CHF (Swiss interbank) and EUR (TARGET) preloaded each year, editable by the admin. |
-| Service times | Capacity confirmed: withdrawals processed in 1-3 business days; repayments credited within 2 business days of receipt (the 10-day confirmation window is the maximum). Support hours are not shown in the platform. |
+| Service times | Capacity confirmed: withdrawals processed in 1-3 business days; repayments credited within 2 business days of receipt. Support hours are not shown in the platform. |
 | Signer | Until further notice, an admin user with the signer permission signs the assignments with his own QES (his authority to sign for Garanta to be confirmed by the lawyers). |
 | Licence | Garanta has the template licence; nothing to do in the platform. |
 | Lawyers | No validation blocks the work; Vlad reports any change from the lawyers. |
