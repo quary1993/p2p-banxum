@@ -2369,7 +2369,7 @@ Route map (design route -> platform route: work left, slice):
 
 #### 18.2 Small rule and display changes
 
-- **C03 / round 2:** a claim purchase is refused when any amount of the loan is due and unpaid (from the due date itself), checked live at quote and at execution; the admin sees why an offer is not buyable.
+- **C03 (as changed by Vlad, 2026-11-17):** a claim purchase is refused once an installment of the loan is marked "not received" (purchases stay allowed during the 10-day confirmation window, 18.6), checked live at quote and at execution; the admin sees why an offer is not buyable.
 - **C05:** saved opportunities first, marked as saved, then "Closing soonest" inside each group (cards, list, Overview panel).
 - **C06 / F16:** an explicit "main security" on each loan (summary); `LTV = loan amount / sum of the valued distinct assets x 100`; per security a "counts in LTV" flag (default: types real estate, equipment, inventory, vehicles, securities pledge, cash collateral with a documented valuation; receivables only when valued; guarantees never); values in the loan currency with converted value, rate and rate date when the valuation is in another currency; exclusion is not release; credit file shows the assets, values and valuation dates; filters and Smart Invest max-LTV use the same figure; prior-ranking debt stays separate and labelled.
 - **C07:** interest coverage uses the absolute interest expense; missing data or a non-positive denominator shows "n/a".
@@ -2383,7 +2383,7 @@ Route map (design route -> platform route: work left, slice):
 - **Q26:** reservation, release and closing are separate entries in Transactions (project, amount, currency, date, reason, link).
 - **Q27:** remove the two invalid selectors in the generator and in the generated file.
 - **F14:** "Amortizing principal and interest" (equal principal) closed for new direct loans.
-- **D10:** withdrawal time, repayment time and support hours become settings with a "confirmed" flag; unconfirmed values are not shown as promises (neutral text: "We process withdrawals by hand on business days.").
+- **D10:** capacity confirmed (Vlad, 2026-11-17): withdrawals "processed in 1-3 business days" (processing, not the bank's credit) and repayments "credited within 2 business days of receipt" stay as texts (settings); support hours are not shown in the platform.
 - **Multilanguage pause** (18.0).
 
 Done when: each item has backend tests (where backend changes), screens match the design, and the design TODO entries are updated.
@@ -2405,16 +2405,16 @@ Done when: every route of 18.1 without a later-slice dependency matches the desi
 
 #### 18.4 Return deadline and failed returns (Q01, Q02, F01, F17, D9)
 
-- **Calendars (F17):** CHF (SIC) and EUR (TARGET/T2) settlement-day calendars in the admin (dates, source, confirmed by and on); a missing next-year calendar raises an operations alert; shared with 18.6.
-- **Bank values (D9):** settings for processing business days (1) and cut-off (12:00 Europe/Zurich) as test values until the bank confirms.
+- **Calendars (F17):** CHF (Swiss interbank) and EUR (TARGET) calendars of the regular bank holidays, preloaded each year by rule and editable by the admin; a missing next-year calendar raises an operations alert; shared with 18.6.
+- **Bank values (D9):** settings for processing business days (1) and cut-off (12:00 Europe/Zurich), the regular Swiss bank schedule (Vlad, 2026-11-17).
 - **56-day rule:** day 0 = value date; day 56 last day (withdraw only); return request normally on day 57, moved to the previous settlement day and earlier when processing time or cut-off need it; the date shown includes the adjustment; notices 14, 10 and 3 days before the scheduled return, confirmation at request and after the transfer; old reminders stop.
 - **Transition:** each lot stores its return days; lots with a value date before the switch keep 58.
-- **Debit proof:** the team records the bank debit date (and proof) for each return; a job alerts compliance when a lot reaches day 59 without a recorded debit.
+- **Debit date:** the proof is the bank statement, outside the platform; the platform uses the date the team marks the return transfer as made, and alerts compliance when a lot reaches day 59 without it.
 - **F01:** a lot can fund a direct loan only if `funding close + 3 business days (setting) <= day 56 of the lot`; the opportunity page and Review & sign show the usable balance accordingly.
 - **Failed return (Q02):** new state "Return failed" when the bank sends a return back (returned amount reconciled once, back to "due back" with its original age, no new period, no penalty); bank reason recorded; email + in-app notice at once and daily while unresolved; admin task; compliance takes over after 5 calendar days, at once when the lot is at day 57 or later; send again only to a corrected or newly verified account.
 - **Q02.5:** admin action "verify from deposit" with the evidence (holder and IBAN of the incoming transfer against the verified identity).
 
-Waits for: the bank's processing time, cut-offs and debit proof (operations); legal procedure for an impossible return (WW/lawyer, before real money). Acceptance A21-A22.
+Waits for: nothing (the lawyers' procedure for an impossible return is followed when Vlad passes it on). Acceptance A21-A22.
 
 #### 18.5 Sign-in and security (U33-DEC-01, Q05, Q06, D1-D6)
 
@@ -2427,13 +2427,14 @@ Waits for: the bank's processing time, cut-offs and debit proof (operations); le
 - **Sign-in place (Q06, D6):** MaxMind GeoLite2 City used locally (Garanta account and licence key; attribution; update and deletion terms checked); "City, Country (approximate)", country when no city.
 - **Design 1:1:** login, signup, onboarding, Security tab and recovery screens from the U33 HTML, minus passkeys, plus the SMS choice.
 
-Waits for: Garanta's Twilio and MaxMind accounts (keys in the environment, never in the repository). Security review in 18.12. Acceptance A10, A12, A28.
+Uses the existing Twilio account; the IP database is DB-IP Lite (no account, CC BY 4.0 attribution) unless Vlad prefers MaxMind GeoLite2 (free account and key); keys in the environment, never in the repository. Security review in 18.12. Acceptance A10, A12, A28.
 
 #### 18.6 Interest engine and schedules (Q07, Q08, F10-F14, F11, F13, F17)
 
-- **Engine (new direct loans):** Actual/365 Fixed; intervals include the start and exclude the end; interest starts at the payout value date; due dates from the payout day by frequency (month-end rule, then back to the reference day); due dates on non-settlement days move to the previous business day of the currency calendar (both dates kept); base interest on matured principal stops before the adjusted due date even when unpaid.
+- **Engine (new direct loans):** Actual/365 Fixed; intervals include the start and exclude the end; interest starts at the payout value date; due dates from the payout day by frequency (month-end rule, then back to the reference day); due dates on non-settlement days move to the previous business day of the currency calendar (both dates kept).
 - **Types:** monthly, quarterly, half-yearly, annual; periodic interest with principal at the end, or equal total installments (installment solved so the last payment settles the rest); full payment at maturity; initial interest-only phases; custom schedules by import (due date + principal per row; checks: increasing dates, first date after the interest start, principal total = loan amount, no negative principal, full preview with errors).
-- **Penalty X:** per loan: daily rate (% per day), eligible components, beneficiaries and shares; accrues on every overdue contractual amount from the day after the adjusted due date to the receipt day included; never on penalties; no capitalization; separate components in ledger and statements.
+- **Presumed payment (Vlad, 2026-11-17; replaces the Q07 late-payment rules):** on the adjusted due date an installment is presumed paid on time (no interest on its principal afterwards; shown as paid; no payout yet). The admin confirms it within 10 calendar days as "paid in time" with the bank statement (distribution as scheduled, as if paid on the due date, no penalty) or marks it "not received"; day 11 without action = "not received" automatically, with an admin alert. "Not received": recalculation from the due date with normal interest on the whole outstanding principal (unpaid installment principal included, no interest on interest), no penalty; Due 0-14, Late from 15, Default automatically on day 60 (or the contract's day); a later receipt is recorded with its value date and allocated by the loan's payment order.
+- **Penalty X (from the Default day only):** per loan: daily rate (% per day), eligible components, beneficiaries and shares; replaces normal interest on the unpaid amounts from the Default day (no retroactive X); principal not yet due keeps normal interest; never on penalties; no capitalization; separate components in ledger and statements.
 - **Payment order (F11):** recorded per loan, default costs -> X -> interest -> principal; imported claims keep their contract order.
 - **Early payment (F12):** interest to the day before receipt; the rest repays principal; future installments recalculated smaller, final maturity unchanged.
 - **Cents (F13 B):** investors get whole cents; fractions carried per investor, loan and currency (a ledger position for undistributed fractions); kept after an exit; final largest-remainder distribution of the distributable amount.
@@ -2441,7 +2442,7 @@ Waits for: Garanta's Twilio and MaxMind accounts (keys in the environment, never
 - **Imported claims:** keep their source convention (18.7).
 - **Tests:** leap years, broken periods, all frequencies, holidays, early, partial and late payments with X, resales mid-period, exits and final cents.
 
-Waits for: WW check of the penalty clause before real contracts (CO art. 102, 104-105, 163). Acceptance A19-A20.
+Tests add: confirmation in time (also with money a few days late), "not received" by the admin and automatically on day 11, interest on the unpaid principal until a later receipt, Default on day 60 and X from that day. The lawyers' check of the clause is followed when Vlad passes it on. Acceptance A19-A20.
 
 #### 18.7 Originator claims (Q09, F02, F03, F04, C03, Q17)
 
@@ -2458,12 +2459,12 @@ Waits for: the first-assignment form (legal). The originator-agreement rule on e
 #### 18.8 Qualified signature and settlement (Q10, F01, F05, D7)
 
 - **Provider:** evaluate Skribble, then compare Swisscom Trust Services (batch QES by one signer through the API, qualified time stamp, price, data location, long-term validation); a provider-neutral signing interface with a fake provider for development and tests.
-- **Documents:** one assignment declaration per investment (EN first, DE in 18.13), PDF/A, signed by the managing director or the authorized deputy with a personal QES, in batches; stored in Documents with the verification data; never "signed" before success.
+- **Documents:** one assignment declaration per investment (EN first, DE in 18.13), PDF/A, signed with a personal QES in batches by an admin user with the signer permission (until further notice; later the managing director or the authorized deputy); stored in Documents with the verification data; never "signed" before success.
 - **Flows:** direct loan: close -> signatures -> payout (interest from the payout); originator: upload of the signed first assignment (originator -> Garanta) required -> investor assignments signed -> debit to the originator = settlement; resale: both PIN confirmations -> Garanta signs for the seller -> settlement (money and holding move only then).
 - **Errors:** "in preparation", retries, team alert, escalation after 24 h, the operation waits; retries respect the F04 cancellation and the money deadlines (18.4).
 - **Archive:** signed originals and verification data kept for the legal period (to set).
 
-Waits for: provider contract, the deputy's name and signing right, templates and the resale mandate clause (legal/WW). Acceptance A10, A13, A24, A27.
+Waits for: the provider contract and the templates; the lawyers' points are followed when Vlad passes them on. Acceptance A10, A13, A24, A27.
 
 #### 18.9 Swiss creditor regimes (Q03, F06-F09)
 
@@ -2492,7 +2493,7 @@ Waits for: compliance texts and bands; legal list of proofs per type and jurisdi
 
 #### 18.12 Privacy, cookies and security review (Q24.4, A02, D5)
 
-- Inventory of data, purposes, providers, storage countries, transfers, retention and cookies from the code and the settings; a precise list of gaps for Eduard's father (Garanta operations).
+- Inventory of data, purposes, providers, storage countries, transfers, retention and cookies from the code and the settings, with Vlad's facts of 2026-11-17: the current server and AWS snapshots in Zurich (`eu-central-2`); SendGrid (existing account); Twilio Verify; Didit; the IP database; Google Analytics (loaded only after consent); retention at the legal limits (identity/AML 10 years after the relationship, accounting and payments 10 years, contracts 10 years after they end, sign-in history 365 days); the support address as the privacy contact.
 - Privacy and cookie texts in English from Swiss references, adapted to the real app (`banxum_device` and the trusted-device cookie listed); cookie settings match the texts.
 - Internal security review against OWASP ASVS level 2 (sign-in, sessions, recovery, financial authorization, account isolation) with a written report and fixes; prepare the scope of the independent external test before real money.
 

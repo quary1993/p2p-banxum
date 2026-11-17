@@ -916,3 +916,30 @@ Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to 
 | E-07 | The deliberate differences from the U33 HTML are explained to Vlad (IMPLEMENTATION_PLAN 18.1); no change. |
 | E-08 | Yes, per U33-DEC-26 (verified personal data, address included, shown read-only with "Contact support to change"; no invented fields): the verified address, birth date and nationality are stored from the Didit result when Didit provides them. |
 | E-09 | Confirmed: the "Tax report" is an information report for the investor's tax return, not an official tax certificate; its text says so. |
+
+### Vlad's Decisions Of 2026-11-17 (Operations Facts And The Installment Rule)
+
+**Changed (signalled to Eduard): presumed payment of installments.** It replaces, for new direct loans, the Q07 rules "base interest on matured principal stops at the adjusted due date even when unpaid" and "penalty X from the day after the due date", and the round-2 C03 rule "purchases blocked from the due date itself".
+
+- On the (adjusted) due date a scheduled installment is **presumed paid on time**: the schedule continues as if it was paid (its principal no longer bears interest); investors see it as paid; the money reaches their balances only when the admin confirms it.
+- Within **10 calendar days** the admin either confirms it as **paid in time**, with the bank statement uploaded (the installment is distributed as scheduled; everything is as if the borrower paid exactly on the due date; no penalty and no interest on its principal, also when the money arrived a few days later), or marks it **not received**. Without an action, it becomes "not received" automatically on day 11 and the admin is alerted.
+- **Not received:** recalculated from the due date as if the installment never arrived: normal interest on the whole outstanding principal, the unpaid installment's principal included (no interest on unpaid interest); **no penalty X before Default**. Statuses count from the due date: Due (days 0-14), Late from day 15, **Default automatically on day 60** (or the contract's day). A later receipt is recorded with its value date: interest on the unpaid principal runs to the day before the receipt; the payment follows the loan's payment order and is distributed.
+- **From the Default day:** penalty X (the contract's daily rate) on the unpaid amounts, **replacing** normal interest on those amounts (no retroactive X before the Default day); principal not yet due keeps normal interest; never X on X; no capitalization.
+- **Purchases** (originator claims, resale) stay allowed during the 10-day window (risk accepted: a buyer can buy just before the admin marks "not received"); they are blocked once an installment is marked not received. The F04 rule for originator offers (a due date before settlement makes the offer fail) is unchanged. Early payments (F12) are unchanged.
+
+**Operations facts:**
+
+| Item | Decision |
+| --- | --- |
+| Hosting | The current server; snapshots on AWS from time to time, in AWS Europe (Zurich) `eu-central-2` (consistent with INFRA-DEC-009). |
+| Email | The existing SendGrid account (Vlad's); the account region and the data processing terms are listed in the privacy inventory. |
+| SMS | The existing Twilio account (Twilio Verify). |
+| Retention | The legal limits: identity and anti-money-laundering files 10 years after the relationship ends (AMLA art. 7); accounting, payment and ledger records 10 years (CO art. 958f); contracts and signed assignments 10 years after they end (CO art. 127); sign-in history 365 days; other data as short as possible. |
+| Privacy contact | The support address (the same as for everything else). |
+| Analytics | Google Analytics on the public site (Vlad adds it); it loads only after the visitor's consent in the cookie settings, and the cookie text lists it. |
+| Bank | Regular Swiss bank schedules: processing 1 business day, cut-off 12:00 Europe/Zurich (settings). The proof of the debit is the bank statement, outside the platform; the platform uses the date the team marks the transfer as made. |
+| Calendars | Regular bank holidays: CHF (Swiss interbank) and EUR (TARGET) preloaded each year, editable by the admin. |
+| Service times | Capacity confirmed: withdrawals processed in 1-3 business days; repayments credited within 2 business days of receipt (the 10-day confirmation window is the maximum). Support hours are not shown in the platform. |
+| Signer | Until further notice, an admin user with the signer permission signs the assignments with his own QES (his authority to sign for Garanta to be confirmed by the lawyers). |
+| Licence | Garanta has the template licence; nothing to do in the platform. |
+| Lawyers | No validation blocks the work; Vlad reports any change from the lawyers. |
