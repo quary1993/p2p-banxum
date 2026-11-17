@@ -902,3 +902,17 @@ Product approvals are not technical, legal (WW), bank or operational validations
 C05 (saved first), C06 (LTV on the distinct assets), Q24.2 ("0% fees for investors" word for word; the "first year" article retired), the three Swiss regimes and the dynamic minimum to the success threshold, the penalty X rule (all overdue contractual amounts, never on penalties; a point legal check before real contracts is recommended, CO art. 105 and 163), Q01 (day 56 withdraw-only; initiation and debit are distinct), Q12 (blocking only for a necessary unresolved review, not for a reminder before a future date), Q14 (one News/newsletter preference only for the same category and the same verified address).
 
 Correction (Eduard, 16 Nov): an example due date of Sunday 15 Nov 2026 moves to Friday 13 Nov; a payment on 18 Nov then has five penalty days (14-18 Nov), not three.
+
+### Vlad's Answers Of 2026-11-17 (Questions E-01 To E-09)
+
+| ID | Answer |
+| --- | --- |
+| E-01 | Confirmed: no migration flow for old accounts (no real investors); test accounts are reset or re-created at the release of the new sign-in. |
+| E-02 | Confirmed: Vlad's Swiss model. One mode per borrower: "sandbox" (total below CHF 500,000, no lender limit) or "10/20" (10 lenders per project, 20 per borrower, any amount); "sandbox" pre-selected for a new Swiss borrower and confirmed by the admin; a change only when the target mode's limits are already met (repaid loans free lenders and amounts; no change while a project is in funding; no switch to sandbox while open loans total CHF 500,000 or more). Replaces the per-project checkbox of round 2. |
+| E-03 | A placeholder text along Vlad's description until the legal text arrives (Vlad asks for it): the borrower operates under the Swiss sandbox exemption, is not supervised by FINMA, and the investment is not covered by the Swiss deposit protection. The investor's confirmation stays unchecked by default. |
+| E-04 | The originator-agreement rule (the originator bears the extra days when settlement is late) is prepared by the team; a placeholder clause in the templates is optional. |
+| E-05 | Confirmed: NIST rules (12-128 characters, no forced mix, common and leaked passwords refused, no forced periodic change). |
+| E-06 | Confirmed: English only for now; no i18n work until the final phase (German and French deferred). |
+| E-07 | The deliberate differences from the U33 HTML are explained to Vlad (IMPLEMENTATION_PLAN 18.1); no change. |
+| E-08 | Yes, per U33-DEC-26 (verified personal data, address included, shown read-only with "Contact support to change"; no invented fields): the verified address, birth date and nationality are stored from the Didit result when Didit provides them. |
+| E-09 | Confirmed: the "Tax report" is an information report for the investor's tax return, not an official tax certificate; its text says so. |
