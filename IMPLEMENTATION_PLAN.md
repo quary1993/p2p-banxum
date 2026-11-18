@@ -2438,7 +2438,7 @@ Uses the existing Twilio account; the IP database is DB-IP Lite (no account, CC 
 - **Penalty X from t+1:** value date after t means X from t+1 to the receipt day included, recalculated retroactively; on the due date the installment's principal earns neither interest nor penalty; until Default X on each overdue installment's principal + interest (replacing only the interest on that principal) and on each expense from the day after its value date; never X on X; no capitalization.
 - **Status:** the oldest unpaid installment decides: Pending / Due / Late (Late continues beyond the Default days); no automatic Default; an admin alert when Default becomes possible; recalculated after every payment.
 - **Default = maturity:** an optional admin decision once the oldest unpaid installment is late by the Default days (the contract-termination event): whole amount due and final, schedule stops, normal interest to the declaration day included, then X from the day after on the whole amount (everything due until then, interest accrued to the declaration day, expenses, and the remaining principal; no future interest), replacing all normal interest; no return to Late; superadmin correction with a reason (both events kept, investors notified). The existing automatic Default of the status scan stops at Late.
-- **Expenses:** recordable from Late (amount, currency, value date, observation, file); paid first; X on each from the day after its value date (before and after Default); external costs only.
+- **Expenses:** recordable from Due, also in Late and after Default (amount, currency, value date, observation, file); paid first; X on each from the day after its value date (before and after Default); external costs only.
 - **Payment order:** expenses, then the oldest installment in full (penalty, interest, principal), then the next; after Default: expenses, penalties, interest, principal.
 - **Penalty X settings per loan:** daily rate (% per day), beneficiaries and shares; separate components in ledger and statements.
 - **Payment order (F11):** recorded per loan; default as above (expenses, then oldest installment first); imported claims keep their contract order.
@@ -2448,7 +2448,7 @@ Uses the existing Twilio account; the IP database is DB-IP Lite (no account, CC 
 - **Imported claims:** keep their source convention (18.7).
 - **Tests:** leap years, broken periods, all frequencies, holidays, early, partial and late payments with X, resales mid-period, exits and final cents.
 
-Tests add: grace in business days, the pending window over a weekend (offers and listings hidden and back), value dates on t and t+1 recorded on t+2, several overdue installments, oldest-first allocation, Late beyond the Default days without a declaration, the Default declaration (refused before the Default days), X on the full amount after it, expenses recorded during Late, the superadmin correction. The lawyers' check of the clause is followed when Vlad passes it on. Acceptance A19-A20.
+Tests add: grace in business days, the pending window over a weekend (offers and listings hidden and back), value dates on t and t+1 recorded on t+2, several overdue installments, oldest-first allocation, Late beyond the Default days without a declaration, the Default declaration (refused before the Default days), X on the full amount after it, expenses recorded during Due and Late, the superadmin correction. The lawyers' check of the clause is followed when Vlad passes it on. Acceptance A19-A20.
 
 #### 18.7 Originator claims (Q09, F02, F03, F04, C03, Q17)
 
