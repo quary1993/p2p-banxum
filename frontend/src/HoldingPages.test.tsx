@@ -171,10 +171,44 @@ const defaulted = holding(
   }
 );
 
-function useInvestorApi() {
+// 18.6: an engine loan with the first installment in its Pending window and the second Due.
+const engineRow = (id: string, number: number, due: string, status: string, days: number) => ({
+  loan_installment_id: id,
+  schedule_version: 1,
+  installment_number: number,
+  due_date: due,
+  projected_principal_minor: 100_000,
+  projected_interest_minor: 2_000,
+  projected_total_minor: 102_000,
+  days_past_due: days,
+  status
+});
+const pendingEngine = holding(
+  "pending-engine",
+  {
+    currency: "CHF",
+    investment_schedule: [
+      engineRow("e1", 1, "2026-12-15", "due", 5),
+      engineRow("e2", 2, "2026-12-18", "pending", 2),
+      engineRow("e3", 3, "2027-01-15", "upcoming", 0)
+    ]
+  },
+  {
+    loan_title: "Engine direct loan",
+    currency: "CHF",
+    repayment_type: "equal_installments",
+    schedule: [
+      scheduleRow({ id: "e1", installment_number: 1, due_date: "2026-12-15", status: "due", days_past_due: 5 }),
+      scheduleRow({ id: "e2", installment_number: 2, due_date: "2026-12-18", status: "pending", days_past_due: 2 }),
+      scheduleRow({ id: "e3", installment_number: 3, due_date: "2027-01-15" })
+    ]
+  }
+);
+
+function useInvestorApi(extraHoldings: unknown[] = []) {
   const portfolio = {
     as_of: "2026-12-20T11:00:00Z",
-    holdings: [repaidLo, defaulted],
+    holdings: [repaidLo, defaulted, ...extraHoldings],
     summary: {
       holding_count: 2,
       active_holding_count: 1,
@@ -268,4 +302,14 @@ test("a defaulted holding opens on the recovery, not on an upcoming payment", as
   expect(screen.queryByText("Next payment")).not.toBeInTheDocument();
   expect(screen.queryByText("Scheduled")).not.toBeInTheDocument();
   expect(screen.queryByText("Upcoming")).not.toBeInTheDocument();
+}, 30_000);
+
+test("18.6: an engine installment shows Pending in its window, then Due with the real days", async () => {
+  useInvestorApi([pendingEngine]);
+  renderAt("/portfolio/pending-engine");
+
+  expect(await screen.findByRole("heading", { level: 1, name: "Engine direct loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(document.querySelector('[data-payment-number="1"]')).toHaveTextContent("Due · 5 days");
+  expect(document.querySelector('[data-payment-number="2"]')).toHaveTextContent("Pending");
+  expect(document.querySelector('[data-payment-number="3"]')).toHaveTextContent("Scheduled");
 }, 30_000);

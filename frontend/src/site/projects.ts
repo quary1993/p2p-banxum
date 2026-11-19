@@ -150,16 +150,21 @@ export function securityShort(p: Pick<PublicProject, "collateral_description" | 
  * Short repayment label (design repaymentShort: annuity, interest-only, bullet) for our
  * RepaymentType values.
  */
-export function repaymentShort(p: Pick<PublicProject, "repayment_type">) {
+export function repaymentShort(p: Pick<PublicProject, "repayment_type" | "payment_frequency">) {
+  const prefixes: Record<string, string> = { quarterly: "Quarterly", half_yearly: "Half-yearly", annual: "Yearly" };
+  const prefix = prefixes[p.payment_frequency ?? ""] ?? "Monthly";
   switch (p.repayment_type) {
     case "equal_installments":
     case "amortizing_principal_interest":
     case "interest_only_then_amortizing":
-      return "Monthly instalments";
+      return `${prefix} instalments`;
     case "bullet_periodic_interest":
-      return "Monthly interest";
     case "interest_only_then_bullet":
+      return `${prefix} interest`;
+    case "full_at_maturity":
       return "At the end";
+    case "custom_schedule":
+      return "Custom schedule";
     default:
       return "";
   }

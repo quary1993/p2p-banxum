@@ -1054,3 +1054,19 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.5 ("Status 2026-11-19"
 
 Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not (capped at 30 per hour and 100 per day per account); the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
 
+
+### Implemented In Audit Step 5 (2026-11-19, Phase 18.6)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.6 ("Status 2026-11-19").
+
+| Item | Implemented |
+| --- | --- |
+| Q07, F10, F17 | Interest engine for new direct loans: Actual/365 Fixed from the payout day; due dates by frequency from the payout day, moved to the previous settlement day, plus grace business days; schedule estimated before funding and confirmed at the payout (new schedule version). |
+| F14, types | Monthly, quarterly, half-yearly, annual; equal total installments (with interest-only periods), periodic interest with the principal at the end, payment at maturity, custom schedule by import. |
+| Q08, Vlad 2026-11-17 | Pending (t to t + 2 business days), Due, Late from the Late days; no automatic Default; admin alert; Default declared by an admin once the Default days are reached; superadmin cancellation with a reason, holders notified. |
+| Penalty X, expenses | X per day from t + 1 on principal + interest of each unpaid installment and on expenses; after Default on the whole amount; investors' share per loan, the rest to Garanta; expenses recorded from Due and repaid first. |
+| F11, F12 | Payment order per the mechanics note; early payment recalculates the later rows with the same maturity. |
+| F13 B | Whole cents to investors; fractions carried per investor, loan and currency; final largest remainder. |
+| Calculators | Public calculator and project pages on the engine formulas; payment frequency in the public API. |
+
+Choices made in this step (for the audit): loans created before the engine keep the legacy convention and schedules (only the status rules change for them: no automatic Default, Pending/Due rows); a Default cancellation is refused once a payment or an expense is recorded after the declaration; `interest_only_then_bullet` stays periodic interest with the principal at the end (the public pages showed it as one payment at the end; corrected); the public calculator does not apply bank holidays or grace days.

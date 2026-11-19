@@ -68,6 +68,10 @@ export interface PublicProject {
   term_months: number;
   /** RepaymentType value. */
   repayment_type: string;
+  /** monthly, quarterly, half_yearly or annual (18.6); older payloads: monthly. */
+  payment_frequency?: string;
+  /** First months with interest only (interest_only_then_amortizing); 0 when none. */
+  interest_only_months?: number;
   /** CollateralType value. */
   collateral_type: string;
   collateral_description: string;

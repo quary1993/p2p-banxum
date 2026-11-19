@@ -110,6 +110,14 @@ import {
   useV1ReportingAdminReportsCreate,
   useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
+  getV1ServicingAdminLoansServicingPositionRetrieveQueryKey,
+  useV1ServicingAdminLoansDefaultDeclarationCancelCreate,
+  useV1ServicingAdminLoansDefaultDeclarationCreate,
+  useV1ServicingAdminLoansExpensesCreate,
+  useV1ServicingAdminLoansPaymentPreviewCreate,
+  useV1ServicingAdminLoansServicingPositionRetrieve,
+  type EnginePaymentPreview,
+  type LoanServicingPosition,
   useV1ServicingAdminLoansContractTerminationCreate,
   getV1ServicingAdminLoansRecoveryStagesRetrieveQueryKey,
   useV1ServicingAdminLoansRecoveryStagesCreate,
@@ -4525,6 +4533,21 @@ function InterestOnlyMonthsInput({
 // loans; a loan that already has it keeps it. Originator imports keep their contract's type.
 const NEW_DIRECT_REPAYMENT_TYPES = Object.values(RepaymentTypeEnum).filter((value) => value !== RepaymentTypeEnum.amortizing_principal_interest);
 
+// 18.6 (Q08): the four frequencies; a custom schedule is imported as "due date;principal" rows.
+type PaymentFrequencyValue = "monthly" | "quarterly" | "half_yearly" | "annual";
+const PAYMENT_FREQUENCIES: readonly PaymentFrequencyValue[] = ["monthly", "quarterly", "half_yearly", "annual"];
+
+function parseCustomScheduleRows(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [dueDate = "", principal = ""] = line.split(/[;,\t]/).map((part) => part.trim());
+      return { due_date: dueDate, principal_minor: Number.parseInt(principal.replace(/[' ]/g, ""), 10) || 0 };
+    });
+}
+
 function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
@@ -4543,6 +4566,12 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [loanStartDate, setLoanStartDate] = useState("");
   const [fundingDeadline, setFundingDeadline] = useState("");
   const [minimumSubscriptionBps, setMinimumSubscriptionBps] = useState("5000");
+  // 18.6 interest engine: frequency, grace, penalty X and a custom schedule import.
+  const [frequency, setFrequency] = useState<PaymentFrequencyValue>("monthly");
+  const [graceDays, setGraceDays] = useState("0");
+  const [penaltyRate, setPenaltyRate] = useState("0.05");
+  const [penaltyInvestorSharePercent, setPenaltyInvestorSharePercent] = useState("100");
+  const [customRows, setCustomRows] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LoansAdminLoansCreate({
@@ -4578,7 +4607,14 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating,
-      minimum_subscription_bps: minimumSubscriptionBps ? intValue(minimumSubscriptionBps) : 5000
+      minimum_subscription_bps: minimumSubscriptionBps ? intValue(minimumSubscriptionBps) : 5000,
+      payment_frequency: frequency,
+      grace_business_days: intValue(graceDays),
+      penalty_daily_rate_percent: penaltyRate.trim() || "0",
+      penalty_investor_share_bps: Math.round(Number(penaltyInvestorSharePercent || "100") * 100),
+      ...(repaymentType === RepaymentTypeEnum.custom_schedule
+        ? { manual_schedule_rows: parseCustomScheduleRows(customRows) }
+        : {})
     };
     if (isFixturePreview) {
       setPreview(`${title} loan draft would be created for ${borrowerId}.`);
@@ -4614,13 +4650,17 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+          <SelectInput label="Payment frequency" onChange={setFrequency} options={PAYMENT_FREQUENCIES} value={frequency} />
           <TextInput
-            hint="First installment: one month after loan start date."
-            label="Loan start date"
+            hint="Interest starts on the payout day; due dates follow it by the frequency. The schedule is calculated again from the real payout day."
+            label="Planned payout day"
             onChange={setLoanStartDate}
             type="date"
             value={loanStartDate}
           />
+          <TextInput integer hint="Moves every due date forward by this many business days (standard 0)." label="Grace business days" onChange={setGraceDays} value={graceDays} />
+          <TextInput hint="Daily rate from the contract, for example 0.05 (% per day)." label="Penalty X (% per day)" onChange={setPenaltyRate} value={penaltyRate} />
+          <TextInput hint="The rest of penalty X goes to Garanta." label="Investors' share of penalty X (%)" onChange={setPenaltyInvestorSharePercent} value={penaltyInvestorSharePercent} />
           <TextInput hint="Last inclusive subscription date; at most 50 days including today. Funding resolves automatically using the published minimum." label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
           <TextInput
             integer
@@ -4633,6 +4673,16 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
         <Banner tone="neutral" title="Existing-loan acquisitions use Loan Originator claims">
           New refinancing products are disabled. Import an existing performing final-borrower claim through the Loan Originator workflow instead.
         </Banner>
+        {repaymentType === RepaymentTypeEnum.custom_schedule ? (
+          <TextAreaInput
+            hint="One row per installment: due date and principal in minor units, separated by a semicolon (2027-01-15;90000). The server calculates the interest and checks the rows."
+            label="Custom schedule rows"
+            onChange={setCustomRows}
+            required
+            rows={6}
+            value={customRows}
+          />
+        ) : null}
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
       </form>
@@ -4825,6 +4875,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
 }
 
 type ManageLoanActionId =
+  | "late_payments"
   | "publish"
   | "coming_soon"
   | "securities"
@@ -4847,6 +4898,8 @@ const MANAGE_LOAN_ACTIONS: Array<{
   description: string;
   statuses: string[];
   danger?: boolean;
+  // 18.6: actions that apply only to loans with (or without) the interest engine.
+  when?: (loan: Loan) => boolean;
 }> = [
   {
     id: "publish",
@@ -4903,7 +4956,23 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Record borrower repayment",
     description:
       "Declare a matched incoming borrower payment against the next due installment, or record a repayment in advance with a schedule preview.",
-    statuses: ["active", "late"]
+    statuses: ["active", "late"],
+    when: (loan) => !isEngineLoan(loan)
+  },
+  {
+    id: "servicing",
+    title: "Record a borrower payment",
+    description:
+      "18.6: any amount with its value date. The server pays expenses, penalty X, interest and principal in the loan's order; money beyond everything due repays principal early and recalculates the next installments.",
+    statuses: ["active", "late", "defaulted"],
+    when: (loan) => isEngineLoan(loan)
+  },
+  {
+    id: "late_payments",
+    title: "Late payments and Default",
+    description:
+      "Status (Pending, Due, Late, Default), penalty X and expenses owed, recovery expenses, and the Default declaration (never automatic).",
+    statuses: ["active", "late", "defaulted"]
   },
   {
     id: "recovery",
@@ -4911,7 +4980,8 @@ const MANAGE_LOAN_ACTIONS: Array<{
     description:
       "For a defaulted loan: record recovered funds and distribute them to lenders through the recovery waterfall.",
     statuses: ["defaulted"],
-    danger: true
+    danger: true,
+    when: (loan) => !isEngineLoan(loan)
   },
   {
     id: "status_days",
@@ -5283,7 +5353,8 @@ function ManageLoanModal({
   const [noteEvidence, setNoteEvidence] = useState("");
   // An action from the URL only opens when it is valid for the loan's status.
   const action = requestedAction && MANAGE_LOAN_ACTIONS.some(
-    (item) => item.id === requestedAction && item.statuses.includes(loan.status)
+    (item) =>
+      item.id === requestedAction && item.statuses.includes(loan.status) && (item.when?.(loan) ?? true)
   )
     ? requestedAction
     : null;
@@ -5474,6 +5545,7 @@ function ManageLoanModal({
   );
   const available = MANAGE_LOAN_ACTIONS.filter((item) =>
     item.statuses.includes(loan.status)
+    && (item.when?.(loan) ?? true)
     && !(fundingEnded && ["cancel", "release"].includes(item.id))
   );
   const active = available.find((item) => item.id === action) ?? null;
@@ -5867,7 +5939,15 @@ function ManageLoanModal({
 
             {action === "disburse" ? <ManageDisbursementForm loan={loan} onDone={onChanged} /> : null}
 
-            {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
+            {action === "servicing" ? (
+              isEngineLoan(loan) ? (
+                <EngineRepaymentForm loan={loan} onDone={onChanged} />
+              ) : (
+                <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} />
+              )
+            ) : null}
+
+            {action === "late_payments" ? <LatePaymentsPanel loan={loan} onDone={onChanged} /> : null}
 
             {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
 
@@ -7495,6 +7575,386 @@ function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentSchedu
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 18.6 interest engine: borrower payments, late payments, expenses and the Default declaration.
+
+function isEngineLoan(loan: Loan) {
+  return loan.interest_convention === "act_365_fixed";
+}
+
+const SERVICING_STATUS_LABELS: Record<string, { label: string; tone: Tone }> = {
+  on_schedule: { label: "On schedule", tone: "ok" },
+  pending: { label: "Pending", tone: "info" },
+  due: { label: "Due", tone: "warn" },
+  late: { label: "Late", tone: "bad" },
+  default: { label: "Default", tone: "bad" },
+  repaid: { label: "Repaid", tone: "ok" },
+  active: { label: "Active", tone: "ok" }
+};
+
+function ServicingStatusChip({ status }: { status: string }) {
+  const known = SERVICING_STATUS_LABELS[status] ?? { label: labelize(status), tone: "neutral" as Tone };
+  return <Chip tone={known.tone}>{known.label}</Chip>;
+}
+
+function EnginePaymentPreviewTable({ loan, preview }: { loan: Loan; preview: EnginePaymentPreview }) {
+  const money = (value: number) => <Money amountMinor={value} currency={loan.currency} />;
+  return (
+    <div className="admin-detail-grid" data-testid="engine-payment-preview">
+      <div className="admin-review-row"><span>Expenses</span><strong>{money(preview.expenses_minor)}</strong></div>
+      <div className="admin-review-row"><span>Penalty X</span><strong>{money(preview.penalty_minor)}</strong></div>
+      <div className="admin-review-row"><span>Interest</span><strong>{money(preview.interest_minor)}</strong></div>
+      <div className="admin-review-row"><span>Principal</span><strong>{money(preview.principal_minor)}</strong></div>
+      <div className="admin-review-row"><span>To investors (penalty part)</span><strong>{money(preview.penalty_to_investors_minor)}</strong></div>
+      <div className="admin-review-row"><span>To Garanta (expenses and penalty part)</span><strong>{money(preview.to_garanta_minor)}</strong></div>
+      {preview.prepayment_minor ? (
+        <div className="admin-review-row">
+          <span>Paid early (interest for {preview.accrued_interest_days} days, then principal)</span>
+          <strong>{money(preview.prepayment_minor)}</strong>
+        </div>
+      ) : null}
+      {preview.installments.map((row) => (
+        <div className="admin-review-row" key={`${row.installment_number}-${row.due_date}`}>
+          <span>Installment {row.installment_number} (due {formatDate(row.due_date)})</span>
+          <strong>
+            X {formatMoneyMinor(row.penalty_minor, loan.currency)} · interest {formatMoneyMinor(row.interest_minor, loan.currency)} · principal {formatMoneyMinor(row.principal_minor, loan.currency)}
+          </strong>
+        </div>
+      ))}
+      {preview.schedule_changes ? (
+        <Banner tone="info" title="The next installments are recalculated">
+          {preview.new_schedule.length
+            ? `New amounts from installment ${preview.new_schedule[0].installment_number}; the last due date stays ${formatDate(preview.new_schedule[preview.new_schedule.length - 1].due_date)}.`
+            : "The current installment is reduced; the later ones do not change."}
+        </Banner>
+      ) : null}
+      {preview.fully_repaid ? (
+        <Banner tone="ok" title="This payment repays the loan in full">
+          The carried cent fractions are paid to the investors with it.
+        </Banner>
+      ) : null}
+    </div>
+  );
+}
+
+function EngineRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const [amountMinor, setAmountMinor] = useState("");
+  const [valueDate, setValueDate] = useState(businessDate);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
+  const [payerAccount, setPayerAccount] = useState("");
+  const [bankReference, setBankReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<EnginePaymentPreview | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const [fixtureMessage, setFixtureMessage] = useState<string | null>(null);
+  const previewMutation = useV1ServicingAdminLoansPaymentPreviewCreate({
+    mutation: { onSuccess: (data) => setPreview(data) }
+  });
+  const repayment = useV1ServicingAdminBorrowerRepaymentsCreate({
+    mutation: {
+      onSuccess: () => {
+        setPreview(null);
+        setSuccess("The payment was recorded and distributed.");
+        void queryClient.invalidateQueries({
+          queryKey: getV1ServicingAdminLoansServicingPositionRetrieveQueryKey(loan.id)
+        });
+        onDone();
+      }
+    }
+  });
+  const amount = intValue(amountMinor);
+  const ready = amount > 0 && Boolean(valueDate) && Boolean(payerAccount.trim());
+
+  function requestPreview() {
+    setSuccess(undefined);
+    if (isFixturePreview) {
+      setFixtureMessage(`The payment of ${formatMoneyMinor(amount, loan.currency)} ${loan.currency} would be previewed.`);
+      return;
+    }
+    previewMutation.mutate({ loanId: loan.id, data: { amount_minor: amount, value_date: valueDate } });
+  }
+
+  function record() {
+    repayment.mutate({
+      data: withIdempotencyKey("borrower-repayment", {
+        loan_id: loan.id,
+        amount_minor: amount,
+        booking_date: bookingDate,
+        value_date: valueDate,
+        payer_name: payerName,
+        payer_account_identifier: payerAccount.trim(),
+        bank_reference: bankReference || undefined,
+        evidence_reference: evidenceReference || undefined,
+        admin_notes: notes || undefined,
+        repayment_in_advance: false
+      })
+    });
+  }
+
+  return (
+    <div className="admin-form-panel">
+      <p className="muted admin-manage-hint">
+        Enter the amount and the value date from the bank statement. The server uses the payment in the
+        loan's order: expenses (with their penalty X), then the oldest due installment in full (penalty X,
+        interest, principal), then the next; after a Default declaration: expenses, penalties, interest,
+        principal. Money beyond everything due repays principal early.
+      </p>
+      <FieldGrid>
+        <MoneyMinorInput currency={loan.currency} label="Amount received" onChange={setAmountMinor} required value={amountMinor} />
+        <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+        <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
+        <TextInput label="Payer name" onChange={setPayerName} required value={payerName} />
+        <TextInput hint="The account the borrower paid from (bank evidence)." label="Payer account" onChange={setPayerAccount} required value={payerAccount} />
+        <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
+        <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
+      </FieldGrid>
+      <TextAreaInput label="Notes" onChange={setNotes} value={notes} />
+      <div className="admin-action-footer">
+        <Button disabled={!ready || previewMutation.isPending} onClick={requestPreview}>
+          Preview how the payment is used
+        </Button>
+      </div>
+      {previewMutation.error ? <Banner tone="bad" title="Preview failed">{errorMessage(previewMutation.error)}</Banner> : null}
+      {fixtureMessage ? <Banner tone="info" title="Preview action recorded">{fixtureMessage}</Banner> : null}
+      {preview ? (
+        <>
+          <EnginePaymentPreviewTable loan={loan} preview={preview} />
+          <OperationConfirmButton
+            confirmLabel="Record payment"
+            description="The payment is recorded with this allocation, the investors are credited and the Garanta part is booked. It cannot be edited later."
+            details={[
+              { label: "Loan", value: loan.title },
+              { label: "Amount", value: <Money amountMinor={amount} currency={loan.currency} /> },
+              { label: "Value date", value: formatDate(valueDate) }
+            ]}
+            disabled={repayment.isPending}
+            onConfirm={record}
+            title="Confirm borrower payment"
+            variant="primary"
+          >
+            Record payment
+          </OperationConfirmButton>
+        </>
+      ) : null}
+      {repayment.error ? <Banner tone="bad" title="Payment not recorded">{errorMessage(repayment.error)}</Banner> : null}
+      {success ? <Banner tone="ok" title="Payment recorded">{success}</Banner> : null}
+    </div>
+  );
+}
+
+function LatePaymentsPanel({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const positionQuery = useV1ServicingAdminLoansServicingPositionRetrieve(loan.id, {
+    query: { enabled: !isFixturePreview, staleTime: 0 }
+  });
+  const documentsQuery = useV1EntitiesAdminBorrowersDocumentsList(loan.borrower_id ?? "", {
+    query: { enabled: !isFixturePreview && Boolean(loan.borrower_id) && isEngineLoan(loan) }
+  });
+  const position: LoanServicingPosition | undefined = isFixturePreview
+    ? {
+        loan_id: loan.id,
+        interest_engine: isEngineLoan(loan),
+        currency: loan.currency,
+        status: loan.status === "defaulted" ? "default" : loan.status === "late" ? "late" : "on_schedule",
+        days_late: 0,
+        default_possible: false,
+        late_days: loan.effective_late_threshold_days,
+        default_days: loan.effective_default_threshold_days,
+        declarations: [],
+        expenses: []
+      }
+    : positionQuery.data;
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: getV1ServicingAdminLoansServicingPositionRetrieveQueryKey(loan.id) });
+    onDone();
+  };
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDate, setExpenseDate] = useState(businessDate);
+  const [expenseNote, setExpenseNote] = useState("");
+  const [expenseEvidence, setExpenseEvidence] = useState("");
+  const [expenseDocument, setExpenseDocument] = useState("");
+  const [defaultNote, setDefaultNote] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const expense = useV1ServicingAdminLoansExpensesCreate({
+    mutation: {
+      onSuccess: () => {
+        setExpenseAmount("");
+        setExpenseNote("");
+        setExpenseEvidence("");
+        setExpenseDocument("");
+        refresh();
+      }
+    }
+  });
+  const declare = useV1ServicingAdminLoansDefaultDeclarationCreate({ mutation: { onSuccess: refresh } });
+  const cancel = useV1ServicingAdminLoansDefaultDeclarationCancelCreate({
+    mutation: { onSuccess: () => { setCancelReason(""); refresh(); } }
+  });
+  if (!position) {
+    return positionQuery.error ? (
+      <Banner tone="bad" title="Could not load the loan's position">{errorMessage(positionQuery.error)}</Banner>
+    ) : (
+      <p className="muted">Loading the loan's position…</p>
+    );
+  }
+  const activeDeclaration = position.declarations.find((item) => !item.cancelled_at);
+  const money = (value: number | undefined) => <Money amountMinor={value ?? 0} currency={loan.currency} />;
+  const documents = documentsQuery.data ?? [];
+  return (
+    <div className="admin-form-panel" data-testid="late-payments-panel">
+      <div className="admin-detail-grid">
+        <div className="admin-review-row"><span>Status</span><strong><ServicingStatusChip status={position.status} /></strong></div>
+        <div className="admin-review-row"><span>Days late (oldest unpaid installment)</span><strong>{position.days_late}</strong></div>
+        <div className="admin-review-row"><span>Late / Default days</span><strong>{position.late_days} / {position.default_days}</strong></div>
+        {position.interest_engine ? (
+          <>
+            <div className="admin-review-row"><span>Due now (all included)</span><strong>{money(position.due_now_minor)}</strong></div>
+            <div className="admin-review-row"><span>Penalty X owed</span><strong>{money(position.penalty_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Expenses owed</span><strong>{money(position.expenses_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Principal still owed</span><strong>{money(position.principal_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Penalty X</span><strong>{position.penalty_daily_rate_percent}% per day ({((position.penalty_investor_share_bps ?? 10_000) / 100).toFixed(2)}% to investors)</strong></div>
+          </>
+        ) : null}
+      </div>
+      {position.interest_engine && position.installment_penalties?.length ? (
+        <div className="admin-detail-grid">
+          {position.installment_penalties.map((row) => (
+            <div className="admin-review-row" key={`${row.installment_number}-${row.due_date}`}>
+              <span>Installment {row.installment_number} (due {formatDate(row.due_date)})</span>
+              <strong>owed {formatMoneyMinor(row.owed_minor, loan.currency)} · X {formatMoneyMinor(row.penalty_owed_minor, loan.currency)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {position.interest_engine ? (
+        <>
+          <h3>Recovery expenses</h3>
+          {position.expenses.length ? (
+            <div className="admin-detail-grid">
+              {position.expenses.map((item) => (
+                <div className="admin-review-row" key={item.id}>
+                  <span>{formatDate(item.value_date)} · {item.note}{item.evidence_reference ? ` (${item.evidence_reference})` : ""}</span>
+                  <strong>{formatMoneyMinor(item.amount_minor, loan.currency)} · owed {formatMoneyMinor(item.owed_minor, loan.currency)} · X {formatMoneyMinor(item.penalty_owed_minor, loan.currency)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No expense recorded.</p>
+          )}
+          {position.expenses_allowed ? (
+            <>
+              <p className="muted admin-manage-hint">
+                Only real outside costs (for example a lawyer's notice). The borrower owes them; they are paid
+                first and carry penalty X from the day after their value date. Upload the invoice to the
+                borrower's documents first, then choose it here.
+              </p>
+              <FieldGrid>
+                <MoneyMinorInput currency={loan.currency} label="Expense amount" onChange={setExpenseAmount} required value={expenseAmount} />
+                <TextInput label="Expense value date" onChange={setExpenseDate} required type="date" value={expenseDate} />
+                <TextInput label="Invoice or reference" onChange={setExpenseEvidence} value={expenseEvidence} />
+                <Field label="Document">
+                  <select aria-label="Document" onChange={(event) => setExpenseDocument(event.target.value)} value={expenseDocument}>
+                    <option value="">No document</option>
+                    {documents.map((document) => (
+                      <option key={document.id} value={document.id}>{document.display_name}</option>
+                    ))}
+                  </select>
+                </Field>
+              </FieldGrid>
+              <TextAreaInput label="What the expense is for" onChange={setExpenseNote} required value={expenseNote} />
+              <OperationConfirmButton
+                confirmLabel="Record expense"
+                description="The expense is owed by the borrower and paid first from the next payments. It cannot be edited later."
+                details={[
+                  { label: "Amount", value: <Money amountMinor={intValue(expenseAmount)} currency={loan.currency} /> },
+                  { label: "Value date", value: formatDate(expenseDate) },
+                  { label: "Note", value: expenseNote || "Required" }
+                ]}
+                disabled={expense.isPending || intValue(expenseAmount) <= 0 || !expenseNote.trim()}
+                onConfirm={() =>
+                  expense.mutate({
+                    loanId: loan.id,
+                    data: withIdempotencyKey("loan-expense", {
+                      amount_minor: intValue(expenseAmount),
+                      value_date: expenseDate,
+                      note: expenseNote.trim(),
+                      evidence_reference: expenseEvidence.trim(),
+                      document_id: expenseDocument
+                    })
+                  })
+                }
+                title="Confirm recovery expense"
+                variant="primary"
+              >
+                Record expense
+              </OperationConfirmButton>
+            </>
+          ) : (
+            <p className="muted">Expenses can be recorded once an installment is Due (after the Pending days), in Late or after a Default declaration.</p>
+          )}
+          {expense.error ? <Banner tone="bad" title="Expense not recorded">{errorMessage(expense.error)}</Banner> : null}
+        </>
+      ) : null}
+
+      <h3>Default</h3>
+      {activeDeclaration ? (
+        <>
+          <Banner tone="bad" title={`Default declared on ${formatDate(activeDeclaration.declared_on)}`}>
+            Everything became due at once
+            {position.interest_engine
+              ? `: principal ${formatMoneyMinor(activeDeclaration.whole_principal_minor, loan.currency)}, interest ${formatMoneyMinor(activeDeclaration.whole_interest_minor, loan.currency)}, penalties until then ${formatMoneyMinor(activeDeclaration.frozen_penalty_minor, loan.currency)}. Penalty X now runs on the whole amount.`
+              : "."}
+          </Banner>
+          <p className="muted admin-manage-hint">Only a super admin can cancel a declaration made by mistake, with a written reason. Both events stay in the history and the investors get a correction.</p>
+          <TextAreaInput label="Reason for the cancellation" onChange={setCancelReason} value={cancelReason} />
+          <OperationConfirmButton
+            confirmLabel="Cancel the declaration"
+            description="The payment plan returns and the investors get a correction notice. Not possible after a payment or an expense was recorded."
+            details={[{ label: "Declared on", value: formatDate(activeDeclaration.declared_on) }, { label: "Reason", value: cancelReason || "Required" }]}
+            disabled={cancel.isPending || cancelReason.trim().length < 10}
+            onConfirm={() => cancel.mutate({ loanId: loan.id, data: { reason: cancelReason.trim() } })}
+            title="Cancel the Default declaration"
+            variant="danger"
+          >
+            Cancel the Default declaration
+          </OperationConfirmButton>
+          {cancel.error ? <Banner tone="bad" title="Not cancelled">{errorMessage(cancel.error)}</Banner> : null}
+        </>
+      ) : position.default_possible ? (
+        <>
+          <Banner tone="warn" title="Default can be declared">
+            The oldest unpaid installment is late by {position.days_late} days (Default days: {position.default_days}). Default is
+            your decision: the loan ends early and everything becomes due at once. You can also wait.
+          </Banner>
+          <TextAreaInput label="Note for the history" onChange={setDefaultNote} value={defaultNote} />
+          <OperationConfirmButton
+            confirmLabel="Declare Default"
+            description="The payment plan stops and the whole amount becomes due today. Normal interest runs to today; from tomorrow penalty X runs on the whole amount. The investors are told."
+            details={[{ label: "Loan", value: loan.title }, { label: "Days late", value: position.days_late }]}
+            disabled={declare.isPending}
+            onConfirm={() => declare.mutate({ loanId: loan.id, data: { note: defaultNote } })}
+            title="Declare Default"
+            variant="danger"
+          >
+            Declare Default
+          </OperationConfirmButton>
+          {declare.error ? <Banner tone="bad" title="Default not declared">{errorMessage(declare.error)}</Banner> : null}
+        </>
+      ) : (
+        <p className="muted">
+          Default can be declared once the oldest unpaid installment is late by {position.default_days} days. It is never automatic.
+        </p>
+      )}
     </div>
   );
 }

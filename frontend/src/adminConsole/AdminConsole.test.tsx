@@ -79,6 +79,19 @@ test("a loan's Manage view and the chosen action reopen after a reload", () => {
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
+test("18.6: a late loan offers Late payments and Default; Default is never automatic", () => {
+  renderAdmin("/admin/loans?status=late");
+  const row = screen.getAllByText("Basel Riverside refurbishment")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  fireEvent.click(screen.getByRole("button", { name: /Late payments and Default/ }));
+  expect(currentUrl()).toBe("/admin/loans/loan-basel-riverside/manage/late_payments?status=late&loan=loan-basel-riverside");
+  const panel = screen.getByTestId("late-payments-panel");
+  expect(within(panel).getByText("Late / Default days")).toBeInTheDocument();
+  // A loan from before the engine: no penalty X or expenses, but the Default declaration applies.
+  expect(within(panel).queryByText("Penalty X owed")).not.toBeInTheDocument();
+  expect(within(panel).getByRole("heading", { name: "Default" })).toBeInTheDocument();
+});
+
 test("dashboard queue selection is kept in the URL", () => {
   renderAdmin("/admin?queue=withdrawals_requested");
   expect(screen.getByRole("button", { name: /^Withdrawals:/ })).toHaveAttribute("aria-selected", "true");

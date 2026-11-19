@@ -9,6 +9,7 @@ import { App } from "../../App";
 import { siteQueryKeys, type PublicProject } from "../data";
 import { siteDesignProjectIds, siteProjectsFixture } from "../siteFixtures";
 import { projectView, statusOf, timeText } from "../projects";
+import { plan, round2 } from "../format";
 import {
   calcAmount,
   expectedInterest,
@@ -141,7 +142,8 @@ describe("Projects page", () => {
     const figure = (label: string) => within(calc).getByText(label).nextElementSibling;
     expect(within(calc).getByLabelText("Amount")).toHaveValue("5,000.00");
     expect(figure("Interest before tax")).toHaveTextContent("EUR 399.76");
-    expect(figure("First month")).toHaveTextContent("EUR 225.00");
+    // 18.6 engine (equal total installments, Act/365): the same figures as interest_engine.py.
+    expect(figure("First month")).toHaveTextContent("EUR 224.99");
     expect(figure("Total repaid")).toHaveTextContent("EUR 5,399.76");
     expect(within(calc).getByText("7.5%")).toBeInTheDocument();
     expect(within(calc).getByText("24 months")).toBeInTheDocument();
@@ -211,8 +213,9 @@ describe("Project page (U33)", () => {
     expect(numbers()).toHaveTextContent("7.5%Annual interest18 monthsInvestment termCHF 32,308Minimum investment");
 
     // The whole loan with its projected interest, paid to the investors' Banxum accounts (U33-DEC-02).
-    expect(repayments()).toHaveTextContent("Loan amountCHF 800,000Projected total interestCHF 90,082.19");
-    expect(repayments()).toHaveTextContent("Banxum investor accountsCHF 890,082.19Projected · after 18 monthsPaid at maturity");
+    // interest_only_then_bullet: monthly interest, principal at maturity (the engine's grouping, 18.6).
+    expect(repayments()).toHaveTextContent("Loan amountCHF 800,000Projected total interestCHF 90,082.20");
+    expect(repayments()).toHaveTextContent("Banxum investor accountsCHF 890,082.20Projected · over 18 monthsMonthly interest, principal at maturity");
 
     // Loan and asset value on one scale; the value is the one the published loan-to-value implies.
     expect(within(security()).getByRole("heading", { level: 2, name: "Property" })).toBeInTheDocument();
@@ -330,7 +333,9 @@ describe("project page helpers", () => {
   test("repayment, security, purpose and loan-to-value texts", () => {
     expect(planRepaymentOf("equal_installments")).toBe("annuity");
     expect(planRepaymentOf("bullet_periodic_interest")).toBe("interest-only");
-    expect(planRepaymentOf("interest_only_then_bullet")).toBe("bullet");
+    expect(planRepaymentOf("interest_only_then_bullet")).toBe("interest-only");
+    expect(planRepaymentOf("full_at_maturity")).toBe("bullet");
+    expect(planRepaymentOf("custom_schedule")).toBe("annuity");
     expect(securityText({ collateral_description: " ", collateral_type: "real_estate" })).toBe("Real estate");
     expect(purposeItems({ purpose_description: "A\n\n B \n", purpose: "capex" })).toEqual(["A", "B"]);
     expect(purposeItems({ purpose_description: "", purpose: "capex" })).toEqual(["Capex / business expansion"]);
@@ -348,7 +353,18 @@ describe("project page helpers", () => {
       status: "all",
       currency: "EUR"
     });
-    expect(expectedInterest(fixture("bx-1048"), 32308)).toBe(3637.97);
+    expect(expectedInterest(fixture("bx-1048"), 32308)).toBe(3638);
+    // Quarterly interest: the same days, rounded per period (interest_engine.py: 3,637.97).
+    expect(expectedInterest({ ...fixture("bx-1048"), payment_frequency: "quarterly" }, 32308)).toBe(3637.97);
+    // Reference values of backend interest_engine.py for the same terms (tmp check, 2026-11-19).
+    const ioThenEqual = plan({ rate: 7.5, term: 18, repayment: "annuity", frequencyMonths: 3, interestOnlyPeriods: 2 }, 32308, "2026-10-16");
+    expect(ioThenEqual.map((row) => row.due)).toEqual(["2027-01-16", "2027-04-16", "2027-07-16", "2027-10-16", "2028-01-16", "2028-04-16"]);
+    expect([ioThenEqual[0].total, ioThenEqual[2].total]).toEqual([610.75, 8460.17]);
+    expect(round2(ioThenEqual.reduce((sum, row) => sum + row.interest, 0))).toBe(2740.93);
+    expect(ioThenEqual.at(-1)?.balance).toBe(0);
+    const atMaturity = plan({ rate: 7.5, term: 18, repayment: "bullet" }, 32308, "2026-10-16");
+    expect(atMaturity).toHaveLength(1);
+    expect(atMaturity[0].interest).toBe(3637.97);
   });
 
   test("a coming_soon project from the API is Coming soon and opens on its planned date (U33-DEC-17)", () => {

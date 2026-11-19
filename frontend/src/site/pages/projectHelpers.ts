@@ -6,7 +6,7 @@
  */
 import { humanizeEnum } from "../../investorPortal/format";
 import type { PublicProject } from "../data";
-import { dateKey, parseAmount, plan, round2, siteToday, type PlanRepayment } from "../format";
+import { dateKey, parseAmount, plan, round2, siteToday, type PlanRepayment, type PlanTerms } from "../format";
 import type { ProjectView } from "../projects";
 
 // ---------------------------------------------------------------------------------------------
@@ -102,18 +102,40 @@ export function calcAmount(text: string) {
 }
 
 /**
- * The plan() repayment of a RepaymentType, the same grouping as projects.ts repaymentShort:
- * monthly instalments (annuity), monthly interest (interest-only), at the end (bullet).
+ * The plan() repayment of a RepaymentType, the engine's grouping (interest_engine.py
+ * REPAYMENT_TYPE_KINDS): equal total installments (annuity), interest every period with the
+ * principal at the end (interest-only), one payment at maturity (bullet). A custom schedule is
+ * estimated as equal installments; its imported rows are on the platform's project page.
  */
 export function planRepaymentOf(repaymentType: string): PlanRepayment {
   switch (repaymentType) {
     case "bullet_periodic_interest":
-      return "interest-only";
     case "interest_only_then_bullet":
+      return "interest-only";
+    case "full_at_maturity":
       return "bullet";
     default:
       return "annuity";
   }
+}
+
+const FREQUENCY_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, half_yearly: 6, annual: 12 };
+
+/** Months between two due dates of a project (monthly when the API does not say). */
+export function frequencyMonthsOf(p: Pick<PublicProject, "payment_frequency">) {
+  return FREQUENCY_MONTHS[p.payment_frequency ?? "monthly"] ?? 1;
+}
+
+/** The plan() terms of a public project. */
+export function planTermsOf(p: Pick<PublicProject, "interest_rate_bps" | "term_months" | "repayment_type" | "payment_frequency" | "interest_only_months">): PlanTerms {
+  const frequencyMonths = frequencyMonthsOf(p);
+  return {
+    rate: p.interest_rate_bps / 100,
+    term: p.term_months,
+    repayment: planRepaymentOf(p.repayment_type),
+    frequencyMonths,
+    interestOnlyPeriods: p.repayment_type === "interest_only_then_amortizing" ? Math.floor((p.interest_only_months ?? 0) / frequencyMonths) : 0
+  };
 }
 
 export type CalcRow = { principal: number; interest: number };
@@ -135,8 +157,7 @@ export function simulate(amount: number, rate: number, term: number, repayment: 
  */
 export function expectedInterest(p: PublicProject, amount: number, today = siteToday()) {
   const start = dateKey(p.funding_deadline) || today;
-  const terms = { rate: p.interest_rate_bps / 100, term: p.term_months, repayment: planRepaymentOf(p.repayment_type) };
-  return round2(plan(terms, amount, start).reduce((sum, row) => sum + row.interest, 0));
+  return round2(plan(planTermsOf(p), amount, start).reduce((sum, row) => sum + row.interest, 0));
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -742,8 +742,16 @@ export const borrowersFixture: BorrowerEntity[] = [
   }
 ];
 
-const directAdminLoanFields = (yieldBps: number, principalMinor: number) => ({
+const directAdminLoanFields = (yieldBps: number, principalMinor: number, engine = false) => ({
   product_type: "direct",
+  // 18.6 interest engine fields: new loans use the engine, loans funded before it keep the legacy convention.
+  interest_convention: engine ? "act_365_fixed" : "legacy_monthly",
+  payment_frequency: "monthly",
+  grace_business_days: 0,
+  penalty_daily_rate_percent: "0.0500",
+  penalty_investor_share_bps: 10000,
+  payout_date: null,
+  default_declared_on: null,
   originator_id: null,
   originator_name: null,
   yield_bps: yieldBps,
@@ -757,7 +765,7 @@ const directAdminLoanFields = (yieldBps: number, principalMinor: number) => ({
 
 export const loansFixture: Loan[] = [
   {
-    ...directAdminLoanFields(950, 120000000),
+    ...directAdminLoanFields(950, 120000000, true),
     id: "loan-zug-park-ii",
     borrower_id: "borrower-helvetic-wohnbau",
     borrower_name: "Helvetic Wohnbau AG",
@@ -928,7 +936,7 @@ export const loansFixture: Loan[] = [
     updated_at: "2026-06-20T10:00:00+02:00"
   },
   {
-    ...directAdminLoanFields(950, 34000000),
+    ...directAdminLoanFields(950, 34000000, true),
     id: "loan-seefeld-refi",
     borrower_id: "borrower-helvetic-wohnbau",
     borrower_name: "Helvetic Wohnbau AG",

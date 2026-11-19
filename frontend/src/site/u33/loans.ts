@@ -3,14 +3,14 @@
  * Live public projects in the U33 public design: which projects the home page shows, the
  * labels of a loan card, the security figure (loan against asset value) and the calculators.
  *
- * The figures are display estimates with the platform's current schedule (format.ts plan(): daily
- * interest on the outstanding principal, actual/365, monthly dates; U33-DEC-10/-11 change the
- * engine in Phase 17.5). No risk rating is shown anywhere (U33-DEC-16).
+ * The figures are display estimates with the formulas of the interest engine (format.ts plan():
+ * Actual/365 Fixed on the outstanding principal, due dates by the loan's payment frequency;
+ * IMPLEMENTATION_PLAN 18.6). No risk rating is shown anywhere (U33-DEC-16).
  */
 import { t } from "../../i18n";
 import type { PublicProject } from "../data";
 import { dateKey, num, plan, round2, siteToday } from "../format";
-import { collateralLabel, planRepaymentOf, securityText } from "../pages/projectHelpers";
+import { collateralLabel, planRepaymentOf, planTermsOf, securityText } from "../pages/projectHelpers";
 import { soonProjects, type ProjectView } from "../projects";
 import type { GlyphName } from "./glyphs";
 
@@ -51,28 +51,48 @@ export function wholeAmount(minor: number) {
 
 export type PaymentSummary = { title: string; detail: string };
 
-/** The card's payment line (design card-payment): "One payment · At the end of 18 months". */
-export function paymentSummary(p: Pick<PublicProject, "repayment_type" | "term_months">): PaymentSummary {
-  const months = p.term_months;
-  switch (p.repayment_type) {
-    case "interest_only_then_bullet":
-      return { title: t("One payment"), detail: t("At the end of {months} months", { months }) };
-    case "bullet_periodic_interest":
-      return { title: t("Monthly interest"), detail: t("Principal at the end of {months} months", { months }) };
+type ScheduleFacts = Pick<PublicProject, "repayment_type" | "term_months" | "payment_frequency">;
+
+/** "Monthly" / "Quarterly" / "Half-yearly" / "Yearly" texts of the payment frequency (18.6). */
+function frequencyWords(p: Pick<PublicProject, "payment_frequency">) {
+  switch (p.payment_frequency) {
+    case "quarterly":
+      return { interest: t("Quarterly interest"), payments: t("Quarterly payments"), principalLater: t("Quarterly interest, principal at maturity") };
+    case "half_yearly":
+      return { interest: t("Half-yearly interest"), payments: t("Half-yearly payments"), principalLater: t("Half-yearly interest, principal at maturity") };
+    case "annual":
+      return { interest: t("Yearly interest"), payments: t("Yearly payments"), principalLater: t("Yearly interest, principal at maturity") };
     default:
-      return { title: t("Monthly payments"), detail: t("Over {months} months", { months }) };
+      return { interest: t("Monthly interest"), payments: t("Monthly payments"), principalLater: t("Monthly interest, principal at maturity") };
+  }
+}
+
+/** The card's payment line (design card-payment): "One payment · At the end of 18 months". */
+export function paymentSummary(p: ScheduleFacts): PaymentSummary {
+  const months = p.term_months;
+  const words = frequencyWords(p);
+  if (p.repayment_type === "custom_schedule") return { title: t("Custom schedule"), detail: t("Over {months} months", { months }) };
+  switch (planRepaymentOf(p.repayment_type)) {
+    case "bullet":
+      return { title: t("One payment"), detail: t("At the end of {months} months", { months }) };
+    case "interest-only":
+      return { title: words.interest, detail: t("Principal at the end of {months} months", { months }) };
+    default:
+      return { title: words.payments, detail: t("Over {months} months", { months }) };
   }
 }
 
 /** The payment frequency line of the project page's repayments panel. */
-export function frequencyText(p: Pick<PublicProject, "repayment_type">) {
+export function frequencyText(p: Pick<PublicProject, "repayment_type" | "payment_frequency">) {
+  if (p.repayment_type === "custom_schedule") return t("Custom schedule");
+  const words = frequencyWords(p);
   switch (planRepaymentOf(p.repayment_type)) {
     case "bullet":
       return t("Paid at maturity");
     case "interest-only":
-      return t("Monthly interest, principal at maturity");
+      return words.principalLater;
     default:
-      return t("Monthly payments");
+      return words.payments;
   }
 }
 
@@ -188,8 +208,9 @@ export function estimateStart(p: Pick<PublicProject, "funding_deadline">) {
 
 /** Interest, principal and total of an amount over the loan's term, if every payment is on time. */
 export function estimate(p: PublicProject, amount: number): Estimate {
-  const repayment = planRepaymentOf(p.repayment_type);
-  const rows = plan({ rate: p.interest_rate_bps / 100, term: p.term_months, repayment }, amount, estimateStart(p));
+  const terms = planTermsOf(p);
+  const repayment = terms.repayment;
+  const rows = plan(terms, amount, estimateStart(p));
   const interestTotal = round2(rows.reduce((sum, row) => sum + row.interest, 0));
   const principalTotal = round2(rows.reduce((sum, row) => sum + row.principal, 0));
   return { interestTotal, principalTotal, total: round2(interestTotal + principalTotal), repayment };

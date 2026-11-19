@@ -109,7 +109,10 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
                     {payment.due_date && payment.paid_on !== payment.due_date ? <small>{t("Paid on {date}", { date: formatDate(payment.paid_on) })}</small> : null}
                   </td>
                   <td data-m82-label={t("Principal")}>{formatMoneyMinor(payment.principal_minor, currency)}</td>
-                  <td data-m82-label={t("Interest")}>{formatMoneyMinor(payment.interest_minor + payment.penalty_minor, currency)}</td>
+                  <td data-m82-label={t("Interest")}>
+                    {formatMoneyMinor(payment.interest_minor, currency)}
+                    {payment.penalty_minor > 0 ? <small>{t("+ {amount} late-payment penalty", { amount: formatMoneyMinor(payment.penalty_minor, currency) })}</small> : null}
+                  </td>
                   <td data-m82-label={t("Total")}><strong>{formatMoneyMinor(payment.total_minor, currency)}</strong></td>
                   <td><span className="ps-paid"><NiIcon name="check" />{t("Paid")}</span></td>
                   <td>
@@ -161,8 +164,12 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
                       <td>
                         {overdue ? (
                           <span className="ps-overdue">{row.days_past_due === 1 ? t("Overdue · 1 day") : t("Overdue · {days} days", { days: row.days_past_due })}</span>
+                        ) : row.status === "pending" ? (
+                          <span className="ps-scheduled">{t("Pending")}</span>
                         ) : row.status === "due" ? (
-                          <span className="ps-scheduled">{t("Due")}</span>
+                          <span className="ps-scheduled">
+                            {row.days_past_due === 1 ? t("Due · 1 day") : row.days_past_due > 1 ? t("Due · {days} days", { days: row.days_past_due }) : t("Due")}
+                          </span>
                         ) : (
                           <span className="ps-scheduled">{t("Scheduled")}</span>
                         )}

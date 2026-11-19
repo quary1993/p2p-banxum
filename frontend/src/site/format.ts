@@ -178,6 +178,18 @@ export function dateKey(value: string | null | undefined) {
 
 export type PlanRepayment = "annuity" | "interest-only" | "bullet";
 
+export type PlanTerms = {
+  /** Interest a year in percent (7.5 = 7.5%). */
+  rate: number;
+  /** Term in months. */
+  term: number;
+  repayment: PlanRepayment;
+  /** Months between two due dates: 1 monthly, 3 quarterly, 6 half-yearly, 12 annual. Default 1. */
+  frequencyMonths?: number;
+  /** Annuity only: first periods with interest only, then equal total installments. Default 0. */
+  interestOnlyPeriods?: number;
+};
+
 export type PlanRow = {
   due: string;
   days: number;
@@ -187,36 +199,60 @@ export type PlanRow = {
   balance: number;
 };
 
-/**
- * The design's repayment plan (core.js plan()), used by the interest calculators only:
- * interest counted daily on the outstanding principal (actual/365), paid on the monthly dates;
- * an annuity keeps the same instalment and the last one clears the balance.
- */
-export function plan(terms: { rate: number; term: number; repayment: PlanRepayment }, amount: number, start: string) {
-  const n = terms.term;
-  const yearly = terms.rate / 100;
-  const r = yearly / 12;
-  const rows: PlanRow[] = [];
-  let balance = amount;
-  const annuity = r > 0 ? (amount * r) / (1 - Math.pow(1 + r, -n)) : amount / n;
-  for (let k = 1; k <= n; k++) {
-    const due = addMonths(start, k);
-    const days = daysBetween(addMonths(start, k - 1), due);
-    let interest: number;
-    let principal: number;
-    if (terms.repayment === "annuity") {
-      interest = round2((balance * yearly * days) / DAY_BASIS);
-      principal = k === n ? balance : Math.min(balance, round2(annuity - interest));
-    } else if (terms.repayment === "interest-only") {
-      interest = round2((amount * yearly * days) / DAY_BASIS);
-      principal = k === n ? amount : 0;
-    } else {
-      if (k < n) continue;
-      interest = round2((amount * yearly * daysBetween(start, due)) / DAY_BASIS);
-      principal = amount;
-    }
-    balance = round2(balance - principal);
-    rows.push({ due, days, principal, interest, total: round2(principal + interest), balance });
+/** Actual/365 Fixed interest in cents, rounded half up (exact while the product stays below 2^53). */
+function interestCents(outstandingCents: number, rateBps: number, days: number) {
+  if (outstandingCents <= 0 || rateBps <= 0 || days <= 0) return 0;
+  const numerator = outstandingCents * rateBps * days;
+  const denominator = 10_000 * DAY_BASIS;
+  const quotient = Math.floor(numerator / denominator);
+  const remainder = numerator - quotient * denominator;
+  return 2 * remainder >= denominator ? quotient + 1 : quotient;
+}
+
+/** The level installment (cents) that repays the principal over periods of the given days. */
+function annuityCents(principalCents: number, rateBps: number, periodDays: number[]) {
+  if (rateBps <= 0) return Math.ceil(principalCents / periodDays.length);
+  const rate = rateBps / 10_000;
+  let discount = 1;
+  let discountSum = 0;
+  for (const days of periodDays) {
+    discount /= 1 + (rate * days) / DAY_BASIS;
+    discountSum += discount;
   }
+  return Math.round(principalCents / discountSum);
+}
+
+/**
+ * The repayment plan of the interest engine (IMPLEMENTATION_PLAN 18.6,
+ * backend platform_core/domain/interest_engine.py), used by the calculators: Actual/365 Fixed
+ * interest on the outstanding principal from the start (included) to each due date (excluded);
+ * due dates every frequencyMonths from the start (the start day, or the last day of a shorter
+ * month); "annuity" = equal total installments, the last one settles the rest; "interest-only" =
+ * interest every period and the principal with the last one; "bullet" = one payment at maturity.
+ * An estimate: the confirmed schedule also moves due dates off bank holidays and adds grace days.
+ */
+export function plan(terms: PlanTerms, amount: number, start: string) {
+  const rateBps = Math.round(terms.rate * 100);
+  const step = Math.max(1, Math.round(terms.frequencyMonths ?? 1));
+  const principalCents = Math.round(amount * 100);
+  const dues =
+    terms.repayment === "bullet"
+      ? [addMonths(start, terms.term)]
+      : Array.from({ length: Math.max(1, Math.floor(terms.term / step)) }, (_, index) => addMonths(start, step * (index + 1)));
+  const interestOnly = terms.repayment === "annuity" ? Math.min(Math.max(0, terms.interestOnlyPeriods ?? 0), dues.length - 1) : 0;
+  const periodDays = dues.map((due, index) => daysBetween(index === 0 ? start : dues[index - 1], due));
+  const payment = terms.repayment === "annuity" ? annuityCents(principalCents, rateBps, periodDays.slice(interestOnly)) : 0;
+  const rows: PlanRow[] = [];
+  let outstanding = principalCents;
+  dues.forEach((due, index) => {
+    const days = periodDays[index];
+    const interest = interestCents(outstanding, rateBps, days);
+    const last = index === dues.length - 1;
+    let principal = 0;
+    if (last) principal = outstanding;
+    else if (terms.repayment === "annuity" && index >= interestOnly) principal = Math.max(0, Math.min(outstanding, payment - interest));
+    outstanding -= principal;
+    rows.push({ due, days, principal: principal / 100, interest: interest / 100, total: (principal + interest) / 100, balance: outstanding / 100 });
+  });
   return rows;
 }
