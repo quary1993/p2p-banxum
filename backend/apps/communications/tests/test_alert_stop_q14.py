@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 from django.apps import apps
+from django.contrib.auth import get_user_model
 from django.db.models import Model
 from django.test import Client
 
@@ -19,18 +20,34 @@ from backend.apps.communications.alert_stop import (
 )
 from backend.apps.communications.models import NewsletterSubscription
 from backend.apps.communications.services import render_email_for_outbox_message
-from backend.apps.marketplace_primary.models import LoanOpeningAlert, SavedOpportunity
-from backend.apps.marketplace_primary.tests.test_coming_soon_u33 import (
-    _draft,
-    _make_investor,
-    _publish,
-    admin_user,
-)
 from backend.apps.platform_core.models import OutboxMessage
 
-__all__ = ["admin_user"]
-
 pytestmark = pytest.mark.django_db
+
+# Peer apps are reached at run time (import contract: no static imports between domain apps).
+_coming_soon = import_module("backend.apps.marketplace_primary.tests.test_coming_soon_u33")
+_draft = _coming_soon._draft
+_make_investor = _coming_soon._make_investor
+_publish = _coming_soon._publish
+LoanOpeningAlert: Any = apps.get_model("marketplace_primary", "LoanOpeningAlert")
+SavedOpportunity: Any = apps.get_model("marketplace_primary", "SavedOpportunity")
+
+
+@pytest.fixture
+def admin_user() -> Model:
+    user_model: Any = get_user_model()
+    return cast(
+        Model,
+        user_model.objects.create_user(
+            email="stop-admin@example.test",
+            password="AdminPass123!",
+            full_name="Stop Admin",
+            account_type="superadmin",
+            status="active",
+            is_staff=True,
+            is_superuser=True,
+        ),
+    )
 
 
 def _post_stop(token: str) -> Any:

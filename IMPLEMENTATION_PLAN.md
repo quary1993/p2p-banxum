@@ -2328,7 +2328,7 @@ Design reference: the U33 package of 3 Nov 2026 (`site/dist/` is the reference H
 | 1 | 18.2 | Small rule and display changes, FX screen removal and the S7 clean-up, multilanguage pause. |
 | 2 | 18.3 + D-11 | Design 1:1 pass of the screens and data without new rules; the kept functions reskinned into the U33 design. |
 | 3 | 18.4 | Bank calendars, the 56-day return rule and failed returns. |
-| 4 | 18.5 | Password sign-in with SMS or authenticator app, recovery codes, trusted devices, operations with the email code + PIN or authenticator code, recovery. |
+| 4 | 18.5 + S7 | Password sign-in with SMS or authenticator app, recovery codes, trusted devices, operations with the email code + PIN or authenticator code, recovery; then the S7 clean-up (old skin removed, `u33.css` regenerated without the legacy guard) and lazy route groups with one CSS entry per area (audit G-07), because the last old-skin bodies are the PIN dialogs this step rebuilds. |
 | 5 | 18.6 | Interest engine, schedules and the late-payment mechanics (Pending, penalty X, expenses, Default). |
 | 6 | 18.7 + 18.9 | Originator claim prices and failure rule; Swiss creditor modes. |
 | 7 | 18.10 + 18.11 | Declarations and proof of securities; states without an HTML reference and the kept public pages. |
@@ -2400,6 +2400,20 @@ Route map (design route -> platform route: work left, slice):
 - **Multilanguage pause** (18.0).
 
 Done when: each item has backend tests (where backend changes), screens match the design, and the design TODO entries are updated.
+
+Status 2026-11-19 (audit step 1, branch `u33-17-2`): done, except the S7 clean-up and the lazy route groups, moved to audit step 4 (the last old-skin bodies are the PIN create/forgot dialogs, which 18.5 rebuilds).
+
+- Multilanguage paused: language controls hidden (investor menu, sign-in header, Preferences, public header); a stored choice, `?lang=` or the account's language do not switch; German code kept; the German-entry test skipped until 18.13.
+- C03: from the due date of an unpaid installment until the payment is recorded, originator offers leave the list (quotes and purchases refused); other investors do not see the loan's resale listings and cannot buy them; new listings, edits and price previews are refused; the seller sees "Pending" (no Edit, Cancel stays). The status-dependent "Pending" window of 18.6 builds on this check.
+- C05: saved opportunities first, then the chosen sort; the saved list ordered by funding deadline.
+- C06 / F16 / Q15: explicit main security; "counts in the loan-to-value" per security; the loan's collateral value is the sum of the counted, not released values (LTV, filters and Smart Invest use it); foreign-currency valuations with amount, rate and rate date; "Vehicle" type; "Invoices" closed for new securities; migration `loans` 0026 with system loan events where the value changed.
+- C07: "n/a" ratios; interest coverage on the absolute interest expense.
+- C09 / F15: personal reports (account statement, tax information) in the investor's format, texts included; personal CSVs with the format's decimal sign and separator.
+- Q04: "Banxum invests" label from the Garanta accounts setting (`investment.banxum_investor_emails`), no amount.
+- Q14: "Stop these alerts" links (signed token, public page posting on arrival) in Smart Invest, opening and saved-reminder emails; News from Banxum and the newsletter as one preference for unsubscribes.
+- Q16: standard stage names (key kept for 18.13) or an own title; "Recovery closed" with the result.
+- Q24: How it works moved into Help (redirect); "Our first year in figures" removed (archived in `docs/archive`); Terms outline corrected.
+- Q25: the FX screen removed from the investor area. Q26: reservation, release (with a reason code) and investment as separate Transactions entries. Q27: the two invalid selectors dropped (generator and generated file). F14: equal principal closed for new direct loans. D10: "processed in 1-3 business days".
 
 #### 18.3 Design 1:1 pass (screens and data without new rules)
 

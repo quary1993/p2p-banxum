@@ -983,3 +983,25 @@ Points that differ from Eduard's decisions (to signal):
 - D-12: Q10 had Garanta sign the resale assignment for the seller as representative, and originator claims pass through Garanta (originator -> Garanta -> investors). Now the seller signs himself and the originator signs for originator loans; the chain and the mandate are part of the research.
 
 Delivery: Phase 18 is built in audit steps (`IMPLEMENTATION_PLAN.md` 18.0); an external audit follows each step.
+
+### Implemented In Audit Step 1 (2026-11-19, Phase 18.2)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.2 ("Status 2026-11-19").
+
+| Item | Implemented |
+| --- | --- |
+| E-06 | English only: language controls hidden, account language not applied, German code kept for 18.13. |
+| C03 | Closed to new buyers from the due date of an unpaid installment until the payment is recorded (originator offers and resale listings; the seller sees "Pending"). |
+| C05 | Saved opportunities first; the chosen sort orders each group; the saved list by funding deadline. |
+| C06, F16, Q15 | Main security chosen explicitly; LTV on the sum of the counted, not released asset values; valuation in another currency with rate and date; Vehicle type; Invoices closed for new securities. |
+| C07 | "n/a" for missing data or a divisor that is not positive; interest coverage on the absolute expense. |
+| C09, F15 | Personal reports and their CSVs in the investor's number format. |
+| Q04, D-6 | "Banxum invests" label, no amount, from the Garanta accounts named in a setting. |
+| Q14 | One-click "Stop these alerts" links; News from Banxum and the newsletter stop together. |
+| Q16 | Standard stage names or an own title; "Recovery closed" states the result. |
+| Q24 | How it works in Help; first-year article removed; Terms outline without "50-day return". |
+| Q25, Q26, Q27 | FX screen removed; separate reservation entries in Transactions; invalid selectors dropped. |
+| F14, D10 | Equal principal closed for new direct loans; withdrawals "processed in 1-3 business days". |
+
+Not in this step: the S7 clean-up and lazy routes (audit step 4).
+

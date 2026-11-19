@@ -1362,7 +1362,8 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
             as_of=datetime.combine(first_due + timedelta(days=1), time(12), UTC),
         )
     )
-    tax_rows = list(csv.DictReader(io.StringIO(tax_artifact.content)))
+    # C09 / F15: an investor's CSV uses the investor's format (European: ";" columns).
+    tax_rows = list(csv.DictReader(io.StringIO(tax_artifact.content), delimiter=";"))
     tax_amounts = {row["category"]: int(row["amount_minor"]) for row in tax_rows}
     assert tax_amounts["originator_claim_interest_received_or_credited"] == line.interest_minor
     assert tax_amounts["originator_claim_principal_repaid"] == line.principal_minor
@@ -3477,7 +3478,8 @@ def test_qa_clock_stamps_subscription_order_and_claim_purchase_alike(
     assert order.allocated_at == qa_time
     assert purchase.purchased_at == qa_time
     by_type = {entry["activity_type"]: entry for entry in activity["entries"]}
-    assert by_type["primary_order"]["occurred_at"] == qa_time
+    # Q26: the reservation is its own Transactions entry.
+    assert by_type["primary_reservation"]["occurred_at"] == qa_time
     assert by_type["originator_claim_purchase"]["occurred_at"] == qa_time
 
 

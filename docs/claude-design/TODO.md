@@ -891,3 +891,10 @@ Before launch, Claude Design should produce or implement:
 - Suggested improvement: review the drafted German texts in place (long words in buttons, tabs and table headers, mobile layout); check the German screens against the design's German state; decide the German notification and email texts with the backend step.
 - Priority: important.
 
+## 2026-11-19: Audit Step 1 Additions Without An HTML Reference
+
+- Screen or component: My listings, My investments and the investment page (C03 "Pending" listing); credit file and opportunity security block (F16 list of the assets in the loan-to-value, "In the loan-to-value", valuation in another currency); opportunity and investment pages ("Banxum invests", Q04); public page `/alerts/stop` (Q14); Help ("How it works" part, Q24); admin securities (main, counts in LTV, valuation currency) and recovery stages (standard names, result).
+- Current behavior: built with existing U33 components and texts. "Banxum invests" uses the design's `u102-co-label` with the platform's `InfoTip` dialog instead of the design's popover. The Stop page reuses the newsletter link page layout. The How it works part reuses the retired page's sections under the Help questions.
+- Suggested improvement: designer review of these states and of the label explanation.
+- Priority: nice-to-have.
+
