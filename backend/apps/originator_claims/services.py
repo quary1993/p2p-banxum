@@ -43,12 +43,14 @@ from backend.apps.originator_claims.models import (
     OriginatorLoanProfile,
     OriginatorLoanScheduleRow,
     OriginatorOpportunityStatus,
+    OriginatorPricingRule,
     OriginatorSettlement,
     OriginatorSettlementPurchase,
     OriginatorSettlementRepayment,
     OriginatorSubscriptionActivation,
     OriginatorSubscriptionCancellation,
 )
+from backend.apps.platform_core.domain import day_count
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
@@ -178,6 +180,10 @@ class CreateOriginatorLoanCommand:
     investor_interest_participation_bps: int | None = None
     investor_penalty_participation_bps: int | None = None
     distribution_model: str = OriginatorDistributionModel.PAR_COMPONENT_V2
+    # 18.7: the price rule of a subscription offer and the claim contract's convention (F03).
+    # The admin API creates ``accrued_interest`` offers; the boundary rule stays for older offers.
+    pricing_rule: str = OriginatorPricingRule.BOUNDARY_INSTALLMENT
+    interest_convention: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +240,9 @@ class CancelOriginatorSubscriptionCommand:
     reason: str
     investor_message: str
     idempotency_key: str
+    # 18.7 (F04): the offer failed because of a borrower payment or a due date before the
+    # settlement; the "condition met" guard does not apply and the round never reopens.
+    offer_failed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -663,6 +672,95 @@ def _future_entitlement_rows(profile: OriginatorLoanProfile) -> list[OriginatorL
             "due_date", "installment_number", "id"
         )
     )
+
+
+def uses_accrued_interest_price(profile: OriginatorLoanProfile) -> bool:
+    """18.7: a subscription offer priced as principal + accrued interest (no boundary row)."""
+    return (
+        _is_par_subscription(profile)
+        and str(profile.pricing_rule) == OriginatorPricingRule.ACCRUED_INTEREST
+    )
+
+
+def _price_period_row(profile: OriginatorLoanProfile) -> OriginatorLoanScheduleRow:
+    loan_import = profile.current_import
+    if loan_import is None or profile.price_next_due_date is None:
+        raise OriginatorClaimsValidationError("The price of this offer is not set.")
+    row = (
+        loan_import.schedule_rows.filter(due_date=profile.price_next_due_date)
+        .order_by("installment_number", "id")
+        .first()
+    )
+    if row is None:
+        raise OriginatorClaimsValidationError(
+            "The installment that sets the price is missing from the schedule."
+        )
+    return row
+
+
+def accrued_interest_for_principal(profile: OriginatorLoanProfile, principal_minor: int) -> int:
+    """18.7 (Q09, F02): the accrued interest of the rights bought with ``principal_minor``.
+
+    Interest of the running period from its start to the planned settlement day (excluded), by
+    the claim contract's convention, times the investor interest participation. 0 under the
+    boundary rule. The same function prices orders, reservations and the activation.
+    """
+    if not uses_accrued_interest_price(profile) or principal_minor <= 0:
+        return 0
+    row = _price_period_row(profile)
+    try:
+        return day_count.accrued_interest_minor(
+            period_interest_minor=int(row.interest_minor),
+            period_principal_minor=int(row.opening_principal_minor),
+            principal_minor=int(principal_minor),
+            accrual_start=cast(date, profile.price_accrual_start_date),
+            due_date=row.due_date,
+            reference_date=cast(date, profile.price_reference_date),
+            participation_bps=int(profile.investor_interest_participation_bps),
+            convention=str(profile.interest_convention),
+        )
+    except day_count.DayCountError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+
+
+def originator_offer_price_payload(
+    profile: OriginatorLoanProfile, principal_minor: int | None = None
+) -> dict[str, Any] | None:
+    """The price facts shown before confirmation (18.7), or None under the boundary rule."""
+    if not uses_accrued_interest_price(profile):
+        return None
+    row = _price_period_row(profile)
+    convention = str(profile.interest_convention)
+    accrual_start = cast(date, profile.price_accrual_start_date)
+    reference_date = cast(date, profile.price_reference_date)
+    payload: dict[str, Any] = {
+        "pricing_rule": str(profile.pricing_rule),
+        "interest_convention": convention,
+        "interest_convention_label": day_count.CONVENTIONS.get(convention, convention),
+        "price_reference_date": reference_date,
+        "accrual_start_date": accrual_start,
+        "next_due_date": row.due_date,
+        "next_installment_interest_minor": int(row.interest_minor),
+        "next_installment_principal_minor": int(row.principal_minor),
+        "next_installment_opening_principal_minor": int(row.opening_principal_minor),
+        # The accrued part of the period in the convention's whole day units, so a screen can
+        # price any amount exactly like the server: round_half_up(interest x principal /
+        # opening principal x accrued_units / period_units x participation / 10000).
+        "accrued_day_units": day_count.day_units(accrual_start, reference_date, convention),
+        "period_day_units": day_count.day_units(accrual_start, row.due_date, convention),
+        "investor_interest_participation_bps": int(profile.investor_interest_participation_bps),
+        "investor_penalty_participation_bps": int(profile.investor_penalty_participation_bps),
+    }
+    if principal_minor is not None and principal_minor > 0:
+        accrued = accrued_interest_for_principal(profile, principal_minor)
+        payload.update(
+            {
+                "principal_minor": int(principal_minor),
+                "accrued_interest_minor": accrued,
+                "total_minor": int(principal_minor) + accrued,
+            }
+        )
+    return payload
 
 
 def originator_retained_principal_minor(profile: OriginatorLoanProfile) -> int:
@@ -1240,6 +1338,84 @@ def _validate_par_subscription_terms(
     return boundary_row, future_rows
 
 
+@dataclass(frozen=True, slots=True)
+class AccruedPriceTerms:
+    """18.7 price terms of a subscription offer (Q09, F02, F03)."""
+
+    next_row: Any
+    future_rows: list[Any]
+    reference_date: date
+    convention: str
+
+
+def planned_settlement_date(*, currency: str, funding_deadline: date) -> date:
+    """F02 (Vlad): the planned settlement day is 1 settlement day after the funding end."""
+    calendars = import_module("backend.apps.platform_core.services.settlement_calendar")
+    return cast(date, calendars.settlement_calendar(currency).add(funding_deadline, 1))
+
+
+def _validate_accrued_subscription_terms(
+    command: CreateOriginatorLoanCommand,
+    *,
+    parsed: ParsedOriginatorImport,
+    currency: str,
+) -> AccruedPriceTerms:
+    if (
+        command.funding_deadline is None
+        or command.investor_interest_participation_bps is None
+        or command.investor_penalty_participation_bps is None
+    ):
+        raise OriginatorClaimsValidationError(
+            "Funding deadline and investor component participation are required."
+        )
+    try:
+        convention = day_count.require_convention(command.interest_convention)
+    except day_count.DayCountError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+    if command.funding_deadline < command.as_of_date:
+        raise OriginatorClaimsValidationError("Funding deadline cannot be in the past.")
+    if command.funding_deadline > latest_funding_deadline(command.as_of_date):
+        raise OriginatorClaimsValidationError(
+            "Funding period cannot exceed 50 subscription days, including the import as-of date."
+        )
+    future_rows = sorted(
+        (row for row in parsed.schedule_rows if row.due_date > command.as_of_date),
+        key=lambda row: (row.due_date, row.installment_number),
+    )
+    if not future_rows:
+        raise OriginatorClaimsValidationError("No installment is due after the import date.")
+    next_row = future_rows[0]
+    reference_date = planned_settlement_date(
+        currency=currency, funding_deadline=command.funding_deadline
+    )
+    if reference_date >= next_row.due_date:
+        raise OriginatorClaimsValidationError(
+            f"The planned settlement day ({reference_date.isoformat()}, 1 settlement day after "
+            f"the funding deadline) must be before the next due date "
+            f"({next_row.due_date.isoformat()}). Plan the offer between two due dates."
+        )
+    if next_row.accrual_start_date > reference_date:
+        raise OriginatorClaimsValidationError(
+            "The interest period of the next installment must start before the planned "
+            "settlement day."
+        )
+    if next_row.opening_principal_minor != parsed.current_outstanding_principal_minor:
+        raise OriginatorClaimsValidationError(
+            "The next installment's opening principal must equal the current outstanding "
+            "principal of the import."
+        )
+    if parsed.maturity_date <= reference_date + timedelta(days=30):
+        raise OriginatorClaimsValidationError(
+            "At least 30 calendar days must remain after the planned settlement day."
+        )
+    return AccruedPriceTerms(
+        next_row=next_row,
+        future_rows=future_rows,
+        reference_date=reference_date,
+        convention=convention,
+    )
+
+
 UNSECURED_LOAN_MESSAGE = (
     "Every loan needs collateral or guarantees (U33-DEC-38). Choose the collateral or "
     "guarantee of the loan; an unsecured loan cannot be offered."
@@ -1275,7 +1451,39 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         distribution_model = OriginatorDistributionModel(command.distribution_model)
     except ValueError as exc:
         raise OriginatorClaimsValidationError("Unsupported originator distribution model.") from exc
-    if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2:
+    try:
+        pricing_rule = OriginatorPricingRule(command.pricing_rule)
+    except ValueError as exc:
+        raise OriginatorClaimsValidationError("Unsupported originator price rule.") from exc
+    accrued_terms: AccruedPriceTerms | None = None
+    if (
+        distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
+        and pricing_rule == OriginatorPricingRule.ACCRUED_INTEREST
+    ):
+        accrued_terms = _validate_accrued_subscription_terms(
+            command, parsed=parsed, currency=currency.code
+        )
+        future_rows = accrued_terms.future_rows
+        interest_participation_bps = _participation_bps(
+            command.investor_interest_participation_bps,
+            "Investor interest participation",
+        )
+        penalty_participation_bps = _participation_bps(
+            command.investor_penalty_participation_bps,
+            "Investor penalty participation",
+        )
+        display_yield_bps = _display_yield_bps(
+            coupon_bps=command.interest_rate_bps,
+            interest_participation_bps=interest_participation_bps,
+        )
+        profile_principal_minor = int(accrued_terms.next_row.opening_principal_minor)
+        loan_principal_minor = profile_principal_minor
+        loan_start_date = accrued_terms.reference_date
+        funding_deadline = cast(date, command.funding_deadline)
+        first_payment_date = accrued_terms.next_row.due_date
+        term_months = len(future_rows)
+        premium_fee_bps = 0
+    elif distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2:
         _boundary_row, future_rows = _validate_par_subscription_terms(command, parsed=parsed)
         interest_participation_bps = _participation_bps(
             command.investor_interest_participation_bps,
@@ -1377,10 +1585,23 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         premium_fee_bps=premium_fee_bps,
         funding_deadline=funding_deadline,
         entitlement_start_date=(
-            command.entitlement_start_date
+            accrued_terms.reference_date
+            if accrued_terms is not None
+            else command.entitlement_start_date
             if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
             else None
         ),
+        pricing_rule=(
+            OriginatorPricingRule.ACCRUED_INTEREST
+            if accrued_terms is not None
+            else OriginatorPricingRule.BOUNDARY_INSTALLMENT
+        ),
+        interest_convention=accrued_terms.convention if accrued_terms is not None else "",
+        price_accrual_start_date=(
+            accrued_terms.next_row.accrual_start_date if accrued_terms is not None else None
+        ),
+        price_reference_date=accrued_terms.reference_date if accrued_terms is not None else None,
+        price_next_due_date=accrued_terms.next_row.due_date if accrued_terms is not None else None,
         activation_outstanding_principal_minor=(
             profile_principal_minor
             if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -1446,10 +1667,18 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
             "distribution_model": distribution_model,
             "funding_deadline": funding_deadline.isoformat() if funding_deadline else None,
             "entitlement_start_date": (
-                command.entitlement_start_date.isoformat()
+                accrued_terms.reference_date.isoformat()
+                if accrued_terms is not None
+                else command.entitlement_start_date.isoformat()
                 if command.entitlement_start_date
                 else None
             ),
+            "pricing_rule": (
+                OriginatorPricingRule.ACCRUED_INTEREST
+                if accrued_terms is not None
+                else OriginatorPricingRule.BOUNDARY_INSTALLMENT
+            ),
+            "interest_convention": accrued_terms.convention if accrued_terms else "",
             "activation_outstanding_principal_minor": (
                 profile_principal_minor
                 if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -1593,6 +1822,9 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
         "premium_fee_bps": int(profile.premium_fee_bps),
         "funding_deadline": profile.funding_deadline,
         "entitlement_start_date": profile.entitlement_start_date,
+        "pricing_rule": str(profile.pricing_rule),
+        "interest_convention": str(profile.interest_convention),
+        "price": originator_offer_price_payload(profile),
         "activation_outstanding_principal_minor": (
             int(profile.activation_outstanding_principal_minor)
             if profile.activation_outstanding_principal_minor is not None
@@ -1627,7 +1859,9 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
                 "total_minor": int(row.total_minor),
                 "closing_principal_minor": int(row.closing_principal_minor),
                 "is_originator_boundary": (
-                    _is_par_subscription(profile) and row.due_date == profile.entitlement_start_date
+                    _is_par_subscription(profile)
+                    and not uses_accrued_interest_price(profile)
+                    and row.due_date == profile.entitlement_start_date
                 ),
                 **projected_split(row),
             }
@@ -1703,7 +1937,39 @@ def replace_originator_loan_draft(
         raise OriginatorClaimsValidationError(
             "A draft cannot change its originator distribution model."
         )
-    if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2:
+    try:
+        pricing_rule = OriginatorPricingRule(command.pricing_rule)
+    except ValueError as exc:
+        raise OriginatorClaimsValidationError("Unsupported originator price rule.") from exc
+    accrued_terms: AccruedPriceTerms | None = None
+    if (
+        distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
+        and pricing_rule == OriginatorPricingRule.ACCRUED_INTEREST
+    ):
+        accrued_terms = _validate_accrued_subscription_terms(
+            command, parsed=parsed, currency=currency.code
+        )
+        future_rows = accrued_terms.future_rows
+        interest_participation_bps = _participation_bps(
+            command.investor_interest_participation_bps,
+            "Investor interest participation",
+        )
+        penalty_participation_bps = _participation_bps(
+            command.investor_penalty_participation_bps,
+            "Investor penalty participation",
+        )
+        display_yield_bps = _display_yield_bps(
+            coupon_bps=command.interest_rate_bps,
+            interest_participation_bps=interest_participation_bps,
+        )
+        profile_principal_minor = int(accrued_terms.next_row.opening_principal_minor)
+        loan_principal_minor = profile_principal_minor
+        loan_start_date = accrued_terms.reference_date
+        funding_deadline = cast(date, command.funding_deadline)
+        first_payment_date = accrued_terms.next_row.due_date
+        term_months = len(future_rows)
+        premium_fee_bps = 0
+    elif distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2:
         _boundary_row, future_rows = _validate_par_subscription_terms(command, parsed=parsed)
         interest_participation_bps = _participation_bps(
             command.investor_interest_participation_bps,
@@ -1787,10 +2053,23 @@ def replace_originator_loan_draft(
     profile.premium_fee_bps = premium_fee_bps
     profile.funding_deadline = funding_deadline
     profile.entitlement_start_date = (
-        command.entitlement_start_date
+        accrued_terms.reference_date
+        if accrued_terms is not None
+        else command.entitlement_start_date
         if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
         else None
     )
+    profile.pricing_rule = (
+        OriginatorPricingRule.ACCRUED_INTEREST
+        if accrued_terms is not None
+        else OriginatorPricingRule.BOUNDARY_INSTALLMENT
+    )
+    profile.interest_convention = accrued_terms.convention if accrued_terms else ""
+    profile.price_accrual_start_date = (
+        accrued_terms.next_row.accrual_start_date if accrued_terms else None
+    )
+    profile.price_reference_date = accrued_terms.reference_date if accrued_terms else None
+    profile.price_next_due_date = accrued_terms.next_row.due_date if accrued_terms else None
     profile.activation_outstanding_principal_minor = (
         profile_principal_minor
         if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -1816,10 +2095,14 @@ def replace_originator_loan_draft(
             "distribution_model": distribution_model,
             "funding_deadline": funding_deadline.isoformat() if funding_deadline else None,
             "entitlement_start_date": (
-                command.entitlement_start_date.isoformat()
+                accrued_terms.reference_date.isoformat()
+                if accrued_terms is not None
+                else command.entitlement_start_date.isoformat()
                 if command.entitlement_start_date
                 else None
             ),
+            "pricing_rule": str(profile.pricing_rule),
+            "interest_convention": str(profile.interest_convention),
             "activation_outstanding_principal_minor": (
                 profile_principal_minor
                 if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -1904,6 +2187,8 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             raise OriginatorClaimsValidationError(
                 "Funding must close before the boundary installment payment date."
             )
+        if uses_accrued_interest_price(profile):
+            _check_accrued_offer_can_publish(profile, publication_date=publication_date)
     now = now_utc()
     # New claims reserve investor money in escrow while the round is open.
     # Legacy claims remain immediately assignable for historical compatibility.
@@ -1914,6 +2199,11 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
     profile.opportunity_status = OriginatorOpportunityStatus.OPEN
     profile.published_at = now
     profile.save(update_fields=["opportunity_status", "published_at", "updated_at"])
+    if _is_par_subscription(profile):
+        # Q17: the opening emails go out at the real opening (publication).
+        import_module("backend.apps.marketplace_primary.services").send_loan_opening_alerts(
+            loan_id=str(loan.id)
+        )
     _record_event(
         actor=command.actor,
         event_type=OriginatorClaimEventType.OPPORTUNITY_PUBLISHED,
@@ -2212,6 +2502,11 @@ def close_originator_subscription_round(
         "funding_close_failed",
     }:
         raise OriginatorClaimsValidationError("Originator funding round is not open.")
+    if _accrued_offer_due_date_reached(profile, command.as_of_date):
+        # 18.7 (F04): re-checked at the close; the daily scan or the admin fails the offer.
+        raise OriginatorClaimsValidationError(
+            "An installment fell due before the settlement: this offer failed and cannot close."
+        )
     if retrying_failed_close and not is_admin_actor(command.actor):
         raise OriginatorClaimsAuthorizationError(
             "Only an admin can retry a failed originator funding close."
@@ -2540,7 +2835,20 @@ def _activate_funded_subscription(
         )
     )
     boundary_row = future_rows[0] if future_rows else None
-    if (
+    accrued_rule = uses_accrued_interest_price(profile)
+    if accrued_rule:
+        # 18.7: no boundary installment; investors buy the principal at the planned settlement
+        # day and receive the next payment.
+        if (
+            boundary_row is None
+            or boundary_row.due_date != profile.price_next_due_date
+            or int(boundary_row.opening_principal_minor) != current_principal
+            or current_principal != expected_starting_principal
+        ):
+            raise OriginatorClaimsValidationError(
+                "The published schedule no longer reconciles to the offered principal."
+            )
+    elif (
         boundary_row is None
         or boundary_row.due_date != scheduled_boundary_date
         or int(boundary_row.opening_principal_minor) != current_principal
@@ -2596,6 +2904,10 @@ def _activate_funded_subscription(
             "Post-boundary schedule principal does not match activation principal."
         )
     order_principals = [int(order.allocated_amount_minor) for order in allocated_orders]
+    # 18.7: the accrued interest of the rights each investor buys (0 under the boundary rule).
+    order_accrued = [
+        accrued_interest_for_principal(profile, principal) for principal in order_principals
+    ]
     entitlement_flows = _subscription_entitlement_flows(
         profile=profile,
         order_principals=order_principals,
@@ -2619,6 +2931,7 @@ def _activate_funded_subscription(
                 originator_id=str(profile.originator_id),
                 currency=str(loan.currency_id),
                 assigned_principal_minor=assigned_principal,
+                accrued_interest_minor=sum(order_accrued),
                 source_type="originator_subscription_activation",
                 source_id=str(activation_id),
                 idempotency_key=f"originator-activation-ledger:{idempotency_key}",
@@ -2633,7 +2946,10 @@ def _activate_funded_subscription(
     purchases: list[OriginatorClaimPurchase] = []
     holding_ids: list[str] = []
     rows_by_number = {int(row.installment_number): row for row in schedule_rows}
-    for order, flows in zip(allocated_orders, entitlement_flows, strict=True):
+    for order, flows, accrued_minor in zip(
+        allocated_orders, entitlement_flows, order_accrued, strict=True
+    ):
+        price_minor = int(order.allocated_amount_minor) + accrued_minor
         if order.document_acceptance_id is None:
             raise OriginatorClaimsValidationError(
                 "Every activated subscription must retain its document acceptance evidence."
@@ -2658,15 +2974,15 @@ def _activate_funded_subscription(
             loan_profile=profile,
             investor_user_id=order.investor_user_id,
             currency=loan.currency,
-            requested_cash_minor=order.allocated_amount_minor,
-            executable_cash_minor=order.allocated_amount_minor,
+            requested_cash_minor=price_minor,
+            executable_cash_minor=price_minor,
             assigned_principal_minor=order.allocated_amount_minor,
             outstanding_principal_at_pricing_minor=expected_starting_principal,
             share_ppm=share_ppm,
             target_yield_bps=profile.target_yield_bps,
             premium_discount_minor=0,
             platform_fee_minor=0,
-            originator_payable_minor=order.allocated_amount_minor,
+            originator_payable_minor=price_minor,
             rounding_remainder_minor=0,
             schedule_revision=revision,
             entitlement_start_at=entitlement_start_at,
@@ -2709,14 +3025,14 @@ def _activate_funded_subscription(
             quote=quote,
             investor_user_id=order.investor_user_id,
             currency=loan.currency,
-            cash_consideration_minor=order.allocated_amount_minor,
+            cash_consideration_minor=price_minor,
             assigned_principal_minor=order.allocated_amount_minor,
             outstanding_principal_at_pricing_minor=expected_starting_principal,
             share_ppm=share_ppm,
             target_yield_bps=profile.target_yield_bps,
             premium_discount_minor=0,
             platform_fee_minor=0,
-            originator_payable_minor=order.allocated_amount_minor,
+            originator_payable_minor=price_minor,
             schedule_revision=revision,
             entitlement_start_at=entitlement_start_at,
             document_acceptance=order.document_acceptance,
@@ -2826,14 +3142,23 @@ def _activate_funded_subscription(
         "activation_mode": "funding_close",
         "legacy_upgrade": legacy_upgrade,
         "triggered_by_user_id": str(round_close.triggered_by_user_id),
-        "boundary_installment": {
-            "installment_number": int(boundary_row.installment_number),
-            "due_date": scheduled_boundary_date.isoformat(),
-            "principal_minor": int(boundary_row.principal_minor),
-            "interest_minor": int(boundary_row.interest_minor),
-            "penalty_minor": int(boundary_row.penalty_minor),
-            "fee_minor": int(boundary_row.fee_minor),
-        },
+        "boundary_installment": (
+            None
+            if accrued_rule
+            else {
+                "installment_number": int(boundary_row.installment_number),
+                "due_date": scheduled_boundary_date.isoformat(),
+                "principal_minor": int(boundary_row.principal_minor),
+                "interest_minor": int(boundary_row.interest_minor),
+                "penalty_minor": int(boundary_row.penalty_minor),
+                "fee_minor": int(boundary_row.fee_minor),
+            }
+        ),
+        "pricing_rule": str(profile.pricing_rule),
+        "price_reference_date": (
+            profile.price_reference_date.isoformat() if profile.price_reference_date else None
+        ),
+        "accrued_interest_minor": sum(order_accrued),
         "post_boundary_principal_minor": expected_starting_principal,
         "scheduled_entitlement_start_date": scheduled_boundary_date.isoformat(),
         "starting_outstanding_principal_minor": current_principal,
@@ -3065,6 +3390,7 @@ def cancel_originator_subscription(
             "reason": reason,
             "investor_message": investor_message,
             "idempotency_key": idempotency_key,
+            "offer_failed": bool(command.offer_failed),
         }
     )
     existing = _existing_subscription_cancellation(
@@ -3097,7 +3423,8 @@ def cancel_originator_subscription(
         raise OriginatorClaimsValidationError("Activated subscriptions cannot be cancelled.")
     paused = _has_explicit_subscription_hold(profile, str(loan.status))
     if (
-        profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+        not command.offer_failed
+        and profile.opportunity_status == OriginatorOpportunityStatus.OPEN
         and int(loan.committed_principal_minor) > 0
         and not paused
         and (
@@ -3245,7 +3572,11 @@ def cancel_originator_subscription(
     )
     _record_event(
         actor=command.actor,
-        event_type=OriginatorClaimEventType.SUBSCRIPTION_CANCELLED,
+        event_type=(
+            OriginatorClaimEventType.OFFER_FAILED
+            if command.offer_failed
+            else OriginatorClaimEventType.SUBSCRIPTION_CANCELLED
+        ),
         originator=profile.originator,
         loan_id=loan.id,
         note=reason,
@@ -3282,6 +3613,103 @@ def cancel_originator_subscription(
             metadata={"loan_id": str(loan.id), "cancellation_id": str(cancellation.id)},
         )
     return cancellation
+
+
+OFFER_FAILED_PAYMENT = "payment"
+OFFER_FAILED_DUE_DATE = "due_date"
+
+
+def fail_originator_offer_if_needed(
+    *, actor: Model, loan_id: str, cause: str, as_of_date: date
+) -> OriginatorSubscriptionCancellation | None:
+    """18.7 (F04): a borrower payment on the claim or a due date before the settlement fails
+    an offer priced with accrued interest. Every participation is cancelled, the reserved money
+    goes back to the available balances and the offer never reopens."""
+    profile = (
+        OriginatorLoanProfile.objects.select_related("loan")
+        .filter(loan_id=loan_id)
+        .first()
+    )
+    if profile is None or not uses_accrued_interest_price(profile):
+        return None
+    if profile.opportunity_status not in {
+        OriginatorOpportunityStatus.OPEN,
+        OriginatorOpportunityStatus.AWAITING_ACTIVATION,
+    }:
+        return None
+    if OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).exists():
+        return None
+    if str(profile.loan.status) not in {"published", "funded", "funding_close_failed"}:
+        return None
+    if cause == OFFER_FAILED_PAYMENT:
+        reason = "Offer failed: the borrower paid on the claim before the settlement."
+    else:
+        reason = (
+            f"Offer failed: an installment fell due on {profile.price_next_due_date} "
+            "before the settlement."
+        )
+    message = (
+        f"The offer for {profile.loan.title} could not continue: "
+        + (
+            "the borrower made a payment on the claim before the settlement"
+            if cause == OFFER_FAILED_PAYMENT
+            else "an installment fell due before the settlement"
+        )
+        + ". Your participation is cancelled and the reserved money is available in your "
+        "Banxum balance again."
+    )
+    return cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=actor,
+            loan_id=str(loan_id),
+            reason=reason,
+            investor_message=message,
+            idempotency_key=f"originator-offer-failed:{loan_id}",
+            offer_failed=True,
+        )
+    )
+
+
+def _check_accrued_offer_can_publish(
+    profile: OriginatorLoanProfile, *, publication_date: date
+) -> None:
+    """18.7 scheduling: the offer sits between two due dates and nothing is unpaid."""
+    try:
+        day_count.require_convention(str(profile.interest_convention))
+    except day_count.DayCountError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+    if (
+        profile.price_reference_date is None
+        or profile.price_next_due_date is None
+        or profile.price_accrual_start_date is None
+        or profile.funding_deadline is None
+    ):
+        raise OriginatorClaimsValidationError("The price of this offer is not set.")
+    planned = planned_settlement_date(
+        currency=str(profile.loan.currency_id), funding_deadline=profile.funding_deadline
+    )
+    if planned != profile.price_reference_date:
+        raise OriginatorClaimsValidationError(
+            "The settlement calendar changed the planned settlement day; import the offer again."
+        )
+    if planned >= profile.price_next_due_date:
+        raise OriginatorClaimsValidationError(
+            f"The planned settlement day ({planned.isoformat()}) must be before the next due "
+            f"date ({profile.price_next_due_date.isoformat()})."
+        )
+    if originator_installment_due_unpaid(profile, as_of_date=publication_date):
+        raise OriginatorClaimsValidationError(
+            "An installment of the claim is due and unpaid; an offer cannot be published."
+        )
+    _price_period_row(profile)
+
+
+def _accrued_offer_due_date_reached(profile: OriginatorLoanProfile, as_of_date: date) -> bool:
+    return (
+        uses_accrued_interest_price(profile)
+        and profile.price_next_due_date is not None
+        and as_of_date >= profile.price_next_due_date
+    )
 
 
 @transaction.atomic
@@ -3982,6 +4410,7 @@ def originator_marketplace_payload(
     pricing_date: date | None = None,
     allow_closed: bool = False,
     viewer_user_id: str | None = None,
+    allow_coming_soon: bool = False,
 ) -> dict[str, Any]:
     """Marketplace projection of an originator opportunity.
 
@@ -4002,9 +4431,16 @@ def originator_marketplace_payload(
         is_par_subscription=is_par_subscription,
         as_of_date=as_of_date,
     )
-    if closed_reason and not allow_closed:
+    coming_soon = (
+        allow_coming_soon
+        and str(profile.loan.status) == "draft"
+        and profile.loan.coming_soon_at is not None
+    )
+    if coming_soon:
+        closed_reason = "This offer is coming soon; it opens when it is published."
+    elif closed_reason and not allow_closed:
         raise OriginatorClaimsValidationError(closed_reason)
-    if closed_reason and (
+    elif closed_reason and (
         profile.opportunity_status not in READABLE_CLOSED_OPPORTUNITY_STATUSES
         or profile.loan.status in {"draft", "cancelled"}
     ):
@@ -4025,7 +4461,7 @@ def originator_marketplace_payload(
         else sellable_principal_minor
     )
     investable = not closed_reason and remaining_capacity_minor > 0
-    if not investable and not allow_closed:
+    if not investable and not allow_closed and not coming_soon:
         raise OriginatorClaimsValidationError("Originator claim opportunity is fully subscribed.")
     if not investable:
         remaining_capacity_minor = 0
@@ -4136,6 +4572,9 @@ def originator_marketplace_payload(
             "originator_payment_history": _originator_payment_history_payload(profile),
             "schedule_revision": int(profile.schedule_revision),
             "pricing_as_of_date": as_of_date,
+            # 18.7: principal + accrued interest of the bought rights, fixed for the planned
+            # settlement day (None for offers priced at par after a boundary installment).
+            "offer_price": originator_offer_price_payload(profile),
         }
     )
     return payload
@@ -4179,6 +4618,16 @@ def list_open_originator_marketplace_payloads(
         except OriginatorClaimsValidationError:
             continue
     return payloads
+
+
+def originator_coming_soon_payload(*, loan_id: str, include_detail: bool) -> dict[str, Any]:
+    """Q17: a draft offer shown as Coming soon: read-only, nothing can be reserved."""
+    profile = OriginatorLoanProfile.objects.filter(loan_id=loan_id).first()
+    if profile is None:
+        raise OriginatorClaimsValidationError("Originator claim opportunity does not exist.")
+    return originator_marketplace_payload(
+        profile, include_detail=include_detail, allow_coming_soon=True
+    )
 
 
 def get_originator_marketplace_payload(*, actor: Model, loan_id: str) -> dict[str, Any]:
@@ -6343,12 +6792,33 @@ def scan_originator_opportunity_lifecycle(
             "loan__committed_principal_minor",
             "is_on_hold",
             "entitlement_start_date",
+            "pricing_rule",
+            "price_next_due_date",
         )
         .iterator(chunk_size=limit)
     )
     closed: list[dict[str, str]] = []
     for row in profile_rows:
         is_subscription = row["distribution_model"] == OriginatorDistributionModel.PAR_COMPONENT_V2
+        # 18.7 (F04): a due date before the settlement fails an accrued-interest offer.
+        if (
+            is_subscription
+            and row["pricing_rule"] == OriginatorPricingRule.ACCRUED_INTEREST
+            and row["opportunity_status"]
+            in {OriginatorOpportunityStatus.OPEN, OriginatorOpportunityStatus.AWAITING_ACTIVATION}
+            and row["loan__status"] in {"published", "funded", "funding_close_failed"}
+            and row["price_next_due_date"] is not None
+            and as_of_date >= row["price_next_due_date"]
+        ):
+            failed = fail_originator_offer_if_needed(
+                actor=actor,
+                loan_id=str(row["loan_id"]),
+                cause=OFFER_FAILED_DUE_DATE,
+                as_of_date=as_of_date,
+            )
+            if failed is not None:
+                closed.append({"loan_id": str(row["loan_id"]), "reason": "offer_failed_due_date"})
+                continue
         is_awaiting_activation = (
             is_subscription
             and row["opportunity_status"] == OriginatorOpportunityStatus.AWAITING_ACTIVATION

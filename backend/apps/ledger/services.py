@@ -777,6 +777,9 @@ class ActivateOriginatorSubscriptionLedgerCommand:
     idempotency_key: str
     as_of: datetime | None = None
     metadata: dict[str, Any] | None = None
+    # 18.7: the accrued interest of the bought rights, paid to the Loan Originator with the
+    # principal (0 for offers priced at par).
+    accrued_interest_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1622,6 +1625,7 @@ def _originator_subscription_activation_ledger_fingerprint(
             "originator_id": str(command.originator_id),
             "currency": currency_code,
             "assigned_principal_minor": assigned_principal_minor,
+            "accrued_interest_minor": int(command.accrued_interest_minor),
             "source_type": command.source_type.strip(),
             "source_id": command.source_id.strip(),
             "idempotency_key": idempotency_key,
@@ -7109,10 +7113,15 @@ def activate_originator_subscription_ledger(
         owner_id=str(command.loan_id),
         name=f"{currency.code} loan funding escrow {command.loan_id}",
     )
+    accrued_interest_minor = int(command.accrued_interest_minor)
+    if accrued_interest_minor < 0:
+        raise LedgerValidationError("Accrued interest cannot be negative.")
+    activation_total_minor = assigned_principal_minor + accrued_interest_minor
     escrow_balance = _credit_balance_for_account(escrow_account)
-    if escrow_balance != assigned_principal_minor:
+    if escrow_balance != activation_total_minor:
         raise LedgerValidationError(
-            "Loan funding escrow must equal the assigned originator subscription principal."
+            "Loan funding escrow must equal the assigned originator subscription principal "
+            "plus the accrued interest in the price."
         )
     originator_payable_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
@@ -7127,8 +7136,8 @@ def activate_originator_subscription_ledger(
             event_type="originator_subscription_activated",
             direction=LedgerDirection.INTERNAL,
             currency=currency.code,
-            gross_amount_minor=assigned_principal_minor,
-            net_amount_minor=assigned_principal_minor,
+            gross_amount_minor=activation_total_minor,
+            net_amount_minor=activation_total_minor,
             booking_date=value_date,
             value_date=value_date,
             effective_at=as_of,
@@ -7141,13 +7150,13 @@ def activate_originator_subscription_ledger(
                 PostingCommand(
                     account=escrow_account,
                     side=LedgerPostingSide.DEBIT,
-                    amount_minor=assigned_principal_minor,
+                    amount_minor=activation_total_minor,
                     memo="Originator subscription escrow released at activation",
                 ),
                 PostingCommand(
                     account=originator_payable_account,
                     side=LedgerPostingSide.CREDIT,
-                    amount_minor=assigned_principal_minor,
+                    amount_minor=activation_total_minor,
                     memo="Par consideration payable to Loan Originator",
                 ),
             ],

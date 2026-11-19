@@ -32,6 +32,19 @@ class OriginatorDistributionModel(models.TextChoices):
     PAR_COMPONENT_V2 = "par_component_v2", "Par subscription with component participation"
 
 
+class OriginatorPricingRule(models.TextChoices):
+    """How a subscription offer is priced (18.7).
+
+    ``boundary_installment``: the first installment after the funding deadline belongs to the
+    Loan Originator and investors buy the principal after it at par (offers before 18.7).
+    ``accrued_interest``: investors pay the principal at the planned settlement day plus the
+    accrued interest of the rights they buy, and receive the next payment (Q09, F02).
+    """
+
+    BOUNDARY_INSTALLMENT = "boundary_installment", "Boundary installment (before 18.7)"
+    ACCRUED_INTEREST = "accrued_interest", "Principal plus accrued interest (18.7)"
+
+
 class OriginatorImportPaymentType(models.TextChoices):
     REGULAR = "regular", "Regular payment"
     REPAYMENT_IN_ADVANCE = "repayment_in_advance", "Repayment in advance"
@@ -59,6 +72,7 @@ class OriginatorClaimEventType(models.TextChoices):
     REPAYMENT_RECORDED = "repayment_recorded", "Repayment recorded"
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
     SETTLEMENT_RECORDED = "settlement_recorded", "Settlement recorded"
+    OFFER_FAILED = "offer_failed", "Offer failed (payment or due date before settlement)"
 
 
 class LoanOriginator(TimestampedModel):
@@ -140,6 +154,19 @@ class OriginatorLoanProfile(TimestampedModel):
     funding_deadline = models.DateField(null=True, blank=True)
     entitlement_start_date = models.DateField(null=True, blank=True)
     activation_outstanding_principal_minor = models.BigIntegerField(null=True, blank=True)
+    # 18.7: the price rule of a subscription offer, the day-count convention of the claim
+    # contract (F03) and the price reference: interest of the running period accrues from
+    # ``price_accrual_start_date`` to ``price_reference_date`` (the planned settlement day,
+    # 1 settlement day after the funding deadline), before ``price_next_due_date``.
+    pricing_rule = models.CharField(
+        max_length=32,
+        choices=OriginatorPricingRule.choices,
+        default=OriginatorPricingRule.BOUNDARY_INSTALLMENT,
+    )
+    interest_convention = models.CharField(max_length=32, blank=True, default="")
+    price_accrual_start_date = models.DateField(null=True, blank=True)
+    price_reference_date = models.DateField(null=True, blank=True)
+    price_next_due_date = models.DateField(null=True, blank=True)
     investor_interest_participation_bps = models.PositiveSmallIntegerField(default=10_000)
     investor_penalty_participation_bps = models.PositiveSmallIntegerField(default=10_000)
     current_outstanding_principal_minor = models.BigIntegerField()

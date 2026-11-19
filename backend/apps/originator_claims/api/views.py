@@ -27,6 +27,7 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorLoanHoldSerializer,
     OriginatorLoanProfileResponseSerializer,
     OriginatorLoanPublishSerializer,
+    OriginatorOfferFailedRequestSerializer,
     OriginatorSettlementQueueRowSerializer,
     OriginatorSettlementRequestSerializer,
     OriginatorSettlementResponseSerializer,
@@ -35,6 +36,7 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorSubscriptionResumeSerializer,
 )
 from backend.apps.originator_claims.services import (
+    OFFER_FAILED_PAYMENT,
     ActivateOriginatorSubscriptionCommand,
     CancelOriginatorSubscriptionCommand,
     CloseOriginatorSubscriptionRoundCommand,
@@ -57,6 +59,7 @@ from backend.apps.originator_claims.services import (
     create_loan_originator,
     create_originator_claim_quote,
     create_originator_loan,
+    fail_originator_offer_if_needed,
     finalize_originator_settlement,
     get_originator_admin_loan_payload,
     list_loan_originators,
@@ -75,6 +78,7 @@ from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.platform_core.api.sensitive_actions import (
     sensitive_action_pin_error_response,
 )
+from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.sensitive_actions import SensitiveActionPinError
 
 
@@ -193,6 +197,11 @@ def _profile_payload(profile: Any) -> dict[str, Any]:
         "premium_fee_bps": profile.premium_fee_bps,
         "funding_deadline": profile.funding_deadline,
         "entitlement_start_date": profile.entitlement_start_date,
+        "pricing_rule": profile.pricing_rule,
+        "interest_convention": profile.interest_convention,
+        "price_accrual_start_date": profile.price_accrual_start_date,
+        "price_reference_date": profile.price_reference_date,
+        "price_next_due_date": profile.price_next_due_date,
         "activation_outstanding_principal_minor": (profile.activation_outstanding_principal_minor),
         "investor_interest_participation_bps": (profile.investor_interest_participation_bps),
         "investor_penalty_participation_bps": profile.investor_penalty_participation_bps,
@@ -385,6 +394,37 @@ class OriginatorSubscriptionCancellationView(APIView):
                     idempotency_key=str(data["idempotency_key"]),
                 )
             )
+            profile = evidence.loan_profile
+        except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
+            return _error_response(exc)
+        return Response(_profile_payload(profile))
+
+
+class OriginatorOfferFailedView(APIView):
+    """18.7 (F04): an admin records that the borrower paid on the claim during the offer."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="originator_claims_admin_loans_offer_failed",
+        request=OriginatorOfferFailedRequestSerializer,
+        responses={200: OriginatorLoanProfileResponseSerializer},
+    )
+    def post(self, request: Request, loan_id: Any) -> Response:
+        serializer = OriginatorOfferFailedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            evidence = fail_originator_offer_if_needed(
+                actor=_actor(request),
+                loan_id=str(loan_id),
+                cause=OFFER_FAILED_PAYMENT,
+                as_of_date=business_date(now_utc()),
+            )
+            if evidence is None:
+                raise OriginatorClaimsValidationError(
+                    "Only an open offer priced with accrued interest can fail before its "
+                    "settlement."
+                )
             profile = evidence.loan_profile
         except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
             return _error_response(exc)

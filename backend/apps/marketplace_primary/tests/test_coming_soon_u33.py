@@ -185,14 +185,15 @@ def test_the_planned_date_must_be_between_today_and_the_funding_deadline(
     assert "funding deadline" in late.json()["detail"]
 
 
-def test_only_a_draft_direct_loan_can_be_coming_soon(admin_user: Model, investor: Model) -> None:
+def test_only_a_draft_loan_can_be_coming_soon(admin_user: Model, investor: Model) -> None:
     loan = _draft(admin_user)
     _publish(admin_user, loan)
 
     response = _announce(admin_user, loan)
 
     assert response.status_code == 400
-    assert "draft Direct loan" in response.json()["detail"]
+    # Q17 (18.7): Loan Originator offers can be Coming soon too; a published loan cannot.
+    assert "draft loan or offer" in response.json()["detail"]
     assert _client(investor).post(
         f"/api/v1/loans/admin/loans/{loan.pk}/coming-soon/", data={}
     ).status_code in {400, 403}

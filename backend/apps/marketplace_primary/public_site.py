@@ -52,7 +52,7 @@ PUBLIC_STATUS_REPAYING = "repaying"
 PUBLIC_STATUS_LATE = "late"
 PUBLIC_STATUS_REPAID = "repaid"
 PUBLIC_STATUS_DEFAULT = "default"
-# U33-DEC-17: a draft Direct loan shown before it opens, with its planned opening date.
+# U33-DEC-17: a draft loan (Direct, or a Loan Originator offer since Q17) shown before it opens.
 PUBLIC_STATUS_COMING_SOON = "coming_soon"
 PUBLIC_STATUSES = (
     PUBLIC_STATUS_OPEN,
@@ -143,7 +143,11 @@ def _candidate_loans(*, loan_id: str | None = None) -> list[Any]:
     loan_model = _model("loans", "Loan")
     queryset = loan_model.objects.filter(
         Q(status__in=PUBLIC_LOAN_STATUSES, published_at__isnull=False)
-        | Q(status="draft", product_type="direct", coming_soon_at__isnull=False)
+        | Q(
+            status="draft",
+            product_type__in=["direct", "originator_claim"],
+            coming_soon_at__isnull=False,
+        )
     ).select_related(
         "borrower",
         "originator_profile__originator",

@@ -541,7 +541,33 @@ class MarketplaceRecoveryStagesSerializer(serializers.Serializer[Any]):
     next_step = MarketplaceRecoveryStageSerializer(allow_null=True)
 
 
+class MarketplaceOfferPriceSerializer(serializers.Serializer[Any]):
+    """18.7: price of a Loan Originator offer = principal + accrued interest of the bought rights,
+    fixed for the planned settlement day (one reference day for all investors)."""
+
+    pricing_rule = serializers.CharField()
+    interest_convention = serializers.CharField()
+    interest_convention_label = serializers.CharField()
+    price_reference_date = serializers.DateField()
+    accrual_start_date = serializers.DateField()
+    next_due_date = serializers.DateField()
+    next_installment_interest_minor = serializers.IntegerField()
+    next_installment_principal_minor = serializers.IntegerField()
+    next_installment_opening_principal_minor = serializers.IntegerField()
+    accrued_day_units = serializers.IntegerField(
+        help_text=(
+            "Accrued interest for a principal P = round half up(next_installment_interest_minor "
+            "x P / next_installment_opening_principal_minor x accrued_day_units / "
+            "period_day_units x investor_interest_participation_bps / 10000)."
+        )
+    )
+    period_day_units = serializers.IntegerField()
+    investor_interest_participation_bps = serializers.IntegerField()
+    investor_penalty_participation_bps = serializers.IntegerField()
+
+
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
+    offer_price = MarketplaceOfferPriceSerializer(required=False, allow_null=True, default=None)
     default_penalty_interest_bps = serializers.IntegerField(required=False, default=0)
     borrower_id = serializers.UUIDField(allow_null=True)
     borrower_disclosure = serializers.DictField()

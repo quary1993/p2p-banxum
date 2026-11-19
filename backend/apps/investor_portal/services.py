@@ -1699,9 +1699,13 @@ def get_investor_portfolio(
     originator_purchase_model = _model("originator_claims", "OriginatorClaimPurchase")
     originator_purchases_by_holding_id = {
         str(purchase.holding_id): purchase
-        for purchase in originator_purchase_model.objects.filter(
-            holding_id__in=[holding.pk for holding in holdings]
-        ).prefetch_related("entitlements")
+        for purchase in (
+            originator_purchase_model.objects.filter(
+                holding_id__in=[holding.pk for holding in holdings]
+            )
+            .select_related("loan_profile")
+            .prefetch_related("entitlements")
+        )
     }
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     open_listings_by_holding_id = {
@@ -1775,6 +1779,18 @@ def get_investor_portfolio(
                     int(originator_purchase.cash_consideration_minor)
                     if originator_purchase is not None
                     else None
+                ),
+                # 18.7: the accrued interest paid in the price of a Loan Originator offer. It
+                # comes back with the next payment and is not interest earned.
+                "bought_accrued_interest_minor": (
+                    max(
+                        0,
+                        int(originator_purchase.cash_consideration_minor)
+                        - int(originator_purchase.assigned_principal_minor),
+                    )
+                    if originator_purchase is not None
+                    and str(originator_purchase.loan_profile.pricing_rule) == "accrued_interest"
+                    else 0
                 ),
                 "acquisition_cash_flow": (
                     [

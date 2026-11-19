@@ -551,6 +551,14 @@ class HoldingSerializer(serializers.Serializer[Any]):
     received_payments = HoldingReceivedPaymentSerializer(many=True, required=False)
     investment_schedule = PortfolioHoldingInstallmentSerializer(many=True)
     acquisition_cash_consideration_minor = serializers.IntegerField(allow_null=True)
+    bought_accrued_interest_minor = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text=(
+            "18.7: accrued interest paid in the price of a Loan Originator offer; it comes back "
+            "with the next payment and is not interest earned."
+        ),
+    )
     acquisition_cash_flow = serializers.ListField(
         child=serializers.DictField(),
     )

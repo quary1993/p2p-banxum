@@ -1832,7 +1832,8 @@ class AnnounceComingSoonCommand:
 
 @transaction.atomic
 def announce_loan_coming_soon(command: AnnounceComingSoonCommand) -> Loan:
-    """U33-DEC-17: show a draft Direct loan as "Coming soon" with its planned opening date.
+    """U33-DEC-17: show a draft loan (Direct, or a Loan Originator offer since Q17) as "Coming
+    soon" with its planned opening date.
 
     The loan stays a draft: nothing can be invested or reserved. Investors can ask for an
     opening alert; the alert goes out when the admin publishes the loan, not on the date.
@@ -1842,8 +1843,12 @@ def announce_loan_coming_soon(command: AnnounceComingSoonCommand) -> Loan:
     loan = Loan.objects.select_for_update().filter(id=command.loan_id).first()
     if loan is None:
         raise LoanValidationError("Loan does not exist.")
-    if loan.product_type != LoanProductType.DIRECT or loan.status != LoanStatus.DRAFT:
-        raise LoanValidationError("Only a draft Direct loan can be shown as Coming soon.")
+    # Q17 (18.7): Loan Originator offers can be Coming soon too.
+    if loan.status != LoanStatus.DRAFT or loan.product_type not in {
+        LoanProductType.DIRECT,
+        LoanProductType.ORIGINATOR_CLAIM,
+    }:
+        raise LoanValidationError("Only a draft loan or offer can be shown as Coming soon.")
     if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     if command.planned_opening_date < _business_today():

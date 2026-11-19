@@ -248,6 +248,13 @@ def _entities_services() -> Any:
     return import_module("backend.apps.entities.services")
 
 
+def order_reserved_amount_minor(order: Model) -> int:
+    """What the order reserved: the principal, plus the accrued interest of an 18.7 offer."""
+    metadata = cast(dict[str, Any], getattr(order, "metadata", None) or {})
+    allocated = int(cast(Any, order).allocated_amount_minor)
+    return allocated + int(metadata.get("price_accrued_interest_minor", 0) or 0)
+
+
 def _originator_services() -> Any:
     return import_module("backend.apps.originator_claims.services")
 
@@ -1135,6 +1142,18 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         )
         return order
     amount_to_allocate = min(order.requested_amount_minor, remaining_capacity)
+    # 18.7 (Q09, F02): an offer priced as principal + accrued interest reserves the whole price,
+    # fixed for the planned settlement day (no maximum price, no reconfirmation).
+    accrued_interest_minor = 0
+    if subscription_profile is not None:
+        originator = _originator_services()
+        try:
+            accrued_interest_minor = int(
+                originator.accrued_interest_for_principal(subscription_profile, amount_to_allocate)
+            )
+        except originator.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
+    reserved_amount_minor = amount_to_allocate + accrued_interest_minor
     ledger = _ledger_services()
     try:
         reservation_result = ledger.reserve_investor_balance_for_investment(
@@ -1142,7 +1161,7 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
                 actor=command.actor,
                 investor_user_id=str(order.investor_user_id),
                 loan_id=str(order.loan_id),
-                amount_minor=amount_to_allocate,
+                amount_minor=reserved_amount_minor,
                 currency=order.currency_id,
                 loan_funding_deadline=loan_ref.funding_deadline,
                 # F01 (18.4): direct loans need the payout margin before day 56 of each lot.
@@ -1173,6 +1192,9 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         "remaining_capacity_at_allocation_minor": remaining_capacity,
         "unallocated_requested_amount_minor": order.requested_amount_minor - amount_to_allocate,
     }
+    if accrued_interest_minor:
+        order.metadata["price_accrued_interest_minor"] = accrued_interest_minor
+        order.metadata["reserved_amount_minor"] = reserved_amount_minor
     order.save(
         update_fields=[
             "status",
@@ -1333,7 +1355,7 @@ def release_primary_order_balance(
                 actor=command.actor,
                 investor_user_id=str(order.investor_user_id),
                 loan_id=str(order.loan_id),
-                amount_minor=order.allocated_amount_minor,
+                amount_minor=order_reserved_amount_minor(order),
                 currency=order.currency_id,
                 source_type="primary_investment_order",
                 source_id=str(order.id),
@@ -1374,7 +1396,7 @@ def release_primary_order_balance(
         "investor_user_id": str(order.investor_user_id),
         "loan_id": str(order.loan_id),
         "currency": order.currency_id,
-        "released_amount_minor": order.allocated_amount_minor,
+        "released_amount_minor": order_reserved_amount_minor(order),
         "release_journal_entry_id": str(release_result.journal_entry.id),
         "reason": reason,
         # Q26: the investor-facing reason of the release (the admin's reason stays internal).
@@ -2740,17 +2762,30 @@ def _is_coming_soon(loan: Model) -> bool:
     loan_ref = cast(Any, loan)
     return (
         str(loan_ref.status) == "draft"
-        and str(loan_ref.product_type) == "direct"
+        and str(loan_ref.product_type) in {"direct", "originator_claim"}
         and loan_ref.coming_soon_at is not None
     )
 
 
 def _coming_soon_payload(loan: Model, *, viewer_user_id: str, full: bool = False) -> dict[str, Any]:
-    payload = (
-        full_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
-        if full
-        else public_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
-    )
+    if str(cast(Any, loan).product_type) == "originator_claim":
+        # Q17: a Coming soon Loan Originator offer uses the originator projection (no capacity).
+        originator = _originator_services()
+        try:
+            payload = cast(
+                dict[str, Any],
+                originator.originator_coming_soon_payload(
+                    loan_id=str(cast(Any, loan).id), include_detail=full
+                ),
+            )
+        except originator.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
+    else:
+        payload = (
+            full_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+            if full
+            else public_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+        )
     loan_ref = cast(Any, loan)
     return {
         **payload,
@@ -2773,7 +2808,9 @@ def coming_soon_marketplace_payloads(*, viewer_user_id: str) -> list[dict[str, A
     loan_model = _model("loans", "Loan")
     loans = (
         loan_model.objects.filter(
-            status="draft", product_type="direct", coming_soon_at__isnull=False
+            status="draft",
+            product_type__in=["direct", "originator_claim"],
+            coming_soon_at__isnull=False,
         )
         .select_related("borrower")
         .order_by("planned_opening_date", "id")

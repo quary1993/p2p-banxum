@@ -7204,6 +7204,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/OriginatorLoanProfileResponse'
           description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/offer-failed/:
+    post:
+      operationId: originator_claims_admin_loans_offer_failed
+      description: '18.7 (F04): an admin records that the borrower paid on the claim
+        during the offer.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorOfferFailedRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorOfferFailedRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorOfferFailedRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
   /api/v1/originator-claims/admin/loans/{loan_id}/publish/:
     post:
       operationId: originator_claims_admin_loans_publish
@@ -11561,6 +11595,11 @@ components:
         * `secondary_market_purchase` - Secondary-market purchase
         * `secondary_market_listing` - Secondary-market listing
         * `risk_disclosure` - Risk disclosure
+    CauseEnum:
+      enum:
+      - payment
+      type: string
+      description: '* `payment` - payment'
     ChallengeRequest:
       type: object
       properties:
@@ -13201,6 +13240,11 @@ components:
         acquisition_cash_consideration_minor:
           type: integer
           nullable: true
+        bought_accrued_interest_minor:
+          type: integer
+          default: 0
+          description: '18.7: accrued interest paid in the price of a Loan Originator
+            offer; it comes back with the next payment and is not interest earned.'
         acquisition_cash_flow:
           type: array
           items:
@@ -13384,14 +13428,6 @@ components:
       - investor_note
       - occurred_on
       - title
-    InterestConventionEnum:
-      enum:
-      - act_365_fixed
-      - legacy_monthly
-      type: string
-      description: |-
-        * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
-        * `legacy_monthly` - Earlier schedule (before 18.6)
     InvestorActivity:
       type: object
       properties:
@@ -15571,7 +15607,7 @@ components:
           type: string
         interest_convention:
           allOf:
-          - $ref: '#/components/schemas/InterestConventionEnum'
+          - $ref: '#/components/schemas/LoanCreateRequestInterestConventionEnum'
           default: act_365_fixed
         payment_frequency:
           allOf:
@@ -15603,6 +15639,14 @@ components:
       - risk_rating
       - term_months
       - title
+    LoanCreateRequestInterestConventionEnum:
+      enum:
+      - act_365_fixed
+      - legacy_monthly
+      type: string
+      description: |-
+        * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
+        * `legacy_monthly` - Earlier schedule (before 18.6)
     LoanCreditCheck:
       type: object
       description: 'U33-DEC-20: a recorded check (what, result, source, date).'
@@ -17434,6 +17478,10 @@ components:
         minimum_subscription_bps:
           type: integer
           default: 5000
+        offer_price:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceOfferPrice'
+          nullable: true
         default_penalty_interest_bps:
           type: integer
           default: 0
@@ -17803,6 +17851,58 @@ components:
       required:
       - focus
       - frequency
+    MarketplaceOfferPrice:
+      type: object
+      description: |-
+        18.7: price of a Loan Originator offer = principal + accrued interest of the bought rights,
+        fixed for the planned settlement day (one reference day for all investors).
+      properties:
+        pricing_rule:
+          type: string
+        interest_convention:
+          type: string
+        interest_convention_label:
+          type: string
+        price_reference_date:
+          type: string
+          format: date
+        accrual_start_date:
+          type: string
+          format: date
+        next_due_date:
+          type: string
+          format: date
+        next_installment_interest_minor:
+          type: integer
+        next_installment_principal_minor:
+          type: integer
+        next_installment_opening_principal_minor:
+          type: integer
+        accrued_day_units:
+          type: integer
+          description: Accrued interest for a principal P = round half up(next_installment_interest_minor
+            x P / next_installment_opening_principal_minor x accrued_day_units / period_day_units
+            x investor_interest_participation_bps / 10000).
+        period_day_units:
+          type: integer
+        investor_interest_participation_bps:
+          type: integer
+        investor_penalty_participation_bps:
+          type: integer
+      required:
+      - accrual_start_date
+      - accrued_day_units
+      - interest_convention
+      - interest_convention_label
+      - investor_interest_participation_bps
+      - investor_penalty_participation_bps
+      - next_due_date
+      - next_installment_interest_minor
+      - next_installment_opening_principal_minor
+      - next_installment_principal_minor
+      - period_day_units
+      - price_reference_date
+      - pricing_rule
     MarketplaceOriginalLoanScheduleRow:
       type: object
       properties:
@@ -18351,6 +18451,14 @@ components:
           type: string
           format: date
           nullable: true
+        pricing_rule:
+          type: string
+        interest_convention:
+          type: string
+        price:
+          allOf:
+          - $ref: '#/components/schemas/OriginatorOfferPrice'
+          nullable: true
         activation_outstanding_principal_minor:
           type: integer
           nullable: true
@@ -18416,6 +18524,7 @@ components:
       - funding_deadline
       - hold_reason
       - import_as_of_date
+      - interest_convention
       - interest_only_months
       - interest_rate_bps
       - investor_interest_participation_bps
@@ -18432,6 +18541,8 @@ components:
       - originator_name
       - payment_history
       - premium_fee_bps
+      - price
+      - pricing_rule
       - purpose
       - purpose_description
       - repayment_type
@@ -18806,12 +18917,31 @@ components:
         funding_deadline:
           type: string
           format: date
+        pricing_rule:
+          allOf:
+          - $ref: '#/components/schemas/PricingRuleEnum'
+          default: accrued_interest
+        interest_convention:
+          default: ''
+          description: |-
+            Day-count convention of the claim contract (F03); required for 18.7 offers.
+
+            * `act_365_fixed` - act_365_fixed
+            * `act_360` - act_360
+            * `act_act_isda` - act_act_isda
+            * `thirty_360_bond_basis` - thirty_360_bond_basis
+            * `thirty_e_360` - thirty_e_360
+          oneOf:
+          - $ref: '#/components/schemas/OriginatorLoanCreateInterestConventionEnum'
+          - $ref: '#/components/schemas/BlankEnum'
         entitlement_start_date:
           type: string
           format: date
+          nullable: true
         activation_outstanding_principal_minor:
           type: integer
           minimum: 1
+          nullable: true
         investor_interest_participation_bps:
           type: integer
           maximum: 10000
@@ -18856,14 +18986,12 @@ components:
           minimum: 0
           default: 0
       required:
-      - activation_outstanding_principal_minor
       - as_of_date
       - borrower_snapshot
       - collateral_type
       - collateral_value_minor
       - csv_content
       - currency
-      - entitlement_start_date
       - funding_deadline
       - interest_rate_bps
       - investor_interest_participation_bps
@@ -18877,6 +19005,20 @@ components:
       - risk_rating
       - source_filename
       - title
+    OriginatorLoanCreateInterestConventionEnum:
+      enum:
+      - act_365_fixed
+      - act_360
+      - act_act_isda
+      - thirty_360_bond_basis
+      - thirty_e_360
+      type: string
+      description: |-
+        * `act_365_fixed` - act_365_fixed
+        * `act_360` - act_360
+        * `act_act_isda` - act_act_isda
+        * `thirty_360_bond_basis` - thirty_360_bond_basis
+        * `thirty_e_360` - thirty_e_360
     OriginatorLoanHold:
       type: object
       properties:
@@ -18960,6 +19102,24 @@ components:
           type: string
           format: date
           nullable: true
+        pricing_rule:
+          type: string
+          description: '18.7: accrued_interest (principal + accrued interest) or boundary_installment.'
+        interest_convention:
+          type: string
+        price_accrual_start_date:
+          type: string
+          format: date
+          nullable: true
+        price_reference_date:
+          type: string
+          format: date
+          nullable: true
+          description: 'Planned settlement day: the price reference (18.7).'
+        price_next_due_date:
+          type: string
+          format: date
+          nullable: true
         activation_outstanding_principal_minor:
           type: integer
           nullable: true
@@ -18999,6 +19159,7 @@ components:
       - entitlement_start_date
       - funding_deadline
       - hold_reason
+      - interest_convention
       - investor_interest_participation_bps
       - investor_penalty_participation_bps
       - is_on_hold
@@ -19010,6 +19171,10 @@ components:
       - originator_id
       - originator_name
       - premium_fee_bps
+      - price_accrual_start_date
+      - price_next_due_date
+      - price_reference_date
+      - pricing_rule
       - retained_principal_minor
       - schedule_revision
       - sellable_principal_minor
@@ -19071,6 +19236,74 @@ components:
       - projected_investor_minor
       - projected_originator_minor
       - total_minor
+    OriginatorOfferFailedRequest:
+      type: object
+      description: '18.7 (F04): the borrower paid on the claim before the settlement.'
+      properties:
+        cause:
+          allOf:
+          - $ref: '#/components/schemas/CauseEnum'
+          default: payment
+    OriginatorOfferPrice:
+      type: object
+      description: 18.7 price facts of a Loan Originator offer (principal + accrued
+        interest).
+      properties:
+        pricing_rule:
+          type: string
+        interest_convention:
+          type: string
+        interest_convention_label:
+          type: string
+        price_reference_date:
+          type: string
+          format: date
+          description: Planned settlement day (1 settlement day after the funding
+            deadline).
+        accrual_start_date:
+          type: string
+          format: date
+        next_due_date:
+          type: string
+          format: date
+        next_installment_interest_minor:
+          type: integer
+        next_installment_principal_minor:
+          type: integer
+        next_installment_opening_principal_minor:
+          type: integer
+        accrued_day_units:
+          type: integer
+          description: Convention day units from the period start to the reference
+            day. Accrued interest for a principal P = round half up(interest x P /
+            opening principal x accrued_day_units / period_day_units x participation
+            bps / 10000).
+        period_day_units:
+          type: integer
+        investor_interest_participation_bps:
+          type: integer
+        investor_penalty_participation_bps:
+          type: integer
+        principal_minor:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+      required:
+      - accrual_start_date
+      - accrued_day_units
+      - interest_convention
+      - interest_convention_label
+      - investor_interest_participation_bps
+      - investor_penalty_participation_bps
+      - next_due_date
+      - next_installment_interest_minor
+      - next_installment_opening_principal_minor
+      - next_installment_principal_minor
+      - period_day_units
+      - price_reference_date
+      - pricing_rule
     OriginatorSettlementQueueRow:
       type: object
       properties:
@@ -19629,12 +19862,31 @@ components:
         funding_deadline:
           type: string
           format: date
+        pricing_rule:
+          allOf:
+          - $ref: '#/components/schemas/PricingRuleEnum'
+          default: accrued_interest
+        interest_convention:
+          default: ''
+          description: |-
+            Day-count convention of the claim contract (F03); required for 18.7 offers.
+
+            * `act_365_fixed` - act_365_fixed
+            * `act_360` - act_360
+            * `act_act_isda` - act_act_isda
+            * `thirty_360_bond_basis` - thirty_360_bond_basis
+            * `thirty_e_360` - thirty_e_360
+          oneOf:
+          - $ref: '#/components/schemas/OriginatorLoanCreateInterestConventionEnum'
+          - $ref: '#/components/schemas/BlankEnum'
         entitlement_start_date:
           type: string
           format: date
+          nullable: true
         activation_outstanding_principal_minor:
           type: integer
           minimum: 1
+          nullable: true
         investor_interest_participation_bps:
           type: integer
           maximum: 10000
@@ -20381,6 +20633,14 @@ components:
       - original_principal_by_currency
       - outstanding_principal_by_currency
       - realized_interest_by_currency
+    PricingRuleEnum:
+      enum:
+      - accrued_interest
+      - boundary_installment
+      type: string
+      description: |-
+        * `accrued_interest` - accrued_interest
+        * `boundary_installment` - boundary_installment
     PrimaryInvestmentOrder:
       type: object
       properties:
