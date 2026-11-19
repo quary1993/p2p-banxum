@@ -111,6 +111,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     # U33-DEC-31: "en" (the default on the first visit) or "de-CH", for the investor platform,
     # notifications and emails. Contracts and source documents keep their own language.
     language = models.CharField(max_length=8, default="en")
+    # 18.10: staff roles of an admin account (compliance, compliance deputy, security verifier,
+    # security verifier deputy), granted by a superadmin.
+    staff_roles = models.JSONField(default=list, blank=True)
     is_env_managed_superadmin = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

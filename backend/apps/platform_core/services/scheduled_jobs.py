@@ -45,6 +45,8 @@ ASSISTED_RECOVERY_LINKS_JOB = "assisted_recovery_links"
 SAVED_OPPORTUNITY_REMINDERS_JOB = "saved_opportunity_reminders"
 # 18.3: last month's account statement of each investor with money movements (idempotent).
 MONTHLY_INVESTOR_STATEMENTS_JOB = "monthly_investor_statements"
+# 18.10: re-verification notices 30 and 7 days before the date set by compliance.
+REVERIFICATION_NOTICES_JOB = "reverification_notices"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     ASSISTED_RECOVERY_LINKS_JOB,
@@ -63,6 +65,7 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     PUBLIC_SITE_RETENTION_JOB,
     ACCOUNT_SECURITY_RETENTION_JOB,
     MONTHLY_INVESTOR_STATEMENTS_JOB,
+    REVERIFICATION_NOTICES_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 # Jobs that change no financial or admin state run as the system, without the admin actor.
@@ -75,6 +78,7 @@ SYSTEM_JOB_NAMES = frozenset(
         ACCOUNT_SECURITY_RETENTION_JOB,
         SAVED_OPPORTUNITY_REMINDERS_JOB,
         MONTHLY_INVESTOR_STATEMENTS_JOB,
+        REVERIFICATION_NOTICES_JOB,
     }
 )
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
@@ -573,6 +577,9 @@ def _execute_scheduled_job(
         return _saved_opportunity_reminders_summary(as_of=as_of)
     if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:
         return _monthly_investor_statements_summary(as_of=as_of)
+    if job_name == REVERIFICATION_NOTICES_JOB:
+        compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+        return dict(compliance.send_reverification_notices(as_of=business_date(as_of)))
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
     if job_name == SETTLEMENT_CALENDAR_CHECK_JOB:

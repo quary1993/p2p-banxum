@@ -211,3 +211,93 @@ class KycManualReviewDecision(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["decision"]),
             models.Index(fields=["new_status"]),
         ]
+
+
+# 18.10 (Q12, U33-DEC-27): self-declarations, compliance reviews and re-verification dates.
+
+
+class InvestorDeclaration(AppendOnlyModel, TimestampedModel):
+    """One submitted declaration; a new submission is a new version (never edited)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="declarations"
+    )
+    version = models.PositiveIntegerField()
+    subject_type = models.CharField(max_length=16, default="person")
+    beneficial_owner_is_self = models.BooleanField()
+    beneficial_owner_name = models.CharField(max_length=255, blank=True)
+    sources_of_funds = models.JSONField(default=list)
+    savings_origin = models.CharField(max_length=500, blank=True)
+    source_other_text = models.CharField(max_length=500, blank=True)
+    pep_status = models.CharField(max_length=16)
+    pep_person = models.CharField(max_length=255, blank=True)
+    pep_relation = models.CharField(max_length=255, blank=True)
+    pep_function = models.CharField(max_length=255, blank=True)
+    pep_country = models.CharField(max_length=64, blank=True)
+    yearly_volume_band = models.CharField(max_length=16)
+    company_details = models.JSONField(default=dict, blank=True)
+    review_triggers = models.JSONField(default=list, blank=True)
+    submitted_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-submitted_at", "-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "version"], name="kyc_declaration_version")
+        ]
+        indexes = [models.Index(fields=["user", "submitted_at"])]
+
+
+class ComplianceReviewStatus(models.TextChoices):
+    OPEN = "open", "Open"
+    MORE_INFORMATION = "more_information", "More information requested"
+    CLOSED = "closed", "Closed"
+
+
+class ComplianceReview(TimestampedModel):
+    """A compliance analysis of an investor (not a refusal). A necessary open review blocks new
+    investments, reservations and resale purchases."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="compliance_reviews"
+    )
+    declaration = models.ForeignKey(
+        InvestorDeclaration, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    triggers = models.JSONField(default=list, blank=True)
+    necessary = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=24, choices=ComplianceReviewStatus.choices, default=ComplianceReviewStatus.OPEN
+    )
+    opened_reason = models.CharField(max_length=500, blank=True)
+    opened_by_user_id = models.UUIDField(null=True, blank=True)
+    assigned_to_user_id = models.UUIDField(null=True, blank=True)
+    investor_message = models.TextField(blank=True)
+    outcome_note = models.TextField(blank=True)
+    closed_by_user_id = models.UUIDField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "status"]), models.Index(fields=["status"])]
+
+
+class InvestorReverification(TimestampedModel):
+    """The re-verification date set by compliance for one investor (the current one is the open
+    row; a completed or replaced date is closed and kept)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reverifications"
+    )
+    due_date = models.DateField()
+    reason = models.CharField(max_length=500, blank=True)
+    set_by_user_id = models.UUIDField()
+    notices_sent = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_by_user_id = models.UUIDField(null=True, blank=True)
+    replaced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "completed_at", "replaced_at"])]

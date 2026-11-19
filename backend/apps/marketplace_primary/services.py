@@ -232,6 +232,14 @@ def _require_investor_financial_access(actor: Model) -> None:
         )
 
 
+def _require_no_compliance_block(actor: Model) -> None:
+    """18.10: declarations missing, a necessary review open or re-verification overdue."""
+    declarations: Any = import_module("backend.apps.kyc_compliance.declarations")
+    reason = declarations.investment_block(actor)
+    if reason is not None:
+        raise MarketplacePrimaryValidationError(declarations.BLOCK_MESSAGES[reason])
+
+
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise MarketplacePrimaryAuthorizationError(
@@ -862,6 +870,7 @@ def create_primary_investment_order(
     command: CreatePrimaryInvestmentOrderCommand,
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
+    _require_no_compliance_block(command.actor)
     investor_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     loan = _loan_for_update(command.loan_id)
@@ -963,6 +972,7 @@ def allocate_primary_order_from_balance(
     command: AllocatePrimaryInvestmentOrderCommand,
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
+    _require_no_compliance_block(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     order = PrimaryInvestmentOrder.objects.filter(
         id=command.order_id,

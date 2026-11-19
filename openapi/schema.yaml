@@ -4759,6 +4759,155 @@ paths:
               schema:
                 $ref: '#/components/schemas/KycManualReviewDecisionResponse'
           description: ''
+  /api/v1/kyc/admin/compliance/investors/{investor_id}/:
+    get:
+      operationId: v1_kyc_admin_compliance_investors_retrieve
+      parameters:
+      - in: path
+        name: investor_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorComplianceFile'
+          description: ''
+  /api/v1/kyc/admin/compliance/investors/{investor_id}/reverification/:
+    post:
+      operationId: v1_kyc_admin_compliance_investors_reverification_create
+      parameters:
+      - in: path
+        name: investor_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReverificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReverificationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorComplianceFile'
+          description: ''
+  /api/v1/kyc/admin/compliance/investors/{investor_id}/reverification/complete/:
+    post:
+      operationId: v1_kyc_admin_compliance_investors_reverification_complete_create
+      parameters:
+      - in: path
+        name: investor_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorComplianceFile'
+          description: ''
+  /api/v1/kyc/admin/compliance/reviews/:
+    get:
+      operationId: v1_kyc_admin_compliance_reviews_list
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComplianceReview'
+          description: ''
+    post:
+      operationId: v1_kyc_admin_compliance_reviews_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenReviewRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpenReviewRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpenReviewRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceReview'
+          description: ''
+  /api/v1/kyc/admin/compliance/reviews/{review_id}/decision/:
+    post:
+      operationId: v1_kyc_admin_compliance_reviews_decision_create
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceReview'
+          description: ''
   /api/v1/kyc/admin/manual-reviews/:
     get:
       operationId: v1_kyc_admin_manual_reviews_list
@@ -4774,6 +4923,82 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/KycAdminCase'
+          description: ''
+  /api/v1/kyc/admin/staff-roles/{user_id}/:
+    post:
+      operationId: v1_kyc_admin_staff_roles_create
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffRolesRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StaffRolesRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StaffRolesRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffRolesResponse'
+          description: ''
+  /api/v1/kyc/declarations/:
+    get:
+      operationId: v1_kyc_declarations_retrieve
+      description: 'Settings > Declarations: the investor''s status and a new declaration
+        version.'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorComplianceStatus'
+          description: ''
+    post:
+      operationId: v1_kyc_declarations_create
+      description: 'Settings > Declarations: the investor''s status and a new declaration
+        version.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeclarationSubmit'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DeclarationSubmit'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DeclarationSubmit'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorComplianceStatus'
           description: ''
   /api/v1/kyc/session/:
     post:
@@ -11990,6 +12215,62 @@ components:
       - consent
       - fields
       - kind
+    ComplianceReview:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_id:
+          type: string
+          format: uuid
+        investor_name:
+          type: string
+        investor_email:
+          type: string
+        declaration_version:
+          type: integer
+          nullable: true
+        triggers:
+          type: array
+          items:
+            type: string
+        trigger_labels:
+          type: array
+          items:
+            type: string
+        necessary:
+          type: boolean
+        status:
+          type: string
+        opened_reason:
+          type: string
+        investor_message:
+          type: string
+        outcome_note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - closed_at
+      - created_at
+      - declaration_version
+      - id
+      - investor_email
+      - investor_id
+      - investor_message
+      - investor_name
+      - necessary
+      - opened_reason
+      - outcome_note
+      - status
+      - trigger_labels
+      - triggers
     ContactEnquiryFields:
       type: object
       description: 'Contact: request a conversation (topic and message optional).'
@@ -12069,18 +12350,116 @@ components:
       - platform_business_date
       - qa_controls_available
       - user
-    DecisionEnum:
-      enum:
-      - approve
-      - decline
-      - request_reverification
-      - reopen
-      type: string
-      description: |-
-        * `approve` - Approve
-        * `decline` - Decline
-        * `request_reverification` - Request re-verification
-        * `reopen` - Reopen manual review
+    Declaration:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        subject_type:
+          type: string
+        beneficial_owner_is_self:
+          type: boolean
+        beneficial_owner_name:
+          type: string
+        sources_of_funds:
+          type: array
+          items:
+            type: string
+        savings_origin:
+          type: string
+        source_other_text:
+          type: string
+        pep_status:
+          type: string
+        pep_person:
+          type: string
+        pep_relation:
+          type: string
+        pep_function:
+          type: string
+        pep_country:
+          type: string
+        yearly_volume_band:
+          type: string
+        company_details:
+          type: object
+          additionalProperties:
+            type: string
+        review_triggers:
+          type: array
+          items:
+            type: string
+        submitted_at:
+          type: string
+          format: date-time
+      required:
+      - beneficial_owner_is_self
+      - beneficial_owner_name
+      - company_details
+      - id
+      - pep_country
+      - pep_function
+      - pep_person
+      - pep_relation
+      - pep_status
+      - review_triggers
+      - savings_origin
+      - source_other_text
+      - sources_of_funds
+      - subject_type
+      - submitted_at
+      - version
+      - yearly_volume_band
+    DeclarationSubmit:
+      type: object
+      properties:
+        subject_type:
+          allOf:
+          - $ref: '#/components/schemas/SubjectTypeEnum'
+          default: person
+        beneficial_owner_is_self:
+          type: boolean
+        beneficial_owner_name:
+          type: string
+          default: ''
+        sources_of_funds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourcesOfFundsEnum'
+        savings_origin:
+          type: string
+          default: ''
+        source_other_text:
+          type: string
+          default: ''
+        pep_status:
+          $ref: '#/components/schemas/PepStatusEnum'
+        pep_person:
+          type: string
+          default: ''
+        pep_relation:
+          type: string
+          default: ''
+        pep_function:
+          type: string
+          default: ''
+        pep_country:
+          type: string
+          default: ''
+        yearly_volume_band:
+          $ref: '#/components/schemas/YearlyVolumeBandEnum'
+        company_details:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+      - beneficial_owner_is_self
+      - pep_status
+      - sources_of_funds
+      - yearly_volume_band
     DefaultRestoreTargetEnum:
       enum:
       - seed
@@ -13847,6 +14226,60 @@ components:
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
+    InvestorComplianceFile:
+      type: object
+      properties:
+        investor_id:
+          type: string
+          format: uuid
+        declarations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Declaration'
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceReview'
+        reverifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReverificationRow'
+      required:
+      - declarations
+      - investor_id
+      - reverifications
+      - reviews
+    InvestorComplianceStatus:
+      type: object
+      properties:
+        declaration:
+          allOf:
+          - $ref: '#/components/schemas/Declaration'
+          nullable: true
+        review_open:
+          type: boolean
+        review_status:
+          type: string
+          nullable: true
+        review_message:
+          type: string
+        reverification_due_date:
+          type: string
+          format: date
+          nullable: true
+        investment_block:
+          type: string
+          nullable: true
+        investment_block_message:
+          type: string
+      required:
+      - declaration
+      - investment_block
+      - investment_block_message
+      - reverification_due_date
+      - review_message
+      - review_open
+      - review_status
     InvestorDashboard:
       type: object
       properties:
@@ -15134,7 +15567,7 @@ components:
       type: object
       properties:
         decision:
-          $ref: '#/components/schemas/DecisionEnum'
+          $ref: '#/components/schemas/KycManualReviewDecisionRequestDecisionEnum'
         reason_code:
           $ref: '#/components/schemas/KycManualReviewDecisionRequestReasonCodeEnum'
         note:
@@ -15144,6 +15577,18 @@ components:
       required:
       - decision
       - reason_code
+    KycManualReviewDecisionRequestDecisionEnum:
+      enum:
+      - approve
+      - decline
+      - request_reverification
+      - reopen
+      type: string
+      description: |-
+        * `approve` - Approve
+        * `decline` - Decline
+        * `request_reverification` - Request re-verification
+        * `reopen` - Reopen manual review
     KycManualReviewDecisionRequestReasonCodeEnum:
       enum:
       - pep_review
@@ -18622,6 +19067,20 @@ components:
       description: |-
         * `european` - european
         * `swiss` - swiss
+    OpenReviewRequest:
+      type: object
+      properties:
+        investor_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        necessary:
+          type: boolean
+          default: true
+      required:
+      - investor_id
+      - reason
     OperationDetails:
       type: object
       description: |-
@@ -20341,6 +20800,16 @@ components:
       - id
       - is_forced
       - requested_at
+    PepStatusEnum:
+      enum:
+      - 'no'
+      - 'yes'
+      - not_sure
+      type: string
+      description: |-
+        * `no` - no
+        * `yes` - yes
+        * `not_sure` - not_sure
     PeriodPresetEnum:
       enum:
       - custom
@@ -22452,6 +22921,68 @@ components:
       - reason_text
       - recorded_at
       - returned_value_date
+    ReverificationRequest:
+      type: object
+      properties:
+        due_date:
+          type: string
+          format: date
+        reason:
+          type: string
+          default: ''
+      required:
+      - due_date
+    ReverificationRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        due_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        notices_sent:
+          type: array
+          items:
+            type: integer
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        replaced_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - completed_at
+      - due_date
+      - id
+      - notices_sent
+      - reason
+      - replaced_at
+    ReviewDecisionRequest:
+      type: object
+      properties:
+        decision:
+          $ref: '#/components/schemas/ReviewDecisionRequestDecisionEnum'
+        note:
+          type: string
+          default: ''
+        investor_message:
+          type: string
+          default: ''
+      required:
+      - decision
+    ReviewDecisionRequestDecisionEnum:
+      enum:
+      - close
+      - more_information
+      type: string
+      description: |-
+        * `close` - close
+        * `more_information` - more_information
     RevokeOtherSessionsResponse:
       type: object
       properties:
@@ -22505,6 +23036,18 @@ components:
         * `C` - C
         * `D` - D
         * `unrated` - Unrated
+    RolesEnum:
+      enum:
+      - compliance
+      - compliance_deputy
+      - security_verifier
+      - security_verifier_deputy
+      type: string
+      description: |-
+        * `compliance` - compliance
+        * `compliance_deputy` - compliance_deputy
+        * `security_verifier` - security_verifier
+        * `security_verifier_deputy` - security_verifier_deputy
     SavedOpportunity:
       type: object
       description: 'U33-DEC-18: a saved opportunity, checked again at each read.'
@@ -24467,6 +25010,50 @@ components:
       - EUR
       type: string
       description: '* `EUR` - EUR'
+    SourcesOfFundsEnum:
+      enum:
+      - salary
+      - savings
+      - sale_of_property
+      - inheritance
+      - business_income
+      - dividends
+      - investment_income
+      - rent
+      - other
+      type: string
+      description: |-
+        * `salary` - salary
+        * `savings` - savings
+        * `sale_of_property` - sale_of_property
+        * `inheritance` - inheritance
+        * `business_income` - business_income
+        * `dividends` - dividends
+        * `investment_income` - investment_income
+        * `rent` - rent
+        * `other` - other
+    StaffRolesRequest:
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RolesEnum'
+      required:
+      - roles
+    StaffRolesResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          items:
+            type: string
+      required:
+      - roles
+      - user_id
     Status828Enum:
       enum:
       - active
@@ -24532,6 +25119,14 @@ components:
           format: uri
       required:
       - file
+    SubjectTypeEnum:
+      enum:
+      - person
+      - company
+      type: string
+      description: |-
+        * `person` - person
+        * `company` - company
     SwissCreditorFinancing:
       type: object
       properties:
@@ -24940,6 +25535,18 @@ components:
       - idempotency_key
       - reason_code
       - returned_value_date
+    YearlyVolumeBandEnum:
+      enum:
+      - under_10k
+      - 10k_50k
+      - 50k_250k
+      - over_250k
+      type: string
+      description: |-
+        * `under_10k` - under_10k
+        * `10k_50k` - 10k_50k
+        * `50k_250k` - 50k_250k
+        * `over_250k` - over_250k
   securitySchemes:
     cookieAuth:
       type: apiKey

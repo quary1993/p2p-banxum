@@ -4929,6 +4929,11 @@ def purchase_originator_claim(
         raise OriginatorClaimsAuthorizationError(
             "Financial access, phone verification, and approved KYC are required."
         )
+    # 18.10: declarations missing, a necessary review open or re-verification overdue.
+    compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+    compliance_block = compliance.investment_block(command.actor)
+    if compliance_block is not None:
+        raise OriginatorClaimsValidationError(compliance.BLOCK_MESSAGES[compliance_block])
     idempotency_key = _required(command.idempotency_key, "Idempotency key")
     if len(idempotency_key) > 160:
         raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
@@ -4977,6 +4982,10 @@ def purchase_originator_claim_in_verified_batch(
         raise OriginatorClaimsAuthorizationError(
             "Financial access, phone verification, and approved KYC are required."
         )
+    compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+    compliance_block = compliance.investment_block(command.actor)
+    if compliance_block is not None:
+        raise OriginatorClaimsValidationError(compliance.BLOCK_MESSAGES[compliance_block])
     purchase_command = PurchaseOriginatorClaimCommand(
         actor=command.actor,
         quote_id=command.quote_id,

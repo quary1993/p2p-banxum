@@ -1839,6 +1839,25 @@ export interface CompanyEnquiryRequest {
   fields: CompanyEnquiryFields;
 }
 
+export interface ComplianceReview {
+  id: string;
+  investor_id: string;
+  investor_name: string;
+  investor_email: string;
+  /** @nullable */
+  declaration_version: number | null;
+  triggers: string[];
+  trigger_labels: string[];
+  necessary: boolean;
+  status: string;
+  opened_reason: string;
+  investor_message: string;
+  outcome_note: string;
+  created_at: string;
+  /** @nullable */
+  closed_at: string | null;
+}
+
 /**
  * * `How investing works` - How investing works
  * * `An opportunity` - An opportunity
@@ -1921,21 +1940,113 @@ export interface CurrentUserResponse {
   platform_business_date: string;
 }
 
+export type DeclarationCompanyDetails = {[key: string]: string};
+
+export interface Declaration {
+  id: string;
+  version: number;
+  subject_type: string;
+  beneficial_owner_is_self: boolean;
+  beneficial_owner_name: string;
+  sources_of_funds: string[];
+  savings_origin: string;
+  source_other_text: string;
+  pep_status: string;
+  pep_person: string;
+  pep_relation: string;
+  pep_function: string;
+  pep_country: string;
+  yearly_volume_band: string;
+  company_details: DeclarationCompanyDetails;
+  review_triggers: string[];
+  submitted_at: string;
+}
+
+export type DeclarationSubmitCompanyDetails = {[key: string]: string};
+
 /**
- * * `approve` - Approve
- * * `decline` - Decline
- * * `request_reverification` - Request re-verification
- * * `reopen` - Reopen manual review
+ * * `person` - person
+ * * `company` - company
  */
-export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
 
 
-export const DecisionEnum = {
-  approve: 'approve',
-  decline: 'decline',
-  request_reverification: 'request_reverification',
-  reopen: 'reopen',
+export const SubjectTypeEnum = {
+  person: 'person',
+  company: 'company',
 } as const;
+
+/**
+ * * `salary` - salary
+ * * `savings` - savings
+ * * `sale_of_property` - sale_of_property
+ * * `inheritance` - inheritance
+ * * `business_income` - business_income
+ * * `dividends` - dividends
+ * * `investment_income` - investment_income
+ * * `rent` - rent
+ * * `other` - other
+ */
+export type SourcesOfFundsEnum = typeof SourcesOfFundsEnum[keyof typeof SourcesOfFundsEnum];
+
+
+export const SourcesOfFundsEnum = {
+  salary: 'salary',
+  savings: 'savings',
+  sale_of_property: 'sale_of_property',
+  inheritance: 'inheritance',
+  business_income: 'business_income',
+  dividends: 'dividends',
+  investment_income: 'investment_income',
+  rent: 'rent',
+  other: 'other',
+} as const;
+
+/**
+ * * `no` - no
+ * * `yes` - yes
+ * * `not_sure` - not_sure
+ */
+export type PepStatusEnum = typeof PepStatusEnum[keyof typeof PepStatusEnum];
+
+
+export const PepStatusEnum = {
+  no: 'no',
+  yes: 'yes',
+  not_sure: 'not_sure',
+} as const;
+
+/**
+ * * `under_10k` - under_10k
+ * * `10k_50k` - 10k_50k
+ * * `50k_250k` - 50k_250k
+ * * `over_250k` - over_250k
+ */
+export type YearlyVolumeBandEnum = typeof YearlyVolumeBandEnum[keyof typeof YearlyVolumeBandEnum];
+
+
+export const YearlyVolumeBandEnum = {
+  under_10k: 'under_10k',
+  '10k_50k': '10k_50k',
+  '50k_250k': '50k_250k',
+  over_250k: 'over_250k',
+} as const;
+
+export interface DeclarationSubmit {
+  subject_type?: SubjectTypeEnum;
+  beneficial_owner_is_self: boolean;
+  beneficial_owner_name?: string;
+  sources_of_funds: SourcesOfFundsEnum[];
+  savings_origin?: string;
+  source_other_text?: string;
+  pep_status: PepStatusEnum;
+  pep_person?: string;
+  pep_relation?: string;
+  pep_function?: string;
+  pep_country?: string;
+  yearly_volume_band: YearlyVolumeBandEnum;
+  company_details?: DeclarationSubmitCompanyDetails;
+}
 
 /**
  * * `seed` - seed
@@ -2857,6 +2968,37 @@ export interface InvestorBalanceSummary {
   penalty_mode_minor: number;
 }
 
+export interface ReverificationRow {
+  id: string;
+  due_date: string;
+  reason: string;
+  notices_sent: number[];
+  /** @nullable */
+  completed_at: string | null;
+  /** @nullable */
+  replaced_at: string | null;
+}
+
+export interface InvestorComplianceFile {
+  investor_id: string;
+  declarations: Declaration[];
+  reviews: ComplianceReview[];
+  reverifications: ReverificationRow[];
+}
+
+export interface InvestorComplianceStatus {
+  declaration: Declaration | null;
+  review_open: boolean;
+  /** @nullable */
+  review_status: string | null;
+  review_message: string;
+  /** @nullable */
+  reverification_due_date: string | null;
+  /** @nullable */
+  investment_block: string | null;
+  investment_block_message: string;
+}
+
 export interface PortfolioSummary {
   holding_count: number;
   active_holding_count: number;
@@ -3443,6 +3585,22 @@ export interface KycManualReviewDecision {
 }
 
 /**
+ * * `approve` - Approve
+ * * `decline` - Decline
+ * * `request_reverification` - Request re-verification
+ * * `reopen` - Reopen manual review
+ */
+export type KycManualReviewDecisionRequestDecisionEnum = typeof KycManualReviewDecisionRequestDecisionEnum[keyof typeof KycManualReviewDecisionRequestDecisionEnum];
+
+
+export const KycManualReviewDecisionRequestDecisionEnum = {
+  approve: 'approve',
+  decline: 'decline',
+  request_reverification: 'request_reverification',
+  reopen: 'reopen',
+} as const;
+
+/**
  * * `pep_review` - PEP review
  * * `high_risk_review` - High-risk review
  * * `adverse_media_review` - Adverse-media review
@@ -3473,7 +3631,7 @@ export const KycManualReviewDecisionRequestReasonCodeEnum = {
 } as const;
 
 export interface KycManualReviewDecisionRequest {
-  decision: DecisionEnum;
+  decision: KycManualReviewDecisionRequestDecisionEnum;
   reason_code: KycManualReviewDecisionRequestReasonCodeEnum;
   note?: string;
   evidence_summary?: string;
@@ -5208,6 +5366,12 @@ export const NumberFormatEnum = {
   swiss: 'swiss',
 } as const;
 
+export interface OpenReviewRequest {
+  investor_id: string;
+  reason: string;
+  necessary?: boolean;
+}
+
 /**
  * 18.5: the details the email code confirms. Each action takes one fixed set of fields:
  * withdrawal (amount_minor, currency, iban); bank_account_change (currency, iban) or
@@ -6929,9 +7093,48 @@ export interface ReportGenerateResponse {
   manifest: unknown;
 }
 
+export interface ReverificationRequest {
+  due_date: string;
+  reason?: string;
+}
+
+/**
+ * * `close` - close
+ * * `more_information` - more_information
+ */
+export type ReviewDecisionRequestDecisionEnum = typeof ReviewDecisionRequestDecisionEnum[keyof typeof ReviewDecisionRequestDecisionEnum];
+
+
+export const ReviewDecisionRequestDecisionEnum = {
+  close: 'close',
+  more_information: 'more_information',
+} as const;
+
+export interface ReviewDecisionRequest {
+  decision: ReviewDecisionRequestDecisionEnum;
+  note?: string;
+  investor_message?: string;
+}
+
 export interface RevokeOtherSessionsResponse {
   sessions_ended: number;
 }
+
+/**
+ * * `compliance` - compliance
+ * * `compliance_deputy` - compliance_deputy
+ * * `security_verifier` - security_verifier
+ * * `security_verifier_deputy` - security_verifier_deputy
+ */
+export type RolesEnum = typeof RolesEnum[keyof typeof RolesEnum];
+
+
+export const RolesEnum = {
+  compliance: 'compliance',
+  compliance_deputy: 'compliance_deputy',
+  security_verifier: 'security_verifier',
+  security_verifier_deputy: 'security_verifier_deputy',
+} as const;
 
 /**
  * U33-DEC-18: a saved opportunity, checked again at each read.
@@ -7822,6 +8025,15 @@ export interface SnbReferenceRate {
   chf_per_unit: string;
   /** @maxLength 255 */
   source: string;
+}
+
+export interface StaffRolesRequest {
+  roles: RolesEnum[];
+}
+
+export interface StaffRolesResponse {
+  user_id: string;
+  roles: string[];
 }
 
 export interface StatusResponse {
@@ -21265,6 +21477,488 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1KycAdminCasesManualReviewCreateMutationOptions(options), queryClient);
     }
 
+export const getV1KycAdminComplianceInvestorsRetrieveUrl = (investorId: string,) => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/investors/${investorId}/`
+}
+
+export const v1KycAdminComplianceInvestorsRetrieve = async (investorId: string, options?: Parameters<typeof httpClient>[1]): Promise<InvestorComplianceFile> => {
+
+  return httpClient<InvestorComplianceFile>(getV1KycAdminComplianceInvestorsRetrieveUrl(investorId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceInvestorsRetrieveQueryKey = (investorId: string,) => {
+    return [
+    `/api/v1/kyc/admin/compliance/investors/${investorId}/`
+    ] as const;
+    }
+
+
+export const getV1KycAdminComplianceInvestorsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError = unknown>(investorId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1KycAdminComplianceInvestorsRetrieveQueryKey(investorId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>> = ({ signal }) => v1KycAdminComplianceInvestorsRetrieve(investorId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: investorId !== null && investorId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1KycAdminComplianceInvestorsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>>
+export type V1KycAdminComplianceInvestorsRetrieveQueryError = unknown
+
+
+export function useV1KycAdminComplianceInvestorsRetrieve<TData = Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError = unknown>(
+ investorId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminComplianceInvestorsRetrieve<TData = Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError = unknown>(
+ investorId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminComplianceInvestorsRetrieve<TData = Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError = unknown>(
+ investorId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1KycAdminComplianceInvestorsRetrieve<TData = Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError = unknown>(
+ investorId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1KycAdminComplianceInvestorsRetrieveQueryOptions(investorId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1KycAdminComplianceInvestorsReverificationCreateUrl = (investorId: string,) => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/investors/${investorId}/reverification/`
+}
+
+export const v1KycAdminComplianceInvestorsReverificationCreate = async (investorId: string,
+    reverificationRequest: ReverificationRequest, options?: Parameters<typeof httpClient>[1]): Promise<InvestorComplianceFile> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<InvestorComplianceFile>(getV1KycAdminComplianceInvestorsReverificationCreateUrl(investorId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reverificationRequest)
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceInvestorsReverificationCreateMutationKey = () => ['v1KycAdminComplianceInvestorsReverificationCreate'] as const;
+
+export const getV1KycAdminComplianceInvestorsReverificationCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycAdminComplianceInvestorsReverificationCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>, V1KycAdminComplianceInvestorsReverificationCreateMutationVariables> = (props) => {
+          const {investorId,data} = props ?? {};
+
+          return  v1KycAdminComplianceInvestorsReverificationCreate(investorId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminComplianceInvestorsReverificationCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>>
+    export type V1KycAdminComplianceInvestorsReverificationCreateMutationBody = ReverificationRequest
+    export type V1KycAdminComplianceInvestorsReverificationCreateMutationError = unknown
+    export type V1KycAdminComplianceInvestorsReverificationCreateMutationVariables = {investorId: string;data: ReverificationRequest}
+
+    export const useV1KycAdminComplianceInvestorsReverificationCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCreate>>,
+        TError,
+        V1KycAdminComplianceInvestorsReverificationCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycAdminComplianceInvestorsReverificationCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1KycAdminComplianceInvestorsReverificationCompleteCreateUrl = (investorId: string,) => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/investors/${investorId}/reverification/complete/`
+}
+
+export const v1KycAdminComplianceInvestorsReverificationCompleteCreate = async (investorId: string, options?: Parameters<typeof httpClient>[1]): Promise<InvestorComplianceFile> => {
+
+  return httpClient<InvestorComplianceFile>(getV1KycAdminComplianceInvestorsReverificationCompleteCreateUrl(investorId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceInvestorsReverificationCompleteCreateMutationKey = () => ['v1KycAdminComplianceInvestorsReverificationCompleteCreate'] as const;
+
+export const getV1KycAdminComplianceInvestorsReverificationCompleteCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycAdminComplianceInvestorsReverificationCompleteCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>, V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables> = (props) => {
+          const {investorId} = props ?? {};
+
+          return  v1KycAdminComplianceInvestorsReverificationCompleteCreate(investorId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>>
+
+    export type V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationError = unknown
+    export type V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables = {investorId: string}
+
+    export const useV1KycAdminComplianceInvestorsReverificationCompleteCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>, TError,V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminComplianceInvestorsReverificationCompleteCreate>>,
+        TError,
+        V1KycAdminComplianceInvestorsReverificationCompleteCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycAdminComplianceInvestorsReverificationCompleteCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1KycAdminComplianceReviewsListUrl = () => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/reviews/`
+}
+
+export const v1KycAdminComplianceReviewsList = async ( options?: Parameters<typeof httpClient>[1]): Promise<ComplianceReview[]> => {
+
+  return httpClient<ComplianceReview[]>(getV1KycAdminComplianceReviewsListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceReviewsListQueryKey = () => {
+    return [
+    `/api/v1/kyc/admin/compliance/reviews/`
+    ] as const;
+    }
+
+
+export const getV1KycAdminComplianceReviewsListQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1KycAdminComplianceReviewsListQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>> = ({ signal }) => v1KycAdminComplianceReviewsList({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1KycAdminComplianceReviewsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>>
+export type V1KycAdminComplianceReviewsListQueryError = unknown
+
+
+export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1KycAdminComplianceReviewsListQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1KycAdminComplianceReviewsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/reviews/`
+}
+
+export const v1KycAdminComplianceReviewsCreate = async (openReviewRequest: OpenReviewRequest, options?: Parameters<typeof httpClient>[1]): Promise<ComplianceReview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<ComplianceReview>(getV1KycAdminComplianceReviewsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(openReviewRequest)
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceReviewsCreateMutationKey = () => ['v1KycAdminComplianceReviewsCreate'] as const;
+
+export const getV1KycAdminComplianceReviewsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>, TError,V1KycAdminComplianceReviewsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>, TError,V1KycAdminComplianceReviewsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycAdminComplianceReviewsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>, V1KycAdminComplianceReviewsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1KycAdminComplianceReviewsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminComplianceReviewsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>>
+    export type V1KycAdminComplianceReviewsCreateMutationBody = OpenReviewRequest
+    export type V1KycAdminComplianceReviewsCreateMutationError = unknown
+    export type V1KycAdminComplianceReviewsCreateMutationVariables = {data: OpenReviewRequest}
+
+    export const useV1KycAdminComplianceReviewsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>, TError,V1KycAdminComplianceReviewsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminComplianceReviewsCreate>>,
+        TError,
+        V1KycAdminComplianceReviewsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycAdminComplianceReviewsCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1KycAdminComplianceReviewsDecisionCreateUrl = (reviewId: string,) => {
+
+
+
+
+  return `/api/v1/kyc/admin/compliance/reviews/${reviewId}/decision/`
+}
+
+export const v1KycAdminComplianceReviewsDecisionCreate = async (reviewId: string,
+    reviewDecisionRequest: ReviewDecisionRequest, options?: Parameters<typeof httpClient>[1]): Promise<ComplianceReview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<ComplianceReview>(getV1KycAdminComplianceReviewsDecisionCreateUrl(reviewId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reviewDecisionRequest)
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminComplianceReviewsDecisionCreateMutationKey = () => ['v1KycAdminComplianceReviewsDecisionCreate'] as const;
+
+export const getV1KycAdminComplianceReviewsDecisionCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>, TError,V1KycAdminComplianceReviewsDecisionCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>, TError,V1KycAdminComplianceReviewsDecisionCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycAdminComplianceReviewsDecisionCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>, V1KycAdminComplianceReviewsDecisionCreateMutationVariables> = (props) => {
+          const {reviewId,data} = props ?? {};
+
+          return  v1KycAdminComplianceReviewsDecisionCreate(reviewId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminComplianceReviewsDecisionCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>>
+    export type V1KycAdminComplianceReviewsDecisionCreateMutationBody = ReviewDecisionRequest
+    export type V1KycAdminComplianceReviewsDecisionCreateMutationError = unknown
+    export type V1KycAdminComplianceReviewsDecisionCreateMutationVariables = {reviewId: string;data: ReviewDecisionRequest}
+
+    export const useV1KycAdminComplianceReviewsDecisionCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>, TError,V1KycAdminComplianceReviewsDecisionCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminComplianceReviewsDecisionCreate>>,
+        TError,
+        V1KycAdminComplianceReviewsDecisionCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycAdminComplianceReviewsDecisionCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1KycAdminManualReviewsListUrl = () => {
 
 
@@ -21359,6 +22053,256 @@ export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof
 
 
 
+
+export const getV1KycAdminStaffRolesCreateUrl = (userId: string,) => {
+
+
+
+
+  return `/api/v1/kyc/admin/staff-roles/${userId}/`
+}
+
+export const v1KycAdminStaffRolesCreate = async (userId: string,
+    staffRolesRequest: StaffRolesRequest, options?: Parameters<typeof httpClient>[1]): Promise<StaffRolesResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StaffRolesResponse>(getV1KycAdminStaffRolesCreateUrl(userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(staffRolesRequest)
+  }
+);}
+
+
+
+
+
+export const getV1KycAdminStaffRolesCreateMutationKey = () => ['v1KycAdminStaffRolesCreate'] as const;
+
+export const getV1KycAdminStaffRolesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>, TError,V1KycAdminStaffRolesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>, TError,V1KycAdminStaffRolesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycAdminStaffRolesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>, V1KycAdminStaffRolesCreateMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  v1KycAdminStaffRolesCreate(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminStaffRolesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>>
+    export type V1KycAdminStaffRolesCreateMutationBody = StaffRolesRequest
+    export type V1KycAdminStaffRolesCreateMutationError = unknown
+    export type V1KycAdminStaffRolesCreateMutationVariables = {userId: string;data: StaffRolesRequest}
+
+    export const useV1KycAdminStaffRolesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>, TError,V1KycAdminStaffRolesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminStaffRolesCreate>>,
+        TError,
+        V1KycAdminStaffRolesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycAdminStaffRolesCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1KycDeclarationsRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/kyc/declarations/`
+}
+
+/**
+ * Settings > Declarations: the investor's status and a new declaration version.
+ */
+export const v1KycDeclarationsRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<InvestorComplianceStatus> => {
+
+  return httpClient<InvestorComplianceStatus>(getV1KycDeclarationsRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1KycDeclarationsRetrieveQueryKey = () => {
+    return [
+    `/api/v1/kyc/declarations/`
+    ] as const;
+    }
+
+
+export const getV1KycDeclarationsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1KycDeclarationsRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>> = ({ signal }) => v1KycDeclarationsRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1KycDeclarationsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>>
+export type V1KycDeclarationsRetrieveQueryError = unknown
+
+
+export function useV1KycDeclarationsRetrieve<TData = Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycDeclarationsRetrieve<TData = Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycDeclarationsRetrieve<TData = Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1KycDeclarationsRetrieve<TData = Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycDeclarationsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1KycDeclarationsRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1KycDeclarationsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/kyc/declarations/`
+}
+
+/**
+ * Settings > Declarations: the investor's status and a new declaration version.
+ */
+export const v1KycDeclarationsCreate = async (declarationSubmit: DeclarationSubmit, options?: Parameters<typeof httpClient>[1]): Promise<InvestorComplianceStatus> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<InvestorComplianceStatus>(getV1KycDeclarationsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(declarationSubmit)
+  }
+);}
+
+
+
+
+
+export const getV1KycDeclarationsCreateMutationKey = () => ['v1KycDeclarationsCreate'] as const;
+
+export const getV1KycDeclarationsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycDeclarationsCreate>>, TError,V1KycDeclarationsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycDeclarationsCreate>>, TError,V1KycDeclarationsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1KycDeclarationsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycDeclarationsCreate>>, V1KycDeclarationsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1KycDeclarationsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycDeclarationsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycDeclarationsCreate>>>
+    export type V1KycDeclarationsCreateMutationBody = DeclarationSubmit
+    export type V1KycDeclarationsCreateMutationError = unknown
+    export type V1KycDeclarationsCreateMutationVariables = {data: DeclarationSubmit}
+
+    export const useV1KycDeclarationsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycDeclarationsCreate>>, TError,V1KycDeclarationsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycDeclarationsCreate>>,
+        TError,
+        V1KycDeclarationsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1KycDeclarationsCreateMutationOptions(options), queryClient);
+    }
 
 export const getV1KycSessionCreateUrl = () => {
 
@@ -32471,7 +33415,35 @@ export const getV1InvestorSmartInvestResumeCreateResponseMock = (overrideRespons
 
 export const getV1KycAdminCasesManualReviewCreateResponseMock = (overrideResponse: Partial<Extract<KycManualReviewDecisionResponse, object>> = {}): KycManualReviewDecisionResponse => ({case: {id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), user_full_name: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, decision: {id: faker.string.uuid(), case_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), decision: faker.string.alpha({length: {min: 10, max: 20}}), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), decided_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
 
+export const getV1KycAdminComplianceInvestorsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceFile, object>> = {}): InvestorComplianceFile => ({investor_id: faker.string.uuid(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), reviews: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), reverifications: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), due_date: faker.date.past().toISOString().slice(0, 10), reason: faker.string.alpha({length: {min: 10, max: 20}}), notices_sent: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), replaced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
+
+export const getV1KycAdminComplianceInvestorsReverificationCreateResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceFile, object>> = {}): InvestorComplianceFile => ({investor_id: faker.string.uuid(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), reviews: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), reverifications: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), due_date: faker.date.past().toISOString().slice(0, 10), reason: faker.string.alpha({length: {min: 10, max: 20}}), notices_sent: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), replaced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
+
+export const getV1KycAdminComplianceInvestorsReverificationCompleteCreateResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceFile, object>> = {}): InvestorComplianceFile => ({investor_id: faker.string.uuid(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), reviews: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), reverifications: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), due_date: faker.date.past().toISOString().slice(0, 10), reason: faker.string.alpha({length: {min: 10, max: 20}}), notices_sent: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), replaced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
+
+export const getV1KycAdminComplianceReviewsListResponseMock = (): ComplianceReview[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})))
+
+export const getV1KycAdminComplianceReviewsCreateResponseMock = (overrideResponse: Partial<Extract<ComplianceReview, object>> = {}): ComplianceReview => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+
+export const getV1KycAdminComplianceReviewsDecisionCreateResponseMock = (overrideResponse: Partial<Extract<ComplianceReview, object>> = {}): ComplianceReview => ({id: faker.string.uuid(), investor_id: faker.string.uuid(), investor_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_email: faker.string.alpha({length: {min: 10, max: 20}}), declaration_version: faker.helpers.arrayElement([faker.number.int(), null]), triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), trigger_labels: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), necessary: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), opened_reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), outcome_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+
 export const getV1KycAdminManualReviewsListResponseMock = (): KycAdminCase[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), user_full_name: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getV1KycAdminStaffRolesCreateResponseMock = (overrideResponse: Partial<Extract<StaffRolesResponse, object>> = {}): StaffRolesResponse => ({user_id: faker.string.uuid(), roles: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), ...overrideResponse})
+
+export const getV1KycDeclarationsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceStatus, object>> = {}): InvestorComplianceStatus => ({declaration: faker.helpers.arrayElement([{id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1KycDeclarationsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceStatus, object>> = {}): InvestorComplianceStatus => ({declaration: faker.helpers.arrayElement([{id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial<Extract<KycSessionResponse, object>> = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
 
@@ -34441,6 +35413,78 @@ export const getV1KycAdminCasesManualReviewCreateMockHandler = (overrideResponse
   }, options)
 }
 
+export const getV1KycAdminComplianceInvestorsRetrieveMockHandler = (overrideResponse?: InvestorComplianceFile | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorComplianceFile> | InvestorComplianceFile), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/kyc/admin/compliance/investors/:investorId/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceInvestorsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycAdminComplianceInvestorsReverificationCreateMockHandler = (overrideResponse?: InvestorComplianceFile | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorComplianceFile> | InvestorComplianceFile), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/compliance/investors/:investorId/reverification/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceInvestorsReverificationCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycAdminComplianceInvestorsReverificationCompleteCreateMockHandler = (overrideResponse?: InvestorComplianceFile | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorComplianceFile> | InvestorComplianceFile), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/compliance/investors/:investorId/reverification/complete/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceInvestorsReverificationCompleteCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycAdminComplianceReviewsListMockHandler = (overrideResponse?: ComplianceReview[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ComplianceReview[]> | ComplianceReview[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/kyc/admin/compliance/reviews/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceReviewsListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycAdminComplianceReviewsCreateMockHandler = (overrideResponse?: ComplianceReview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ComplianceReview> | ComplianceReview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/compliance/reviews/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceReviewsCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1KycAdminComplianceReviewsDecisionCreateMockHandler = (overrideResponse?: ComplianceReview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ComplianceReview> | ComplianceReview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/compliance/reviews/:reviewId/decision/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminComplianceReviewsDecisionCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1KycAdminManualReviewsListMockHandler = (overrideResponse?: KycAdminCase[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<KycAdminCase[]> | KycAdminCase[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/kyc/admin/manual-reviews/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
@@ -34449,6 +35493,42 @@ export const getV1KycAdminManualReviewsListMockHandler = (overrideResponse?: Kyc
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycAdminManualReviewsListResponseMock(),
       { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycAdminStaffRolesCreateMockHandler = (overrideResponse?: StaffRolesResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StaffRolesResponse> | StaffRolesResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/staff-roles/:userId/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminStaffRolesCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycDeclarationsRetrieveMockHandler = (overrideResponse?: InvestorComplianceStatus | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorComplianceStatus> | InvestorComplianceStatus), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/kyc/declarations/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycDeclarationsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1KycDeclarationsCreateMockHandler = (overrideResponse?: InvestorComplianceStatus | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorComplianceStatus> | InvestorComplianceStatus), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/declarations/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycDeclarationsCreateResponseMock(),
+      { status: 201
       })
   }, options)
 }
@@ -36165,7 +37245,16 @@ export const getBanxumApiMock = () => [
   getV1InvestorSmartInvestPauseCreateMockHandler(),
   getV1InvestorSmartInvestResumeCreateMockHandler(),
   getV1KycAdminCasesManualReviewCreateMockHandler(),
+  getV1KycAdminComplianceInvestorsRetrieveMockHandler(),
+  getV1KycAdminComplianceInvestorsReverificationCreateMockHandler(),
+  getV1KycAdminComplianceInvestorsReverificationCompleteCreateMockHandler(),
+  getV1KycAdminComplianceReviewsListMockHandler(),
+  getV1KycAdminComplianceReviewsCreateMockHandler(),
+  getV1KycAdminComplianceReviewsDecisionCreateMockHandler(),
   getV1KycAdminManualReviewsListMockHandler(),
+  getV1KycAdminStaffRolesCreateMockHandler(),
+  getV1KycDeclarationsRetrieveMockHandler(),
+  getV1KycDeclarationsCreateMockHandler(),
   getV1KycSessionCreateMockHandler(),
   getV1KycStatusRetrieveMockHandler(),
   getV1KycWebhooksDiditCreateMockHandler(),

@@ -2772,6 +2772,11 @@ def purchase_secondary_market_listing(
     command: PurchaseSecondaryMarketListingCommand,
 ) -> SecondaryMarketPurchase:
     _require_investor_financial_access(command.actor)
+    # 18.10: declarations missing, a necessary review open or re-verification overdue.
+    _compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+    _block = _compliance.investment_block(command.actor)
+    if _block is not None:
+        raise SecondaryMarketValidationError(_compliance.BLOCK_MESSAGES[_block])
     buyer_user_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     _validate_expected_purchase_values(command)

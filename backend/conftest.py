@@ -15,6 +15,12 @@ def _no_password_breach_lookup(settings: Any) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_declarations_gate(settings: Any) -> None:
+    """Tests of other features invest without declarations; the 18.10 tests turn the gate on."""
+    settings.COMPLIANCE_DECLARATIONS_REQUIRED = False
+
+
+@pytest.fixture(autouse=True)
 def _bind_test_codes_at_first_use() -> Iterator[None]:
     """18.5 operation binding in the domain tests.
 
