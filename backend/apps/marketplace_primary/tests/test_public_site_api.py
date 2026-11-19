@@ -58,6 +58,8 @@ PUBLIC_PROJECT_FIELDS = {
     "repayment_type",
     "collateral_type",
     "collateral_description",
+    # 18.3: the anonymous name of the main secured asset (never the borrower's name).
+    "security_public_name",
     "ltv_bps",
     "purpose",
     "purpose_description",
@@ -746,6 +748,8 @@ def test_loan_originator_claims_and_originators_list(
         "country": "CH",
         "partner_since": _today().isoformat(),
         "founded_year": 2009,
+        # 18.3: the public "About the originator" text, empty when not entered.
+        "about": "",
         "city": "Zurich",
         "sector": "SME lending",
         "claims_funded": 0,
@@ -933,6 +937,7 @@ def test_openapi_schema_describes_the_public_site_endpoints() -> None:
         "country",
         "partner_since",
         "founded_year",
+        "about",
         "city",
         "sector",
         "claims_funded",

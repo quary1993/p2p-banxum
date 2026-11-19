@@ -1007,3 +1007,19 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.2 ("Status 2026-11-19"
 
 Not in this step: the S7 clean-up and lazy routes (audit step 4).
 
+### Implemented In Audit Step 2 (2026-11-19, Phase 18.3 and D-11)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.3 ("Status 2026-11-19").
+
+| Item | Implemented |
+| --- | --- |
+| Account, Transactions | Reserved part of each lot; server filters, pages, summary, "Available balance" after each movement, server CSV of the whole history. |
+| My investments | The investor's share of each received payment; Upcoming / Paid / All payments. |
+| Resale | Maturity in the buyer list; My listings Listed / Sold / Cancelled. |
+| Smart Invest (U33-DEC-11, U33-DEC-19) | Repayments step with today's types in the design's groups; "No preference" allowed. |
+| Reports (E-09) | The design's four reports and monthly statements, kept as issued, "Document ready"; period summary; in-app PDF reader. |
+| Notifications | Positive, late, default and neutral tones; transactions, reports, documents targets. |
+| Data fields (U33-DEC-23, U33-DEC-26, E-08) | Originator About; Source of repayment; credit file Updated date; bank name (SIX master for CH and LI); verified address, birth date and nationality from Didit, read-only. |
+| Public site, D-10 | Anonymous asset name per security; footer links to the kept pages. |
+| D-11 | Kept functions in the U33 screens; the ZIP evidence package of offered statements kept. |
+
