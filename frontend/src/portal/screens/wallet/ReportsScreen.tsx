@@ -374,6 +374,19 @@ export function ReportsScreen() {
                               {documentBusy === `${document.id}:csv` ? t("Preparing...") : "CSV"} <NiIcon name="download" />
                             </button>
                           ) : null}
+                          {/* D-11: the evidence package (PDF, CSV and checksums) stays available. */}
+                          {document.output_formats.includes("zip") ? (
+                            <button
+                              aria-label={t("Download {title} {period} as {format}", { title, period, format: "ZIP" })}
+                              className="tr-link"
+                              disabled={Boolean(documentBusy)}
+                              onClick={() => void download(documentDownloadRequest(document, "zip"), `${document.id}:zip`)}
+                              title={t("ZIP (PDF, CSV and checksums)")}
+                              type="button"
+                            >
+                              {documentBusy === `${document.id}:zip` ? t("Preparing...") : "ZIP"} <NiIcon name="download" />
+                            </button>
+                          ) : null}
                         </span>
                       </td>
                     </tr>
