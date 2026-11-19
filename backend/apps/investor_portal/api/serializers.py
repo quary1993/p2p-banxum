@@ -309,6 +309,24 @@ class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
     payment_reference = serializers.CharField(required=False, allow_blank=True)
 
 
+class HoldingReceivedPaymentSerializer(serializers.Serializer[Any]):
+    """18.3: the investor's share of one payment already received (credited to the balance)."""
+
+    # The borrower installment (direct loans); null for a Loan Originator claim payment.
+    installment_number = serializers.IntegerField(allow_null=True)
+    due_date = serializers.DateField(allow_null=True)
+    paid_on = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField()
+    fee_minor = serializers.IntegerField()
+    # Principal + interest + penalty of the investor's share.
+    total_minor = serializers.IntegerField()
+    # What was credited to the Banxum balance (the total less any fee).
+    credited_minor = serializers.IntegerField()
+    principal_after_minor = serializers.IntegerField()
+
+
 class PortfolioHoldingInstallmentSerializer(serializers.Serializer[Any]):
     loan_installment_id = serializers.UUIDField()
     schedule_version = serializers.IntegerField()
@@ -434,6 +452,7 @@ class HoldingSerializer(serializers.Serializer[Any]):
     received_interest_minor = serializers.IntegerField()
     received_penalty_minor = serializers.IntegerField()
     repayment_fee_minor = serializers.IntegerField()
+    received_payments = HoldingReceivedPaymentSerializer(many=True, required=False)
     investment_schedule = PortfolioHoldingInstallmentSerializer(many=True)
     acquisition_cash_consideration_minor = serializers.IntegerField(allow_null=True)
     acquisition_cash_flow = serializers.ListField(

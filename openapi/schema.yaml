@@ -10803,6 +10803,10 @@ components:
           type: integer
         repayment_fee_minor:
           type: integer
+        received_payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/HoldingReceivedPayment'
         investment_schedule:
           type: array
           items:
@@ -10903,6 +10907,46 @@ components:
       - status
       - transfer_price_minor
       - updated_at
+    HoldingReceivedPayment:
+      type: object
+      description: '18.3: the investor''s share of one payment already received (credited
+        to the balance).'
+      properties:
+        installment_number:
+          type: integer
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        paid_on:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        total_minor:
+          type: integer
+        credited_minor:
+          type: integer
+        principal_after_minor:
+          type: integer
+      required:
+      - credited_minor
+      - due_date
+      - fee_minor
+      - installment_number
+      - interest_minor
+      - paid_on
+      - penalty_minor
+      - principal_after_minor
+      - principal_minor
+      - total_minor
     HoldingRecoveryEvent:
       type: object
       description: 'U33-DEC-12: one recovery of the loan (whole-loan amounts) and

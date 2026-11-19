@@ -1904,12 +1904,22 @@ test("holding details open on the investment page with factual projections and c
   // Repayments go to the Banxum balance (U33-DEC-02).
   expect(within(page).getByText("Credited to your Banxum balance")).toBeInTheDocument();
 
-  // The schedule shows the investor's share of every remaining payment; received payments are one total row.
+  // The schedule shows the investor's share of every payment: received ones (18.3) and remaining ones.
   fireEvent.click(within(page).getAllByRole("button", { name: /View payment schedule/ })[0]);
   const schedule = within(page).getByRole("region", { name: "All payments for this investment, CHF" });
   expect(within(schedule).getByRole("columnheader", { name: "Due date" })).toBeInTheDocument();
-  expect(within(schedule).getByText("Received to date")).toBeInTheDocument();
+  expect(within(schedule).queryByText("Received to date")).not.toBeInTheDocument();
+  const paid = schedule.querySelector('tr[data-payment-status="paid"]') as HTMLElement;
+  expect(paid).toHaveAttribute("data-payment-number", "1");
+  expect(paid).toHaveTextContent("2.179,50");
   expect(within(schedule).getAllByText("Outstanding principal after this payment").length).toBeGreaterThan(0);
+  const filters = within(page).getByRole("group", { name: "Payment schedule filters" });
+  fireEvent.click(within(filters).getByRole("button", { name: "Paid" }));
+  expect(schedule.querySelectorAll('tr[data-payment-status="scheduled"], tr[data-payment-status="late"]')).toHaveLength(0);
+  expect(schedule.querySelectorAll('tr[data-payment-status="paid"]')).toHaveLength(1);
+  fireEvent.click(within(filters).getByRole("button", { name: "Upcoming" }));
+  expect(schedule.querySelectorAll('tr[data-payment-status="paid"]')).toHaveLength(0);
+  fireEvent.click(within(filters).getByRole("button", { name: "All payments" }));
 
   // Security: LTV uses the principal still owed on the whole loan (audit A-65), not the original amount lent.
   expect(within(page).getByText("Registered real-estate security supporting the borrower obligation.")).toBeInTheDocument();

@@ -1566,6 +1566,20 @@ export const portfolioFixture: InvestorPortfolio = {
       received_principal_minor: amount(1579.5),
       received_interest_minor: amount(600),
       repayment_fee_minor: 0,
+      received_payments: [
+        {
+          installment_number: 1,
+          due_date: "2026-02-28",
+          paid_on: "2026-02-28",
+          principal_minor: amount(1579.5),
+          interest_minor: amount(600),
+          penalty_minor: 0,
+          fee_minor: 0,
+          total_minor: amount(2179.5),
+          credited_minor: amount(2179.5),
+          principal_after_minor: amount(8420.5)
+        }
+      ],
       investment_schedule: [
         {
           loan_installment_id: "GA-2310-I-2",

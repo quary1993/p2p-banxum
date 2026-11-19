@@ -1254,6 +1254,90 @@ def _aggregate_by_holding(
     }
 
 
+def _received_payments_by_holding(
+    *, investor_user_id: str, holding_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """18.3: the investor's share of each payment already received ("Paid" rows of All payments).
+
+    Direct loans: one row per borrower installment (several partial payments of one installment
+    are added up), with its number and due date. Loan Originator claims: one row per payment the
+    originator passed on, dated by its value date. Recoveries are listed with the recovery events.
+    """
+    if not holding_ids:
+        return {}
+    rows: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(dict)
+
+    def add(holding_id: str, key: str, values: dict[str, Any], line: Any) -> None:
+        row = rows[holding_id].setdefault(
+            (holding_id, key),
+            {
+                **values,
+                "principal_minor": 0,
+                "interest_minor": 0,
+                "penalty_minor": 0,
+                "fee_minor": 0,
+                "credited_minor": 0,
+                "principal_after_minor": int(line.current_principal_after_minor),
+            },
+        )
+        row["principal_minor"] += int(line.principal_minor)
+        row["interest_minor"] += int(line.interest_minor)
+        row["penalty_minor"] += int(getattr(line, "penalty_minor", 0) or 0)
+        row["fee_minor"] += int(getattr(line, "fee_minor", 0) or 0)
+        row["credited_minor"] += int(line.amount_minor)
+        row["principal_after_minor"] = min(
+            int(row["principal_after_minor"]), int(line.current_principal_after_minor)
+        )
+        if values["paid_on"] > row["paid_on"]:
+            row["paid_on"] = values["paid_on"]
+
+    for line in (
+        _model("servicing", "InvestorRepaymentDistributionLine")
+        .objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("repayment_event__installment")
+    ):
+        installment = line.repayment_event.installment
+        add(
+            str(line.holding_id),
+            f"installment:{installment.pk}",
+            {
+                "installment_number": int(installment.installment_number),
+                "due_date": installment.due_date,
+                "paid_on": line.repayment_event.value_date,
+            },
+            line,
+        )
+    for line in (
+        _model("originator_claims", "InvestorOriginatorRepaymentDistributionLine")
+        .objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("repayment")
+    ):
+        add(
+            str(line.holding_id),
+            f"originator:{line.repayment_id}",
+            {
+                "installment_number": None,
+                "due_date": None,
+                "paid_on": line.repayment.value_date,
+            },
+            line,
+        )
+    result: dict[str, list[dict[str, Any]]] = {}
+    for holding_id, by_key in rows.items():
+        payments = sorted(
+            by_key.values(),
+            key=lambda row: (row["due_date"] or row["paid_on"], row["paid_on"]),
+        )
+        for payment in payments:
+            payment["total_minor"] = (
+                int(payment["principal_minor"])
+                + int(payment["interest_minor"])
+                + int(payment["penalty_minor"])
+            )
+        result[holding_id] = payments
+    return result
+
+
 def _latest_public_notes_by_loan(loan_ids: list[str]) -> dict[str, dict[str, Any]]:
     if not loan_ids:
         return {}
@@ -1375,6 +1459,9 @@ def get_investor_portfolio(
     recovery_events = _recovery_events_by_holding(
         investor_user_id=investor_user_id, holding_ids=all_holding_ids
     )
+    received_payments = _received_payments_by_holding(
+        investor_user_id=investor_user_id, holding_ids=all_holding_ids
+    )
     # U33-DEC-22: the recorded stages and the known next step of each loan.
     recovery_stages = import_module(
         "backend.apps.servicing.recovery_stages"
@@ -1487,6 +1574,7 @@ def get_investor_portfolio(
                 + int(originator_repayment.get("interest_minor", 0)),
                 "received_penalty_minor": int(originator_repayment.get("penalty_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),
+                "received_payments": received_payments.get(str(holding.pk), []),
                 "investment_schedule": [
                     asdict(row) if not isinstance(row, dict) else row
                     for row in investment_schedules_by_holding_id.get(

@@ -1,11 +1,12 @@
 // IP of Webby-Soft SRL.
 // "Payments" of the investment page (design .r71-payments.r84-payments): interest to be received, the
-// next payment and the "All payments" schedule. The API gives the investor's share of every remaining
-// payment; payments already received are known as totals (principal and interest received), so they are
-// one "Received to date" row, not reconstructed per payment in the browser.
+// next payment and the "All payments" schedule with the design's Upcoming / Paid / All payments filters.
+// The API gives the investor's share of every remaining payment and, since 18.3, of every payment
+// already received (`received_payments`). Received money without such rows (older records) stays one
+// "Received to date" row; nothing is reconstructed in the browser.
 import { useId, useState } from "react";
 
-import type { Holding } from "../../../../api/generated/banxumApi";
+import type { Holding, HoldingReceivedPayment } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { formatDate, formatMoneyMinor, useNumberFormat } from "../../../../investorPortal/format";
 import { NiIcon } from "../../../components";
@@ -22,6 +23,9 @@ import {
 } from "./investmentModel";
 import { cadenceText } from "./labels";
 
+type ScheduleFilter = "upcoming" | "paid" | "all";
+const FILTERS: Array<[ScheduleFilter, string]> = [["upcoming", "Upcoming"], ["paid", "Paid"], ["all", "All payments"]];
+
 export function InvestmentPayments({ holding }: { holding: Holding }) {
   const t = useT();
   useNumberFormat();
@@ -32,6 +36,7 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
   const money = (amount: number) => `${currency} ${formatMoneyMinor(amount, currency)}`;
   const projectable = hasProjection(holding);
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<ScheduleFilter>("all");
   const next = nextPayment(holding);
   const future = projectedInterestMinor(holding);
   const rows = principalAfterRows(holding);
@@ -39,6 +44,17 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
   const receivedInterest = interestReceivedMinor(holding);
   const receivedPrincipal = principalReturnedMinor(holding);
   const hasReceived = receivedInterest + receivedPrincipal > 0;
+  const paidRows: HoldingReceivedPayment[] = holding.received_payments ?? [];
+  // Received money without per-payment rows (records from before 18.3) stays one total row.
+  const showReceivedTotal = hasReceived && paidRows.length === 0;
+  const showPaid = filter !== "upcoming";
+  const showUpcoming = filter !== "paid" && projectable;
+  const paidCount = paidRows.length + (showReceivedTotal ? 1 : 0);
+  const filterEmpty = filter === "paid" && paidCount === 0
+    ? t("No payments received yet.")
+    : filter === "upcoming" && (!projectable || rows.length === 0)
+      ? t("No upcoming payments.")
+      : "";
   const cadence = cadenceText(holding.loan.repayment_type);
   const emptyText = state === "repaid" || state === "sold"
     ? state === "sold" ? t("No more payments. You sold this investment.") : t("All payments have been received.")
@@ -61,6 +77,12 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
       {state === "default" || state === "writtenOff" ? (
         <p className="ps-notice">{t("This loan is in default. The original payment dates no longer apply; see the recovery updates above.")}</p>
       ) : null}
+      <div aria-label={t("Payment schedule filters")} className="ps-filters" role="group">
+        {FILTERS.map(([key, label]) => (
+          <button aria-pressed={filter === key} className={`ps-filter${filter === key ? " active" : ""}`} key={key} onClick={() => setFilter(key)} type="button">{t(label)}</button>
+        ))}
+      </div>
+      {filterEmpty ? <p className="ps-empty">{filterEmpty}</p> : null}
       <div aria-label={t("All payments for this investment, {currency}", { currency })} className="ps-content" role="region" tabIndex={0}>
         <table className="ps-table m82-owned-schedule" data-mobile-table="true">
           <caption className="visually-hidden">{t("All payments for your investment, {currency}.", { currency })}</caption>
@@ -75,7 +97,39 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
             </tr>
           </thead>
           <tbody>
-            {hasReceived ? (
+            {showPaid ? paidRows.map((payment, index) => {
+              const date = payment.due_date ?? payment.paid_on;
+              return (
+                <tr data-payment-number={payment.installment_number ?? undefined} data-payment-status="paid" key={`${payment.installment_number ?? "p"}-${payment.paid_on}-${index}`}>
+                  <td>
+                    {formatDate(date)}
+                    {payment.due_date && payment.paid_on !== payment.due_date ? <small>{t("Paid on {date}", { date: formatDate(payment.paid_on) })}</small> : null}
+                  </td>
+                  <td data-m82-label={t("Principal")}>{formatMoneyMinor(payment.principal_minor, currency)}</td>
+                  <td data-m82-label={t("Interest")}>{formatMoneyMinor(payment.interest_minor + payment.penalty_minor, currency)}</td>
+                  <td data-m82-label={t("Total")}><strong>{formatMoneyMinor(payment.total_minor, currency)}</strong></td>
+                  <td><span className="ps-paid"><NiIcon name="check" />{t("Paid")}</span></td>
+                  <td>
+                    <details className="ps-details">
+                      <summary aria-label={t("Payment details for {date}", { date: formatDate(date) })}>
+                        <NiIcon name="chevron-down" />
+                      </summary>
+                      <div>
+                        <span>{t("Outstanding principal after this payment")}</span>
+                        <strong>{money(payment.principal_after_minor)}</strong>
+                        {payment.fee_minor > 0 ? (
+                          <>
+                            <span>{t("Credited to your Banxum balance after fees")}</span>
+                            <strong>{money(payment.credited_minor)}</strong>
+                          </>
+                        ) : null}
+                      </div>
+                    </details>
+                  </td>
+                </tr>
+              );
+            }) : null}
+            {showPaid && showReceivedTotal ? (
               <tr data-payment-status="paid">
                 <td>
                   {t("Received to date")}
@@ -88,7 +142,7 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
                 <td />
               </tr>
             ) : null}
-            {projectable
+            {showUpcoming
               ? rows.map(({ row, principalAfterMinor }) => {
                   const overdue = isOverdueRow(row);
                   const isNext = next?.loan_installment_id === row.loan_installment_id;
@@ -128,7 +182,7 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
           </tbody>
         </table>
       </div>
-      {rows.length > 6 && projectable ? <p className="p73-schedule-foot">{t("Scroll to see all {count} payments", { count: rows.length + (hasReceived ? 1 : 0) })}</p> : null}
+      {rows.length + paidCount > 6 && projectable ? <p className="p73-schedule-foot">{t("Scroll to see all {count} payments", { count: rows.length + paidCount })}</p> : null}
     </div>
   );
 

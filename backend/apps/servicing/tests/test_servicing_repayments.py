@@ -2816,3 +2816,58 @@ def test_recovery_records_have_app_and_db_guards(
                 [recovery_line.id.hex],
             )
     assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_portfolio_lists_each_received_payment_of_the_investor(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    """18.3: the "Paid" rows of All payments: the investor's share of each installment."""
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    record_borrower_repayment(_repayment_command(admin_user, loan))
+    record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=27_200_00,
+            booking_date=date(2026, 3, 31),
+            value_date=date(2026, 3, 31),
+            idempotency_key="servicing-second-installment-paid-rows",
+        )
+    )
+    _approve_financial_access(investor_one)
+    portal = import_module("backend.apps.investor_portal.services")
+    holding = portal.get_investor_portfolio(actor=investor_one)
+    payments = [
+        item
+        for item in cast(list[dict[str, Any]], holding["holdings"])
+        if item["loan"]["loan_id"] == str(loan.pk)
+    ]
+    rows = payments[0]["received_payments"] if payments else []
+    if not payments:
+        # A closed holding leaves the active list; the payments stay on the record.
+        rows = portal._received_payments_by_holding(
+            investor_user_id=str(investor_one.pk),
+            holding_ids=[
+                str(item.pk)
+                for item in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
+                    loan=loan, investor_user_id=investor_one.pk
+                )
+            ],
+        ).popitem()[1]
+    assert [
+        (
+            row["installment_number"],
+            row["paid_on"],
+            row["principal_minor"],
+            row["interest_minor"],
+            row["total_minor"],
+            row["principal_after_minor"],
+        )
+        for row in rows
+    ] == [
+        (1, date(2026, 3, 1), 1_000_00, 100_00, 1_100_00, 9_000_00),
+        (2, date(2026, 3, 31), 9_000_00, 66_67, 9_066_67, 0),
+    ]
