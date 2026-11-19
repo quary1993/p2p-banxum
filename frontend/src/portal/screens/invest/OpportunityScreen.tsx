@@ -385,6 +385,8 @@ function OpportunityPage({
                     {error?.message ?? (places?.fullForViewer ? swissInvestorLimitMessage(places.maxInvestors) : "")}
                   </p>
                   {savedNote ? <p className="u33-invest-amount-hint u33-saved-amount" role="status">{savedNote}</p> : null}
+                  {/* 18.9 (E-03): a borrower in sandbox mode: short notice here, confirmed in Review & sign. */}
+                  {loan.sandbox_notice ? <p className="u33-invest-amount-hint u33-sandbox-hint">{loan.sandbox_notice.text}</p> : null}
                   {usingUsual ? (
                     <p className="u33-invest-amount-hint u33-usual-amount">
                       {usualMinor !== null && usualMinor < loan.minimum_investment_minor
@@ -563,7 +565,7 @@ function FundingCard({
           ) : null}
           {places ? (
             <div className="pd-threshold u33-invest-places-line">
-              <span>{t("Swiss borrower: at most {count} investors", { count: places.maxInvestors })}</span>
+              <span>{t("Swiss borrower (10/20 mode): at most {count} creditors", { count: places.maxInvestors })}</span>
               <strong>{places.placesLeft === 1 ? t("1 place left") : t("{count} places left", { count: places.placesLeft })}</strong>
             </div>
           ) : null}

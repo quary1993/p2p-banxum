@@ -47,7 +47,7 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       answer: t("Each opportunity page shows the minimum investment and the amount still available. Your amount must be at least the minimum, no more than the amount still available, and within your available balance in the loan's currency."),
       more: {
         title: t("Why can the minimum be higher?"),
-        text: t("Loans to Swiss borrowers can have a limited number of investors. The opportunity page then shows the places left, and the minimum can be higher so that the loan can still be fully funded.")
+        text: t("Some Swiss borrowers (10/20 mode) can have at most 10 creditors per financing and 20 in total. The opportunity page then shows the places left, and the minimum can be higher so that the loan can still reach its minimum funding. Other Swiss borrowers use the FINMA sandbox: they have no creditor limit, and you confirm a separate notice before you invest.")
       },
       links: [{ label: t("Investment opportunities"), to: "market" }]
     },

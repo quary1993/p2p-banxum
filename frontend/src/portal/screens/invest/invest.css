@@ -302,3 +302,23 @@ html.bxu .u33-ltv-assets li span {
 html.bxu .u33-ltv-assets li small {
   color: var(--bs-secondary-color);
 }
+
+/* 18.9 (E-03): the Swiss sandbox notice, short on the opportunity page and confirmed in Review & sign. */
+html.bxu .u33-sandbox-hint {
+  border-left: 3px solid var(--warning, #c98a1a);
+  padding-left: 0.6rem;
+}
+html.bxu .u33-sandbox-notice {
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--warning, #c98a1a);
+  border-radius: 8px;
+}
+html.bxu .u33-sandbox-notice-text {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+}
+/* 18.7: the price of a Loan Originator offer in Review & sign. */
+html.bxu .u33-offer-price {
+  margin: 0.5rem 0 0.75rem;
+}

@@ -211,6 +211,9 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
   const subscription = usesOriginatorSubscription(loan);
   const [terms, setTerms] = useState(false);
   const [risks, setRisks] = useState(false);
+  // 18.9 (E-03): a borrower in sandbox mode needs a separate, explicit confirmation.
+  const sandboxNotice = loan.sandbox_notice ?? null;
+  const [sandboxConfirmed, setSandboxConfirmed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -223,6 +226,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
     setAttempt(newPrimaryOrderAttempt(amountMinor));
     setTerms(false);
     setRisks(false);
+    setSandboxConfirmed(false);
     setError("");
   });
   const amountMinor = amount.appliedMinor ?? 0;
@@ -291,7 +295,8 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
           idempotency_key: current.allocationKey,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code,
-          pin: codeRequest.pin.value
+          pin: codeRequest.pin.value,
+          ...(sandboxNotice ? { sandbox_notice_confirmed: sandboxConfirmed, sandbox_notice_version: sandboxNotice.version } : {})
         }
       });
       void queryClient.invalidateQueries();
@@ -328,7 +333,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
     );
   }
 
-  const ready = amount.valid && terms && risks && !places?.fullForViewer;
+  const ready = amount.valid && terms && risks && (!sandboxNotice || sandboxConfirmed) && !places?.fullForViewer;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (ready) {
@@ -354,6 +359,15 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
               terms={terms}
               termsLabel={t("I accept the investment terms and the assignment of my share of the loan claim.")}
             />
+            {sandboxNotice ? (
+              <div className="u33-sandbox-notice" role="group" aria-label={t("Swiss sandbox notice")}>
+                <p className="u33-sandbox-notice-text">{sandboxNotice.text}</p>
+                <label className="form-check">
+                  <input checked={sandboxConfirmed} className="form-check-input" onChange={(event) => setSandboxConfirmed(event.target.checked)} type="checkbox" />
+                  <span className="form-check-label">{t("I have read this notice about the borrower's sandbox status.")}</span>
+                </label>
+              </div>
+            ) : null}
             {!isFixturePreview && termsQuery.isError ? <div className="alert alert-danger" role="alert">{t("The current investment terms could not be loaded.")}</div> : null}
             <SignActions disabled={!ready} label={t("Confirm investment")} />
           </>
@@ -381,8 +395,8 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
             ) : places ? (
               <p className="u33-invest-places-note">
                 {places.existingInvestor && places.placesLeft === 0
-                  ? t("Swiss borrower: at most {count} investors. You already invest in this loan, so you can add to it.", { count: places.maxInvestors })
-                  : t("Swiss borrower: at most {count} investors. {left} left.", { count: places.maxInvestors, left: places.placesLeft === 1 ? t("1 place") : t("{count} places", { count: places.placesLeft }) })}
+                  ? t("Swiss borrower (10/20 mode): at most {count} creditors in this financing. You already invest in this loan, so you can add to it.", { count: places.maxInvestors })
+                  : t("Swiss borrower (10/20 mode): at most {count} creditors in this financing. {left} left.", { count: places.maxInvestors, left: places.placesLeft === 1 ? t("1 place") : t("{count} places", { count: places.placesLeft }) })}
               </p>
             ) : null}
             {offerPrice && amountMinor > 0 ? (

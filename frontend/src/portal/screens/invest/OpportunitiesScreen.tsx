@@ -360,7 +360,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
       <div className="nk-block">
         {typeof maxInvestors === "number" ? (
           <p className="bxm-muted small">
-            {t("Loans to Swiss borrowers can have at most {count} investors. Their minimum can then be higher: what is still needed to reach minimum funding divided by the places left, rounded up.", { count: maxInvestors })}
+            {t("Some Swiss borrowers (10/20 mode) can have at most {count} creditors per financing and 20 in total. Their minimum can then be higher: what is still needed to reach minimum funding divided by the places left, rounded up.", { count: maxInvestors })}
           </p>
         ) : null}
         <p className="bxm-muted small r31-risk-warning">{t("Past repayments do not guarantee future ones; you can lose part or all of your investment.")}</p>
@@ -375,7 +375,7 @@ function MinimumInfo({ loan }: { loan: MarketplaceLoanPreview }) {
   if (!places) return null;
   return (
     <InfoTip label={t("Why this minimum?")} title={t("Why this minimum?")}>
-      {t("This loan is to a Swiss borrower and can have at most {count} investors. The minimum for a new investor is what is still needed to reach minimum funding divided by the places left, rounded up.", { count: places.maxInvestors })}
+      {t("This loan is to a Swiss borrower in 10/20 mode: at most {count} creditors in this financing and 20 in total. The minimum for a new investor is what is still needed to reach minimum funding divided by the places left, rounded up.", { count: places.maxInvestors })}
     </InfoTip>
   );
 }

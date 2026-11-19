@@ -90,6 +90,12 @@ import {
   useOriginatorClaimsAdminLoansRetrieve,
   useOriginatorClaimsAdminLoansSubscriptionCancel,
   useOriginatorClaimsAdminLoansOfferFailed,
+  useEntitiesAdminCreditorModeRetrieve,
+  getEntitiesAdminCreditorModeRetrieveQueryKey,
+  useEntitiesAdminCreditorModeUpdate,
+  useEntitiesAdminExternalDebtsCreate,
+  useEntitiesAdminExternalDebtsEnd,
+  useEntitiesAdminSnbRatesCreate,
   useOriginatorClaimsAdminLoansSubscriptionResume,
   useOriginatorClaimsAdminLoansUpdate,
   useOriginatorClaimsAdminLoanRepaymentsCreate,
@@ -3446,6 +3452,7 @@ function OriginatorLoanCreateForm({
   const [borrowerEmployees, setBorrowerEmployees] = useState(snapshot.employees == null ? "" : String(snapshot.employees));
   const [borrowerEmployeesYear, setBorrowerEmployeesYear] = useState(snapshot.employees_year == null ? "" : String(snapshot.employees_year));
   const [borrowerRegistration, setBorrowerRegistration] = useState(String(snapshot.registration_number ?? ""));
+  const [borrowerUid, setBorrowerUid] = useState(String(snapshot.uid ?? ""));
   const [businessClassification, setBusinessClassification] = useState(String(snapshot.business_classification ?? ""));
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(Boolean(snapshot.business_classification_public));
   const [registeredAddress, setRegisteredAddress] = useState(String(snapshot.registered_address ?? ""));
@@ -3539,6 +3546,7 @@ function OriginatorLoanCreateForm({
           employees: optionalMinorValue(borrowerEmployees),
           employees_year: optionalMinorValue(borrowerEmployeesYear),
           registration_number: borrowerRegistration,
+          uid: borrowerUid,
           business_classification: businessClassification,
           business_classification_public: businessClassificationPublic,
           registered_address: registeredAddress,
@@ -3653,6 +3661,7 @@ function OriginatorLoanCreateForm({
         <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setBorrowerEmployees} value={borrowerEmployees} />
         <TextInput integer label="Employees year" onChange={setBorrowerEmployeesYear} value={borrowerEmployeesYear} />
         <TextInput label="Registration number (internal)" onChange={setBorrowerRegistration} value={borrowerRegistration} />
+        <TextInput hint="18.9: required for a Swiss borrower before publication. Creditor modes count per UID across direct loans and Loan Originator claims." label="Borrower Swiss UID (CHE-123.456.789)" onChange={setBorrowerUid} value={borrowerUid} />
         <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
         <TextInput label="Industry / activity" onChange={setIndustryActivity} value={industryActivity} />
         <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
@@ -4093,6 +4102,7 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [employees, setEmployees] = useState("");
   const [employeesYear, setEmployeesYear] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
+  const [uid, setUid] = useState("");
   const [businessClassification, setBusinessClassification] = useState("");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(false);
   const [registeredAddress, setRegisteredAddress] = useState("");
@@ -4132,6 +4142,7 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
       employees: optionalMinorValue(employees),
       employees_year: optionalMinorValue(employeesYear),
       registration_number: registrationNumber,
+      uid,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
       registered_address: registeredAddress,
@@ -4168,6 +4179,7 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
           <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
           <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput hint="18.9: required for a Swiss borrower before publication." label="Swiss UID (CHE-123.456.789)" onChange={setUid} value={uid} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
@@ -4215,6 +4227,7 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   const [employees, setEmployees] = useState(borrower.employees == null ? "" : String(borrower.employees));
   const [employeesYear, setEmployeesYear] = useState(borrower.employees_year == null ? "" : String(borrower.employees_year));
   const [registrationNumber, setRegistrationNumber] = useState(borrower.registration_number || "");
+  const [uid, setUid] = useState(borrower.uid || "");
   const [businessClassification, setBusinessClassification] = useState(borrower.business_classification || "");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(borrower.business_classification_public);
   const [registeredAddress, setRegisteredAddress] = useState(borrower.registered_address || "");
@@ -4261,6 +4274,7 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
         ? { employees: optionalMinorValue(employees), employees_year: optionalMinorValue(employeesYear) }
         : { clear_employees: true }),
       registration_number: registrationNumber,
+      uid,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
       registered_address: registeredAddress,
@@ -4309,6 +4323,7 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
           <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
           <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput hint="18.9: required for a Swiss borrower before publication." label="Swiss UID (CHE-123.456.789)" onChange={setUid} value={uid} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
@@ -4349,7 +4364,92 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
         <TextAreaInput label="Evidence summary" onChange={setEvidenceSummary} value={evidenceSummary} />
         <ActionFooter disabled={!storyReady} mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save borrower changes" />
       </form>
+      {borrower.uid ? <SwissCreditorModePanel uid={borrower.uid} /> : null}
     </div>
+  );
+}
+
+/**
+ * 18.9 (Q03, E-02, F09): the creditor mode of a Swiss borrower UID (sandbox: total below CHF
+ * 500,000, no creditor limit; 10/20: 10 creditors per financing, 20 per borrower), its external
+ * debts and the SNB reference rate used to count EUR amounts in CHF.
+ */
+function SwissCreditorModePanel({ uid }: { uid: string }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const overview = useEntitiesAdminCreditorModeRetrieve(uid, { query: { enabled: !isFixturePreview, retry: false } });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: getEntitiesAdminCreditorModeRetrieveQueryKey(uid) });
+  const modeMutation = useEntitiesAdminCreditorModeUpdate({ mutation: { onSuccess: refresh } });
+  const debtMutation = useEntitiesAdminExternalDebtsCreate({ mutation: { onSuccess: () => { refresh(); setDebt(emptyDebt); } } });
+  const endMutation = useEntitiesAdminExternalDebtsEnd({ mutation: { onSuccess: refresh } });
+  const rateMutation = useEntitiesAdminSnbRatesCreate({ mutation: { onSuccess: () => { refresh(); setRate(""); } } });
+  const [mode, setMode] = useState<"sandbox" | "ten_twenty">("sandbox");
+  const [note, setNote] = useState("");
+  const emptyDebt = { creditor_name: "", creditor_identification: "", creditor_is_bank: false, financing_id: "", identical_terms_group: "", principal: "", currency: "CHF", start_date: businessDate, declaration_reference: "" };
+  const [debt, setDebt] = useState(emptyDebt);
+  const [rate, setRate] = useState("");
+  const [rateSource, setRateSource] = useState("SNB reference rate (snb.ch)");
+  const data = overview.data;
+  const error = overview.error || modeMutation.error || debtMutation.error || endMutation.error || rateMutation.error;
+  if (isFixturePreview) return <Banner tone="neutral" title="Swiss creditor mode">Shown with live data only.</Banner>;
+  if (!data) return overview.error ? <Banner tone="bad" title="Could not load the creditor mode">{errorMessage(overview.error)}</Banner> : <p className="muted">Loading the creditor mode…</p>;
+  return (
+    <section className="admin-form-panel" aria-label="Swiss creditor mode">
+      <h3>Swiss creditor mode · {data.uid}</h3>
+      {error ? <Banner tone="bad" title="Action refused">{errorMessage(error)}</Banner> : null}
+      <div className="admin-detail-grid">
+        <div className="admin-review-row"><span>Mode</span><strong><Chip tone={data.mode === "sandbox" ? "info" : "warn"}>{data.mode === "sandbox" ? "Sandbox" : "10/20"}</Chip> {data.confirmed ? `confirmed ${formatDate(data.confirmed_at)}` : "pre-selected, not confirmed (confirmed at the first publication)"}</strong></div>
+        <div className="admin-review-row"><span>Total T (CHF)</span><strong>{data.total_chf_minor == null ? data.total_error : <><Money amountMinor={data.total_chf_minor} currency="CHF" /> of <Money amountMinor={data.sandbox_limit_chf_minor} currency="CHF" /> in sandbox mode</>}</strong></div>
+        <div className="admin-review-row"><span>Creditors of the borrower</span><strong>{data.borrower_creditors} (10/20 mode: at most {data.borrower_creditor_limit})</strong></div>
+        {data.financings.map((row) => (
+          <div className="admin-review-row" key={row.loan_id}><span>{row.title} ({labelize(row.status)})</span><strong>{row.creditors} creditors (10/20 mode: at most {data.financing_creditor_limit})</strong></div>
+        ))}
+      </div>
+      <FieldGrid>
+        <SelectInput label="Mode" onChange={(value) => setMode(value as "sandbox" | "ten_twenty")} optionLabel={(value) => (value === "sandbox" ? "Sandbox (total below CHF 500,000)" : "10/20 (10 per financing, 20 per borrower)")} options={["sandbox", "ten_twenty"]} value={mode} />
+        <TextInput label="Note (who confirmed, on what basis)" onChange={setNote} value={note} />
+      </FieldGrid>
+      <Button disabled={modeMutation.isPending} onClick={() => modeMutation.mutate({ uid: data.uid, data: { mode, note } })} variant="primary">{data.confirmed ? "Change the mode" : "Confirm the mode"}</Button>
+      <p className="muted admin-manage-hint">Switching: to 10/20 only with at most 20 creditors and 10 per open financing; to sandbox only below CHF 500,000; never while a project of this borrower is in funding.</p>
+
+      <h4>External debts (signed borrower declaration, F09)</h4>
+      {data.external_debts.length ? (
+        <table className="admin-table">
+          <thead><tr><th>Creditor</th><th>Financing</th><th>Amount</th><th>Since</th><th>Status</th><th /></tr></thead>
+          <tbody>
+            {data.external_debts.map((row) => (
+              <tr key={row.id}>
+                <td>{row.creditor_name} · {row.creditor_identification}{row.creditor_is_bank ? " (bank)" : ""}</td>
+                <td>{row.financing_id}{row.identical_terms_group ? ` · ${row.identical_terms_group}` : ""}</td>
+                <td><Money amountMinor={row.principal_minor} currency={row.currency} /></td>
+                <td>{formatDate(row.start_date)}</td>
+                <td>{row.ended_on ? `Ended ${formatDate(row.ended_on)}` : "Open"}</td>
+                <td>{row.ended_on ? null : <Button onClick={() => endMutation.mutate({ debtId: row.id, data: { ended_on: businessDate } })} size="sm">End today</Button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <p className="muted">No external debt recorded.</p>}
+      <FieldGrid>
+        <TextInput label="Creditor name" onChange={(value) => setDebt({ ...debt, creditor_name: value })} value={debt.creditor_name} />
+        <TextInput label="Creditor identification (UID, LEI or register number)" onChange={(value) => setDebt({ ...debt, creditor_identification: value })} value={debt.creditor_identification} />
+        <TextInput label="Financing ID" onChange={(value) => setDebt({ ...debt, financing_id: value })} value={debt.financing_id} />
+        <TextInput label="Identical-terms group (optional)" onChange={(value) => setDebt({ ...debt, identical_terms_group: value })} value={debt.identical_terms_group} />
+        <MoneyMinorInput currency={debt.currency} label="Principal" onChange={(value) => setDebt({ ...debt, principal: value })} value={debt.principal} />
+        <SelectInput label="Currency" onChange={(value) => setDebt({ ...debt, currency: value })} options={["CHF", "EUR"]} value={debt.currency} />
+        <TextInput label="Start date" onChange={(value) => setDebt({ ...debt, start_date: value })} type="date" value={debt.start_date} />
+        <TextInput label="Signed declaration (reference)" onChange={(value) => setDebt({ ...debt, declaration_reference: value })} value={debt.declaration_reference} />
+      </FieldGrid>
+      <label className="check-row"><input checked={debt.creditor_is_bank} onChange={(event) => setDebt({ ...debt, creditor_is_bank: event.target.checked })} type="checkbox" /> The creditor is a bank (counts in the total, not in the creditor counts).</label>
+      <Button disabled={debtMutation.isPending || !debt.creditor_name.trim() || !debt.financing_id.trim() || intValue(debt.principal) <= 0} onClick={() => debtMutation.mutate({ uid: data.uid, data: { creditor_name: debt.creditor_name, creditor_identification: debt.creditor_identification, creditor_is_bank: debt.creditor_is_bank, financing_id: debt.financing_id, identical_terms_group: debt.identical_terms_group, principal_minor: intValue(debt.principal), currency: debt.currency as "CHF" | "EUR", start_date: debt.start_date, declaration_reference: debt.declaration_reference } })}>Record external debt</Button>
+
+      <h4>SNB reference rate (EUR in CHF)</h4>
+      <FieldGrid>
+        <TextInput hint="CHF for 1 EUR, as published by the SNB for today." label="Rate" onChange={setRate} value={rate} />
+        <TextInput label="Source" onChange={setRateSource} value={rateSource} />
+      </FieldGrid>
+      <Button disabled={rateMutation.isPending || !rate.trim()} onClick={() => rateMutation.mutate({ data: { currency: "EUR", rate_date: businessDate, chf_per_unit: rate.trim(), source: rateSource } })}>Record today's rate</Button>
+    </section>
   );
 }
 
