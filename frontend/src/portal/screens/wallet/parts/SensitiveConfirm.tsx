@@ -6,7 +6,7 @@
  */
 import { useT } from "../../../../i18n";
 import { isFixturePreview } from "../../../../investorPortal/data";
-import { SensitivePinField } from "../../../../investorPortal/pin";
+import { SensitiveFactorField } from "../../account/parts/OperationFactor";
 import type { SensitiveCode } from "./sensitiveCode";
 
 export function SensitiveFields({
@@ -52,7 +52,7 @@ export function SensitiveFields({
         {isFixturePreview ? t("Preview: any 6 digits work.") : t("We sent a 6-digit code to your email address.")}
       </p>
       <div className="invalid-feedback" id="wl-code-error" role="alert">{message}</div>
-      <SensitivePinField onContinue={onContinue} pin={code.pin} />
+      <SensitiveFactorField onContinue={onContinue} pin={code.pin} />
     </div>
   );
 }

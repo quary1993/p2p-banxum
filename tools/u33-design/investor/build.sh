@@ -2,9 +2,10 @@
 # IP of Webby-Soft SRL.
 # Regenerates frontend/src/portal/u33/u33.css and src/portal/u33/assets/nioicon-u33.woff2 from the
 # U33 design package. See ../README.md.
-# Usage: U33_DESIGN_DIST=<design package>/site/dist tools/u33-design/investor/build.sh [--crawl] [--no-legacy-guard]
+# Usage: U33_DESIGN_DIST=<design package>/site/dist tools/u33-design/investor/build.sh [--crawl]
 #   --crawl             re-crawl the rendered design first (needs the design served, see ../README.md)
-#   --no-legacy-guard   drop the :where(:not(.bxu-legacy *)) guards (once no old screen is left)
+#   --no-legacy-guard   accepted for old scripts; no effect (S7 of audit step 4 removed the old skin and
+#                       its guards, so the stylesheet is always built without them)
 # The design package is read as data only: its scripts and build tools are never run.
 set -eu
 cd "$(dirname "$0")"
@@ -14,7 +15,7 @@ U33_WORK_DIR="$(cd "${U33_WORK_DIR:-../work/investor}" && pwd)"
 export U33_WORK_DIR
 FRONTEND="$(cd ../../../frontend && pwd)"
 CRAWL=0
-GUARD=""
+GUARD="--no-legacy-guard"
 for arg in "$@"; do
   case "$arg" in
     --crawl) CRAWL=1 ;;

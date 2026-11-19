@@ -199,7 +199,8 @@ test("italic from the toolbar is kept in the story and shown in italics to inves
 });
 
 test("every self-hosted font has its italic face, because faux italics are disabled", () => {
-  const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+  // The global base (base.css, loaded by every area since S7) turns faux italics off.
+  const css = readFileSync(resolve(process.cwd(), "src/base.css"), "utf8");
   expect(css).toMatch(/font-synthesis:\s*none/);
   const main = readFileSync(resolve(process.cwd(), "src/main.tsx"), "utf8");
   const families = [...main.matchAll(/import "@fontsource-variable\/([a-z-]+)(?:\/[^"]*)?";/g)].map((match) => match[1]);

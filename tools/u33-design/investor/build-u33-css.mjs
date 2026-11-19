@@ -162,6 +162,8 @@ function legacyWordSet() {
   for (const f of codeFiles) for (const m of fs.readFileSync(path.join(src, f), 'utf8').matchAll(/[A-Za-z0-9_-]+/g)) set.add(m[0]);
   return set;
 }
+// The old skins' files were deleted in S7 (audit step 4); build.sh always passes --no-legacy-guard, and the
+// guard can only be rebuilt from a checkout before that slice.
 const legacyWords = legacyGuard ? legacyWordSet() : new Set();
 report.guardedSelectors = 0;
 report.unguardedSelectors = 0;

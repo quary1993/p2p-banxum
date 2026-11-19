@@ -12,8 +12,7 @@
  *   components. App.tsx only maps routes to screens (InvestorShell's switch); no screen code in App.tsx.
  * - The shell (portal/shell) is shared: sidebar, header, menus, mobile menu. Screens render their own
  *   <main className="..."> with a <PageHead> first.
- * - Migration: until a screen is rebuilt, its old body stays inside <LegacyBody> (portal/shell), which keeps
- *   the old skin (html.bxm) and shields it from the U33 rules. A rebuilt screen is not wrapped.
+ * - Every investor screen is U33 (S7 of audit step 4 removed the old skin, <LegacyBody> and html.bxm).
  * - Texts: every user-facing string through t()/useT() (src/i18n), English keys. Amounts, rates and
  *   numbers through investorPortal/format.ts (MoneyAmount here), never toFixed/toLocaleString.
  * - Light/Dark: the design's [data-theme] rules apply automatically; do not branch on the theme in code.

@@ -9,7 +9,7 @@ import { useT } from "../../../../i18n";
 import { HelpWithThisStep } from "../../account/parts/HelpWithThisStep";
 import { isFixturePreview, useBalancesData } from "../../../../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyLabel, formatMoneyMinor, useNumberFormat } from "../../../../investorPortal/format";
-import { SensitivePinField } from "../../../../investorPortal/pin";
+import { SensitiveFactorField } from "../../account/parts/OperationFactor";
 import { Dialog, NiIcon, PortalLink } from "../../../components";
 import { legalDocumentPath } from "../investRules";
 import { borrowerName, projectIcon, repaymentText } from "../loanFacts";
@@ -347,7 +347,7 @@ export function ConfirmDialog({
               : t("We send a 6-digit code to your email.")}
         </p>
         <div className="u33-invest-pin">
-          <SensitivePinField onContinue={onConfirm} pin={codeRequest.pin} />
+          <SensitiveFactorField onContinue={onConfirm} pin={codeRequest.pin} />
         </div>
         {message ? <div className="alert alert-danger u33-invest-confirm-error" role="alert">{message}</div> : null}
         <p className="p73-confirm-note">{note}</p>

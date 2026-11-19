@@ -194,13 +194,13 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
   );
 }
 
-export function CreatePinDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (pin: string) => void }) {
+export function CreatePinDialog({ onClose, onSaved, intro }: { onClose: () => void; onSaved: (pin: string) => void; intro?: string }) {
   const t = useT();
   const { status } = usePinStatus();
   const flow = useCreatePinFlow({ requiresEmailCode: status?.setup_requires_email_code ?? true, onSaved });
   return (
     <Dialog busy={flow.saving} className="p73-modal" onClose={onClose} size="sm" title={t("Create your PIN")}>
-      <p className="p73-intro">{t("You will enter it with the email code for every investment, withdrawal and bank account change.")}</p>
+      <p className="p73-intro">{intro ?? t("You will enter it with the email code for every investment, withdrawal and bank account change.")}</p>
       <form
         noValidate
         onSubmit={(event) => {

@@ -35,7 +35,7 @@ These tools make the two generated stylesheets of the U33 redesign (Phase 17.1).
 - It removes the prototype-only rules and the declarations that browsers ignore (unbalanced parentheses).
 - It purges with the crawl tokens and the design JS. Pseudo-class lists such as `:is(:nth-child(2), ...)` are protected during the purge.
 - It scopes every rule to `html.bxu`, with exactly one class of extra specificity. Nested rules stay relative to their parent. Top-level rules of the phone layer get `@media (max-width:1199px)`.
-- It adds the legacy guard `:where(:not(.bxu-legacy *))` while old screens are still shown in `LegacyBody`. Use `--no-legacy-guard` when none is left.
+- Until S7 (audit step 4) it added the legacy guard `:where(:not(.bxu-legacy *))` for the old screens shown in `LegacyBody`. The old skin is gone, so `build.sh` always builds without the guard.
 - It replaces Archivo with "Archivo Variable", clamps font weights to 400-600 as the design renders them, and makes the Nioicon subset.
 
 ## What the public generator does

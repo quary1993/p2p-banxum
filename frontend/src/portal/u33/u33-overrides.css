@@ -4,74 +4,69 @@
  * Generated rules have the specificity of the design selector + one class (:where(html).bxu ...),
  * so a fix written as "html.bxu <same selector>" wins without !important.
  *
- * MIGRATION (Phase 17.1, slices S2-S5). Both skins are mounted in the investor area:
- * - html.bxm (UserSkin): the old skin (styles.css, banxumSkin.css, skin/*.css) for old screen bodies;
- * - html.bxu (U33Skin): this layer, for the shell and the rebuilt screens.
- * Old bodies are wrapped in <LegacyBody> (div.bxu-legacy.app). Every generated rule that could match
- * an old element carries :where(:not(.bxu-legacy *)), so U33 never restyles an old body, and the
- * ".app" class gives the old CSS the context it was written for. Section 1 below undoes what still
- * reaches the old bodies (inherited text styles, the .app layout box).
- *
- * How the final slice removes the old skin (after the last <LegacyBody> is gone):
- * 1. Delete portal/shell/LegacyBody.tsx and section 1 below; rebuild u33.css with
- *    "tools/u33-design/investor/build.sh --no-legacy-guard" (drops the :where(:not(.bxu-legacy *)) guards).
- * 2. Remove UserSkin from InvestorShell and the sign-in screens (S5 moves them to U33Skin), then delete
- *    banxumSkin.css, skin/*.css and the html.bxm-only rules; keep the styles.css rules the admin
- *    console still uses (it never mounts either skin), or move them to the admin console.
- * 3. Remove the old components of investorPortal/ui.tsx that no screen imports any more.
- * 4. Re-check section 2 (old global rules reaching the shell) and delete what no longer applies.
+ * The old skin is gone (S7 of audit step 4, 18.5): no LegacyBody, no html.bxm, and u33.css is built with
+ * "--no-legacy-guard". styles.css now loads with the admin console only (lazyAreas.ts, audit G-07).
  */
 
-/* 1. Old screen bodies inside the U33 shell ------------------------------------------------------- */
-
-/* The old .app box was the page (flex row, full height, paper background); here it only gives the
-   old CSS its ".app" context. */
-html.bxu .bxu-legacy.app {
-  display: block;
-  min-height: 0;
-  background: transparent;
-  /* Text styles the old body inherited from html.bxm body (banxumSkin.css), not from the U33 body. */
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.7;
-  letter-spacing: normal;
-  text-align: start;
-  /* The old skin's tokens, which U33 redefines on <html> (found with tools/vars.js). */
-  --bxm-ink: #0a0a0a;
-  --bxm-graphite: #2a2a2a;
-  --bxm-steel: #6e6e6e;
-  --bxm-steel-on-ink: #8a8a8a;
-  --bxm-line: #e6e6e6;
-  --bxm-line-on-ink: #262626;
-  --bxm-paper: #f5f5f5;
-  --bxm-signal: #b3261e;
-  --bxm-signal-on-ink: #ff7a6e;
-  --bxm-success: #1e7a46;
-  --bxm-success-on-ink: #5fd08a;
+/* Design tokens of the portal (layout "portal", body.has-sidebar). Until S7 the old skin (html.bxm,
+   banxumSkin.css) was mounted around the portal and set these tokens; the U33 screens' own CSS (per-screen
+   files and this file) was built and checked against those values (fonts, radii, colours, shadows).
+   The old skin is gone, so the portal keeps the same values here; the sign-in screens and the public site
+   never had them and keep the base.css values. Found by the S7 computed-style check (baseline 604c562). */
+html.bxu body.has-sidebar {
+  --accent: #0a0a0a;
+  --accent-ink: #0a0a0a;
+  --accent-line: #e6e6e6;
+  --accent-soft: #f5f5f5;
+  --bad: #b3261e;
+  --bad-line: #b3261e;
+  --bad-strong: #8f1e18;
+  --bxm-label-track: 0.2em;
+  --bxm-tag-track: 0.12em;
+  --font-display: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --font-mono: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --font-sans: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --ghost: #8a8a8a;
+  --hair: #e6e6e6;
+  --info: #2a2a2a;
+  --info-bg: #f5f5f5;
+  --info-line: #e6e6e6;
+  --ink: #0a0a0a;
+  --ink-2: #2a2a2a;
+  --ink-3: #6e6e6e;
+  --ink-4: #8a8a8a;
+  --line: #e6e6e6;
+  --line-2: #e6e6e6;
+  --line-strong: #c8c8c8;
+  --nav-w: 340px;
+  --neutral: #6e6e6e;
+  --neutral-bg: #f5f5f5;
+  --neutral-line: #e6e6e6;
+  --ok: #1e7a46;
+  --ok-bg: #f1f7f3;
+  --ok-line: #1e7a46;
+  --paper: #ffffff;
+  --r-lg: 0;
+  --r-md: 0;
+  --r-sm: 0;
+  --r-xs: 0;
+  --shadow-md: none;
+  --shadow-pop: 0 3px 12px 1px rgba(10, 10, 10, 0.15);
+  --shadow-sm: none;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --surface-3: #ededed;
+  --topbar-h: 53px;
+  --warn: #0a0a0a;
+  --warn-bg: #f5f5f5;
+  --warn-line: #0a0a0a;
+  --warn-strong: #0a0a0a;
 }
 
-/* The old skin has no Dark appearance: in Dark, an old body is shown as a light panel inside the dark
-   shell (readable, unchanged) until its slice rebuilds it. */
-html.bxu[data-theme="dark"] .bxu-legacy.app {
-  padding: 24px;
-  border-radius: 24px;
-  background: #fff;
-  color-scheme: light;
-}
-
-/* The old screens are laid out for the old shell's content column: no second page padding inside
-   the U33 content area (.nk-content already has the design's gutter). */
-html.bxu .bxu-legacy.app > .content,
-html.bxu .bxu-legacy.app > main.content {
-  max-width: none;
-  padding: 0 0 48px;
-}
-
-
-/* 2. Old global rules reaching the U33 shell ----------------------------------------------------- */
+/* 1. styles.css rules reaching the U33 shell ------------------------------------------------------ */
 /* Found with tools/leaks.js (computed styles of the shell with and without the old stylesheets).
-   :where() keeps these at (0,1,1): above the old global rules, below every generated U33 rule. */
+   styles.css now loads only with the admin console; these fixes stay for a tab that opened the admin
+   console first (a lazy chunk's CSS stays in the page). :where() keeps them at (0,1,1). */
 
 /* styles.css :root paints <html> white; the design leaves it transparent, so the page canvas takes the
    body colour (Light #f5f6f7 / Dark #101214) below short pages. */
@@ -88,10 +83,10 @@ html.bxu :where(.nk-footer .nav-link) {
   text-align: inherit;
 }
 
-/* styles.css .modal and banxumSkin.css .bxm .modal style every .modal as the old white box (max-width
+/* styles.css .modal (and before S7 banxumSkin.css .bxm .modal) style every .modal as the old white box (max-width
    540/580px, background, border, auto margins). The U33 dialogs (portal/components Dialog and the
-   screens' own dialogs, rendered straight into <body>) use .modal as Bootstrap's full-screen layer;
-   old dialogs stay inside .bxu-legacy and are not matched. Found by S5; remove with the old skin. */
+   screens' own dialogs, rendered straight into <body>) use .modal as Bootstrap's full-screen layer.
+   Found by S5. */
 html.bxu body > .modal {
   background: transparent;
   border: 0;
@@ -102,7 +97,7 @@ html.bxu body > .modal {
   max-height: none;
 }
 
-/* 3. Shared U33 components without a single design class ------------------------------------------ */
+/* 2. Shared U33 components without a single design class ------------------------------------------ */
 
 /* Amount fields (design .p73-amount-field: currency + a bare input) in the Withdraw, Add funds and
    invest dialogs: the design's generic input :focus-visible ring (outline + 5px shadow) draws a box
@@ -240,7 +235,7 @@ html.bxu .u33-shell-notice .alert-link {
 }
 html.bxu .u33-shell-notice .alert-link:disabled { cursor: default; opacity: .6; }
 
-/* 4. Preview mode only (fixture data): the reviewers' floating controls ------------------------- */
+/* 3. Preview mode only (fixture data): the reviewers' floating controls ------------------------- */
 html.bxu .u33-preview-controls {
   position: fixed;
   right: 16px;

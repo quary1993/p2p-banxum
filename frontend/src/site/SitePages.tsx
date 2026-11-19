@@ -17,6 +17,7 @@
  */
 import { useLayoutEffect, useMemo, type ComponentType } from "react";
 
+import "./siteStyles";
 import { SiteNavContext, siteDocumentTitle, type SiteNavigate } from "./context";
 import { SiteShell } from "./SiteShell";
 import { SiteSkin } from "./SiteSkin";

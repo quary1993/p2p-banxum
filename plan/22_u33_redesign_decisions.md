@@ -1039,3 +1039,18 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.4 ("Status 2026-11-19"
 
 Choices made in this step (for the audit): the debit is planned for day 59 at the latest (one day of margin before day 60); money of a lot keeps the days it got at creation, so a deposit recorded after the switch with an older value date gets 56 days (stricter, never later); a failed voluntary withdrawal whose money is not due back is closed at once (the money is simply available again).
 
+### Implemented In Audit Step 4 (2026-11-19, Phase 18.5 and the S7 clean-up)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.5 ("Status 2026-11-19").
+
+| Item | Implemented |
+| --- | --- |
+| U33-DEC-01, Q05, D1-D5 | Password sign-in with an SMS code or an authenticator app code; 10 single-use recovery codes; trusted device for 30 days; admins with password + authenticator app. Magic-link sign-in removed (E-01). |
+| D-1 | Operations: email code + PIN, or + authenticator code for investors with the app (no PIN for them). The email code is bound to the operation details; changed data needs a new code. |
+| Recovery | Forgotten password (email link + factor), forgotten PIN (password + SMS code), assisted recovery with a second approver, "This was not me" link, 72 h restriction for bank account changes; resets end the other sessions. |
+| Security tab | Password, second factor, recovery codes, trusted devices, sessions; changes confirmed with the password and the second factor. |
+| Q06, D6 | Sign-in place from the DB-IP Lite City file when configured, else the country (attribution on the privacy page in 18.12). |
+| S7, audit G-07 | Old skin removed; `u33.css` without the legacy guard; public site and admin console load lazily with their own CSS; `styles.css` for the admin console only. |
+
+Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not; the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
+

@@ -1,20 +1,11 @@
 // IP of Webby-Soft SRL.
-// Confirmation of a resale action in U33 markup (design .bxm-code-form with .bxm-otp): today's email
-// code + PIN (ACC-DEC-009, until U33-DEC-01 / Phase 17.3 moves to the PIN only). The logic is the
-// platform's existing one (App.tsx useSensitiveActionCode, investorPortal/pin*): one code per action,
-// a 60-second resend cooldown, the PIN boxes with the wrong-PIN, lock and "Forgot PIN?" handling (or the
-// authenticator code for an investor with the app, D-1).
-// The create/forgot PIN dialogs are the existing old-skin dialogs, shown in a LegacyBody above the
-// U33 dialog (slice S5 rebuilds them).
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-
+// Confirmation of a resale action in U33 markup (design .bxm-code-form with .bxm-otp): the email code
+// (bound to the operation, 18.5) + the PIN (ACC-DEC-009) or the authenticator code (D-1). One code per
+// action, a 60-second resend cooldown; the second factor with its wrong-code, lock, "Forgot PIN?" and
+// "Create your PIN" handling is the shared U33 SensitiveFactorField (S7: no old-skin dialogs left).
 import { useT } from "../../../../i18n";
 import { isFixturePreview } from "../../../../investorPortal/data";
-import { CreatePinDialog, ForgotPinDialog, PinInput } from "../../../../investorPortal/pin";
-import { formatPinLockTime } from "../../../../investorPortal/pinRules";
-import { LegacyBody } from "../../../shell/LegacyBody";
-import { NiIcon } from "../../../components";
+import { SensitiveFactorField } from "../../account/parts/OperationFactor";
 import type { ActionConfirmation } from "./confirmation";
 
 /**
@@ -38,14 +29,6 @@ export function ConfirmFields({
   // The design styles the code field by its id (.s106-modal #bxm-code); one confirmation is open at a time.
   const codeId = "bxm-code";
   const { pin } = confirmation;
-  const continueRef = useRef(onContinue);
-  useLayoutEffect(() => {
-    continueRef.current = onContinue;
-  });
-  const [continueToken, setContinueToken] = useState(0);
-  useEffect(() => {
-    if (continueToken > 0) continueRef.current?.();
-  }, [continueToken]);
   const requestLabel = confirmation.isRequesting
     ? t("Sending code...")
     : confirmation.cooldownSeconds > 0
@@ -55,10 +38,6 @@ export function ConfirmFields({
       : confirmation.codeId
         ? t("Send a new email code")
         : t("Send email code");
-  // D-1 (18.5): an investor with an authenticator app types its code instead of the PIN.
-  const app = pin.factor === "app";
-  const locked = pin.lockedUntil !== null;
-  const lockTime = pin.lockedUntil ? formatPinLockTime(pin.lockedUntil) : "";
   return (
     <div className="bxm-code-form u33-confirm">
       <div className="u33-confirm-code">
@@ -87,59 +66,8 @@ export function ConfirmFields({
         {isFixturePreview ? <p className="u33-confirm-hint">{t("Preview: any 6 digits")}</p> : null}
       </div>
       <div className="u33-confirm-pin">
-        {locked && app ? (
-          <div className="alert alert-danger alert-icon u33-confirm-lock" role="alert">
-            <NiIcon name="lock-alt" />
-            <div>
-              <strong>{t("Authenticator codes paused")}</strong>
-              <p>{lockTime ? t("Too many wrong codes. You can try again after {time}.", { time: lockTime }) : t("Too many wrong codes. Try again later.")}</p>
-            </div>
-          </div>
-        ) : locked ? (
-          <div className="alert alert-danger alert-icon u33-confirm-lock" role="alert">
-            <NiIcon name="lock-alt" />
-            <div>
-              <strong>{t("PIN locked")}</strong>
-              <p>{lockTime ? t("Too many wrong PINs. You can try again after {time}, or set a new PIN now.", { time: lockTime }) : t("Too many wrong PINs. Try again later, or set a new PIN now.")}</p>
-              <button className="link" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button>
-            </div>
-          </div>
-        ) : null}
-        <PinInput
-          aside={locked || app ? null : <button className="pin-text-btn" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button>}
-          disabled={locked}
-          error={pin.error || undefined}
-          focusSignal={pin.wrongCount}
-          hint={
-            app
-              ? isFixturePreview ? t("Preview: any 6 digits") : t("The 6-digit code shown in your authenticator app.")
-              : isFixturePreview ? t("Preview: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")
-          }
-          label={app ? t("Authenticator code") : t("PIN")}
-          onChange={pin.setValue}
-          value={pin.value}
-        />
+        <SensitiveFactorField onContinue={onContinue} pin={pin} />
       </div>
-      {pin.createOpen || pin.forgotOpen
-        ? createPortal(
-            <div className="u33-pin-dialogs">
-              <LegacyBody>
-                {pin.createOpen ? (
-                  <CreatePinDialog
-                    intro={t("You need a PIN to confirm this action. Create it now; the action continues right after.")}
-                    onClose={pin.closeDialogs}
-                    onSaved={(newPin) => {
-                      pin.afterCreate(newPin);
-                      setContinueToken((token) => token + 1);
-                    }}
-                  />
-                ) : null}
-                {pin.forgotOpen ? <ForgotPinDialog onClose={pin.closeDialogs} onReset={pin.afterReset} /> : null}
-              </LegacyBody>
-            </div>,
-            document.body
-          )
-        : null}
     </div>
   );
 }

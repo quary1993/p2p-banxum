@@ -5,7 +5,7 @@
  * <body> the design's body classes of that page type. "motion-reduced" mirrors the visitor's
  * reduced-motion preference on <html>, like the design's persuasion.js.
  *
- * The other skins (html.bxs: October site pages, html.bxm / html.bxu: investor area) are taken
+ * The other skins (html.bxs: October site pages, html.bxu: investor area) are taken
  * off while this one is mounted and put back afterwards. A mount counter keeps it right under
  * StrictMode double effects (as SiteSkin).
  */
@@ -25,7 +25,7 @@ const BODY_CLASSES: Record<PublicBundle, string[]> = {
   project: ["complete-preview", "compact-detail"]
 };
 
-const OTHER_SKINS = ["bxs", "bxm", "bxu"];
+const OTHER_SKINS = ["bxs", "bxu"];
 let publicSkinMounts = 0;
 
 export function PublicSkin({ bundle, children }: { bundle: PublicBundle; children: ReactNode }) {

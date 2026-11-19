@@ -135,25 +135,6 @@ const icons: Record<IconName, string> = {
 
 export type { IconName };
 
-// The user-facing skin is scoped by a class on <html>, so portal content such as
-// tooltips gets it as well. The admin console never mounts this wrapper.
-let userSkinMounts = 0;
-
-export function UserSkin({ children }: { children: ReactNode }) {
-  useLayoutEffect(() => {
-    userSkinMounts += 1;
-    document.documentElement.classList.add("bxm");
-    return () => {
-      userSkinMounts -= 1;
-      if (userSkinMounts <= 0) {
-        userSkinMounts = 0;
-        document.documentElement.classList.remove("bxm");
-      }
-    };
-  }, []);
-  return <>{children}</>;
-}
-
 export function PageHead({
   title,
   description,
@@ -602,36 +583,6 @@ export function Check({
   );
 }
 
-export function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-  label
-}: {
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-  label?: string;
-}) {
-  return (
-    <div aria-label={label} className="seg" onKeyDown={handleTabListKeyDown} role="tablist">
-      {options.map((option) => (
-        <button
-          aria-selected={value === option.value}
-          className={value === option.value ? "on" : ""}
-          key={option.value}
-          onClick={() => onChange(option.value)}
-          role="tab"
-          tabIndex={value === option.value ? 0 : -1}
-          type="button"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function Tabs<T extends string>({
   tabs,
   value,
@@ -729,18 +680,6 @@ export function Progress({ percent, tone }: { percent: number; tone?: "warn" | "
   );
 }
 
-/** How much of a lot's time on the balance is used: `daysLeft` until its last day of `totalDays`. */
-export function DeadlineMeter({ daysLeft, totalDays }: { daysLeft: number; totalDays: number }) {
-  const daysHeld = Math.max(0, totalDays - daysLeft);
-  const percent = Math.min(100, (daysHeld / Math.max(1, totalDays)) * 100);
-  const color = daysLeft <= 7 ? "var(--bad)" : daysLeft <= 30 ? "var(--warn)" : "var(--ok)";
-  return (
-    <div className="dmeter">
-      <span style={{ background: color, width: `${percent}%` }} />
-    </div>
-  );
-}
-
 export function Empty({
   icon = "info",
   title,
@@ -755,32 +694,6 @@ export function Empty({
       <Icon className="faint" name={icon} size={30} />
       <h4>{title}</h4>
       {children ? <p>{children}</p> : null}
-    </div>
-  );
-}
-
-export function BarBreakdown({
-  data
-}: {
-  data: Array<{ label: string; value: number; color?: string }>;
-}) {
-  const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
-  return (
-    <div className="col gap-10">
-      {data.map((item, index) => {
-        const percent = Math.round((item.value / total) * 100);
-        return (
-          <div className="col gap-4" key={`${item.label}-${index}`}>
-            <div className="row spread" style={{ fontSize: 12.5 }}>
-              <span>{item.label}</span>
-              <span className="mono muted">{percent}%</span>
-            </div>
-            <div className="bar">
-              <span style={{ background: item.color ?? "var(--accent)", width: `${percent}%` }} />
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

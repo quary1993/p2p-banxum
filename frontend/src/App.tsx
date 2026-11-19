@@ -5,7 +5,6 @@ import { useAccountLanguageSync } from "./investorPortal/languagePreference";
 import { setInvestorScope } from "./i18n/language";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
-import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
   useV1AuthMeRetrieve,
@@ -43,7 +42,7 @@ import {
 import { isSignedOutError, retryTransientSessionError } from "./investorPortal/session";
 import {  rememberPlatformBusinessDate } from "./investorPortal/platformClock";
 import { useSensitivePin } from "./investorPortal/pinState";
-import { SitePages } from "./site/SitePages";
+import { AdminApp, SitePages } from "./lazyAreas";
 import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
 import {
   useNumberFormatScope
@@ -52,7 +51,6 @@ import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/typ
 import { useT } from "./i18n";
 import { PORTAL_ADDRESS_EVENT, PortalNavProvider, type PortalNav } from "./portal/components";
 import { PortalShell } from "./portal/shell/PortalShell";
-import { LegacyBody } from "./portal/shell/LegacyBody";
 import { NAV_PARENT } from "./portal/shell/nav";
 import { PreviewControls } from "./portal/shell/PreviewControls";
 import { FrozenAccountNotice, ShellNotice, ShellNotices } from "./portal/shell/ShellNotices";
@@ -91,37 +89,16 @@ import { SmartInvestScreen } from "./portal/screens/portfolio/SmartInvestScreen"
 import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
-import { UserSkin } from "./investorPortal/ui";
 import { codeRequestBody, useOperationChange, type OperationDetails } from "./investorPortal/operationBinding";
 
-// Routes whose screens are rebuilt in U33 (portal/screens); every other screen body is wrapped in
-// <LegacyBody> by InvestorShell until its slice replaces it. One list per slice (kept apart so the
-// parallel slices do not edit the same lines).
-// S2 investing (portal/screens/invest).
-const U33_SCREENS_INVEST: RouteName[] = ["dashboard", "market", "loan", "loanSchedule", "invest"];
-// The email code + PIN confirmation of an investment, shared with the other sensitive actions below.
+// The email code + PIN (or authenticator code, D-1) confirmation of an investment, shared with the
+// other sensitive actions (S2 investing, portal/screens/invest).
 const investSensitiveAction: SensitiveActionKit = {
   useCode: useSensitiveActionCode,
   useAutoRequest: useAutoRequestEmailCode,
   requestLabel: emailCodeRequestLabel,
   requestDisabled: emailCodeRequestDisabled
 };
-
-// S3 portfolio, resale, Smart Invest (portal/screens/portfolio).
-const U33_SCREENS_PORTFOLIO: RouteName[] = ["portfolio", "investment", "secondary", "smartInvest"];
-
-// S4 account, transactions, reports, documents, notifications (portal/screens/wallet).
-const U33_SCREENS_WALLET: RouteName[] = ["balances", "transactions", "reports", "documents", "notifications"];
-
-// S5 profile and settings, help, verification (portal/screens/account).
-const U33_SCREENS_ACCOUNT: RouteName[] = ["settings", "faq", "kyc"];
-
-const U33_SCREENS = new Set<RouteName>([
-  ...U33_SCREENS_INVEST,
-  ...U33_SCREENS_PORTFOLIO,
-  ...U33_SCREENS_WALLET,
-  ...U33_SCREENS_ACCOUNT
-]);
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 
@@ -1042,9 +1019,6 @@ function InvestorShell({
     : financialAccessAllowed
       ? t("Verified investor")
       : t("Verification pending");
-  // Rebuilt U33 screens bring their own layout; every other screen body stays in the old skin.
-  // The gate screens (account access, verification) are U33 screens of S5.
-  const isU33Screen = gatedScreen !== screen || U33_SCREENS.has(route.name);
   const notices = [
     signOutError ? (
       <ShellNotice
@@ -1083,48 +1057,46 @@ function InvestorShell({
   ].filter((notice): notice is ReactElement => Boolean(notice));
 
   return (
-    <UserSkin>
-      <U33Skin>
-        <PortalNavProvider value={portalNav}>
-          <PortalShell
-            activeRoute={activeRoute}
-            addFundsDisabled={addFundsDisabled}
-            balances={shellBalances}
-            counts={{ openOpportunities: openProjectCount, unreadNotifications: unreadCount }}
-            dialogs={addFundsOpen || payoutIbanOpen ? (
-              <>
-                {addFundsOpen ? (
-                  <AddFundsDialog currency={addFundsCurrency} onClose={() => setAddFundsOpen(false)} />
-                ) : null}
-                {payoutIbanOpen ? (
-                  <BankAccountDialog
-                    currency={bankAccountCurrency}
-                    holderName={readonlyImpersonation.active ? "" : profile.name}
-                    onClose={() => setPayoutIbanOpen(false)}
-                  />
-                ) : null}
-              </>
-            ) : null}
-            markers={accountMarker ? { balances: accountMarker } : undefined}
-            notices={notices.length > 0 ? <ShellNotices>{notices}</ShellNotices> : null}
-            notifications={notifications}
-            onAddFunds={() => setAddFundsOpen(true)}
-            onMarkAllRead={() => void notificationReadActions.markAllRead().catch(() => undefined)}
-            onMarkRead={(id) => void notificationReadActions.markRead(id).catch(() => undefined)}
-            onSignOut={signOut}
-            profile={profile}
-            signOutDisabled={logoutMutation.isPending}
-            signOutLabel={signOutLabel}
-            status={status}
-          >
-            <FrozenAccountContext.Provider value={frozenAccount}>
-              {isU33Screen ? gatedScreen : <LegacyBody>{gatedScreen}</LegacyBody>}
-            </FrozenAccountContext.Provider>
-          </PortalShell>
-          {isFixturePreview ? <PreviewControls onStateChange={setDemoState} state={demoState} /> : null}
-        </PortalNavProvider>
-      </U33Skin>
-    </UserSkin>
+    <U33Skin>
+      <PortalNavProvider value={portalNav}>
+        <PortalShell
+          activeRoute={activeRoute}
+          addFundsDisabled={addFundsDisabled}
+          balances={shellBalances}
+          counts={{ openOpportunities: openProjectCount, unreadNotifications: unreadCount }}
+          dialogs={addFundsOpen || payoutIbanOpen ? (
+            <>
+              {addFundsOpen ? (
+                <AddFundsDialog currency={addFundsCurrency} onClose={() => setAddFundsOpen(false)} />
+              ) : null}
+              {payoutIbanOpen ? (
+                <BankAccountDialog
+                  currency={bankAccountCurrency}
+                  holderName={readonlyImpersonation.active ? "" : profile.name}
+                  onClose={() => setPayoutIbanOpen(false)}
+                />
+              ) : null}
+            </>
+          ) : null}
+          markers={accountMarker ? { balances: accountMarker } : undefined}
+          notices={notices.length > 0 ? <ShellNotices>{notices}</ShellNotices> : null}
+          notifications={notifications}
+          onAddFunds={() => setAddFundsOpen(true)}
+          onMarkAllRead={() => void notificationReadActions.markAllRead().catch(() => undefined)}
+          onMarkRead={(id) => void notificationReadActions.markRead(id).catch(() => undefined)}
+          onSignOut={signOut}
+          profile={profile}
+          signOutDisabled={logoutMutation.isPending}
+          signOutLabel={signOutLabel}
+          status={status}
+        >
+          <FrozenAccountContext.Provider value={frozenAccount}>
+            {gatedScreen}
+          </FrozenAccountContext.Provider>
+        </PortalShell>
+        {isFixturePreview ? <PreviewControls onStateChange={setDemoState} state={demoState} /> : null}
+      </PortalNavProvider>
+    </U33Skin>
   );
 }
 

@@ -118,6 +118,11 @@ function withdrawalHandlers(results: Array<() => Response>) {
   ];
 }
 
+/** The one masked PIN input of the U33 operation dialogs. */
+function pinInput() {
+  return screen.getByLabelText("PIN", { exact: true, selector: "input" });
+}
+
 async function openWithdrawalConfirm() {
   const card = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
   fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
@@ -147,8 +152,8 @@ test("the PIN goes with the email code; a wrong PIN shows the attempts left and 
   fireEvent.click(confirm);
 
   expect(await screen.findByText("Wrong PIN. 4 attempts left before your PIN is locked.", {}, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toHaveValue("");
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toHaveAttribute("aria-invalid", "true");
+  expect(pinInput()).toHaveValue("");
+  expect(pinInput()).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByRole("textbox", { name: "Email confirmation code" })).toHaveValue("123456");
   expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
 
@@ -180,7 +185,7 @@ test("a locked PIN says until when; Forgot PIN resets it with the password and a
   const time = new Date(lockedUntil).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" });
   expect(await screen.findByText("PIN locked", {}, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText(`Too many wrong PINs. You can try again after ${time}, or set a new PIN now.`)).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toBeDisabled();
+  expect(pinInput()).toBeDisabled();
   expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
 
   fireEvent.click(screen.getAllByRole("button", { name: "Forgot PIN?" })[0]);

@@ -151,8 +151,8 @@ Run these checks in staging before production, and again in production before re
   - Sender domain DNS authentication is green in the Twilio Console.
   - `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email`; email API-key credentials are separate from Twilio Verify credentials.
   - DMARC has exactly the intended policy record; remove duplicate/conflicting DMARC records before production.
-  - Magic-link email is delivered to a real mailbox and the link is clickable.
-  - Admin email-code login is delivered within the expected latency.
+  - Registration email link and password-reset link are delivered to a real mailbox and the links are clickable (18.5: sign-in is password + second factor; no sign-in link).
+  - Twilio Verify SMS codes for sign-in, factor set-up and PIN reset arrive within the expected latency; admins sign in with password + authenticator app (no email or SMS code).
   - Sensitive-action email code is delivered and not exposed in portal notifications.
   - Legal-document acceptance does not enqueue/send PDF attachments; any legacy document-acceptance email outbox row renders as a portal notice with no attachment.
   - The asynchronous operation reaches `COMPLETED`, and the recipient email reaches `DELIVERED` rather than only receiving HTTP 202.

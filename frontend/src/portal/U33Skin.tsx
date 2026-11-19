@@ -9,9 +9,8 @@
  * layout="auth" (sign-in, registration, PIN gate, Didit return; slice S5) gives the body the design's
  * classes for the screens outside the app layout (nk-body bg-white bxm-app, no has-sidebar).
  * Everything is removed on unmount, so the public site (html.bxs) and the admin console keep their
- * look. During the migration UserSkin (html.bxm, the old skin) stays mounted as well; old screen
- * bodies are wrapped in <LegacyBody> (shell/LegacyBody.tsx). A mount counter keeps this correct
- * under StrictMode double effects, like UserSkin and SiteSkin.
+ * look. The old skin (html.bxm) and its <LegacyBody> wrapper were removed in the S7 clean-up (18.5).
+ * A mount counter keeps this correct under StrictMode double effects, like SiteSkin.
  */
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
