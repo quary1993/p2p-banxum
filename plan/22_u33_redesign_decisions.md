@@ -1102,3 +1102,14 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.10 and 18.11 ("Status 
 
 Choices made in this step (for the audit): a review opened by an investor's answers creates no admin task (the Compliance panel lists the open reviews); later triggers join the open review instead of opening a second one; a superadmin grants roles but does not review or verify without a role; the proof documents must be documents linked to the security; the receivables "notice to the debtor" is not a fixed requirement; existing accounts are asked on the Overview (not a blocking screen at sign-in); the Didit identity re-check is not started by the re-verification date.
 
+### Implemented In Audit Step 8 (2026-11-20, Phase 18.12)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.12 ("Status 2026-11-20").
+
+| Item | Implemented |
+| --- | --- |
+| Q24.4, A02, A04 | Privacy notice and cookie policy in English, drafted from the real application (data, purposes, recipients, transfers, retention, rights, cookies), with the DB-IP attribution; facts that need operations are marked "to confirm". |
+| D5 | Internal OWASP ASVS level 2 review with a written report; the API denies by default; the scope of the independent external test is prepared. |
+
+Choices made in this step (for the audit): the texts are English only (18.13 translates them); Google Analytics is described as "only with consent" although it is not in the code yet (Vlad adds it); the review report and the external test scope are delivered as documents and not kept in the repository (AGENTS.md: no persistent audit reports).
+
