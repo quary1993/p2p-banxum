@@ -22,7 +22,7 @@ import { openingDate, projectView, type ProjectView } from "../../projects";
 import { GLYPHS } from "../glyphs";
 import { useInView, useNarrow, useReducedMotion, useTimeline } from "../hooks";
 import {
-  assetName,
+  projectAssetName,
   calculatorAmountText,
   estimate,
   homeOpportunities,
@@ -1053,7 +1053,7 @@ function SecurityExample({ examples }: { examples: ProjectView[] }) {
               <span id="security-country">
                 <Flag className="" code={p.borrower_country} />
               </span>
-              <span id="security-asset-name">{assetName(p.collateral_type)}</span>
+              <span id="security-asset-name">{projectAssetName(p)}</span>
             </span>
           </div>
         </div>

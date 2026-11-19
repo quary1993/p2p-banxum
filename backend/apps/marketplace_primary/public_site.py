@@ -367,6 +367,14 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
     # One source of truth with the Swiss-borrower investor limit (MKT-DEC-028).
     investors_by_loan = loan_investor_ids([str(loan.id) for loan in loans])
     platform_investor_limit = swiss_borrower_max_investors()
+    # 18.3: the anonymous asset name of each loan's main security, when the admin entered one.
+    public_asset_names = {
+        str(loan_id): str(name)
+        for loan_id, name in apps.get_model("loans", "LoanSecurity")
+        .objects.filter(loan_id__in=[loan.id for loan in loans], is_main=True)
+        .exclude(public_name="")
+        .values_list("loan_id", "public_name")
+    }
     minimum_by_currency: dict[str, int] = {}
     projects: list[_Project] = []
     for loan in loans:
@@ -398,6 +406,7 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
             }
             funded_at = _funded_at(loan, profile, direct_closes)
         base_payload = _base_payload(loan, profile)
+        base_payload["security_public_name"] = public_asset_names.get(str(loan.id), "")
         investor_limit = InvestorLimit(
             max_investors=max_investors_for_borrower_country(
                 base_payload["borrower_country"],

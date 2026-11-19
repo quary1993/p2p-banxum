@@ -20,7 +20,7 @@ import { openingDate, projectView, type ProjectView } from "../../projects";
 import type { SitePageProps } from "../../SitePages";
 import { useNarrow } from "../hooks";
 import {
-  assetName,
+  projectAssetName,
   estimate,
   frequencyText,
   homeOpportunities,
@@ -409,7 +409,7 @@ function SecurityPanel({ p }: { p: PublicProject }) {
     <section aria-labelledby="collateral-title" className="compact-security collateral-card">
       <div className="compact-security-head">
         <div>
-          <h2 id="collateral-title">{assetName(p.collateral_type)}</h2>
+          <h2 id="collateral-title">{projectAssetName(p)}</h2>
           <p className="security-position">{securityTitle(p)}</p>
         </div>
       </div>

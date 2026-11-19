@@ -412,6 +412,9 @@ class LoanSecurity(TimestampedModel):
     position = models.PositiveSmallIntegerField(default=0)
     security_type = models.CharField(max_length=32, choices=CollateralType.choices)
     description = models.TextField(blank=True, default="")
+    # 18.3: the asset in a few anonymous words for the public site ("Residential building in
+    # Biel"); empty: the public site names the type ("Property").
+    public_name = models.CharField(max_length=120, blank=True, default="")
     # The owner of the asset or right, or the guarantor.
     holder_name = models.CharField(max_length=255, blank=True, default="")
     # 1 is first rank.

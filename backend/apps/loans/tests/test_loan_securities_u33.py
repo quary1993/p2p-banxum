@@ -353,3 +353,28 @@ def test_equal_principal_is_closed_for_new_direct_loans(admin_user: Model) -> No
                 repayment_type="amortizing_principal_interest",
             )
         )
+
+
+def test_the_public_site_shows_the_anonymous_asset_name_of_the_main_security(
+    admin_user: Model,
+) -> None:
+    """18.3: the admin's public asset name of the main security reaches the public project."""
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    [first] = LoanSecurity.objects.filter(loan=loan)
+    response = _client(admin_user).put(
+        _url(loan, str(first.pk)),
+        data={
+            "security_type": "real_estate",
+            "value_minor": 2400_00,
+            "public_name": "  Residential building in Biel  ",
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+    assert response.json()["public_name"] == "Residential building in Biel"
+    publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.pk)))
+    public = import_module("backend.apps.marketplace_primary.public_site")
+    [project] = [
+        item for item in public.list_public_projects() if item["loan_id"] == str(loan.pk)
+    ]
+    assert project["security_public_name"] == "Residential building in Biel"

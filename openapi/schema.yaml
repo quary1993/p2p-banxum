@@ -14124,6 +14124,9 @@ components:
           type: boolean
         description:
           type: string
+        public_name:
+          type: string
+          default: ''
         holder_name:
           type: string
           description: Owner of the asset or right, or the guarantor.
@@ -14253,6 +14256,12 @@ components:
           type: string
           default: ''
           maxLength: 4000
+        public_name:
+          type: string
+          default: ''
+          description: '18.3: anonymous asset name for the public site (no borrower
+            name or address).'
+          maxLength: 120
         holder_name:
           type: string
           default: ''
@@ -18524,6 +18533,11 @@ components:
           description: CollateralType value.
         collateral_description:
           type: string
+        security_public_name:
+          type: string
+          default: ''
+          description: '18.3: the anonymous name of the main secured asset; empty:
+            name the type.'
         ltv_bps:
           type: integer
           nullable: true

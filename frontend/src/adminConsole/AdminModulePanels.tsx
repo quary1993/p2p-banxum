@@ -6260,6 +6260,8 @@ const securityStatusText: Record<SecurityStatusOption, string> = {
 };
 
 type SecurityDraft = {
+  // 18.3: anonymous asset name for the public site.
+  publicName: string;
   id: string | null;
   securityType: string;
   description: string;
@@ -6289,6 +6291,7 @@ function securityDraft(security?: LoanSecurity): SecurityDraft {
     id: security?.id ?? null,
     securityType: security?.security_type ?? CollateralTypeEnum.real_estate,
     description: security?.description ?? "",
+    publicName: security?.public_name ?? "",
     holderName: security?.holder_name ?? "",
     rank: text(security?.rank),
     status: (security?.status ?? "") as SecurityStatusOption,
@@ -6316,6 +6319,7 @@ function securityRequest(draft: SecurityDraft, loanCurrency: string): LoanSecuri
   return {
     security_type: draft.securityType,
     description: draft.description.trim(),
+    public_name: draft.publicName.trim(),
     holder_name: draft.holderName.trim(),
     rank: draft.rank.trim() ? intValue(draft.rank) : null,
     status: draft.status,
@@ -6468,6 +6472,7 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
             <SelectInput<SecurityStatusOption> label="Status" onChange={(value) => set({ status: value })} optionLabel={(option) => securityStatusText[option]} options={SECURITY_STATUS_OPTIONS} value={draft.status} />
           </FieldGrid>
           <TextAreaInput label="Description" onChange={(value) => set({ description: value })} value={draft.description} />
+          <TextInput hint="Public site, a few words, no borrower name or address, for example Residential building in Biel. Empty: the type is shown." label="Public asset name" onChange={(value) => set({ publicName: value })} value={draft.publicName} />
           {guarantee ? (
             <FieldGrid>
               <MoneyMinorInput currency={loan.currency} label="Guarantee limit minor units" onChange={(value) => set({ limit: value })} value={draft.limit} />

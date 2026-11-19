@@ -135,6 +135,12 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     repayment_type = serializers.CharField(help_text="RepaymentType value.")
     collateral_type = serializers.CharField(help_text="CollateralType value.")
     collateral_description = serializers.CharField(allow_blank=True)
+    security_public_name = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        default="",
+        help_text="18.3: the anonymous name of the main secured asset; empty: name the type.",
+    )
     ltv_bps = serializers.IntegerField(
         allow_null=True,
         help_text="Loan-to-value in basis points; null without a collateral value.",

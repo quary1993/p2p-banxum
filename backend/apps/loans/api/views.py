@@ -413,6 +413,7 @@ def _security_command(request: Request, loan_id: str, security_id: str | None) -
         security_id=security_id,
         security_type=data["security_type"],
         description=data["description"],
+        public_name=data["public_name"],
         holder_name=data["holder_name"],
         rank=data["rank"],
         status=data["status"],

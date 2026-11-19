@@ -446,6 +446,8 @@ class LoanSecuritySerializer(serializers.Serializer[Any]):
     security_type = serializers.CharField()
     is_guarantee = serializers.BooleanField()
     description = serializers.CharField(allow_blank=True)
+    # 18.3: the anonymous asset name of the public site.
+    public_name = serializers.CharField(allow_blank=True, required=False, default="")
     holder_name = serializers.CharField(
         allow_blank=True, help_text="Owner of the asset or right, or the guarantor."
     )
@@ -487,6 +489,13 @@ class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
     security_type = serializers.CharField(max_length=32)
     description = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=4000
+    )
+    public_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=120,
+        help_text="18.3: anonymous asset name for the public site (no borrower name or address).",
     )
     holder_name = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=255

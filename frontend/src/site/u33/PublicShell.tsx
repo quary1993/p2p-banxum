@@ -470,7 +470,7 @@ function LanguageSwitcher({ onOpen }: { onOpen: () => void }) {
 
 // ---------------------------------------------------------------------------------------------
 // Footer (design closing-footer) with the operator identification of U33-DEC-34 and links to the
-// October pages that stay until the owner decides (U33-DEC-39: All projects, Statistics, Help).
+// kept pages (U33-DEC-39, D-10: All projects, Statistics, Help, Guides, imprint, cookie settings).
 
 function PublicFooter({ divider, inert, onCookieSettings }: { divider: boolean; inert: boolean; onCookieSettings: () => void }) {
   const t = useT();
@@ -497,6 +497,8 @@ function PublicFooter({ divider, inert, onCookieSettings }: { divider: boolean; 
           <PublicLink href="/about">{t("About Banxum")}</PublicLink>
           <PublicLink href="/contact">{t("Contact")}</PublicLink>
           <PublicLink href="/help">{t("Help")}</PublicLink>
+          {/* 18.3 (D-10): the kept Guides page, with the new-projects email signup. */}
+          <PublicLink href="/guides">{t("Guides")}</PublicLink>
         </div>
         <div className="footer-column">
           <h2>{t("Business")}</h2>

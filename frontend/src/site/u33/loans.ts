@@ -97,6 +97,14 @@ export function securityGlyph(collateralType: string): GlyphName {
   }
 }
 
+/**
+ * The secured asset in a few words: the anonymous name the admin entered for the main security
+ * (18.3, "Residential building in Biel"), else the type ("Property", "Equipment").
+ */
+export function projectAssetName(project: { collateral_type: string; security_public_name?: string }) {
+  return project.security_public_name?.trim() || assetName(project.collateral_type);
+}
+
 /** The secured asset or right in a few words ("Property", "Equipment", "Personal guarantee"). */
 export function assetName(collateralType: string) {
   switch (collateralType) {

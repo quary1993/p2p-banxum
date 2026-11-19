@@ -58,6 +58,7 @@ class SaveLoanSecurityCommand:
     security_type: str
     security_id: str | None = None
     description: str = ""
+    public_name: str = ""
     holder_name: str = ""
     rank: int | None = None
     status: str = ""
@@ -106,6 +107,7 @@ def security_payload(
         "security_type": security.security_type,
         "is_guarantee": is_guarantee(security.security_type),
         "description": security.description,
+        "public_name": security.public_name,
         "holder_name": security.holder_name,
         "rank": security.rank,
         "status": security.status,
@@ -242,6 +244,7 @@ def _validated(
     return {
         "security_type": security_type,
         "description": description,
+        "public_name": _clean(command.public_name)[:120],
         "holder_name": _clean(command.holder_name),
         "rank": command.rank,
         "status": status,
