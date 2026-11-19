@@ -30,6 +30,13 @@ export function notificationRoute(notification: NotificationNavigation): AppRout
       return { name: "secondary" };
     case "fx":
       return { name: "fx" };
+    // 18.3: movements, reports and documents.
+    case "transactions":
+      return { name: "transactions" };
+    case "reports":
+      return { name: "reports" };
+    case "documents":
+      return { name: "documents" };
     default:
       // The design's "View transactions" for money that left the account (withdrawals, automatic returns).
       if (notification.topic === "email.withdrawal_status" || notification.topic === "email.balance_forced_return") return { name: "transactions" };
@@ -54,4 +61,44 @@ export function markNotificationsRead(payload: InvestorNotifications, ids: strin
     return { ...notification, unread: false };
   });
   return { ...payload, notifications, unread_count: Math.max(0, payload.unread_count - newlyRead) };
+}
+
+function isFailedDelivery(item: Pick<InvestorNotification, "status">) {
+  return item.status === "failed" || item.status === "dead_letter";
+}
+
+/**
+ * 18.3: the design's tone of a notification row (.nd-row.is-positive / is-late / is-attention) from the
+ * API's category; a failed email reads as late. Neutral rows have no tone class.
+ */
+export function notificationTone(item: Pick<InvestorNotification, "status" | "category">) {
+  if (isFailedDelivery(item)) return "late";
+  if (item.category === "positive") return "positive";
+  if (item.category === "late") return "late";
+  if (item.category === "default") return "attention";
+  return "";
+}
+
+/** The design's icon of a notification: by its tone, then by what it opens. */
+export function notificationIcon(item: Pick<InvestorNotification, "status" | "category" | "navigation_target">) {
+  if (isFailedDelivery(item) || item.category === "late") return "alert";
+  if (item.category === "default") return "alert-fill";
+  switch (item.navigation_target) {
+    case "balances":
+      return "arrow-down-left";
+    case "loan":
+    case "holding":
+      return "briefcase";
+    case "portfolio":
+      return "growth";
+    case "secondary_market":
+      return "exchange";
+    case "transactions":
+      return "tranx";
+    case "reports":
+    case "documents":
+      return "file-text";
+    default:
+      return "bell";
+  }
 }

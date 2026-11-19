@@ -3,8 +3,8 @@
  * Notifications (design #/notifications: main.nd-page): All / Unread, Mark all as read, rows that
  * open the screen they are about (investorPortal/notifications.ts) and mark themselves read, and the
  * empty states. Rows use the design's .nd-row like the header menu (portal/shell/NotificationsMenu,
- * whose row is not exported: same markup and mapping here; the main session can merge them). Tone:
- * neutral, amber only for failed deliveries (the API has no category for other tones). Rows show the
+ * whose row is not exported: same markup and mapping here; the main session can merge them). Tone
+ * (18.3): the API's category (positive, late, default as "attention", neutral); a failed email is late. Rows show the
  * design's title, text, time and destination; the topic label of audit A-46 is left out (not in U33).
  */
 import { useState, type MouseEvent } from "react";
@@ -13,7 +13,7 @@ import type { InvestorNotification } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useNotificationReadActions, useNotificationsData } from "../../../investorPortal/data";
 import { formatDateTime } from "../../../investorPortal/format";
-import { notificationRoute } from "../../../investorPortal/notifications";
+import { notificationIcon, notificationRoute, notificationTone } from "../../../investorPortal/notifications";
 import type { AppRoute } from "../../../investorPortal/types";
 import { EmptyState, isPlainLeftClick, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import "./wallet.css";
@@ -23,23 +23,6 @@ function isFailed(item: InvestorNotification) {
   return item.status === "failed" || item.status === "dead_letter";
 }
 
-/** Design icon of a notification, by what it opens (same mapping as the header menu). */
-function notificationIcon(item: InvestorNotification) {
-  if (isFailed(item)) return "alert";
-  switch (item.navigation_target) {
-    case "balances":
-      return "arrow-down-left";
-    case "loan":
-    case "holding":
-      return "briefcase";
-    case "portfolio":
-      return "growth";
-    case "secondary_market":
-      return "exchange";
-    default:
-      return "bell";
-  }
-}
 
 /** The design's destination line ("View investment →"), by the route the notification opens. */
 function destinationLabel(route: AppRoute) {
@@ -55,6 +38,8 @@ function destinationLabel(route: AppRoute) {
       return "View transactions";
     case "reports":
       return "View reports";
+    case "documents":
+      return "View documents";
     case "secondary":
       return "View resale market";
     case "fx":
@@ -69,7 +54,8 @@ function NotificationRow({ item, onOpen }: { item: InvestorNotification; onOpen:
   const nav = usePortalNav();
   const route = notificationRoute(item);
   const destination = destinationLabel(route);
-  const className = `nd-row ${item.unread ? "is-unread" : ""} ${isFailed(item) ? "is-late" : ""}`.replace(/\s+/g, " ").trim();
+  const tone = notificationTone(item);
+  const className = `nd-row ${item.unread ? "is-unread" : ""} ${tone ? `is-${tone}` : ""}`.replace(/\s+/g, " ").trim();
   const content = (
     <>
       <span aria-hidden="true" className="nd-icon"><NiIcon name={notificationIcon(item)} /></span>

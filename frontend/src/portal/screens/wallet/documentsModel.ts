@@ -3,7 +3,7 @@
 // annual tax information (generated on request), and acceptance evidence of the agreements the
 // investor accepted (investment and resale agreements, platform terms and risk disclosures).
 import type { InvestorDocument } from "../../../api/generated/banxumApi";
-import { formatDate, zurichDateKey } from "../../../investorPortal/format";
+import { formatDate, monthLabelFromKey, zurichDateKey } from "../../../investorPortal/format";
 
 export type DocumentTab = "investment" | "statements" | "platform";
 
@@ -79,4 +79,55 @@ export function documentTitle(document: Pick<InvestorDocument, "category" | "doc
   if (document.category === "primary_market_investment" || document.category === "secondary_market_purchase") return "Purchase agreement";
   if (document.category === "secondary_market_listing") return "Sale agreement";
   return document.document_type || document.title;
+}
+
+// --- 18.3: kept reports (GET /investor/portal/reports/) --------------------------------------
+
+export type ReportFilter = "account_statement" | "portfolio" | "interest_repayments" | "tax";
+
+/** The design's report types (Create report and the type filter), in the design's order. */
+export const REPORT_TYPES: Array<{ value: ReportFilter; label: string; help: string }> = [
+  { value: "account_statement", label: "Account statement", help: "Money received, invested, sent back and withdrawn." },
+  { value: "portfolio", label: "Portfolio report", help: "Your investments, what is outstanding and their status." },
+  { value: "interest_repayments", label: "Interest and repayments", help: "Every repayment, split into principal and interest." },
+  { value: "tax", label: "Tax report", help: "Interest received per borrower country and currency, for your tax return." }
+];
+
+/** The filter a kept report or an offered document belongs to. */
+export function reportFilterOf(kind: string): ReportFilter {
+  if (kind === "monthly_statement" || kind === "account_statement") return "account_statement";
+  if (kind === "annual_tax_information") return "tax";
+  return kind as ReportFilter;
+}
+
+function monthName(key: string) {
+  return `${monthLabelFromKey(key, { month: "short" })} ${key.slice(0, 4)}`;
+}
+
+function lastDayOfMonth(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** "Mar 2026", "Jan 2026 – Mar 2026", "As of 15 Mar 2026" or a day range. */
+export function keptPeriodLabel(report: { kind: string; start_date: string; end_date: string }) {
+  if (report.kind === "portfolio") return `As of ${formatDate(report.end_date)}`;
+  const fullMonths = report.start_date.slice(8) === "01" && Number(report.end_date.slice(8)) === lastDayOfMonth(report.end_date.slice(0, 7));
+  if (!fullMonths) return `${formatDate(report.start_date)} – ${formatDate(report.end_date)}`;
+  const from = report.start_date.slice(0, 7);
+  const to = report.end_date.slice(0, 7);
+  return from === to ? monthName(from) : `${monthName(from)} – ${monthName(to)}`;
+}
+
+/** Calendar years a kept report covers. */
+export function keptYears(report: { start_date: string; end_date: string }) {
+  const years: number[] = [];
+  for (let year = Number(report.start_date.slice(0, 4)); year <= Number(report.end_date.slice(0, 4)) && years.length < 30; year += 1) years.push(year);
+  return years;
+}
+
+/** First and last day of a month range ("2026-01" to "2026-03"), the end capped at today. */
+export function monthRange(from: string, to: string, today: string) {
+  const end = `${to}-${String(lastDayOfMonth(to)).padStart(2, "0")}`;
+  return { start: `${from}-01`, end: end > today ? today : end };
 }

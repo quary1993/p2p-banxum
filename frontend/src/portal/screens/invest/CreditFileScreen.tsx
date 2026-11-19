@@ -18,7 +18,7 @@ import { LoanDocumentList } from "../../../investorPortal/LoanDocumentList";
 import { isNotFoundError } from "../../../investorPortal/session";
 import { normalizeStory, storyIsEmpty } from "../../../investorPortal/story";
 import { StoryView } from "../../../investorPortal/StoryView";
-import { Button, Dialog, EmptyState, NiIcon, PageHead, PortalLink } from "../../components";
+import { Button, Dialog, EmptyState, NiIcon, PageHead, PdfReader, PortalLink } from "../../components";
 import { MOBILE_SHELL_QUERY, useMediaQuery } from "../../shell/useMediaQuery";
 import { legalDocumentPath } from "./investRules";
 import {
@@ -116,6 +116,8 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
   const [opened, setOpened] = useState(Boolean(known));
   const [chapter, setChapter] = useState<ChapterId>(known?.id ?? "summary");
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // 18.3: a borrower PDF opens in the in-app reader.
+  const [reader, setReader] = useState<{ title: string; data: Uint8Array; filename: string } | null>(null);
   const number = (position: number) => String(position + 1).padStart(2, "0");
   const openChapter = (id: ChapterId) => {
     setOpened(true);
@@ -376,7 +378,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
                 <section className="r100-file-group">
                   <h3>{t("Borrower documents")}</h3>
                   {documents.length > 0 ? (
-                    <LoanDocumentList disabled={isFixturePreview} documents={documents} humanize={humanize} loanId={loan.loan_id} />
+                    <LoanDocumentList disabled={isFixturePreview} documents={documents} humanize={humanize} loanId={loan.loan_id} onView={(file) => setReader(file)} />
                   ) : (
                     <p className="bxm-muted">{t("No document is published for this loan.")}</p>
                   )}
@@ -393,6 +395,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
           <ScheduleTable currency={loan.currency} label={t("Full loan payment schedule, {count} payments", { count: fullLoanSchedule(loan).length })} rows={fullLoanSchedule(loan)} />
         </Dialog>
       ) : null}
+      {reader ? <PdfReader load={async () => reader} onClose={() => setReader(null)} title={reader.title} /> : null}
     </section>
   );
 }

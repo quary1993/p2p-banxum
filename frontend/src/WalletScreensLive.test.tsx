@@ -10,6 +10,11 @@ import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { server } from "./api/mocks/server";
 import { renderLiveApp, shellHandlers } from "./test/liveHarness";
 
+// No canvas in jsdom: the reader's engine is replaced by two blank pages.
+vi.mock("./portal/components/pdf/pdfEngine", () => ({
+  openPdf: async () => ({ numPages: 2, renderPage: async () => undefined, destroy: () => undefined })
+}));
+
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
 
@@ -335,50 +340,114 @@ test("Transactions show the server's summary, load more pages and save the serve
   expect(csv.replace(/^\uFEFF/, "").split("\n")[0]).toBe("Date;Type");
 }, 30_000);
 
-test("Reports list today's statements and tax information and create reports the platform generates", async () => {
+const keptReports = {
+  reports: [
+    {
+      id: "aa9a1f6e-1c4e-4f43-8c7a-0e7a3b9c1d11",
+      kind: "monthly_statement",
+      title: "Account statement November 2026",
+      currency: "",
+      start_date: "2026-11-01",
+      end_date: "2026-11-30",
+      output_format: "pdf",
+      filename: "participant_account_statement_2026-11-01_2026-11-30.pdf",
+      issued_at: "2026-12-01T06:00:00Z",
+      automatic: true
+    }
+  ]
+};
+
+function reportHandlers(created: Array<Record<string, unknown>>) {
+  return [
+    http.get("*/api/v1/investor/portal/reports/", () => HttpResponse.json(keptReports)),
+    http.get("*/api/v1/investor/portal/reports/summary/", ({ request }) =>
+      HttpResponse.json({
+        year: Number(new URL(request.url).searchParams.get("year")) || null,
+        start_date: "2026-01-01",
+        end_date: "2026-12-31",
+        currencies: [
+          { currency: "EUR", invested_minor: 150_000, principal_repaid_minor: 0, interest_received_minor: 0 },
+          { currency: "CHF", invested_minor: 650_000, principal_repaid_minor: 35_410, interest_received_minor: 5_825 }
+        ]
+      })
+    ),
+    http.get("*/api/v1/investor/portal/reports/:reportId/download/", () =>
+      HttpResponse.json({ content_type: "application/pdf", filename: "statement.pdf", content_encoding: "base64", content: "JVBERi0xLjQ=", content_sha256: "x", manifest: {} })
+    ),
+    http.post("*/api/v1/investor/portal/reports/", async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      created.push(body);
+      return HttpResponse.json(
+        { id: "bb9a1f6e-1c4e-4f43-8c7a-0e7a3b9c1d22", kind: body.kind, title: "Tax report", currency: body.currency, start_date: body.start_date, end_date: body.end_date, output_format: body.output_format, filename: "tax.pdf", issued_at: "2026-12-10T11:00:00Z", automatic: false },
+        { status: 201 }
+      );
+    })
+  ];
+}
+
+test("Reports list kept and offered reports by year and type, open PDFs in the reader and create the design's reports", async () => {
   const downloads: Array<Record<string, unknown>> = [];
-  server.use(...walletHandlers(downloads));
+  const created: Array<Record<string, unknown>> = [];
+  server.use(...walletHandlers(downloads), ...reportHandlers(created));
   renderLiveApp(App, "/reports");
   const table = await screen.findByRole("table", {}, { timeout: 5000 });
   const main = screen.getByRole("main");
-  expect(within(main).getByText("3 reports")).toBeInTheDocument();
-  expect(within(table).getByText("Year to date")).toBeInTheDocument();
-  expect(within(table).getAllByText("2025")).toHaveLength(2);
+  // This year by default: the monthly statement and the year-to-date statement.
+  expect(within(main).getByText("2 reports")).toBeInTheDocument();
+  expect(within(table).getByText("Account statement November 2026")).toBeInTheDocument();
+  expect(within(table).getByText("Nov 2026")).toBeInTheDocument();
+  const years = within(main).getByRole("group", { name: "Report year" });
+  fireEvent.click(within(years).getByRole("button", { name: "2025" }));
+  expect(within(main).getByText("2 reports")).toBeInTheDocument();
+  fireEvent.click(within(years).getByRole("button", { name: "All years" }));
+  expect(within(main).getByText("4 reports")).toBeInTheDocument();
 
-  fireEvent.change(within(main).getByLabelText("Report type"), { target: { value: "annual_tax_information" } });
+  fireEvent.change(within(main).getByLabelText("Report type"), { target: { value: "tax" } });
   expect(within(main).getByText("1 report")).toBeInTheDocument();
   fireEvent.click(within(main).getByRole("button", { name: "Download Tax information 2025 as CSV" }));
   await waitFor(() => expect(downloads).toHaveLength(1));
   expect(downloads[0]).toMatchObject({ document_kind: "annual_tax_information", output_format: "csv", start_date: "2025-01-01", end_date: "2025-12-31" });
-  await waitFor(() => expect(saved.map((file) => file.name)).toEqual(["banxum-annual_tax_information.csv"]));
+  fireEvent.change(within(main).getByLabelText("Report type"), { target: { value: "" } });
 
-  // Create report: only the outputs the platform generates (no portfolio or per-country reports).
+  // The PDF opens in the in-app reader, with zoom, download and Close.
+  fireEvent.click(within(main).getByRole("button", { name: "View Account statement November 2026 · Nov 2026" }));
+  const reader = await screen.findByRole("dialog", { name: "Account statement November 2026" });
+  expect(await within(reader).findByText("2 pages")).toBeInTheDocument();
+  expect(within(reader).getAllByRole("img", { name: /^Page / })).toHaveLength(2);
+  fireEvent.click(within(reader).getByRole("button", { name: "Zoom in" }));
+  expect(within(reader).getByText("125%")).toBeInTheDocument();
+  fireEvent.click(within(reader).getByRole("button", { name: "Download PDF" }));
+  await waitFor(() => expect(saved.map((file) => file.name)).toContain("statement.pdf"));
+  // The footer's Close (the corner "×" closes it too).
+  fireEvent.click(within(reader).getAllByRole("button", { name: "Close" }).at(-1) as HTMLElement);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+  // The annual summary per currency, from the server.
+  fireEvent.click(within(main).getByRole("button", { name: /All-time summary/ }));
+  const summary = document.getElementById("tr-annual-summary") as HTMLElement;
+  const chf = (await within(summary).findByRole("heading", { name: /^CHF/ })).closest("section") as HTMLElement;
+  expect(within(chf).getByText("Interest received").nextSibling).toHaveTextContent("58,25");
+
+  // Create report: the design's four types; months; the portfolio as of today.
   fireEvent.click(within(main).getByRole("button", { name: "Create report" }));
   const dialog = screen.getByRole("dialog", { name: "Create report" });
-  expect(within(dialog).getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual(["statement", "tax"]);
-  expect(within(dialog).getByLabelText("From")).toHaveValue("2026-01-01");
-  expect(within(dialog).getByLabelText("To")).toHaveValue("2026-12-10");
-  fireEvent.change(within(dialog).getByLabelText("From"), { target: { value: "2026-12-31" } });
+  expect(within(dialog).getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual(["account_statement", "portfolio", "interest_repayments", "tax"]);
+  fireEvent.click(within(dialog).getByRole("radio", { name: /Portfolio report/ }));
+  expect(within(dialog).getByText("As of 10 Dec 2026")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("radio", { name: /Tax report/ }));
+  expect(within(dialog).getByText("The tax report is information for your tax return. It is not an official tax certificate.")).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("From"), { target: { value: "2026-03" } });
+  fireEvent.change(within(dialog).getByLabelText("To"), { target: { value: "2026-01" } });
   fireEvent.click(within(dialog).getByRole("button", { name: /^Create report/ }));
-  expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose a valid start and end date. The start must not be after the end.");
-  expect(downloads).toHaveLength(1);
-  fireEvent.change(within(dialog).getByLabelText("From"), { target: { value: "2026-03-01" } });
-  fireEvent.change(within(dialog).getByLabelText("To"), { target: { value: "2026-03-31" } });
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose a valid start and end month.");
+  fireEvent.change(within(dialog).getByLabelText("From"), { target: { value: "2026-01" } });
+  fireEvent.change(within(dialog).getByLabelText("To"), { target: { value: "2026-03" } });
+  fireEvent.change(within(dialog).getByLabelText("Currency"), { target: { value: "CHF" } });
   fireEvent.click(within(dialog).getByRole("button", { name: /^Create report/ }));
-  await waitFor(() => expect(downloads).toHaveLength(2));
-  expect(downloads[1]).toMatchObject({ document_kind: "account_statement", output_format: "pdf", start_date: "2026-03-01", end_date: "2026-03-31" });
-  expect(await screen.findByText("Report ready: banxum-account_statement.pdf")).toBeInTheDocument();
+  await waitFor(() => expect(created).toHaveLength(1));
+  expect(created[0]).toEqual({ kind: "tax", start_date: "2026-01-01", end_date: "2026-03-31", currency: "CHF", output_format: "pdf" });
+  expect(await screen.findByText("Document ready: Tax report")).toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "Create report" })).not.toBeInTheDocument();
-
-  // Tax information of a finished year as ZIP.
-  fireEvent.click(within(main).getByRole("button", { name: "Create report" }));
-  const second = screen.getByRole("dialog", { name: "Create report" });
-  fireEvent.click(within(second).getByRole("radio", { name: /Tax information/ }));
-  expect(within(second).getByLabelText("Year")).toHaveValue("2025");
-  fireEvent.change(within(second).getByLabelText("Format"), { target: { value: "zip" } });
-  fireEvent.click(within(second).getByRole("button", { name: /^Create report/ }));
-  await waitFor(() => expect(downloads).toHaveLength(3));
-  expect(downloads[2]).toMatchObject({ document_kind: "annual_tax_information", output_format: "zip", year: 2025 });
 }, 30_000);
 
 test("Documents sort the investor's documents into tabs and download them on request", async () => {

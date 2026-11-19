@@ -3,17 +3,18 @@
  * Documents (design #/documents: main.tr-page.dp-page): the investor's own documents in three tabs:
  * investment documents (the investment and resale agreements accepted with the email code + PIN),
  * statements and tax information (generated on request, also under Reports) and platform documents
- * (accepted terms and risk disclosures). Search, type and year filters, download as PDF or CSV.
+ * (accepted terms and risk disclosures). Search, type and year filters; "View" opens the PDF in the
+ * in-app reader (18.3), "Download" saves it.
  * U33-DEC-13: an acceptance is not a signature; there are no "Signed by Banxum" (QES) assignment
  * declarations yet (TODO, Phase 17.6).
  */
 import { useState } from "react";
 
-import type { InvestorDocument } from "../../../api/generated/banxumApi";
+import { v1InvestorPortalDocumentsDownloadCreate, type InvestorDocument } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useDocumentsData } from "../../../investorPortal/data";
 import { formatDate } from "../../../investorPortal/format";
-import { ButtonLink, EmptyState, NiIcon, PageHead, Tabs } from "../../components";
+import { ButtonLink, EmptyState, NiIcon, PageHead, PdfReader, Tabs, bytesOfArtifact, type PdfFile } from "../../components";
 import { DESIGN_TYPES, documentGroup, documentTab, documentTitle, documentYears, newestFirst, type DocumentTab } from "./documentsModel";
 import { documentDownloadRequest, useDocumentDownload, type OutputFormat } from "./parts/downloads";
 import "./wallet.css";
@@ -28,17 +29,23 @@ function DownloadButtons({
   document,
   title,
   busyKey,
-  onDownload
+  onDownload,
+  onView
 }: {
   document: InvestorDocument;
   title: string;
   busyKey: string;
   onDownload: (document: InvestorDocument, format: OutputFormat) => void;
+  onView: (document: InvestorDocument, title: string) => void;
 }) {
   const t = useT();
   const pdfKey = `${document.id}:pdf`;
   return (
     <div className="dp-actions">
+      <button aria-label={t("View {title}", { title })} className="dp-download" onClick={() => onView(document, title)} type="button">
+        <NiIcon name="eye" />
+        <span>{t("action|View")}</span>
+      </button>
       <button
         aria-label={t("Download {title} as PDF", { title })}
         className="dp-download"
@@ -62,6 +69,7 @@ export function DocumentsScreen() {
   const [type, setType] = useState("");
   const [year, setYear] = useState(0);
   const { download, busyKey, error } = useDocumentDownload();
+  const [reader, setReader] = useState<{ title: string; load: () => Promise<PdfFile> } | null>(null);
   const documents = documentsQuery.data;
   const all = [...(documents?.documents ?? [])].sort(newestFirst);
   const inTab = all.filter((document) => documentTab(document) === tab);
@@ -77,6 +85,14 @@ export function DocumentsScreen() {
   });
   const filtering = Boolean(query || type || year);
   const onDownload = (document: InvestorDocument, format: OutputFormat) => void download(documentDownloadRequest(document, format), `${document.id}:${format}`);
+  const onView = (document: InvestorDocument, title: string) =>
+    setReader({
+      title,
+      load: async () => {
+        const artifact = await v1InvestorPortalDocumentsDownloadCreate(documentDownloadRequest(document, "pdf"));
+        return { data: bytesOfArtifact(artifact), filename: artifact.filename };
+      }
+    });
   const changeTab = (next: DocumentTab) => {
     setTab(next);
     setSearch("");
@@ -183,7 +199,7 @@ export function DocumentsScreen() {
                         <span>{accepted}</span>
                         {tab === "investment" ? <small title={t("Accepted on {date} with your email code and PIN", { date: accepted })}>{t("Accepted by you")}</small> : null}
                       </td>
-                      <td data-mobile-label={t("Actions")}><DownloadButtons busyKey={busyKey} document={document} onDownload={onDownload} title={document.title} /></td>
+                      <td data-mobile-label={t("Actions")}><DownloadButtons busyKey={busyKey} document={document} onDownload={onDownload} onView={onView} title={document.title} /></td>
                     </tr>
                   );
                 })}
@@ -192,6 +208,7 @@ export function DocumentsScreen() {
           )}
         </>
       )}
+      {reader ? <PdfReader load={reader.load} onClose={() => setReader(null)} title={reader.title} /> : null}
     </main>
   );
 }

@@ -1,36 +1,14 @@
 // IP of Webby-Soft SRL.
 // Notifications bell of the U33 header (design: #bxm-notification-dropdown .nd-dropdown): unread dot,
 // latest items with their destination, "Mark all as read", "View all notifications".
-import type { InvestorNotification, InvestorNotifications } from "../../api/generated/banxumApi";
+import type { InvestorNotifications } from "../../api/generated/banxumApi";
 import { useT } from "../../i18n";
 import { formatDate, formatDateTime } from "../../investorPortal/format";
-import { notificationRoute } from "../../investorPortal/notifications";
+import { notificationIcon, notificationRoute, notificationTone } from "../../investorPortal/notifications";
 import type { AppRoute } from "../../investorPortal/types";
 import { Dropdown, NiIcon, usePortalNav } from "../components";
 
 const MAX_ITEMS = 5;
-
-function isFailed(item: InvestorNotification) {
-  return item.status === "failed" || item.status === "dead_letter";
-}
-
-/** Design icon of a notification, by what it opens. */
-function notificationIcon(item: InvestorNotification) {
-  if (isFailed(item)) return "alert";
-  switch (item.navigation_target) {
-    case "balances":
-      return "arrow-down-left";
-    case "loan":
-    case "holding":
-      return "briefcase";
-    case "portfolio":
-      return "growth";
-    case "secondary_market":
-      return "exchange";
-    default:
-      return "bell";
-  }
-}
 
 /** The design's destination line ("View investment →"), by the route the notification opens. */
 function destinationLabel(route: AppRoute) {
@@ -46,6 +24,8 @@ function destinationLabel(route: AppRoute) {
       return "View transactions";
     case "reports":
       return "View reports";
+    case "documents":
+      return "View documents";
     case "secondary":
       return "View resale market";
     default:
@@ -114,7 +94,7 @@ export function NotificationsMenu({
                 const route = notificationRoute(item);
                 return (
                   <a
-                    className={`nd-row nd-row-compact ${item.unread ? "is-unread" : ""} ${isFailed(item) ? "is-late" : ""}`.replace(/\s+/g, " ").trim()}
+                    className={`nd-row nd-row-compact ${item.unread ? "is-unread" : ""} ${notificationTone(item) ? `is-${notificationTone(item)}` : ""}`.replace(/\s+/g, " ").trim()}
                     href={nav.hrefFor(route.name, route.params)}
                     key={item.id}
                     onClick={(event) => {

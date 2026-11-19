@@ -77,11 +77,14 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
       {state === "default" || state === "writtenOff" ? (
         <p className="ps-notice">{t("This loan is in default. The original payment dates no longer apply; see the recovery updates above.")}</p>
       ) : null}
-      <div aria-label={t("Payment schedule filters")} className="ps-filters" role="group">
-        {FILTERS.map(([key, label]) => (
-          <button aria-pressed={filter === key} className={`ps-filter${filter === key ? " active" : ""}`} key={key} onClick={() => setFilter(key)} type="button">{t(label)}</button>
-        ))}
-      </div>
+      {/* Without upcoming payments (default, repaid, sold) there is nothing to filter. */}
+      {projectable && rows.length > 0 && state !== "default" && state !== "writtenOff" ? (
+        <div aria-label={t("Payment schedule filters")} className="ps-filters" role="group">
+          {FILTERS.map(([key, label]) => (
+            <button aria-pressed={filter === key} className={`ps-filter${filter === key ? " active" : ""}`} key={key} onClick={() => setFilter(key)} type="button">{t(label)}</button>
+          ))}
+        </div>
+      ) : null}
       {filterEmpty ? <p className="ps-empty">{filterEmpty}</p> : null}
       <div aria-label={t("All payments for this investment, {currency}", { currency })} className="ps-content" role="region" tabIndex={0}>
         <table className="ps-table m82-owned-schedule" data-mobile-table="true">

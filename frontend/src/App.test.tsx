@@ -1511,7 +1511,8 @@ test("the credit file has seven chapters with structured financials, key ratios,
   expect(reporting).toHaveTextContent("Reporting requirements and delivery dates are to be agreed for this loan.");
 
   fireEvent.click(contents.getByRole("button", { name: /Documents$/ }));
-  expect(screen.getByRole("button", { name: "Download Borrower financial summary" })).toHaveTextContent("Financial statements · FY 2025 · Helvetia Logistik AG · Version 1 · Final");
+  // 18.3: a borrower PDF opens in the in-app reader ("View").
+  expect(screen.getByRole("button", { name: "View Borrower financial summary" })).toHaveTextContent("Financial statements · FY 2025 · Helvetia Logistik AG · Version 1 · Final");
 });
 
 test("Loan terms show the investor's and the originator's shares of interest and penalty interest (U33-DEC-24)", () => {

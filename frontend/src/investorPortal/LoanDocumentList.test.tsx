@@ -62,3 +62,23 @@ test("a refused download shows the reason", async () => {
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Document not found.");
 });
+
+test("18.3: with a reader, a borrower PDF opens in it instead of downloading", async () => {
+  server.use(
+    http.get("*/api/v1/marketplace/primary/loans/:loanId/documents/:documentId/", () =>
+      HttpResponse.json({
+        document_id: documentId,
+        display_name: "Financials 2025",
+        filename: "financials-2025.pdf",
+        content_type: "application/pdf",
+        content_encoding: "base64",
+        content: window.btoa("%PDF-1.4 test"),
+        content_sha256: "abc"
+      })
+    )
+  );
+  const opened: Array<{ title: string; filename: string; size: number }> = [];
+  render(<LoanDocumentList documents={documents} humanize={(token) => token} loanId={loanId} onView={(file) => opened.push({ title: file.title, filename: file.filename, size: file.data.length })} />);
+  fireEvent.click(screen.getByRole("button", { name: "View Financials 2025" }));
+  await waitFor(() => expect(opened).toEqual([{ title: "Financials 2025", filename: "financials-2025.pdf", size: 13 }]));
+});

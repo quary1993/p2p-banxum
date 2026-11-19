@@ -7,6 +7,8 @@ import {
   useV1InvestorPortalDashboardRetrieve,
   useV1InvestorPortalDepositInstructionsRetrieve,
   useV1InvestorPortalDocumentsRetrieve,
+  useV1InvestorPortalReportsRetrieve,
+  useV1InvestorPortalReportsSummaryRetrieve,
   useV1InvestorPortalFeaturesRetrieve,
   useV1InvestorPortalFxRetrieve,
   useV1InvestorPortalNotificationsReadAllCreate,
@@ -27,6 +29,8 @@ import {
   useV1InvestorSmartInvestRetrieve
 } from "../api/generated/banxumApi";
 import type {
+  InvestorReports,
+  InvestorReportSummary,
   InvestorDepositInstructions,
   InvestorDocuments,
   InvestorNotifications,
@@ -169,6 +173,42 @@ export function useDocumentsData(enabled = true) {
   return useV1InvestorPortalDocumentsRetrieve({
     query: previewQuery(documentsFixture, enabled)
   });
+}
+
+// 18.3: reports kept as issued (one monthly statement in the review build).
+const reportsFixture: InvestorReports = {
+  reports: [
+    {
+      id: "f0d6b2a4-7f3c-4d2e-9a51-3b8e0c1d2e44",
+      kind: "monthly_statement",
+      title: "Account statement October 2026",
+      currency: "",
+      start_date: "2026-10-01",
+      end_date: "2026-10-31",
+      output_format: "pdf",
+      filename: "participant_account_statement_2026-10-01_2026-10-31.pdf",
+      issued_at: "2026-11-01T06:00:00Z",
+      automatic: true
+    }
+  ]
+};
+
+export function useInvestorReportsData(enabled = true) {
+  return useV1InvestorPortalReportsRetrieve({ query: previewQuery(reportsFixture, enabled) });
+}
+
+const reportSummaryFixture = (year: string): InvestorReportSummary => ({
+  year: year === "all" ? null : Number(year),
+  start_date: year === "all" ? "2000-01-01" : `${year}-01-01`,
+  end_date: year === "all" ? portalFixture.today : `${year}-12-31`,
+  currencies: [
+    { currency: "EUR", invested_minor: 150_000, principal_repaid_minor: 0, interest_received_minor: 0 },
+    { currency: "CHF", invested_minor: 1_000_000, principal_repaid_minor: 157_950, interest_received_minor: 60_000 }
+  ]
+});
+
+export function useReportSummaryData(year: string, enabled = true) {
+  return useV1InvestorPortalReportsSummaryRetrieve({ year }, { query: previewQuery(reportSummaryFixture(year), enabled) });
 }
 
 // Preview mode keeps "mark as read" per session in the query client, so lists opened later agree.

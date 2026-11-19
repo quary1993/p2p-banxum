@@ -7876,8 +7876,16 @@ components:
       properties:
         output_format:
           allOf:
-          - $ref: '#/components/schemas/OutputFormat8ffEnum'
+          - $ref: '#/components/schemas/AdminUserDocumentArtifactRequestOutputFormatEnum'
           default: pdf
+    AdminUserDocumentArtifactRequestOutputFormatEnum:
+      enum:
+      - pdf
+      - csv
+      type: string
+      description: |-
+        * `pdf` - pdf
+        * `csv` - csv
     AdminUserDocumentArtifactResponse:
       type: object
       properties:
@@ -9574,7 +9582,7 @@ components:
       required:
       - distribution_lines
       - repayment_event
-    Category393Enum:
+    CategoryEnum:
       enum:
       - registration
       - primary_market_investment
@@ -9875,7 +9883,7 @@ components:
       type: object
       properties:
         category:
-          $ref: '#/components/schemas/Category393Enum'
+          $ref: '#/components/schemas/CategoryEnum'
         template_key:
           type: string
           default: default
@@ -10148,7 +10156,7 @@ components:
       type: object
       properties:
         category:
-          $ref: '#/components/schemas/Category393Enum'
+          $ref: '#/components/schemas/CategoryEnum'
         template_key:
           type: string
           default: default
@@ -11894,7 +11902,7 @@ components:
           - $ref: '#/components/schemas/BlankEnum'
         output_format:
           allOf:
-          - $ref: '#/components/schemas/OutputFormat8ffEnum'
+          - $ref: '#/components/schemas/AdminUserDocumentArtifactRequestOutputFormatEnum'
           default: pdf
       required:
       - end_date
@@ -16725,14 +16733,6 @@ components:
           maxLength: 255
       required:
       - reason
-    OutputFormat8ffEnum:
-      enum:
-      - pdf
-      - csv
-      type: string
-      description: |-
-        * `pdf` - pdf
-        * `csv` - csv
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:

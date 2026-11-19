@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { InvestorNotification, InvestorNotifications } from "../api/generated/banxumApi";
-import { markNotificationsRead, notificationRoute } from "./notifications";
+import { markNotificationsRead, notificationIcon, notificationRoute, notificationTone } from "./notifications";
 
 const notification = (id: string, unread: boolean): InvestorNotification => ({
   id,
@@ -50,5 +50,22 @@ describe("notification helpers", () => {
     const all = markNotificationsRead(payload, "all");
     expect(all.unread_count).toBe(0);
     expect(all.notifications.every((item) => !item.unread)).toBe(true);
+  });
+});
+
+describe("18.3: tones and targets", () => {
+  test("the category gives the design's tone; a failed email reads as late", () => {
+    expect(notificationTone({ status: "sent", category: "positive" })).toBe("positive");
+    expect(notificationTone({ status: "sent", category: "late" })).toBe("late");
+    expect(notificationTone({ status: "sent", category: "default" })).toBe("attention");
+    expect(notificationTone({ status: "sent", category: "neutral" })).toBe("");
+    expect(notificationTone({ status: "failed", category: "positive" })).toBe("late");
+    expect(notificationIcon({ status: "sent", category: "neutral", navigation_target: "reports" })).toBe("file-text");
+  });
+
+  test("transactions, reports and documents open their pages", () => {
+    expect(notificationRoute({ navigation_target: "transactions", navigation_target_id: "" })).toEqual({ name: "transactions" });
+    expect(notificationRoute({ navigation_target: "reports", navigation_target_id: "" })).toEqual({ name: "reports" });
+    expect(notificationRoute({ navigation_target: "documents", navigation_target_id: "" })).toEqual({ name: "documents" });
   });
 });

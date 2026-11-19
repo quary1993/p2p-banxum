@@ -1,6 +1,7 @@
 // IP of Webby-Soft SRL.
-// Borrower documents of a loan (U33 credit file, Documents chapter: .r100-file rows). Each one
-// downloads through the investor document endpoint (FRONTCODE-27).
+// Borrower documents of a loan (U33 credit file, Documents chapter: .r100-file rows). Each one is
+// fetched through the investor document endpoint (FRONTCODE-27); a PDF opens in the in-app reader
+// when the page gives `onView` (18.3), any other file is downloaded.
 import { useState } from "react";
 
 import { ApiClientError } from "../api/client/httpClient";
@@ -24,12 +25,15 @@ export type LoanDocumentItem = {
 
 type DownloadableFile = { content: string; content_type: string; content_encoding: string; filename: string };
 
+function fileBytes(file: DownloadableFile) {
+  return file.content_encoding === "base64"
+    ? Uint8Array.from(window.atob(file.content), (character) => character.charCodeAt(0))
+    : new TextEncoder().encode(file.content);
+}
+
 /** Save a base64 (or text) API file payload as a download in the browser. */
 function saveDownloadedFile(file: DownloadableFile) {
-  const bytes =
-    file.content_encoding === "base64"
-      ? Uint8Array.from(window.atob(file.content), (character) => character.charCodeAt(0))
-      : new TextEncoder().encode(file.content);
+  const bytes = fileBytes(file);
   const url = window.URL.createObjectURL(new Blob([bytes], { type: file.content_type }));
   const link = document.createElement("a");
   link.href = url;
@@ -50,21 +54,26 @@ export function LoanDocumentList({
   loanId,
   documents,
   humanize,
-  disabled = false
+  disabled = false,
+  onView
 }: {
   loanId: string;
   documents: LoanDocumentItem[];
   humanize: (token: string) => string;
   disabled?: boolean;
+  /** 18.3: opens a PDF in the page's reader instead of downloading it. */
+  onView?: (file: { title: string; data: Uint8Array; filename: string }) => void;
 }) {
   const t = useT();
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
-  const download = async (documentId: string) => {
+  const download = async (documentId: string, title: string) => {
     setError("");
     setBusyId(documentId);
     try {
-      saveDownloadedFile(await v1MarketplacePrimaryLoansDocumentsRetrieve(loanId, documentId));
+      const file = await v1MarketplacePrimaryLoansDocumentsRetrieve(loanId, documentId);
+      if (onView && file.content_type.includes("pdf")) onView({ title, data: fileBytes(file), filename: file.filename });
+      else saveDownloadedFile(file);
     } catch (downloadError) {
       setError(errorText(downloadError, t("The document could not be downloaded. Try again later.")));
     } finally {
@@ -87,11 +96,11 @@ export function LoanDocumentList({
           const meta = (library.length > 0 ? library : [document.document_type ? humanize(document.document_type) : "", document.description ?? ""].filter(Boolean)).join(" · ");
           return (
             <button
-              aria-label={t("Download {name}", { name })}
+              aria-label={onView ? t("View {name}", { name }) : t("Download {name}", { name })}
               className="r100-file"
               disabled={!document.id || disabled || busyId !== ""}
               key={document.id ?? index}
-              onClick={() => document.id && void download(document.id)}
+              onClick={() => document.id && void download(document.id, name)}
               type="button"
             >
               <span className="r100-file-icon"><em aria-hidden="true" className="icon ni ni-file-text" /></span>
@@ -100,8 +109,8 @@ export function LoanDocumentList({
                 {meta ? <small>{meta}</small> : null}
               </span>
               <span className="r100-file-action">
-                <span>{busyId === document.id ? t("Downloading...") : t("Download")}</span>
-                <em aria-hidden="true" className="icon ni ni-download" />
+                <span>{busyId === document.id ? t("Opening...") : onView ? t("action|View") : t("Download")}</span>
+                <em aria-hidden="true" className={`icon ni ${onView ? "ni-arrow-right" : "ni-download"}`} />
               </span>
             </button>
           );

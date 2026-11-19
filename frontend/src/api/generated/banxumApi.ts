@@ -555,16 +555,16 @@ export interface AdminUserDocument {
  * * `pdf` - pdf
  * * `csv` - csv
  */
-export type OutputFormat8ffEnum = typeof OutputFormat8ffEnum[keyof typeof OutputFormat8ffEnum];
+export type AdminUserDocumentArtifactRequestOutputFormatEnum = typeof AdminUserDocumentArtifactRequestOutputFormatEnum[keyof typeof AdminUserDocumentArtifactRequestOutputFormatEnum];
 
 
-export const OutputFormat8ffEnum = {
+export const AdminUserDocumentArtifactRequestOutputFormatEnum = {
   pdf: 'pdf',
   csv: 'csv',
 } as const;
 
 export interface AdminUserDocumentArtifactRequest {
-  output_format?: OutputFormat8ffEnum;
+  output_format?: AdminUserDocumentArtifactRequestOutputFormatEnum;
 }
 
 export interface AdminUserDocumentArtifactResponse {
@@ -1457,10 +1457,10 @@ export interface BorrowerRepaymentRecordResponse {
  * * `secondary_market_listing` - Secondary-market listing
  * * `risk_disclosure` - Risk disclosure
  */
-export type Category393Enum = typeof Category393Enum[keyof typeof Category393Enum];
+export type CategoryEnum = typeof CategoryEnum[keyof typeof CategoryEnum];
 
 
-export const Category393Enum = {
+export const CategoryEnum = {
   registration: 'registration',
   primary_market_investment: 'primary_market_investment',
   secondary_market_purchase: 'secondary_market_purchase',
@@ -1751,7 +1751,7 @@ export interface DocumentAcceptanceArtifactRequest {
 }
 
 export interface DocumentAcceptanceCreateRequest {
-  category: Category393Enum;
+  category: CategoryEnum;
   /** @maxLength 128 */
   template_key?: string;
   /** @maxLength 8 */
@@ -1867,7 +1867,7 @@ export interface DocumentTemplateVersion {
 }
 
 export interface DocumentTemplateVersionCreateRequest {
-  category: Category393Enum;
+  category: CategoryEnum;
   /** @maxLength 128 */
   template_key?: string;
   /** @maxLength 8 */
@@ -2812,7 +2812,7 @@ export interface InvestorReportCreateRequest {
   start_date: string;
   end_date: string;
   currency?: typeof InvestorReportCreateRequestCurrency[keyof typeof InvestorReportCreateRequestCurrency];
-  output_format?: OutputFormat8ffEnum;
+  output_format?: AdminUserDocumentArtifactRequestOutputFormatEnum;
 }
 
 export interface InvestorReportCurrencySummary {

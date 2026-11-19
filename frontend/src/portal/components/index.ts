@@ -22,6 +22,8 @@ export { Button, ButtonLink, LinkArrow, type ButtonVariant } from "./Button";
 export { Card } from "./Card";
 export { CurrencySwitch } from "./CurrencySwitch";
 export { Dialog, InfoTip } from "./Dialog";
+export { PdfReader, type PdfFile } from "./PdfReader";
+export { bytesOfArtifact } from "./pdf/bytes";
 export { Dropdown } from "./Dropdown";
 export { useDismissable } from "./useDismissable";
 export { EmptyState } from "./EmptyState";
