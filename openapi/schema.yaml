@@ -4512,6 +4512,34 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/loans/admin/loans/{loan_id}/securities/{security_id}/main/:
+    post:
+      operationId: v1_loans_admin_loans_securities_main_create
+      description: 'C06: make a security the loan''s main security (its summary).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanSecurityList'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/securities/{security_id}/move/:
     post:
       operationId: v1_loans_admin_loans_securities_move_create
@@ -9258,6 +9286,7 @@ components:
       - invoices
       - equipment
       - inventory
+      - vehicle
       - securities_pledge
       - cash_collateral
       - share_pledge
@@ -9274,6 +9303,7 @@ components:
         * `invoices` - Invoices
         * `equipment` - Equipment
         * `inventory` - Inventory
+        * `vehicle` - Vehicle
         * `securities_pledge` - Securities pledge
         * `cash_collateral` - Cash collateral
         * `share_pledge` - Share pledge
@@ -13526,18 +13556,36 @@ components:
         undertaking_limit_minor:
           type: integer
           nullable: true
+        is_main:
+          type: boolean
+        counts_in_ltv:
+          type: boolean
+        valuation_currency:
+          type: string
+        valuation_amount_minor:
+          type: integer
+          nullable: true
+        valuation_fx_rate:
+          type: string
+          nullable: true
+        valuation_fx_rate_date:
+          type: string
+          format: date
+          nullable: true
         documents:
           type: array
           items:
             $ref: '#/components/schemas/LoanSecurityDocument'
       required:
       - appraiser
+      - counts_in_ltv
       - description
       - documents
       - holder_name
       - id
       - insurance
       - is_guarantee
+      - is_main
       - position
       - prior_ranking_debt_minor
       - rank
@@ -13545,7 +13593,11 @@ components:
       - status
       - undertaking_limit_minor
       - undertaking_scope
+      - valuation_amount_minor
+      - valuation_currency
       - valuation_date
+      - valuation_fx_rate
+      - valuation_fx_rate_date
       - valuation_source
       - value_minor
     LoanSecurityDocument:
@@ -13652,6 +13704,26 @@ components:
           items:
             type: string
             format: uuid
+        counts_in_ltv:
+          type: boolean
+          nullable: true
+        valuation_currency:
+          type: string
+          default: ''
+          maxLength: 3
+        valuation_amount_minor:
+          type: integer
+          minimum: 0
+          nullable: true
+        valuation_fx_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,8})?$
+          nullable: true
+        valuation_fx_rate_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - security_type
     LoanSecurityRequestStatusEnum:
@@ -14892,18 +14964,36 @@ components:
         undertaking_limit_minor:
           type: integer
           nullable: true
+        is_main:
+          type: boolean
+        counts_in_ltv:
+          type: boolean
+        valuation_currency:
+          type: string
+        valuation_amount_minor:
+          type: integer
+          nullable: true
+        valuation_fx_rate:
+          type: string
+          nullable: true
+        valuation_fx_rate_date:
+          type: string
+          format: date
+          nullable: true
         documents:
           type: array
           items:
             $ref: '#/components/schemas/MarketplaceSecurityDocument'
       required:
       - appraiser
+      - counts_in_ltv
       - description
       - documents
       - holder_name
       - id
       - insurance
       - is_guarantee
+      - is_main
       - position
       - prior_ranking_debt_minor
       - rank
@@ -14911,7 +15001,11 @@ components:
       - status
       - undertaking_limit_minor
       - undertaking_scope
+      - valuation_amount_minor
+      - valuation_currency
       - valuation_date
+      - valuation_fx_rate
+      - valuation_fx_rate_date
       - valuation_source
       - value_minor
     MarketplaceSecurityDocument:
@@ -19891,6 +19985,7 @@ components:
       - invoices
       - equipment
       - inventory
+      - vehicle
       - securities_pledge
       - cash_collateral
       - share_pledge
@@ -19908,6 +20003,7 @@ components:
         * `invoices` - Invoices
         * `equipment` - Equipment
         * `inventory` - Inventory
+        * `vehicle` - Vehicle
         * `securities_pledge` - Securities pledge
         * `cash_collateral` - Cash collateral
         * `share_pledge` - Share pledge

@@ -222,6 +222,12 @@ const security = (id: string, type: string, documents: Array<{ id: string; displ
   insurance: "",
   undertaking_scope: "",
   undertaking_limit_minor: null,
+  is_main: id === "s1",
+  counts_in_ltv: !type.endsWith("guarantee"),
+  valuation_currency: "",
+  valuation_amount_minor: null,
+  valuation_fx_rate: null,
+  valuation_fx_rate_date: null,
   documents
 });
 
@@ -257,8 +263,60 @@ test("a draft's securities move up or down and show the borrower documents they 
   const valuation = await screen.findByRole("checkbox", { name: "Valuation report" });
   expect(screen.getByRole("checkbox", { name: "Land register extract" })).toBeChecked();
   fireEvent.click(valuation);
+  // F16: the value counts in the loan-to-value; excluding it is not a release.
+  const counts = screen.getByRole("checkbox", { name: /Counts in the loan-to-value/ });
+  expect(counts).toBeChecked();
+  fireEvent.click(counts);
   fireEvent.click(screen.getByRole("button", { name: "Save security" }));
   await waitFor(() => expect(saves[0]?.document_ids).toEqual(["d1", "d2"]));
+  expect(saves[0]).toMatchObject({ counts_in_ltv: false, status: "in_place", valuation_currency: "" });
+}, 20_000);
+
+test("C06: the main security is chosen explicitly and a valuation in another currency is converted", async () => {
+  const mains: string[] = [];
+  const creates: Array<Record<string, unknown>> = [];
+  server.use(
+    http.get("*/api/v1/loans/admin/loans/", () => HttpResponse.json([{ ...adminLoan, status: "draft" }])),
+    http.get("*/api/v1/loans/admin/loans/:loanId/", () => HttpResponse.json({ ...adminLoan, status: "draft" })),
+    http.get("*/api/v1/loans/admin/loans/:loanId/securities/", () =>
+      HttpResponse.json({ securities: [security("s1", "real_estate"), security("s2", "equipment")], borrower_documents: [] })
+    ),
+    http.post("*/api/v1/loans/admin/loans/:loanId/securities/:securityId/main/", ({ params }) => {
+      mains.push(String(params.securityId));
+      return HttpResponse.json({ securities: [{ ...security("s1", "real_estate"), is_main: false }, { ...security("s2", "equipment"), is_main: true }], borrower_documents: [] });
+    }),
+    http.post("*/api/v1/loans/admin/loans/:loanId/securities/", async ({ request }) => {
+      creates.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json(security("s3", "vehicle"), { status: 201 });
+    }),
+    ...adminHandlers()
+  );
+  renderAdmin(`/admin/loans/${adminLoanId}/manage/securities`);
+
+  expect(await screen.findByText("Main", {}, { timeout: 10_000 })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Make main" }));
+  await waitFor(() => expect(mains).toEqual(["s2"]));
+  expect(await screen.findByText("Main security saved. It gives the loan's summary.")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Add a security" }));
+  fireEvent.change(screen.getByLabelText("Security type"), { target: { value: "vehicle" } });
+  expect(screen.queryByRole("option", { name: "Invoices" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Valuation currency/), { target: { value: "eur" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add security" }));
+  expect(screen.getByText(/Enter the value in EUR, the rate to/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Value in EUR/), { target: { value: "100000" } });
+  fireEvent.change(screen.getByLabelText(/^Rate/), { target: { value: "0.95" } });
+  fireEvent.change(screen.getByLabelText(/Date of the rate/), { target: { value: "2026-11-02" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add security" }));
+  await waitFor(() => expect(creates).toHaveLength(1));
+  expect(creates[0]).toMatchObject({
+    security_type: "vehicle",
+    valuation_currency: "EUR",
+    valuation_amount_minor: 100000,
+    valuation_fx_rate: "0.95",
+    valuation_fx_rate_date: "2026-11-02",
+    counts_in_ltv: true
+  });
 }, 20_000);
 
 test("removed recovery entries show the reason and who recorded and removed them", async () => {

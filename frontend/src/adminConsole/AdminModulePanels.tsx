@@ -115,6 +115,7 @@ import {
   useV1ServicingAdminLoansRecoveryStagesRemoveCreate,
   useV1ServicingAdminLoansRecoveryStagesRetrieve,
   useV1LoansAdminLoansHistoryRetrieve,
+  useV1LoansAdminLoansSecuritiesMainCreate,
   useV1LoansAdminLoansSecuritiesMoveCreate,
   useV1AdminOpsUsersSupportRequestsRetrieve,
   useV1ServicingAdminLoansStatusThresholdsCreate,
@@ -6227,10 +6228,20 @@ function LoanStatusDaysForm({ loan, onDone }: { loan: Loan; onDone: () => void }
 }
 
 const GUARANTEE_TYPES: string[] = [CollateralTypeEnum.corporate_guarantee, CollateralTypeEnum.personal_guarantee];
-// New entries: no unsecured exception (U33-DEC-38); "mixed" and "asset backed" stay on old records only.
+// New entries: no unsecured exception (U33-DEC-38); "mixed" and "asset backed" stay on old records only;
+// invoices are closed for new securities (Q15: record the claim as Receivables with the invoice attached).
 const NEW_SECURITY_TYPES: LoanCollateralType[] = SECURED_COLLATERAL_TYPES.filter(
-  (value) => value !== CollateralTypeEnum.mixed_collateral && value !== CollateralTypeEnum.asset_backed
+  (value) => value !== CollateralTypeEnum.mixed_collateral && value !== CollateralTypeEnum.asset_backed && value !== CollateralTypeEnum.invoices
 );
+// F16: the asset types that count in the loan-to-value by default when they have a value.
+const LTV_ASSET_TYPES: string[] = [
+  CollateralTypeEnum.real_estate,
+  CollateralTypeEnum.equipment,
+  CollateralTypeEnum.inventory,
+  CollateralTypeEnum.vehicle,
+  CollateralTypeEnum.securities_pledge,
+  CollateralTypeEnum.cash_collateral
+];
 const SECURITY_STATUS_OPTIONS = ["", "in_place", "pending", "released"] as const;
 type SecurityStatusOption = (typeof SECURITY_STATUS_OPTIONS)[number];
 const securityStatusText: Record<SecurityStatusOption, string> = {
@@ -6256,6 +6267,12 @@ type SecurityDraft = {
   scope: string;
   limit: string;
   documentIds: string[];
+  // F16: null keeps the server's choice (a new security takes the default of its type).
+  countsInLtv: boolean | null;
+  valuationCurrency: string;
+  valuationAmount: string;
+  valuationFxRate: string;
+  valuationFxRateDate: string;
 };
 
 function securityDraft(security?: LoanSecurity): SecurityDraft {
@@ -6275,13 +6292,19 @@ function securityDraft(security?: LoanSecurity): SecurityDraft {
     insurance: security?.insurance ?? "",
     scope: security?.undertaking_scope ?? "",
     limit: text(security?.undertaking_limit_minor),
-    documentIds: (security?.documents ?? []).map((document) => document.id)
+    documentIds: (security?.documents ?? []).map((document) => document.id),
+    countsInLtv: security ? security.counts_in_ltv : null,
+    valuationCurrency: security?.valuation_currency ?? "",
+    valuationAmount: text(security?.valuation_amount_minor),
+    valuationFxRate: security?.valuation_fx_rate ?? "",
+    valuationFxRateDate: security?.valuation_fx_rate_date ?? ""
   };
 }
 
-function securityRequest(draft: SecurityDraft): LoanSecurityRequest {
+function securityRequest(draft: SecurityDraft, loanCurrency: string): LoanSecurityRequest {
   const amount = (value: string) => (value.trim() ? intValue(value) : null);
   const guarantee = GUARANTEE_TYPES.includes(draft.securityType);
+  const foreign = !guarantee && Boolean(draft.valuationCurrency) && draft.valuationCurrency !== loanCurrency;
   return {
     security_type: draft.securityType,
     description: draft.description.trim(),
@@ -6296,7 +6319,12 @@ function securityRequest(draft: SecurityDraft): LoanSecurityRequest {
     insurance: guarantee ? "" : draft.insurance.trim(),
     undertaking_scope: guarantee ? draft.scope.trim() : "",
     undertaking_limit_minor: guarantee ? amount(draft.limit) : null,
-    document_ids: draft.documentIds
+    document_ids: draft.documentIds,
+    counts_in_ltv: guarantee ? false : draft.countsInLtv,
+    valuation_currency: foreign ? draft.valuationCurrency : "",
+    valuation_amount_minor: foreign ? amount(draft.valuationAmount) : null,
+    valuation_fx_rate: foreign && draft.valuationFxRate.trim() ? draft.valuationFxRate.trim() : null,
+    valuation_fx_rate_date: foreign && draft.valuationFxRateDate ? draft.valuationFxRateDate : null
   };
 }
 
@@ -6314,11 +6342,15 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
   const create = useV1LoansAdminLoansSecuritiesCreate({ mutation: { onSuccess: () => { setSuccess("Security added."); setDraft(null); refresh(); } } });
   const update = useV1LoansAdminLoansSecuritiesUpdate({ mutation: { onSuccess: () => { setSuccess("Security saved."); setDraft(null); refresh(); } } });
   const remove = useV1LoansAdminLoansSecuritiesDestroy({ mutation: { onSuccess: () => { setSuccess("Security removed."); refresh(); } } });
-  const move = useV1LoansAdminLoansSecuritiesMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved. The first security gives the loan's collateral and loan-to-value."); refresh(); } } });
+  const move = useV1LoansAdminLoansSecuritiesMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
+  const makeMain = useV1LoansAdminLoansSecuritiesMainCreate({ mutation: { onSuccess: () => { setSuccess("Main security saved. It gives the loan's summary."); refresh(); } } });
   const securities = query.data?.securities ?? [];
   const borrowerDocuments = query.data?.borrower_documents ?? [];
   const canMove = loan.status === "draft" && securities.length > 1;
   const guarantee = draft ? GUARANTEE_TYPES.includes(draft.securityType) : false;
+  const foreignValuation = Boolean(draft && !guarantee && draft.valuationCurrency && draft.valuationCurrency !== loan.currency);
+  // The box shows the server's choice, or the default of the type for a new security.
+  const countsInLtv = draft ? (guarantee ? false : draft.countsInLtv ?? (LTV_ASSET_TYPES.includes(draft.securityType) && Boolean(draft.value.trim() || draft.valuationAmount.trim()))) : false;
   const set = (patch: Partial<SecurityDraft>) => setDraft((current) => (current ? { ...current, ...patch } : current));
   const typeOptions = draft && !NEW_SECURITY_TYPES.includes(draft.securityType as LoanCollateralType)
     ? [draft.securityType as LoanCollateralType, ...NEW_SECURITY_TYPES]
@@ -6327,10 +6359,14 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
     ? ""
     : draft.securityType === CollateralTypeEnum.other && !draft.description.trim()
       ? "Describe a security of the type Other."
-      : !guarantee && draft.priorDebt.trim() && !draft.value.trim()
+      : !guarantee && draft.priorDebt.trim() && !draft.value.trim() && !foreignValuation
         ? "Prior-ranking debt needs the value of the asset."
-        : "";
-  const busy = create.isPending || update.isPending || remove.isPending || move.isPending;
+        : foreignValuation && (!draft.valuationAmount.trim() || !(Number(draft.valuationFxRate) > 0) || !draft.valuationFxRateDate)
+          ? `Enter the value in ${draft.valuationCurrency}, the rate to ${loan.currency} and the date of the rate.`
+          : countsInLtv && !draft.value.trim() && !foreignValuation
+            ? "Only a security with a documented value counts in the loan-to-value."
+            : "";
+  const busy = create.isPending || update.isPending || remove.isPending || move.isPending || makeMain.isPending;
   const moveSecurity = (securityId: string, direction: "up" | "down") =>
     isFixturePreview
       ? setPreview(`The security would move ${direction} on ${loan.id}.`)
@@ -6338,7 +6374,7 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
 
   function save() {
     if (!draft) return;
-    const data = securityRequest(draft);
+    const data = securityRequest({ ...draft, countsInLtv: guarantee ? false : countsInLtv }, loan.currency);
     if (isFixturePreview) {
       setPreview(`${draft.id ? "The security would be saved" : "A security would be added"} for ${loan.id}.`);
       return;
@@ -6350,20 +6386,26 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
   return (
     <>
       <p className="muted admin-manage-hint">
-        Fill in only what applies and what the documents show. The first security gives the loan&apos;s collateral and
-        loan-to-value. A guarantee has a scope and a limit, never an asset value. After publication a security that ends is
-        set to Released, not removed.
+        Fill in only what applies and what the documents show. The main security gives the loan&apos;s summary. The
+        loan-to-value uses the sum of the values that count (real estate, equipment, inventory, vehicles, pledged securities
+        and cash with a documented valuation; receivables only when valued; never a guarantee). Excluding a value is not a
+        release. A guarantee has a scope and a limit, never an asset value. After publication a security that ends is set to
+        Released, not removed.
       </p>
       {securities.length > 0 ? (
         <div className="table-wrap admin-table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th>Documents</th><th><span className="visually-hidden">Actions</span></th></tr>
+              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th>In loan-to-value</th><th>Documents</th><th><span className="visually-hidden">Actions</span></th></tr>
             </thead>
             <tbody>
               {securities.map((security, index) => (
                 <tr key={security.id}>
-                  <td>{labelize(security.security_type)}{security.description ? <small className="muted"> · {security.description}</small> : null}</td>
+                  <td>
+                    {labelize(security.security_type)}
+                    {security.is_main ? <> <span className="admin-pill">Main</span></> : null}
+                    {security.description ? <small className="muted"> · {security.description}</small> : null}
+                  </td>
                   <td>{security.holder_name || "-"}</td>
                   <td>{security.rank ?? "-"}</td>
                   <td>{securityStatusText[(security.status || "") as SecurityStatusOption] ?? security.status}</td>
@@ -6371,7 +6413,14 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
                     {security.is_guarantee
                       ? security.undertaking_limit_minor !== null ? <Money amountMinor={security.undertaking_limit_minor} currency={loan.currency} /> : "-"
                       : security.value_minor !== null ? <Money amountMinor={security.value_minor} currency={loan.currency} /> : "-"}
+                    {security.valuation_currency && security.valuation_amount_minor !== null ? (
+                      <small className="muted">
+                        {" "}from <Money amountMinor={security.valuation_amount_minor} currency={security.valuation_currency} /> at {security.valuation_fx_rate}
+                        {security.valuation_fx_rate_date ? ` (${formatDate(security.valuation_fx_rate_date)})` : ""}
+                      </small>
+                    ) : null}
                   </td>
+                  <td>{security.is_guarantee ? "Never" : security.status === "released" ? "No (released)" : security.counts_in_ltv ? "Yes" : "No"}</td>
                   <td>{security.documents.length ? security.documents.map((document) => document.display_name || "Document").join(", ") : "-"}</td>
                   <td>
                     {canMove ? (
@@ -6381,6 +6430,12 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
                       </>
                     ) : null}
                     <button className="link" onClick={() => setDraft(securityDraft(security))} type="button">Edit</button>
+                    {!security.is_main && security.status !== "released" ? (
+                      <>
+                        {" · "}
+                        <button className="link" disabled={busy} onClick={() => (isFixturePreview ? setPreview(`The security would become the main security of ${loan.id}.`) : makeMain.mutate({ loanId: loan.id, securityId: security.id }))} type="button">Make main</button>
+                      </>
+                    ) : null}
                     {loan.status === "draft" && securities.length > 1 ? (
                       <>
                         {" · "}
@@ -6412,12 +6467,25 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
             </FieldGrid>
           ) : (
             <FieldGrid>
-              <MoneyMinorInput currency={loan.currency} label="Value minor units" onChange={(value) => set({ value })} value={draft.value} />
+              <TextInput hint={`Empty or ${loan.currency} for a valuation in the loan currency.`} label="Valuation currency" onChange={(value) => set({ valuationCurrency: value.trim().toUpperCase().slice(0, 3) })} value={draft.valuationCurrency} />
+              {foreignValuation ? (
+                <>
+                  <MoneyMinorInput currency={draft.valuationCurrency} label={`Value in ${draft.valuationCurrency} minor units`} onChange={(value) => set({ valuationAmount: value })} value={draft.valuationAmount} />
+                  <TextInput hint={`One ${draft.valuationCurrency} in ${loan.currency}. The value in ${loan.currency} is calculated.`} label="Rate" onChange={(value) => set({ valuationFxRate: value })} value={draft.valuationFxRate} />
+                  <TextInput label="Date of the rate" onChange={(value) => set({ valuationFxRateDate: value })} type="date" value={draft.valuationFxRateDate} />
+                </>
+              ) : (
+                <MoneyMinorInput currency={loan.currency} label="Value minor units" onChange={(value) => set({ value })} value={draft.value} />
+              )}
               <TextInput label="Valuation date" onChange={(value) => set({ valuationDate: value })} type="date" value={draft.valuationDate} />
               <TextInput label="Valuation basis" onChange={(value) => set({ valuationSource: value })} value={draft.valuationSource} />
               <TextInput label="Appraiser" onChange={(value) => set({ appraiser: value })} value={draft.appraiser} />
               <MoneyMinorInput currency={loan.currency} label="Prior-ranking debt minor units" onChange={(value) => set({ priorDebt: value })} value={draft.priorDebt} />
               <TextAreaInput label="Insurance" onChange={(value) => set({ insurance: value })} value={draft.insurance} />
+              <label className="admin-checkbox-line">
+                <input checked={countsInLtv} onChange={(event) => set({ countsInLtv: event.target.checked })} type="checkbox" />
+                Counts in the loan-to-value (a documented valuation of a distinct asset)
+              </label>
             </FieldGrid>
           )}
           <fieldset className="col gap-8 admin-security-documents">
@@ -6446,7 +6514,7 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
       ) : (
         <Button onClick={() => setDraft(securityDraft())}>Add a security</Button>
       )}
-      {create.error || update.error || remove.error || move.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? move.error)}</Banner> : null}
+      {create.error || update.error || remove.error || move.error || makeMain.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? move.error ?? makeMain.error)}</Banner> : null}
       {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
       {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
     </>

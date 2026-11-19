@@ -1498,7 +1498,7 @@ test("the credit file has seven chapters with structured financials, key ratios,
   expect(within(ratios).getByRole("row", { name: /Operating margin/ })).toHaveTextContent(/8,9%$/);
   expect(within(ratios).getByRole("row", { name: /Interest coverage/ })).toHaveTextContent(/6,56×$/);
   fireEvent.click(within(ratios).getByRole("button", { name: "Ratio formulas" }));
-  expect(within(screen.getByRole("dialog", { name: "Key ratios" })).getByText("Operating profit ÷ interest expense.")).toBeInTheDocument();
+  expect(within(screen.getByRole("dialog", { name: "Key ratios" })).getByText("Operating profit ÷ interest expense (as a positive amount).")).toBeInTheDocument();
   fireEvent.click(within(screen.getByRole("dialog", { name: "Key ratios" })).getByRole("button", { name: /Close/ }));
   expect(within(chapter).getByRole("row", { name: /Property loan/ })).toHaveTextContent("Mortgage on separate premises");
 

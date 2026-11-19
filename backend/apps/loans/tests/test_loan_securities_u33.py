@@ -219,13 +219,19 @@ def test_the_migration_copies_the_recorded_collateral_without_inventing_data(
     assert unsecured.pk not in rows
 
 
-def test_a_draft_security_moves_up_and_the_first_one_gives_the_loan_summary(
+def test_moving_changes_the_order_and_the_main_security_gives_the_summary(
     admin_user: Model,
 ) -> None:
+    """C06: the order is for display; the admin chooses the main security; the loan's value (the
+    loan-to-value basis) is the sum of the counted assets (F16)."""
     loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
     extra = _add(admin_user, loan, security_type="equipment", value_minor=900_00).json()
     listed = _client(admin_user).get(_url(loan)).json()
     assert listed["borrower_documents"] == []
+    assert [item["is_main"] for item in listed["securities"]] == [True, False]
+    assert extra["counts_in_ltv"] is True
+    loan.refresh_from_db()
+    assert (loan.collateral_type, loan.collateral_value_minor) == ("real_estate", 3300_00)
 
     moved = _client(admin_user).post(
         f"{_url(loan, extra['id'])}move/", data={"direction": "up"}, content_type="application/json"
@@ -237,7 +243,12 @@ def test_a_draft_security_moves_up_and_the_first_one_gives_the_loan_summary(
         "real_estate",
     ]
     loan.refresh_from_db()
-    assert (loan.collateral_type, loan.collateral_value_minor) == ("equipment", 900_00)
+    assert loan.collateral_type == "real_estate"
+    main = _client(admin_user).post(f"{_url(loan, extra['id'])}main/")
+    assert main.status_code == 200, main.content
+    assert [item["is_main"] for item in main.json()["securities"]] == [True, False]
+    loan.refresh_from_db()
+    assert (loan.collateral_type, loan.collateral_value_minor) == ("equipment", 3300_00)
     again = _client(admin_user).post(
         f"{_url(loan, extra['id'])}move/", data={"direction": "up"}, content_type="application/json"
     )
@@ -252,3 +263,75 @@ def test_a_draft_security_moves_up_and_the_first_one_gives_the_loan_summary(
     )
     assert fixed.status_code == 400
     assert "fixed" in fixed.json()["detail"]
+
+
+
+def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) -> None:
+    """F16: guarantees never count, receivables only when the admin says so, a valuation in another
+    currency counts converted, excluding is not releasing, and the main security is not released
+    while another one is in force."""
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    [real_estate] = LoanSecurity.objects.filter(loan=loan)
+    guarantee = _add(
+        admin_user, loan, security_type="personal_guarantee", holder_name="A. Owner",
+        counts_in_ltv=True,
+    )
+    assert guarantee.status_code == 400
+    assert "never counts" in guarantee.json()["detail"]
+    receivables = _add(admin_user, loan, security_type="receivables", value_minor=500_00).json()
+    assert receivables["counts_in_ltv"] is False
+    euro_equipment = _add(
+        admin_user,
+        loan,
+        security_type="equipment",
+        valuation_currency="EUR",
+        valuation_amount_minor=1000_00,
+        valuation_fx_rate="0.95000000",
+        valuation_fx_rate_date="2026-11-02",
+    )
+    assert euro_equipment.status_code == 201, euro_equipment.content
+    assert euro_equipment.json()["value_minor"] == 950_00
+    assert euro_equipment.json()["counts_in_ltv"] is True
+    loan.refresh_from_db()
+    assert loan.collateral_value_minor == 2400_00 + 950_00
+
+    counted = _client(admin_user).put(
+        _url(loan, receivables["id"]),
+        data={"security_type": "receivables", "value_minor": 500_00, "counts_in_ltv": True},
+        content_type="application/json",
+    )
+    assert counted.status_code == 200, counted.content
+    loan.refresh_from_db()
+    assert loan.collateral_value_minor == 2400_00 + 950_00 + 500_00
+    excluded = _client(admin_user).put(
+        _url(loan, euro_equipment.json()["id"]),
+        data={
+            "security_type": "equipment",
+            "valuation_currency": "EUR",
+            "valuation_amount_minor": 1000_00,
+            "valuation_fx_rate": "0.95000000",
+            "valuation_fx_rate_date": "2026-11-02",
+            "counts_in_ltv": False,
+        },
+        content_type="application/json",
+    )
+    assert excluded.status_code == 200, excluded.content
+    assert excluded.json()["status"] == ""
+    loan.refresh_from_db()
+    assert loan.collateral_value_minor == 2400_00 + 500_00
+    release_main = _client(admin_user).put(
+        _url(loan, str(real_estate.pk)),
+        data={"security_type": "real_estate", "value_minor": 2400_00, "status": "released"},
+        content_type="application/json",
+    )
+    assert release_main.status_code == 400
+    assert "another main security" in release_main.json()["detail"]
+    invoices = _add(admin_user, loan, security_type="invoices", value_minor=100_00)
+    assert invoices.status_code == 400
+    assert "Receivables" in invoices.json()["detail"]
+    with pytest.raises(LoanValidationError, match="several securities"):
+        update_loan(
+            UpdateLoanCommand(
+                actor=admin_user, loan_id=str(loan.pk), collateral_value_minor=1_00
+            )
+        )

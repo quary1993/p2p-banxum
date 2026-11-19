@@ -5,14 +5,50 @@
 // rc-security-type rows. A guarantee shows its scope and limit; it never has an asset value, and its
 // limit is never added to an asset value. Prior-ranking debt is shown with the combined share of the
 // stated value, labelled as such.
+// C06 / F16: the admin chooses the main security (the summary); the loan-to-value uses the sum of the
+// values that count (distinct assets with a documented valuation), and the investor sees which assets,
+// with their values and valuation dates. A valuation in another currency shows its amount and rate.
 import type { MarketplaceSecurity } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
-import { formatDate, formatMoneyLabel, formatPercent } from "../../../../investorPortal/format";
+import { formatDate, formatDecimal, formatMoneyLabel, formatPercent } from "../../../../investorPortal/format";
 import { NiIcon } from "../../../components";
 import { securityValueLabel } from "../../portfolio/parts/labels";
 import { collateralIcon, collateralLabel } from "../loanFacts";
 
 type T = ReturnType<typeof useT>;
+
+/** "EUR 1.000,00 at 0,95 (2 Nov 2026)" for a valuation in another currency. */
+function foreignValuationText(security: MarketplaceSecurity, t: T) {
+  if (!security.valuation_currency || security.valuation_amount_minor === null) return "";
+  const amount = formatMoneyLabel(security.valuation_currency, security.valuation_amount_minor);
+  // The rate with its own decimals (up to 8), in the investor's number format.
+  const rateValue = Number(security.valuation_fx_rate ?? "");
+  const decimals = Math.min(8, (rateValue.toString().split(".")[1] ?? "").length);
+  const rate = security.valuation_fx_rate && Number.isFinite(rateValue) ? formatDecimal(rateValue, decimals) : "";
+  return security.valuation_fx_rate_date
+    ? t("{amount} at a rate of {rate} ({date})", { amount, rate, date: formatDate(security.valuation_fx_rate_date) })
+    : t("{amount} at a rate of {rate}", { amount, rate });
+}
+
+/** F16: the assets whose values make the loan-to-value, when there are several (or not only the main). */
+export function LtvAssets({ counted, main, currency }: { counted: MarketplaceSecurity[]; main?: MarketplaceSecurity; currency: string }) {
+  const t = useT();
+  if (counted.length === 0 || (counted.length === 1 && counted[0] === main)) return null;
+  return (
+    <div className="u33-ltv-assets">
+      <p className="bxm-muted small">{t("The loan-to-value uses the sum of these values:")}</p>
+      <ul>
+        {counted.map((security) => (
+          <li key={security.id}>
+            <strong>{collateralLabel(security.security_type)}</strong>
+            <span>{formatMoneyLabel(currency, security.value_minor ?? 0)}</span>
+            {security.valuation_date ? <small>{t("Assessed {date}", { date: formatDate(security.valuation_date) })}</small> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function securityStatusLabel(status: string, t: T) {
   if (status === "in_place") return t("In place");
@@ -70,7 +106,9 @@ export function SecurityFacts({ security, currency, loanMinor, withValue = true 
           [t("Owner / rights holder"), security.holder_name],
           [t("Rights & priority"), securityRankLabel(security.rank, t)],
           [t("Status"), securityStatusLabel(security.status, t)],
-          [t("Prior-ranking debt"), security.prior_ranking_debt_minor ? formatMoneyLabel(currency, security.prior_ranking_debt_minor) : ""]
+          [t("Prior-ranking debt"), security.prior_ranking_debt_minor ? formatMoneyLabel(currency, security.prior_ranking_debt_minor) : ""],
+          [t("Valuation in {currency}", { currency: security.valuation_currency }), foreignValuationText(security, t)],
+          [t("In the loan-to-value"), withValue && security.value_minor !== null && security.status !== "released" ? (security.counts_in_ltv ? t("Yes") : t("No")) : ""]
         ]}
       />
       {share !== null ? (
@@ -92,7 +130,7 @@ export function SecurityNotes({ security }: { security: MarketplaceSecurity }) {
   );
 }
 
-/** A credit file block for a security after the first one (design: r100-security-block r100-guarantee). */
+/** A credit file block for a security other than the main one (design: r100-security-block r100-guarantee). */
 export function AdditionalSecurityBlock({ security, currency, loanMinor }: { security: MarketplaceSecurity; currency: string; loanMinor: number }) {
   return (
     <section className={`r100-security-block${security.is_guarantee ? " r100-guarantee" : ""}`}>
@@ -109,7 +147,7 @@ export function AdditionalSecurityBlock({ security, currency, loanMinor }: { sec
   );
 }
 
-/** An opportunity row for a security after the first one (design: rc-security-type). */
+/** An opportunity row for a security other than the main one (design: rc-security-type). */
 export function SecurityTypeRow({ security, currency }: { security: MarketplaceSecurity; currency: string }) {
   const t = useT();
   const detail = security.is_guarantee

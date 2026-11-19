@@ -290,9 +290,10 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         term_months=10,
         repayment_type="equal_installments",
         interest_only_months=0,
-        collateral_type="invoices",
+        # Q15: invoices are closed for new securities; the pledged claim is "Receivables".
+        collateral_type="receivables",
         collateral_value_minor=31_500_000,
-        collateral_description="Illustrative assignment of approved invoices.",
+        collateral_description="Illustrative pledge of receivables from approved invoices.",
         risk_rating="BBB",
     ),
     DemoOriginatorLoanSpec(

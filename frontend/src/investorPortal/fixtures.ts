@@ -874,6 +874,12 @@ const helvetiaSecuritiesFixture: MarketplaceSecurity[] = [
     insurance: "Building insurance at full rebuilding value.",
     undertaking_scope: "",
     undertaking_limit_minor: null,
+    is_main: true,
+    counts_in_ltv: true,
+    valuation_currency: "",
+    valuation_amount_minor: null,
+    valuation_fx_rate: null,
+    valuation_fx_rate_date: null,
     documents: []
   },
   {
@@ -893,6 +899,12 @@ const helvetiaSecuritiesFixture: MarketplaceSecurity[] = [
     insurance: "",
     undertaking_scope: "Joint and several guarantee for principal and interest.",
     undertaking_limit_minor: amount(400000),
+    is_main: false,
+    counts_in_ltv: false,
+    valuation_currency: "",
+    valuation_amount_minor: null,
+    valuation_fx_rate: null,
+    valuation_fx_rate_date: null,
     documents: []
   }
 ];

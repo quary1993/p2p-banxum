@@ -42,7 +42,8 @@ import {
 import { LtvFigure } from "./parts/LtvFigure";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
-import { AdditionalSecurityBlock, SecurityFacts, SecurityNotes } from "./parts/SecurityDetails";
+import { AdditionalSecurityBlock, LtvAssets, SecurityFacts, SecurityNotes } from "./parts/SecurityDetails";
+import { ltvValueLabel, splitSecurities } from "./parts/securityParts";
 import { ChecksAndUpdates } from "./parts/CreditFileChecks";
 import { FinancialStatements } from "./parts/CreditFileFinancials";
 import { securityValueLabel } from "../portfolio/parts/labels";
@@ -482,8 +483,10 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
   const t = useT();
   const ltv = loanLtv(loan);
   const hasValue = ltv !== null && loan.collateral_value_minor > 0;
-  // U33-DEC-21: the first security gives the loan's figures; the others follow, each on its own.
-  const [first, ...others] = loan.securities ?? [];
+  // C06: the main security gives the summary; the others follow, each on its own. F16: the
+  // loan-to-value uses the sum of the counted assets, listed when there are several.
+  const { main: first, others, counted } = splitSecurities(loan.securities ?? []);
+  const valueLabel = ltvValueLabel(counted, loan.collateral_type, t);
   return (
     <section aria-labelledby="heading-security" className="case-chapter r100-chapter" id="security">
       {heading("security", t("Security"))}
@@ -498,13 +501,14 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
         {hasValue && ltv !== null ? (
           <div className="r100-property-grid">
             <div className="r100-security-graph">
-              <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t(securityValueLabel(loan.collateral_type))} valueMinor={loan.collateral_value_minor} />
+              <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={valueLabel} valueMinor={loan.collateral_value_minor} />
             </div>
             <div>
               <dl className="r100-security-facts compact">
-                <div><dt>{t(securityValueLabel(loan.collateral_type))}</dt><dd>{formatMoneyLabel(loan.currency, loan.collateral_value_minor)}</dd></div>
+                <div><dt>{valueLabel}</dt><dd>{formatMoneyLabel(loan.currency, loan.collateral_value_minor)}</dd></div>
                 <div><dt>{t("Loan-to-value")}</dt><dd>{formatLtv(ltv)}</dd></div>
               </dl>
+              <LtvAssets counted={counted} currency={loan.currency} main={first} />
             </div>
           </div>
         ) : first?.is_guarantee ? null : (
@@ -514,7 +518,7 @@ function SecurityChapter({ loan, heading }: { loan: MarketplaceLoanDetail; headi
         )}
         {first ? (
           <>
-            <SecurityFacts currency={loan.currency} loanMinor={loan.principal_minor} security={first} withValue={false} />
+            <SecurityFacts currency={loan.currency} loanMinor={loan.principal_minor} security={first} withValue={!(counted.length === 1 && counted[0] === first)} />
             <SecurityNotes security={first} />
           </>
         ) : null}

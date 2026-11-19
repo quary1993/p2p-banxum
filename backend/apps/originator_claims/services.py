@@ -1243,10 +1243,16 @@ UNSECURED_LOAN_MESSAGE = (
 )
 
 
-def _require_secured(collateral_type: str) -> None:
-    """U33-DEC-38: no unsecured exception for a new or draft originator loan."""
+def _require_secured(collateral_type: str, *, current: str | None = None) -> None:
+    """U33-DEC-38: no unsecured exception for a new or draft originator loan. Q15: no new
+    "Invoices" security (a draft that has it keeps it)."""
     if str(collateral_type) == "unsecured_exception":
         raise OriginatorClaimsValidationError(UNSECURED_LOAN_MESSAGE)
+    if str(collateral_type) == "invoices" and current != "invoices":
+        raise OriginatorClaimsValidationError(
+            "Invoices are closed for new securities: record the pledged claim as Receivables "
+            "and attach the invoice as a document."
+        )
 
 
 @transaction.atomic
@@ -1654,7 +1660,13 @@ def replace_originator_loan_draft(
     command: CreateOriginatorLoanCommand,
 ) -> OriginatorLoanCreationResult:
     _require_admin(command.actor)
-    _require_secured(command.collateral_type)
+    current_type = (
+        apps.get_model("loans", "Loan")
+        .objects.filter(pk=loan_id)
+        .values_list("collateral_type", flat=True)
+        .first()
+    )
+    _require_secured(command.collateral_type, current=current_type)
     _validate_borrower_snapshot(command.borrower_snapshot)
     parsed = _parse_import(command)
     profile = (

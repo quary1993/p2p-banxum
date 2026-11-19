@@ -10,18 +10,13 @@ import type { MarketplaceDebtFacility, MarketplaceFinancialYear } from "../../..
 import { useT } from "../../../../i18n";
 import { formatDate, formatDecimal, formatMoneyLabel } from "../../../../investorPortal/format";
 import { Dialog, NiIcon } from "../../../components";
+import { ratio } from "./financialRatio";
 
 type T = ReturnType<typeof useT>;
 type Year = MarketplaceFinancialYear;
 type Amount = (year: Year) => number | null | undefined;
 
 const thousands = (minor: number | null | undefined) => (typeof minor === "number" ? formatDecimal(minor / 100 / 1000, 0) : "–");
-
-function ratio(numerator: number | null | undefined, denominator: number | null | undefined, unit: "%" | "×") {
-  if (typeof numerator !== "number" || typeof denominator !== "number" || denominator <= 0) return "—";
-  const value = unit === "%" ? (numerator / denominator) * 100 : numerator / denominator;
-  return `${formatDecimal(value, unit === "%" ? 1 : 2)}${unit}`;
-}
 
 function present(years: Year[], read: Amount) {
   return years.some((year) => typeof read(year) === "number");
@@ -196,7 +191,7 @@ export function FinancialStatements({ years, facilities, company, currency }: { 
           <tr><th scope="row"><span className="r100-row-indent" /><span>{t("Equity / total assets")}</span></th>{sorted.map((year) => <td key={year.id}>{ratio(year.equity_minor, year.total_assets_minor, "%")}</td>)}</tr>
           <tr><th scope="row"><span className="r100-row-indent" /><span>{t("Financial debt / equity")}</span></th>{sorted.map((year) => <td key={year.id}>{ratio(year.financial_debt_minor, year.equity_minor, "×")}</td>)}</tr>
           <tr><th scope="row"><span className="r100-row-indent" /><span>{t("Operating margin")}</span></th>{sorted.map((year) => <td key={year.id}>{ratio(year.operating_profit_minor, year.revenue_minor, "%")}</td>)}</tr>
-          {withInterest ? <tr><th scope="row"><span className="r100-row-indent" /><span>{t("Interest coverage")}</span></th>{sorted.map((year) => <td key={year.id}>{ratio(year.operating_profit_minor, year.interest_expense_minor, "×")}</td>)}</tr> : null}
+          {withInterest ? <tr><th scope="row"><span className="r100-row-indent" /><span>{t("Interest coverage")}</span></th>{sorted.map((year) => <td key={year.id}>{ratio(year.operating_profit_minor, year.interest_expense_minor, "×", { absolute: true })}</td>)}</tr> : null}
         </Table>
       </section>
       {facilities.length > 0 ? <DebtFacilities facilities={facilities} t={t} /> : null}
@@ -207,8 +202,9 @@ export function FinancialStatements({ years, facilities, company, currency }: { 
           <p><b>{t("Equity / total assets")}</b><br /><span>{t("Equity ÷ total assets × 100.")}</span></p>
           <p><b>{t("Financial debt / equity")}</b><br /><span>{t("Financial debt ÷ equity.")}</span></p>
           <p><b>{t("Operating margin")}</b><br /><span>{t("Operating profit ÷ revenue × 100.")}</span></p>
-          {withInterest ? <p><b>{t("Interest coverage")}</b><br /><span>{t("Operating profit ÷ interest expense.")}</span></p> : null}
+          {withInterest ? <p><b>{t("Interest coverage")}</b><br /><span>{t("Operating profit ÷ interest expense (as a positive amount).")}</span></p> : null}
           <p>{t("Calculated for each historical year. Financial debt excludes trade and other operating liabilities.")}</p>
+          <p>{t("n/a: a figure is missing or the divisor is zero or negative.")}</p>
         </Dialog>
       ) : null}
     </>

@@ -191,6 +191,8 @@ const collateralNames: Record<string, { label: string; icon: string; group: Secu
   real_estate: { label: "Property mortgage", icon: "building", group: "physical" },
   equipment: { label: "Equipment pledge", icon: "package", group: "physical" },
   inventory: { label: "Inventory pledge", icon: "package", group: "physical" },
+  // Q15: vehicles have their own type.
+  vehicle: { label: "Vehicle pledge", icon: "truck", group: "physical" },
   asset_backed: { label: "Asset-backed", icon: "package", group: "physical" },
   receivables: { label: "Rights to payments", icon: "file-text", group: "rights" },
   invoices: { label: "Invoices", icon: "file-text", group: "rights" },
@@ -230,6 +232,7 @@ export function collateralLabel(type: string) {
 const securityHelpTexts: Record<string, string> = {
   real_estate: "The property can be sold to recover unpaid debt if the borrower defaults.",
   equipment: "The equipment can be sold to recover unpaid debt if the borrower defaults.",
+  vehicle: "The vehicles can be sold to recover unpaid debt if the borrower defaults.",
   share_pledge: "The pledged shares can be sold to recover unpaid debt if the borrower defaults.",
   invoices: "Customer invoice payments can be collected to recover unpaid debt if the borrower defaults."
 };

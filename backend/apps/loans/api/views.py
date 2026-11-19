@@ -424,6 +424,11 @@ def _security_command(request: Request, loan_id: str, security_id: str | None) -
         undertaking_scope=data["undertaking_scope"],
         undertaking_limit_minor=data["undertaking_limit_minor"],
         document_ids=tuple(str(item) for item in data["document_ids"]),
+        counts_in_ltv=data["counts_in_ltv"],
+        valuation_currency=data["valuation_currency"],
+        valuation_amount_minor=data["valuation_amount_minor"],
+        valuation_fx_rate=data["valuation_fx_rate"],
+        valuation_fx_rate_date=data["valuation_fx_rate_date"],
     )
 
 
@@ -483,6 +488,28 @@ class LoanSecurityMoveView(APIView):
                 loan_id=str(loan_id),
                 security_id=str(security_id),
                 direction=serializer.validated_data["direction"],
+            )
+            documents = loan_securities.borrower_documents_for_securities(
+                actor=actor, loan_id=str(loan_id)
+            )
+        except loan_securities.LoanSecurityError as exc:
+            return _security_error(exc)
+        return Response({"securities": securities, "borrower_documents": documents})
+
+
+class LoanSecurityMainView(APIView):
+    """C06: make a security the loan's main security (its summary)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: LoanSecurityListSerializer})
+    def post(self, request: Request, loan_id: str, security_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        actor = cast(Model, request.user)
+        try:
+            securities = loan_securities.set_main_loan_security(
+                actor=actor, loan_id=str(loan_id), security_id=str(security_id)
             )
             documents = loan_securities.borrower_documents_for_securities(
                 actor=actor, loan_id=str(loan_id)

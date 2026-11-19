@@ -201,11 +201,17 @@ UNSECURED_LOAN_MESSAGE = (
 )
 
 
-def _eligible_collateral_type(value: str) -> CollateralType:
-    """U33-DEC-38: no unsecured exception for a new loan or a draft."""
+def _eligible_collateral_type(value: str, *, current: str | None = None) -> CollateralType:
+    """U33-DEC-38: no unsecured exception for a new loan or a draft. Q15: no new "Invoices"
+    security (a record that has it keeps it)."""
     collateral_type = _collateral_type(value)
     if collateral_type == CollateralType.UNSECURED_EXCEPTION:
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
+    if collateral_type == CollateralType.INVOICES and current != CollateralType.INVOICES:
+        raise LoanValidationError(
+            "Invoices are closed for new securities: record the pledged claim as Receivables "
+            "and attach the invoice as a document."
+        )
     return collateral_type
 
 
@@ -1089,14 +1095,27 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="collateral_type",
-            value=_eligible_collateral_type(command.collateral_type),
+            value=_eligible_collateral_type(
+                command.collateral_type, current=str(loan.collateral_type)
+            ),
             changes=changes,
         )
     if command.collateral_value_minor is not None:
+        new_value = _validate_minor_nonnegative(command.collateral_value_minor, "Collateral value")
+        # C06 / F16: with several securities the loan's value is the sum of the counted assets;
+        # each value is changed on its security.
+        if (
+            new_value != loan.collateral_value_minor
+            and loan.securities.exclude(status="released").count() > 1
+        ):
+            raise LoanValidationError(
+                "This loan has several securities: change each value under Securities. "
+                "The loan-to-value uses the sum of the values that count."
+            )
         _set_if_changed(
             loan=loan,
             field="collateral_value_minor",
-            value=_validate_minor_nonnegative(command.collateral_value_minor, "Collateral value"),
+            value=new_value,
             changes=changes,
         )
     optional_collateral = _optional_clean(command.collateral_description)

@@ -1,8 +1,8 @@
 // IP of Webby-Soft SRL.
 /*
  * Opportunity page (design #/projects/:id, slice S2): factual summary, rate and term, the security
- * (the first security with the loan-to-value comparison when a value is recorded, then the other
- * securities, U33-DEC-21), funding
+ * (the main security with the loan-to-value comparison when a value is recorded, then the other
+ * securities, U33-DEC-21 / C06; the loan-to-value uses the sum of the counted assets, F16), funding
  * progress with the minimum funding threshold, the Swiss-borrower places line (today's rule,
  * MKT-DEC-028), the originator of a claim, the payment schedule, the credit file link and the amount
  * field. A closed loan shows its state instead of the amount field. No co-investment line
@@ -68,10 +68,10 @@ import {
   usesOriginatorSubscription
 } from "./loanFacts";
 import { LtvFigure } from "./parts/LtvFigure";
-import { SecurityTypeRow } from "./parts/SecurityDetails";
+import { LtvAssets, SecurityTypeRow } from "./parts/SecurityDetails";
+import { ltvValueLabel, splitSecurities } from "./parts/securityParts";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
-import { securityValueLabel } from "../portfolio/parts/labels";
 import { errorMessage, isReadonlyView } from "../portfolio/parts/errors";
 
 export function OpportunityScreen({
@@ -167,6 +167,9 @@ function OpportunityPage({
   const company = borrowerName(loan);
   const meta = [company && company !== loan.title ? company : "", placeName(disclosure.city, disclosure.country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
   const ltv = loanLtv(loan);
+  // C06: the main security gives the summary; F16: the loan-to-value uses the counted assets.
+  const securityParts = splitSecurities(loan.securities ?? []);
+  const ltvLabel = ltvValueLabel(securityParts.counted, loan.collateral_type, t);
   const minimum = minimumFunding(loan);
   const places = placesInfo(loan);
   const percent = fundedPercent(loan);
@@ -298,9 +301,9 @@ function OpportunityPage({
                         aria-controls={`r62-collateral-${loan.loan_id}`}
                         aria-expanded={ltvOpen}
                         aria-describedby={`r62-collateral-${loan.loan_id}-explanation`}
-                        aria-label={t("Loan-to-value {ratio}. {valueLabel} comparison", { ratio: formatLtv(ltv), valueLabel: t(securityValueLabel(loan.collateral_type)) })}
+                        aria-label={t("Loan-to-value {ratio}. {valueLabel} comparison", { ratio: formatLtv(ltv), valueLabel: ltvLabel })}
                         className="r62-toggle"
-                        title={t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: t(securityValueLabel(loan.collateral_type)).toLowerCase() })}
+                        title={t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: ltvLabel.toLowerCase() })}
                         onClick={() => setLtvOpen((value) => !value)}
                         type="button"
                       >
@@ -312,11 +315,12 @@ function OpportunityPage({
                     <div aria-hidden={!ltvOpen} className={`r62-disclosure${ltvOpen ? " is-open" : ""}`} id={`r62-collateral-${loan.loan_id}`} inert={!ltvOpen}>
                       <div className="r62-clip">
                         <figure className="r62-figure">
-                          <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={t(securityValueLabel(loan.collateral_type))} valueMinor={loan.collateral_value_minor} />
+                          <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={ltvLabel} valueMinor={loan.collateral_value_minor} />
                         </figure>
                       </div>
+                      <LtvAssets counted={securityParts.counted} currency={loan.currency} main={securityParts.main} />
                       <span className="sr-only" id={`r62-collateral-${loan.loan_id}-explanation`}>
-                        {t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: t(securityValueLabel(loan.collateral_type)).toLowerCase() })}
+                        {t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: ltvLabel.toLowerCase() })}
                       </span>
                     </div>
                   </div>
@@ -327,7 +331,7 @@ function OpportunityPage({
                     {loan.collateral_description && loan.collateral_description !== loan.collateral_type ? <span>{loan.collateral_description}</span> : null}
                   </div>
                 )}
-                {(loan.securities ?? []).slice(1).map((security) => <SecurityTypeRow currency={loan.currency} key={security.id} security={security} />)}
+                {securityParts.others.map((security) => <SecurityTypeRow currency={loan.currency} key={security.id} security={security} />)}
               </div>
             </section>
             <div className="r58-project-actions">

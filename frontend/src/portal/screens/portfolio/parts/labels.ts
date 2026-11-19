@@ -66,6 +66,7 @@ const securityLabels: Record<string, string> = {
   real_estate: "Property mortgage",
   equipment: "Equipment pledge",
   inventory: "Inventory pledge",
+  vehicle: "Vehicle pledge",
   receivables: "Rights to payments",
   invoices: "Invoice receivables",
   share_pledge: "Company share pledge",
@@ -94,7 +95,7 @@ export function securityLabel(collateralType: string) {
  * "Other security".
  */
 export const SECURITY_GROUPS: Array<{ key: string; label: string; types: string[] }> = [
-  { key: "physical", label: "Physical assets", types: ["real_estate", "equipment", "inventory"] },
+  { key: "physical", label: "Physical assets", types: ["real_estate", "equipment", "inventory", "vehicle"] },
   { key: "rights", label: "Payment rights & shares", types: ["receivables", "invoices", "share_pledge", "securities_pledge"] },
   { key: "guarantees", label: "Guarantees", types: ["personal_guarantee", "corporate_guarantee"] },
   { key: "other", label: "Other security", types: ["cash_collateral", "asset_backed", "mixed_collateral", "other"] }
@@ -121,6 +122,7 @@ export function tileIcon(collateralType: string) {
     case "real_estate":
       return "home";
     case "equipment":
+    case "vehicle":
       return "truck";
     case "inventory":
       return "package";
@@ -169,6 +171,8 @@ export function securityValueLabel(collateralType: string | null | undefined) {
       return "Property value";
     case "equipment":
       return "Equipment value";
+    case "vehicle":
+      return "Vehicle value";
     case "share_pledge":
       return "Share value";
     default:

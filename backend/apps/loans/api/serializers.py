@@ -461,6 +461,15 @@ class LoanSecuritySerializer(serializers.Serializer[Any]):
     insurance = serializers.CharField(allow_blank=True)
     undertaking_scope = serializers.CharField(allow_blank=True)
     undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    # C06: the security the loan's summary shows (one per loan).
+    is_main = serializers.BooleanField()
+    # F16: its value counts in the loan-to-value (the loan's collateral value is the sum).
+    counts_in_ltv = serializers.BooleanField()
+    # F16: a valuation in another currency (value_minor is then the converted value).
+    valuation_currency = serializers.CharField(allow_blank=True)
+    valuation_amount_minor = serializers.IntegerField(allow_null=True)
+    valuation_fx_rate = serializers.CharField(allow_null=True)
+    valuation_fx_rate_date = serializers.DateField(allow_null=True)
     documents = LoanSecurityDocumentSerializer(many=True)
 
 
@@ -507,6 +516,18 @@ class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
     document_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list
     )
+    # F16: omitted keeps the current choice; a new security takes the default of its type.
+    counts_in_ltv = serializers.BooleanField(required=False, allow_null=True, default=None)
+    valuation_currency = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=3
+    )
+    valuation_amount_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    valuation_fx_rate = serializers.DecimalField(
+        max_digits=18, decimal_places=8, required=False, allow_null=True, default=None
+    )
+    valuation_fx_rate_date = serializers.DateField(required=False, allow_null=True, default=None)
 
 
 class LoanCreditCheckSerializer(serializers.Serializer[Any]):

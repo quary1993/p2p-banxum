@@ -5,15 +5,20 @@ guarantor), rank, status, value with its date, source and appraiser, prior-ranki
 insurance and the documents; a guarantee has its scope and limit instead of an asset value. The
 guarantor's wealth is never added to an asset value, and the same asset is not counted twice.
 
-The first security (position 0) gives the loan's summary fields (collateral type, value and
-description) that the loan form, the loan-to-value figure and older filters read; editing those
-fields on the loan edits the first security, and the other way round.
+C06 / F16 (2026-11-13, 2026-11-16): the admin chooses the main security, which gives the loan's
+summary fields (collateral type and description). The loan's collateral value, which the
+loan-to-value, the filters and Smart Invest read, is the sum of the values of the securities that
+count in the loan-to-value and are not released: ``LTV = loan amount / sum x 100``. The same asset
+is never counted twice and a guarantee never counts. Values are in the loan currency; a valuation
+in another currency keeps its amount, the rate and the rate date. The loan form's collateral
+fields edit the main security.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
 from django.apps import apps
@@ -21,8 +26,9 @@ from django.db import transaction
 from django.db.models import Model
 
 from backend.apps.loans.models import (
+    CLOSED_FOR_NEW_SECURITY_TYPES,
     GUARANTEE_SECURITY_TYPES,
-    LEGACY_ONLY_SECURITY_TYPES,
+    LTV_ASSET_SECURITY_TYPES,
     CollateralType,
     Loan,
     LoanSecurity,
@@ -64,6 +70,14 @@ class SaveLoanSecurityCommand:
     undertaking_scope: str = ""
     undertaking_limit_minor: int | None = None
     document_ids: tuple[str, ...] = field(default_factory=tuple)
+    # F16: None keeps the current choice (a new security takes the default of its type).
+    counts_in_ltv: bool | None = None
+    # F16: a valuation in another currency than the loan's (amount, rate to the loan currency,
+    # rate date); the value in the loan currency is then calculated.
+    valuation_currency: str = ""
+    valuation_amount_minor: int | None = None
+    valuation_fx_rate: Decimal | None = None
+    valuation_fx_rate_date: date | None = None
 
 
 def _require_admin(actor: Model) -> None:
@@ -103,6 +117,14 @@ def security_payload(
         "insurance": security.insurance,
         "undertaking_scope": security.undertaking_scope,
         "undertaking_limit_minor": security.undertaking_limit_minor,
+        "is_main": security.is_main,
+        "counts_in_ltv": security.counts_in_ltv,
+        "valuation_currency": security.valuation_currency,
+        "valuation_amount_minor": security.valuation_amount_minor,
+        "valuation_fx_rate": (
+            None if security.valuation_fx_rate is None else str(security.valuation_fx_rate)
+        ),
+        "valuation_fx_rate_date": security.valuation_fx_rate_date,
         "documents": [
             {"id": str(document_id), "display_name": names.get(str(document_id), "")}
             for document_id in security.document_ids or []
@@ -151,9 +173,14 @@ def _validated(
         raise LoanSecurityValidationError("Unknown security type.")
     if security_type == CollateralType.UNSECURED_EXCEPTION:
         raise LoanSecurityValidationError("An unsecured exception is not a security.")
-    if security_type in LEGACY_ONLY_SECURITY_TYPES and (
+    if security_type in CLOSED_FOR_NEW_SECURITY_TYPES and (
         current is None or current.security_type != security_type
     ):
+        if security_type == CollateralType.INVOICES:
+            raise LoanSecurityValidationError(
+                "Invoices are closed for new securities: record the pledged claim as Receivables "
+                "and attach the invoice as a document."
+            )
         raise LoanSecurityValidationError(
             "Record each security of a mixed or asset-backed package on its own, with its type."
         )
@@ -188,8 +215,26 @@ def _validated(
         raise LoanSecurityValidationError(
             "Scope and limit apply to a personal or corporate guarantee only."
         )
-    if command.prior_ranking_debt_minor is not None and not command.value_minor:
+    value_minor = command.value_minor
+    valuation = _foreign_valuation(command, loan, guarantee=guarantee)
+    if valuation["valuation_currency"]:
+        value_minor = valuation["converted_minor"]
+    if command.prior_ranking_debt_minor is not None and not value_minor:
         raise LoanSecurityValidationError("Prior-ranking debt needs the value of the asset.")
+    status = command.status
+    counts_in_ltv = command.counts_in_ltv
+    if counts_in_ltv is None:
+        counts_in_ltv = (
+            current.counts_in_ltv
+            if current is not None
+            else security_type in LTV_ASSET_SECURITY_TYPES and bool(value_minor)
+        )
+    if counts_in_ltv and guarantee:
+        raise LoanSecurityValidationError("A guarantee never counts in the loan-to-value.")
+    if counts_in_ltv and not value_minor:
+        raise LoanSecurityValidationError(
+            "Only a security with a documented value counts in the loan-to-value."
+        )
     documents = _borrower_documents(loan)
     unknown = [item for item in command.document_ids if str(item) not in documents]
     if unknown:
@@ -199,8 +244,13 @@ def _validated(
         "description": description,
         "holder_name": _clean(command.holder_name),
         "rank": command.rank,
-        "status": command.status,
-        "value_minor": command.value_minor,
+        "status": status,
+        "value_minor": value_minor,
+        "counts_in_ltv": counts_in_ltv,
+        "valuation_currency": valuation["valuation_currency"],
+        "valuation_amount_minor": valuation["valuation_amount_minor"],
+        "valuation_fx_rate": valuation["valuation_fx_rate"],
+        "valuation_fx_rate_date": valuation["valuation_fx_rate_date"],
         "valuation_date": command.valuation_date,
         "valuation_source": _clean(command.valuation_source),
         "appraiser": _clean(command.appraiser),
@@ -212,17 +262,88 @@ def _validated(
     }
 
 
+def _foreign_valuation(
+    command: SaveLoanSecurityCommand, loan: Loan, *, guarantee: bool
+) -> dict[str, Any]:
+    """F16: a valuation in another currency is converted to the loan currency (no FX for investors).
+
+    The amount, the rate (one unit of the valuation currency in the loan currency) and the rate
+    date are kept; the value in the loan currency is calculated once, rounded half up.
+    """
+    currency = command.valuation_currency.strip().upper()
+    loan_currency = str(loan.currency_id).upper()
+    empty: dict[str, Any] = {
+        "valuation_currency": "",
+        "valuation_amount_minor": None,
+        "valuation_fx_rate": None,
+        "valuation_fx_rate_date": None,
+        "converted_minor": None,
+    }
+    if not currency or currency == loan_currency:
+        if (
+            command.valuation_amount_minor is not None
+            or command.valuation_fx_rate is not None
+            or command.valuation_fx_rate_date is not None
+        ):
+            raise LoanSecurityValidationError(
+                "An amount, rate and rate date are needed only for a valuation in another currency."
+            )
+        return empty
+    if guarantee:
+        raise LoanSecurityValidationError(
+            "A guarantee has a scope and a limit, not an asset value or a valuation."
+        )
+    if len(currency) != 3 or not currency.isalpha():
+        raise LoanSecurityValidationError("Enter the valuation currency as a three-letter code.")
+    if command.valuation_amount_minor is None or command.valuation_amount_minor < 0:
+        raise LoanSecurityValidationError(f"Enter the value in {currency}.")
+    rate = command.valuation_fx_rate
+    if rate is None or rate <= 0:
+        raise LoanSecurityValidationError(f"Enter the rate from {currency} to {loan_currency}.")
+    if command.valuation_fx_rate_date is None:
+        raise LoanSecurityValidationError("Enter the date of the rate.")
+    converted = (Decimal(command.valuation_amount_minor) * rate).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    )
+    return {
+        "valuation_currency": currency,
+        "valuation_amount_minor": int(command.valuation_amount_minor),
+        "valuation_fx_rate": rate,
+        "valuation_fx_rate_date": command.valuation_fx_rate_date,
+        "converted_minor": int(converted),
+    }
+
+
+def ltv_basis_minor(loan: Loan) -> int:
+    """F16: the sum of the values that count in the loan-to-value (not released, no guarantee)."""
+    return sum(
+        int(item.value_minor or 0)
+        for item in loan.securities.filter(counts_in_ltv=True).exclude(
+            status=LoanSecurityStatus.RELEASED
+        )
+        if not is_guarantee(item.security_type)
+    )
+
+
+def _main_security(loan: Loan) -> LoanSecurity | None:
+    return (
+        loan.securities.filter(is_main=True).first()
+        or loan.securities.order_by("position", "created_at").first()
+    )
+
+
 def _sync_loan_summary(loan: Loan) -> None:
-    """The first security gives the loan's summary fields (a guarantee has no asset value)."""
-    first = loan.securities.order_by("position", "created_at").first()
-    if first is None:
+    """The main security gives the summary; the counted assets give the collateral value (C06)."""
+    main = _main_security(loan)
+    if main is None:
         return
-    value = 0 if is_guarantee(first.security_type) else int(first.value_minor or 0)
+    if not main.is_main:
+        LoanSecurity.objects.filter(pk=main.pk).update(is_main=True)
     changed = []
     for name, new in (
-        ("collateral_type", first.security_type),
-        ("collateral_description", first.description),
-        ("collateral_value_minor", value),
+        ("collateral_type", main.security_type),
+        ("collateral_description", main.description),
+        ("collateral_value_minor", ltv_basis_minor(loan)),
     ):
         if getattr(loan, name) != new:
             setattr(loan, name, new)
@@ -246,11 +367,23 @@ def save_loan_security(command: SaveLoanSecurityCommand) -> dict[str, Any]:
         if current is None:
             raise LoanSecurityValidationError("This security does not exist for the loan.")
     values = _validated(command, loan, current)
+    if (
+        current is not None
+        and current.is_main
+        and values["status"] == LoanSecurityStatus.RELEASED
+        and loan.securities.exclude(pk=current.pk)
+        .exclude(status=LoanSecurityStatus.RELEASED)
+        .exists()
+    ):
+        raise LoanSecurityValidationError(
+            "Choose another main security before you release this one."
+        )
     if current is None:
         last = loan.securities.order_by("-position").first()
         current = LoanSecurity.objects.create(
             loan=loan,
             position=0 if last is None else last.position + 1,
+            is_main=not loan.securities.filter(is_main=True).exists(),
             created_by_admin_id=command.actor.pk,
             updated_by_admin_id=command.actor.pk,
             **values,
@@ -274,10 +407,45 @@ def save_loan_security(command: SaveLoanSecurityCommand) -> dict[str, Any]:
                 "security_id": str(current.id),
                 "security_type": current.security_type,
                 "status": current.status,
+                "counts_in_ltv": current.counts_in_ltv,
+                "ltv_basis_minor": int(loan.collateral_value_minor),
             },
         )
     )
+    current.refresh_from_db()
     return security_payload(current, _borrower_documents(loan))
+
+
+@transaction.atomic
+def set_main_loan_security(*, actor: Model, loan_id: str, security_id: str) -> list[dict[str, Any]]:
+    """C06: the admin chooses the main security explicitly (the summary of the loan)."""
+    _require_admin(actor)
+    loan = _loan(loan_id)
+    security = LoanSecurity.objects.select_for_update().filter(id=security_id, loan=loan).first()
+    if security is None:
+        raise LoanSecurityValidationError("This security does not exist for the loan.")
+    if security.status == LoanSecurityStatus.RELEASED:
+        raise LoanSecurityValidationError("A released security cannot be the main security.")
+    previous = loan.securities.filter(is_main=True).exclude(pk=security.pk).first()
+    if previous is not None:
+        LoanSecurity.objects.filter(pk=previous.pk).update(is_main=False)
+    LoanSecurity.objects.filter(pk=security.pk).update(is_main=True)
+    _sync_loan_summary(loan)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="loan.main_security_set",
+            target_type="Loan",
+            target_id=str(loan.id),
+            metadata={
+                "decision": "C06",
+                "security_id": str(security.id),
+                "previous_security_id": None if previous is None else str(previous.id),
+            },
+        )
+    )
+    documents = _borrower_documents(loan)
+    return [security_payload(item, documents) for item in loan.securities.all()]
 
 
 @transaction.atomic
@@ -319,8 +487,8 @@ _SWAP_POSITION = 32767
 def move_loan_security(
     *, actor: Model, loan_id: str, security_id: str, direction: str
 ) -> list[dict[str, Any]]:
-    """Move a security one place up or down in a draft. The first one gives the loan's summary
-    (collateral type, value and loan-to-value); after publication the order stays fixed."""
+    """Move a security one place up or down in a draft (the display order). The main security,
+    chosen apart (C06), gives the summary; after publication the order stays fixed."""
     _require_admin(actor)
     if direction not in {"up", "down"}:
         raise LoanSecurityValidationError("Move a security up or down.")
@@ -364,27 +532,32 @@ def move_loan_security(
 
 
 def sync_first_security_from_loan(loan: Loan, *, actor: Model | None = None) -> None:
-    """The loan form's collateral fields create or change the first security."""
+    """The loan form's collateral fields create or change the main security (C06); the loan's
+    collateral value is then the sum of the counted assets again."""
     if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
         return
     guarantee = is_guarantee(loan.collateral_type)
     value = (
         None if guarantee or not loan.collateral_value_minor else int(loan.collateral_value_minor)
     )
-    first = loan.securities.order_by("position", "created_at").first()
+    first = _main_security(loan)
     actor_id = getattr(actor, "pk", None)
     if first is None:
         LoanSecurity.objects.create(
             loan=loan,
             position=0,
+            is_main=True,
             security_type=loan.collateral_type,
             description=loan.collateral_description or "",
             value_minor=value,
+            counts_in_ltv=loan.collateral_type in LTV_ASSET_SECURITY_TYPES and bool(value),
             created_by_admin_id=actor_id,
             updated_by_admin_id=actor_id,
         )
+        _sync_loan_summary(loan)
         return
     changed = False
+    type_changed = first.security_type != loan.collateral_type
     for name, new in (
         ("security_type", loan.collateral_type),
         ("description", loan.collateral_description or ""),
@@ -393,12 +566,18 @@ def sync_first_security_from_loan(loan: Loan, *, actor: Model | None = None) -> 
         if getattr(first, name) != new:
             setattr(first, name, new)
             changed = True
+    if type_changed:
+        first.counts_in_ltv = loan.collateral_type in LTV_ASSET_SECURITY_TYPES and bool(value)
     if changed:
         if guarantee:
             first.prior_ranking_debt_minor = None
             first.valuation_date = None
+            first.counts_in_ltv = False
+        elif not value:
+            first.counts_in_ltv = False
         first.updated_by_admin_id = actor_id
         first.save()
+    _sync_loan_summary(loan)
 
 
 def all_securities_released(loan: Loan) -> bool:

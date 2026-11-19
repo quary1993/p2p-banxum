@@ -265,6 +265,14 @@ class MarketplaceSecuritySerializer(serializers.Serializer[Any]):
     insurance = serializers.CharField(allow_blank=True)
     undertaking_scope = serializers.CharField(allow_blank=True)
     undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    # C06: the security the summary shows. F16: whether its value counts in the loan-to-value.
+    is_main = serializers.BooleanField()
+    counts_in_ltv = serializers.BooleanField()
+    # F16: a valuation made in another currency: the amount, the rate and the rate date.
+    valuation_currency = serializers.CharField(allow_blank=True)
+    valuation_amount_minor = serializers.IntegerField(allow_null=True)
+    valuation_fx_rate = serializers.CharField(allow_null=True)
+    valuation_fx_rate_date = serializers.DateField(allow_null=True)
     documents = MarketplaceSecurityDocumentSerializer(many=True)
 
 

@@ -54,6 +54,8 @@ class CollateralType(models.TextChoices):
     INVOICES = "invoices", "Invoices"
     EQUIPMENT = "equipment", "Equipment"
     INVENTORY = "inventory", "Inventory"
+    # Q15 (2026-11-13): vehicles have their own type from the start.
+    VEHICLE = "vehicle", "Vehicle"
     SECURITIES_PLEDGE = "securities_pledge", "Securities pledge"
     CASH_COLLATERAL = "cash_collateral", "Cash collateral"
     SHARE_PLEDGE = "share_pledge", "Share pledge"
@@ -375,13 +377,32 @@ GUARANTEE_SECURITY_TYPES = frozenset(
 LEGACY_ONLY_SECURITY_TYPES = frozenset(
     {CollateralType.MIXED_COLLATERAL, CollateralType.ASSET_BACKED}
 )
+# Q15 (2026-11-13): invoices are closed for new securities; the pledged claim is recorded as
+# "Receivables" with the invoice attached as a document. Existing records keep their type.
+CLOSED_FOR_NEW_SECURITY_TYPES = LEGACY_ONLY_SECURITY_TYPES | {CollateralType.INVOICES}
+# C06 / F16 (2026-11-16): asset types that count in the loan-to-value by default when they have a
+# documented valuation. Receivables count only once the admin confirms they are valued (an invoice
+# nominal is not enough); guarantees never count; other types only by the admin's choice.
+LTV_ASSET_SECURITY_TYPES = frozenset(
+    {
+        CollateralType.REAL_ESTATE,
+        CollateralType.EQUIPMENT,
+        CollateralType.INVENTORY,
+        CollateralType.VEHICLE,
+        CollateralType.SECURITIES_PLEDGE,
+        CollateralType.CASH_COLLATERAL,
+    }
+)
 
 
 class LoanSecurity(TimestampedModel):
     """U33-DEC-21: one security of a loan, managed separately (a loan can have several).
 
-    Only the fields that apply are filled. The first security (position 0) also gives the loan's
-    summary fields (collateral type, value and description) that older screens and filters read.
+    Only the fields that apply are filled. C06 (2026-11-13): the admin chooses the main security,
+    which gives the loan's summary (collateral type and description); the loan's collateral value
+    is the sum of the values of the securities that count in the loan-to-value (F16), so
+    ``Loan.ltv_bps`` = loan amount / that sum. Values are in the loan currency; a valuation in
+    another currency keeps its amount, the rate and the rate date.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -406,6 +427,16 @@ class LoanSecurity(TimestampedModel):
     undertaking_limit_minor = models.BigIntegerField(null=True, blank=True)
     # Borrower documents about this security (ids of the borrower's documents).
     document_ids = models.JSONField(default=list, blank=True)
+    # C06: the security the summary shows; one per loan.
+    is_main = models.BooleanField(default=False)
+    # F16: the value counts in the loan-to-value. Excluding is not releasing.
+    counts_in_ltv = models.BooleanField(default=False)
+    # F16: a valuation made in another currency than the loan's: its amount, the rate to the loan
+    # currency and the rate date. ``value_minor`` is then the converted value (no FX for investors).
+    valuation_currency = models.CharField(max_length=3, blank=True, default="")
+    valuation_amount_minor = models.BigIntegerField(null=True, blank=True)
+    valuation_fx_rate = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    valuation_fx_rate_date = models.DateField(null=True, blank=True)
     created_by_admin_id = models.UUIDField(null=True, blank=True)
     updated_by_admin_id = models.UUIDField(null=True, blank=True)
 
@@ -414,6 +445,11 @@ class LoanSecurity(TimestampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["loan", "position"], name="unique_loan_security_position"
+            ),
+            models.UniqueConstraint(
+                fields=["loan"],
+                condition=models.Q(is_main=True),
+                name="unique_main_loan_security",
             ),
             models.CheckConstraint(
                 condition=(models.Q(value_minor__isnull=True) | models.Q(value_minor__gte=0))
