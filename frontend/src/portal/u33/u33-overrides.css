@@ -332,3 +332,27 @@ html.bxu .u33-pdf-reader .u33-pdf-page {
 html.bxu[data-theme="dark"] .u33-pdf-reader .u33-pdf-pages {
   background: #111316;
 }
+
+/* 18.3: "Help with this step" opened in place inside the withdraw and sell dialogs. */
+html.bxu .u33-step-help {
+  display: block;
+  margin: 12px 0;
+}
+html.bxu .u33-step-help > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+}
+html.bxu .u33-step-help > summary::-webkit-details-marker {
+  display: none;
+}
+html.bxu .u33-step-help .r34-help-body {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--bxm-line, #e6e6e6);
+}
+html.bxu .u33-step-help .r34-help-body h3 {
+  margin: 0 0 8px;
+}

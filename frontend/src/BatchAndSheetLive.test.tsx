@@ -164,6 +164,13 @@ test("A-39: the opportunity page names the borrower and what can be invested her
   expect(amount).toHaveValue("");
   await screen.findByText(/Your CHF balance for this loan: CHF 100\.500,01/, {}, { timeout: 5000 });
 
+  // 18.3: "Help with this step" answers with the live minimum, balance and capacity.
+  fireEvent.click(screen.getByRole("button", { name: "Help with this step" }));
+  const help = screen.getByRole("dialog", { name: "Choosing your amount" });
+  expect(help).toHaveTextContent("The minimum is CHF 1.000,00. You have CHF 100.500,01 available in your Banxum account. The project has CHF 10.000,00 available to invest.");
+  fireEvent.keyDown(help, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Choosing your amount" })).not.toBeInTheDocument();
+
   // More than the loan still takes names the capacity, not the wallet.
   fireEvent.change(amount, { target: { value: "50000" } });
   fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
@@ -181,4 +188,6 @@ test("A-39: the opportunity page names the borrower and what can be invested her
   fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
   expect(window.location.pathname).toBe(`/marketplace/${LOAN_ID}/invest`);
   expect(await screen.findByRole("textbox", { name: "Your investment amount" })).toHaveValue("9.000,50");
+  fireEvent.click(screen.getByRole("button", { name: "Help with this step" }));
+  expect(screen.getByRole("dialog", { name: "Reviewing and signing" })).toHaveTextContent("The purchase agreement for CHF 9.000,50 in Audit Direct Loan.");
 }, 30_000);

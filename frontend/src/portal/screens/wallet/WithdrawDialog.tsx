@@ -14,6 +14,7 @@ import { ActionEnum, useV1LedgerWithdrawalRequestsCreate, type InvestorBalancePo
 import { intentIdempotencyKey } from "../../../api/client/idempotency";
 import { useT } from "../../../i18n";
 import { payoutInstructionState, withdrawableMinor } from "../../../investorPortal/accountState";
+import { HelpWithThisStep } from "../account/parts/HelpWithThisStep";
 import { isFixturePreview } from "../../../investorPortal/data";
 import { formatMoneyLabel, formatMoneyMinor, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
 import { NiIcon, usePortalNav } from "../../components";
@@ -253,6 +254,16 @@ export function WithdrawDialog({
             </div>
           )}
           <p className="p73-timing">{timing}</p>
+          {/* 18.3: help for this step with its live values. */}
+          <HelpWithThisStep
+            inline
+            items={[
+              { question: t("How much can I withdraw?"), answer: t("Up to {amount}: your available balance in {currency}. Money reserved for investments cannot be withdrawn.", { amount: formatMoneyLabel(currency, maxMinor), currency }) },
+              { question: t("Where does the money go?"), answer: account ? t("To your verified bank account {iban}, in {currency}.", { iban: groupIban(account.destination_iban), currency }) : t("To a verified bank account in your name, in {currency}. Add one in Profile & Settings.", { currency }) },
+              { question: t("When does it arrive?"), answer: t("Usually within 1 to 3 business days. Banxum charges no fee; your bank may.") }
+            ]}
+            title={t("Withdrawing money")}
+          />
           <div className="p73-modal-actions">
             <button className="btn p73-back" onClick={onClose} type="button">{t("Cancel")}</button>
             <button className="btn p73-next" disabled={!account} type="submit">{t("Continue")} <NiIcon name="arrow-right" /></button>

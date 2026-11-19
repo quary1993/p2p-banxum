@@ -29,6 +29,7 @@ import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
 import { errorMessage, idempotencyKey, templateLabels } from "./parts/errors";
+import { HelpWithThisStep } from "../account/parts/HelpWithThisStep";
 import { discountTone, MAX_PRICE_BPS, MIN_PRICE_BPS, PAR_PRICE_BPS, PREVIEW_FEE_BPS, previewSellerFee, priceBpsForAmount, priceMinorForBps, SLIDER_STEP_BPS } from "./parts/sellPricing";
 
 type Pricing = Pick<SecondaryMarketListingPricingPreview, "price_bps" | "transfer_price_minor" | "accrued_interest_minor" | "maker_fee_bps" | "minimum_maker_fee_minor" | "maker_fee_minor" | "seller_net_proceeds_minor">;
@@ -404,6 +405,31 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
         </section>
         <Breakdown currency={currency} pricing={pricing} t={t} />
         <p className="s106-note">{t("A buyer must purchase your investment for the sale to complete.")}</p>
+        {/* 18.3: help for this step with its live values. */}
+        <HelpWithThisStep
+          inline
+          items={[
+            {
+              question: t("Which price can I set?"),
+              answer: t("Between {lowest} and {highest} of the outstanding principal of {principal}. The buyer also pays the interest accrued since the last payment.", {
+                lowest: formatRateBps(MIN_PRICE_BPS),
+                highest: formatRateBps(MAX_PRICE_BPS),
+                principal: `${currency} ${formatMoneyMinor(holding.current_principal_minor, currency)}`
+              })
+            },
+            {
+              question: t("What do I receive?"),
+              answer: pricing
+                ? t("{net} if a buyer purchases at this price: the selling price and the accrued interest, less the fee of {fee}.", {
+                    net: `${currency} ${formatMoneyMinor(pricing.seller_net_proceeds_minor, currency)}`,
+                    fee: `${currency} ${formatMoneyMinor(pricing.maker_fee_minor, currency)}`
+                  })
+                : t("The amount appears once the price is calculated.")
+            },
+            { question: t("When is it sold?"), answer: t("Only when a buyer purchases it. Until then it stays in your portfolio and you can edit or cancel the listing.") }
+          ]}
+          title={t("Selling your investment")}
+        />
         <div className="s106-actions">
           <button className="s106-secondary" onClick={onClose} type="button">{t("Cancel")}</button>
           <button className="s106-primary" disabled={!pricing || Boolean(priceError) || termsMissing} type="submit">

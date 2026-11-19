@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 
 import type { MarketplaceLoanDetail } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
+import { HelpWithThisStep } from "../../account/parts/HelpWithThisStep";
 import { isFixturePreview, useBalancesData } from "../../../../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyLabel, formatMoneyMinor, useNumberFormat } from "../../../../investorPortal/format";
 import { SensitivePinField } from "../../../../investorPortal/pin";
@@ -43,13 +44,16 @@ export function ReviewFrame({
   lastStepLabel,
   onSubmit,
   summary,
-  agreement
+  agreement,
+  amountMinor = null
 }: {
   loan: MarketplaceLoanDetail;
   lastStepLabel: string;
   onSubmit: (event: FormEvent) => void;
   summary: ReactNode;
   agreement: ReactNode;
+  /** 18.3: the amount under review, for "Help with this step". */
+  amountMinor?: number | null;
 }) {
   const t = useT();
   const company = borrowerName(loan);
@@ -77,7 +81,22 @@ export function ReviewFrame({
           <section className="rp-agreement-side">{agreement}</section>
         </form>
         <div className="rl29-help">
-          <PortalLink className="ip-help rp-help r34-context-help" to="faq"><NiIcon name="help" />{t("Help with this step")}<NiIcon name="arrow-right" /></PortalLink>
+          {/* 18.3: help for this step with its live values (design r34-invest-help, "Reviewing and signing"). */}
+          <HelpWithThisStep
+            context={loan.title}
+            items={[
+              {
+                question: t("What am I confirming?"),
+                answer: t("The purchase agreement for {amount} in {project}. Review the agreement and each acknowledgement before you confirm.", {
+                  amount: amountMinor ? formatMoneyLabel(loan.currency, amountMinor) : t("your chosen amount"),
+                  project: loan.title
+                })
+              },
+              { question: t("When are funds reserved?"), answer: t("Only after you accept the acknowledgements and confirm with your codes.") },
+              { question: t("Can I still change the amount?"), answer: t("Yes. Select Change beside your investment amount before you confirm.") }
+            ]}
+            title={t("Reviewing and signing")}
+          />
         </div>
       </section>
       <p className="ip-bottom"><NiIcon name="info" />{t("Repayments are not guaranteed. You may lose part or all of your investment.")}</p>

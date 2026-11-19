@@ -332,6 +332,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
   return (
     <>
       <ReviewFrame
+        amountMinor={amountMinor}
         agreement={
           <>
             <Acceptances
@@ -660,6 +661,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
   return (
     <>
       <ReviewFrame
+        amountMinor={quote ? quote.executable_cash_minor : amountMinor}
         agreement={
           quote ? (
             <>

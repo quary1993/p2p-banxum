@@ -73,6 +73,7 @@ import { LtvAssets, SecurityTypeRow } from "./parts/SecurityDetails";
 import { ltvValueLabel, splitSecurities } from "./parts/securityParts";
 import { ScheduleTable } from "./parts/ScheduleTable";
 import "./invest.css";
+import { HelpWithThisStep } from "../account/parts/HelpWithThisStep";
 import { errorMessage, isReadonlyView } from "../portfolio/parts/errors";
 
 export function OpportunityScreen({
@@ -417,10 +418,24 @@ function OpportunityPage({
             <ClosedState holdingId={holding?.id ?? null} loan={loan} />
           )}
         </div>
-        <div className="v107-help-row">
-          <button aria-haspopup="dialog" className="l8-how" onClick={() => setHowOpen(true)} type="button"><NiIcon name="info" />{t("How investing works")}</button>
-          <PortalLink className="v107-help" to="faq"><NiIcon name="help" />{t("Help with this step")}<NiIcon name="arrow-right" /></PortalLink>
-        </div>
+        {/* 18.3: help for this step with its live values (design r34-invest-help, "Choosing your amount"). */}
+        <HelpWithThisStep
+          context={loan.title}
+          items={[
+            {
+              question: t("How much can I invest?"),
+              answer: t("The minimum is {minimum}. You have {balance} available in your Banxum account. The project has {available} available to invest.", {
+                minimum: formatMoneyLabel(loan.currency, loan.minimum_investment_minor),
+                balance: formatMoneyLabel(loan.currency, funds.balanceMinor),
+                available: formatMoneyLabel(loan.currency, loanAvailableMinor(loan))
+              })
+            },
+            { question: t("What happens when I continue?"), answer: t("You review your amount and the purchase agreement. Your funds are reserved only after you accept it and confirm.") },
+            { question: t("Where can I see my repayments?"), answer: t("Open Payment schedule to see your projected repayments.") }
+          ]}
+          leading={<button aria-haspopup="dialog" className="l8-how" onClick={() => setHowOpen(true)} type="button"><NiIcon name="info" />{t("How investing works")}</button>}
+          title={t("Choosing your amount")}
+        />
         <details
           aria-labelledby="r36-schedule-title"
           className="pd-inline-details l8-schedule r50-motion-schedule"
