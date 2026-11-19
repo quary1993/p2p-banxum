@@ -124,6 +124,7 @@
 - Suggested improvement: ask the designer if the two rules are intended. If yes, add correct selectors in `u33-overrides.css` (`.close:hover`, `.close:focus`; `.nk-iv-wg3-list li:nth-last-child(2)`). If no, drop them when `u33.css` is next regenerated (S7 clean-up).
 - Priority: nice-to-have.
 - Decided 2026-11-13 (owner answer Q27, B): remove both rules; the visible U33 look stays (IMPLEMENTATION_PLAN 17.11).
+- Done 2026-11-19 (Phase 18.2): the generator drops both selectors (`dropInvalidSelectors` in `build-u33-css.mjs`), and the two rules are removed from the generated `u33.css` with the same result. A full regeneration also changes a few legacy guards (the old skin changed since the last run), so it waits for the S7 clean-up.
 
 ## 2026-11-10: Bundle Size, Lazy Routes And CSS Per Area (audit G-07)
 

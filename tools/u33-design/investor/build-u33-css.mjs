@@ -221,7 +221,23 @@ function isNestedInStyleRule(rule) {
 }
 report.nestedRulesKept = 0;
 
+// Q27 (owner answer 2026-11-13): two selectors of the design CSS are not valid CSS, so browsers
+// ignore them (`.close:not(:disabled):not(.disabled):hover-focus` and
+// `.nk-iv-wg3-list:last-child() li:nth-last-child(2)`). They are dropped; the visible look stays.
+const INVALID_SELECTOR = /:hover-focus\b|:last-child\(\)/;
+report.invalidSelectorsDropped = [];
+
+function dropInvalidSelectors(root) {
+  root.walkRules(rule => {
+    const kept = rule.selectors.filter(sel => !INVALID_SELECTOR.test(sel));
+    if (kept.length === rule.selectors.length) return;
+    report.invalidSelectorsDropped.push(...rule.selectors.filter(sel => INVALID_SELECTOR.test(sel)));
+    if (kept.length) rule.selectors = kept; else rule.remove();
+  });
+}
+
 function scope(root) {
+  dropInvalidSelectors(root);
   root.walkRules(rule => {
     const parent = rule.parent;
     if (parent && parent.type === 'atrule' && /keyframes$/i.test(parent.name)) return;

@@ -4,7 +4,7 @@
  * balance, a verified bank account of the currency, review, then today's confirmation (email code +
  * PIN, ACC-DEC-009 until U33-DEC-01) and the result. Same request as before: POST
  * /ledger/withdrawal-requests/ with one idempotency key per withdrawal intent (audit A-41).
- * Texts: "usually 1–3 business days" and "No Banxum fees" (U33-DEC-35); "Verified" / "Pending
+ * Texts: "processed in 1–3 business days" and "No Banxum fees" (U33-DEC-35, D10); "Verified" / "Pending
  * verification" (U33-DEC-05). Reservations are never part of the withdrawable amount.
  */
 import { useQueryClient } from "@tanstack/react-query";
@@ -125,8 +125,9 @@ export function WithdrawDialog({
     if (verified.length === 0 && onAddBankAccount) onAddBankAccount(currency);
     else nav.go("settings");
   };
-  // U33-DEC-35: 1–3 business days (the design writes 1–2).
-  const timing = t("Usually 1–3 business days · No Banxum fees");
+  // U33-DEC-35 / D10 (capacity confirmed 2026-11-17): processed in 1–3 business days (the design
+  // writes 1–2); the processing, not the credit at the investor's bank.
+  const timing = t("Processed in 1–3 business days · No Banxum fees");
   const amountLabel = formatMoneyLabel(currency, amountMinor);
 
   if (step === "done") {
@@ -137,7 +138,7 @@ export function WithdrawDialog({
           <p className="p73-intro">{t("{amount} to your bank account ending {last}.", { amount: amountLabel, last: account?.destination_iban.replace(/\s+/g, "").slice(-4) ?? "" })}</p>
           <div className="wl-result" role="status">
             <NiIcon name="check-circle" />
-            <p>{t("We have received your request. Withdrawals usually reach your bank in 1–3 business days. You get an email when the transfer is sent.")}</p>
+            <p>{t("We have received your request. Withdrawals are processed in 1–3 business days; your bank may need more time to credit the money. You get an email when the transfer is sent.")}</p>
           </div>
           <div className="p73-modal-actions">
             <button className="btn p73-next" onClick={onClose} type="button">{t("Done")}</button>

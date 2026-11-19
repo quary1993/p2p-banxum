@@ -2829,7 +2829,7 @@ test("withdrawal review shows the destination IBAN and account name before the c
   fireEvent.click(within(screen.getByRole("region", { name: "CHF account" })).getByRole("button", { name: "Withdraw" }));
   const dialog = screen.getByRole("dialog", { name: "Withdraw" });
   // The verified account is chosen; timing and fee follow U33-DEC-35.
-  expect(within(dialog).getByText("Usually 1–3 business days · No Banxum fees")).toBeInTheDocument();
+  expect(within(dialog).getByText("Processed in 1–3 business days · No Banxum fees")).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
   expect(within(dialog).getByText("Enter the amount to withdraw.")).toBeInTheDocument();
   fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: "250" } });
