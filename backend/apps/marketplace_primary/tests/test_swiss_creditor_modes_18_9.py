@@ -187,6 +187,21 @@ def test_publication_needs_a_uid_and_confirms_the_pre_selected_sandbox_mode(
 
 
 @pytest.mark.django_db
+def test_production_refuses_a_sandbox_publication_until_the_notice_is_approved(
+    admin_user: Model, settings: Any
+) -> None:
+    loan = _create_published_loan(admin_user, principal_minor=100_000_00)
+    today = business_date(timezone.now())
+    settings.IS_PRODUCTION = True
+    with pytest.raises(regimes.CreditorRegimeViolation, match="not approved"):
+        regimes.check_publication(loan, actor=admin_user, on=today)
+    import_module("backend.apps.platform_core.models").PlatformSetting.objects.update_or_create(
+        key=rules.SANDBOX_NOTICE_APPROVED_SETTING, defaults={"value": True, "value_type": "json"}
+    )
+    regimes.check_publication(loan, actor=admin_user, on=today)
+
+
+@pytest.mark.django_db
 def test_sandbox_total_stays_below_chf_500000_with_loans_debts_and_eur_at_the_snb_rate(
     admin_user: Model,
 ) -> None:
