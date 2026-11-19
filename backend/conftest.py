@@ -16,8 +16,10 @@ def _no_password_breach_lookup(settings: Any) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_declarations_gate(settings: Any) -> None:
-    """Tests of other features invest without declarations; the 18.10 tests turn the gate on."""
+    """Tests of other features invest without declarations and publish without security
+    verifications; the 18.10 tests turn these gates on."""
     settings.COMPLIANCE_DECLARATIONS_REQUIRED = False
+    settings.SECURITY_PROOFS_REQUIRED = False
 
 
 @pytest.fixture(autouse=True)

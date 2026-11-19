@@ -365,6 +365,9 @@ QA_DEV_MODE_ALLOWED = env.bool("QA_DEV_MODE_ALLOWED", default=False)
 # 18.10: new investments need a declaration, no necessary open compliance review and no overdue
 # re-verification. Always on; only the test suite switches it off for tests of other features.
 COMPLIANCE_DECLARATIONS_REQUIRED = True
+# 18.10 (Q13): publication needs every kept security verified with its documents. Always on; only
+# the test suite switches it off for tests of other features.
+SECURITY_PROOFS_REQUIRED = True
 # Maintenance CLI only. Never enable this on the serving application process.
 QA_DATA_RESET_ALLOWED = env.bool("QA_DATA_RESET_ALLOWED", default=False)
 QA_DEV_MODE_SNAPSHOT_DIR = env(

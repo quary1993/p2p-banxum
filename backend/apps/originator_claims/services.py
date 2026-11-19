@@ -2203,6 +2203,12 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             )
         if uses_accrued_interest_price(profile):
             _check_accrued_offer_can_publish(profile, publication_date=publication_date)
+    # 18.10 (Q13): every kept security has its documents and a named verification.
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_securities_verified(loan)
+    except proofs.SecurityProofError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
     _check_creditor_mode(
         lambda regimes: regimes.check_publication(
             cast(Model, loan), actor=command.actor, on=business_date(now_utc())

@@ -6642,6 +6642,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/LoanSecurityList'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/security-proofs/:
+    get:
+      operationId: v1_loans_admin_loans_security_proofs_list
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecurityProofStatus'
+          description: ''
+  /api/v1/loans/admin/securities/{security_id}/verification/:
+    post:
+      operationId: v1_loans_admin_securities_verification_create
+      parameters:
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecurityVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecurityVerificationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityProofStatus'
+          description: ''
   /api/v1/marketplace/primary/admin/loans/{loan_id}/cancel-funding/:
     post:
       operationId: v1_marketplace_primary_admin_loans_cancel_funding_create
@@ -22886,6 +22942,16 @@ components:
         * `investor_portfolio` - Portfolio report
         * `investor_interest_repayments` - Interest and repayments
         * `investor_tax_report` - Tax report
+    RequiredProof:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+      required:
+      - key
+      - label
     RestoredTargetEnum:
       enum:
       - seed
@@ -24344,6 +24410,54 @@ components:
       - restriction
       - second_factor
       - trusted_devices
+    SecurityProofStatus:
+      type: object
+      properties:
+        security_id:
+          type: string
+          format: uuid
+        security_type:
+          type: string
+        released:
+          type: boolean
+        required_proofs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequiredProof'
+        document_ids:
+          type: array
+          items:
+            type: string
+        verified:
+          type: boolean
+        verified_by:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        proofs:
+          type: object
+          additionalProperties:
+            type: string
+        needs_new_verification:
+          type: boolean
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationHistory'
+      required:
+      - document_ids
+      - history
+      - needs_new_verification
+      - proofs
+      - released
+      - required_proofs
+      - security_id
+      - security_type
+      - verified
+      - verified_at
+      - verified_by
     SecurityRestriction:
       type: object
       properties:
@@ -24355,6 +24469,18 @@ components:
       required:
       - ends_at
       - reason
+    SecurityVerificationRequest:
+      type: object
+      properties:
+        proofs:
+          type: object
+          additionalProperties:
+            type: string
+        note:
+          type: string
+          default: ''
+      required:
+      - proofs
     SensitiveActionCodeRequest:
       type: object
       properties:
@@ -25485,6 +25611,20 @@ components:
       - pin_set
       - second_factor
       - status
+    VerificationHistory:
+      type: object
+      properties:
+        verifier_name:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+      required:
+      - note
+      - verified_at
+      - verifier_name
     VerificationStatusEnum:
       enum:
       - verified

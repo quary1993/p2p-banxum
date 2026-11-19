@@ -1760,6 +1760,12 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
+    # 18.10 (Q13): every kept security has its documents and a named verification.
+    proofs = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_securities_verified(loan)
+    except proofs.SecurityProofError as exc:
+        raise LoanValidationError(str(exc)) from exc
     # 18.9: a Swiss borrower needs its UID and a confirmed creditor mode; the mode's limits.
     regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
     try:

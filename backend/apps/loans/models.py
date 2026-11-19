@@ -522,6 +522,29 @@ class LoanSecurity(TimestampedModel):
         ]
 
 
+
+class LoanSecurityVerification(AppendOnlyModel, TimestampedModel):
+    """18.10 (Q13): a named verification that a security's documents are complete.
+
+    It is current while the security's essential fields keep the fingerprint recorded here; an
+    essential change needs a new verification (the old ones stay as history).
+    """
+
+    security = models.ForeignKey(
+        LoanSecurity, on_delete=models.PROTECT, related_name="verifications"
+    )
+    verifier_user_id = models.UUIDField()
+    verifier_name = models.CharField(max_length=255)
+    verified_at = models.DateTimeField()
+    proofs = models.JSONField(default=dict)
+    required_proofs = models.JSONField(default=list)
+    essential_fingerprint = models.TextField()
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-verified_at"]
+        indexes = [models.Index(fields=["security", "verified_at"])]
+
 class LoanCreditCheck(TimestampedModel):
     """U33-DEC-20: a check made on the loan or the borrower, with its source, date and result."""
 

@@ -7105,6 +7105,11 @@ export interface ReportGenerateResponse {
   manifest: unknown;
 }
 
+export interface RequiredProof {
+  key: string;
+  label: string;
+}
+
 export interface ReverificationRequest {
   due_date: string;
   reason?: string;
@@ -7660,6 +7665,36 @@ export interface SecurityOverview {
   password_changed_at: string | null;
   trusted_devices: TrustedDevice[];
   restriction: SecurityRestriction | null;
+}
+
+export type SecurityProofStatusProofs = {[key: string]: string};
+
+export interface VerificationHistory {
+  verifier_name: string;
+  verified_at: string;
+  note: string;
+}
+
+export interface SecurityProofStatus {
+  security_id: string;
+  security_type: string;
+  released: boolean;
+  required_proofs: RequiredProof[];
+  document_ids: string[];
+  verified: boolean;
+  verified_by: string;
+  /** @nullable */
+  verified_at: string | null;
+  proofs: SecurityProofStatusProofs;
+  needs_new_verification: boolean;
+  history: VerificationHistory[];
+}
+
+export type SecurityVerificationRequestProofs = {[key: string]: string};
+
+export interface SecurityVerificationRequest {
+  proofs: SecurityVerificationRequestProofs;
+  note?: string;
 }
 
 export interface SensitiveActionCodeRequest {
@@ -26526,6 +26561,176 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1LoansAdminLoansSecuritiesMoveCreateMutationOptions(options), queryClient);
     }
 
+export const getV1LoansAdminLoansSecurityProofsListUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/loans/admin/loans/${loanId}/security-proofs/`
+}
+
+export const v1LoansAdminLoansSecurityProofsList = async (loanId: string, options?: Parameters<typeof httpClient>[1]): Promise<SecurityProofStatus[]> => {
+
+  return httpClient<SecurityProofStatus[]>(getV1LoansAdminLoansSecurityProofsListUrl(loanId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1LoansAdminLoansSecurityProofsListQueryKey = (loanId: string,) => {
+    return [
+    `/api/v1/loans/admin/loans/${loanId}/security-proofs/`
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansSecurityProofsListQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansSecurityProofsListQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>> = ({ signal }) => v1LoansAdminLoansSecurityProofsList(loanId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: loanId !== null && loanId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansSecurityProofsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>>
+export type V1LoansAdminLoansSecurityProofsListQueryError = unknown
+
+
+export function useV1LoansAdminLoansSecurityProofsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansSecurityProofsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansSecurityProofsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansSecurityProofsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansSecurityProofsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansSecurityProofsListQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1LoansAdminSecuritiesVerificationCreateUrl = (securityId: string,) => {
+
+
+
+
+  return `/api/v1/loans/admin/securities/${securityId}/verification/`
+}
+
+export const v1LoansAdminSecuritiesVerificationCreate = async (securityId: string,
+    securityVerificationRequest: SecurityVerificationRequest, options?: Parameters<typeof httpClient>[1]): Promise<SecurityProofStatus> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<SecurityProofStatus>(getV1LoansAdminSecuritiesVerificationCreateUrl(securityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(securityVerificationRequest)
+  }
+);}
+
+
+
+
+
+export const getV1LoansAdminSecuritiesVerificationCreateMutationKey = () => ['v1LoansAdminSecuritiesVerificationCreate'] as const;
+
+export const getV1LoansAdminSecuritiesVerificationCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>, TError,V1LoansAdminSecuritiesVerificationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>, TError,V1LoansAdminSecuritiesVerificationCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1LoansAdminSecuritiesVerificationCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>, V1LoansAdminSecuritiesVerificationCreateMutationVariables> = (props) => {
+          const {securityId,data} = props ?? {};
+
+          return  v1LoansAdminSecuritiesVerificationCreate(securityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LoansAdminSecuritiesVerificationCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>>
+    export type V1LoansAdminSecuritiesVerificationCreateMutationBody = SecurityVerificationRequest
+    export type V1LoansAdminSecuritiesVerificationCreateMutationError = unknown
+    export type V1LoansAdminSecuritiesVerificationCreateMutationVariables = {securityId: string;data: SecurityVerificationRequest}
+
+    export const useV1LoansAdminSecuritiesVerificationCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>, TError,V1LoansAdminSecuritiesVerificationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LoansAdminSecuritiesVerificationCreate>>,
+        TError,
+        V1LoansAdminSecuritiesVerificationCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1LoansAdminSecuritiesVerificationCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1MarketplacePrimaryAdminLoansCancelFundingCreateUrl = (loanId: string,) => {
 
 
@@ -33543,6 +33748,14 @@ export const getV1LoansAdminLoansSecuritiesMainCreateResponseMock = (overrideRes
 
 export const getV1LoansAdminLoansSecuritiesMoveCreateResponseMock = (overrideResponse: Partial<Extract<LoanSecurityList, object>> = {}): LoanSecurityList => ({securities: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), security_type: faker.string.alpha({length: {min: 10, max: 20}}), is_guarantee: faker.datatype.boolean(), description: faker.string.alpha({length: {min: 10, max: 20}}), public_name: faker.string.alpha({length: {min: 10, max: 20}}), holder_name: faker.string.alpha({length: {min: 10, max: 20}}), rank: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), value_minor: faker.helpers.arrayElement([faker.number.int(), null]), valuation_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), valuation_source: faker.string.alpha({length: {min: 10, max: 20}}), appraiser: faker.string.alpha({length: {min: 10, max: 20}}), prior_ranking_debt_minor: faker.helpers.arrayElement([faker.number.int(), null]), insurance: faker.string.alpha({length: {min: 10, max: 20}}), undertaking_scope: faker.string.alpha({length: {min: 10, max: 20}}), undertaking_limit_minor: faker.helpers.arrayElement([faker.number.int(), null]), is_main: faker.datatype.boolean(), counts_in_ltv: faker.datatype.boolean(), valuation_currency: faker.string.alpha({length: {min: 10, max: 20}}), valuation_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), valuation_fx_rate: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), valuation_fx_rate_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), documents: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})}))})), borrower_documents: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
+export const getV1LoansAdminLoansSecurityProofsListResponseMock = (): SecurityProofStatus[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_id: faker.string.uuid(), security_type: faker.string.alpha({length: {min: 10, max: 20}}), released: faker.datatype.boolean(), required_proofs: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}})})), document_ids: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), verified: faker.datatype.boolean(), verified_by: faker.string.alpha({length: {min: 10, max: 20}}), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), proofs: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, needs_new_verification: faker.datatype.boolean(), history: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({verifier_name: faker.string.alpha({length: {min: 10, max: 20}}), verified_at: faker.date.past().toISOString().slice(0, 19) + 'Z', note: faker.string.alpha({length: {min: 10, max: 20}})}))})))
+
+export const getV1LoansAdminSecuritiesVerificationCreateResponseMock = (overrideResponse: Partial<Extract<SecurityProofStatus, object>> = {}): SecurityProofStatus => ({security_id: faker.string.uuid(), security_type: faker.string.alpha({length: {min: 10, max: 20}}), released: faker.datatype.boolean(), required_proofs: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}})})), document_ids: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), verified: faker.datatype.boolean(), verified_by: faker.string.alpha({length: {min: 10, max: 20}}), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), proofs: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, needs_new_verification: faker.datatype.boolean(), history: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({verifier_name: faker.string.alpha({length: {min: 10, max: 20}}), verified_at: faker.date.past().toISOString().slice(0, 19) + 'Z', note: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+
 export const getV1MarketplacePrimaryAdminLoansCancelFundingCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryLoanCancellation, object>> = {}): PrimaryLoanCancellation => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), released_order_count: faker.number.int(), closed_not_invested_order_count: faker.number.int(), released_principal_minor: faker.number.int(), created_by_admin_id: faker.string.uuid(), cancelled_at: faker.date.past().toISOString().slice(0, 19) + 'Z', reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getV1MarketplacePrimaryAdminLoansCloseFundingCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryLoanClose, object>> = {}): PrimaryLoanClose => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), close_type: faker.string.alpha({length: {min: 10, max: 20}}), accepted_principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), allocated_order_count: faker.number.int(), closed_not_invested_order_count: faker.number.int(), borrower_success_fee_bps: faker.number.int(), borrower_success_fee_minor: faker.number.int(), borrower_disbursement_payable_minor: faker.number.int(), funding_close_journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), closed_at: faker.date.past().toISOString().slice(0, 19) + 'Z', reason: faker.string.alpha({length: {min: 10, max: 20}}), investor_message: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
@@ -36141,6 +36354,30 @@ export const getV1LoansAdminLoansSecuritiesMoveCreateMockHandler = (overrideResp
   }, options)
 }
 
+export const getV1LoansAdminLoansSecurityProofsListMockHandler = (overrideResponse?: SecurityProofStatus[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SecurityProofStatus[]> | SecurityProofStatus[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/:loanId/security-proofs/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansSecurityProofsListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1LoansAdminSecuritiesVerificationCreateMockHandler = (overrideResponse?: SecurityProofStatus | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecurityProofStatus> | SecurityProofStatus), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/loans/admin/securities/:securityId/verification/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminSecuritiesVerificationCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
 export const getV1MarketplacePrimaryAdminLoansCancelFundingCreateMockHandler = (overrideResponse?: PrimaryLoanCancellation | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PrimaryLoanCancellation> | PrimaryLoanCancellation), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/marketplace/primary/admin/loans/:loanId/cancel-funding/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -37306,6 +37543,8 @@ export const getBanxumApiMock = () => [
   getV1LoansAdminLoansSecuritiesDestroyMockHandler(),
   getV1LoansAdminLoansSecuritiesMainCreateMockHandler(),
   getV1LoansAdminLoansSecuritiesMoveCreateMockHandler(),
+  getV1LoansAdminLoansSecurityProofsListMockHandler(),
+  getV1LoansAdminSecuritiesVerificationCreateMockHandler(),
   getV1MarketplacePrimaryAdminLoansCancelFundingCreateMockHandler(),
   getV1MarketplacePrimaryAdminLoansCloseFundingCreateMockHandler(),
   getV1MarketplacePrimaryAdminLoansExpiryScanCreateMockHandler(),

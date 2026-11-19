@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from django.urls import path
 
+from backend.apps.loans.api.security_proof_views import (
+    LoanSecurityProofsView,
+    LoanSecurityVerificationView,
+)
 from backend.apps.loans.api.views import (
     LoanComingSoonView,
     LoanCreditCheckDetailView,
@@ -27,6 +31,17 @@ urlpatterns = [
     path("admin/loans/", LoanListCreateView.as_view(), name="loan-list-create"),
     path("admin/loans/<uuid:loan_id>/", LoanDetailView.as_view(), name="loan-detail"),
     path("admin/loans/<uuid:loan_id>/publish/", PublishLoanView.as_view(), name="loan-publish"),
+    # 18.10 (Q13): proof of securities and their named verification.
+    path(
+        "admin/loans/<uuid:loan_id>/security-proofs/",
+        LoanSecurityProofsView.as_view(),
+        name="loan-security-proofs",
+    ),
+    path(
+        "admin/securities/<uuid:security_id>/verification/",
+        LoanSecurityVerificationView.as_view(),
+        name="loan-security-verification",
+    ),
     path(
         "admin/loans/<uuid:loan_id>/credit-checks/",
         LoanCreditCheckListView.as_view(),
