@@ -117,6 +117,14 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Most investors per loan to a Swiss borrower; 0 switches the limit off.",
     ),
     SettingDefinition(
+        "investment.banxum_investor_emails",
+        [],
+        "json",
+        "Q04: emails of the investor accounts through which Garanta invests its own money. A "
+        "loan with a confirmed reservation or a held participation of one of them shows the "
+        '"Banxum invests" label (no amount).',
+    ),
+    SettingDefinition(
         "fx.enabled",
         False,
         "boolean",

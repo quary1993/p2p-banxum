@@ -1435,6 +1435,17 @@ test("a refinancing loan is named in the credit file Summary and keeps its origi
   expect(screen.getByRole("link", { name: /Investment terms and claim assignment/ })).toHaveAttribute("href", "/legal/primary-market-investment");
 });
 
+test("Q04: the opportunity shows \"Banxum invests\" without an amount only where Banxum takes part", () => {
+  renderApp();
+  loginDemo();
+  goToPath("/marketplace/GA-2401");
+  const note = document.querySelector(".u102-loan-note") as HTMLElement;
+  expect(within(note).getByText("Banxum invests")).toBeInTheDocument();
+  expect(note.textContent).not.toMatch(/CHF|EUR|%/);
+  goToPath("/marketplace/GA-2402");
+  expect(document.querySelector(".u102-loan-note")).toBeNull();
+});
+
 test("several securities show on the opportunity, in the credit file and in the filter (U33-DEC-21)", () => {
   renderApp();
   loginDemo();

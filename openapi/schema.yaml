@@ -14289,6 +14289,9 @@ components:
         loan_id:
           type: string
           format: uuid
+        banxum_invests:
+          type: boolean
+          default: false
         planned_opening_date:
           type: string
           format: date
@@ -14561,6 +14564,9 @@ components:
         loan_id:
           type: string
           format: uuid
+        banxum_invests:
+          type: boolean
+          default: false
         planned_opening_date:
           type: string
           format: date
@@ -17065,6 +17071,9 @@ components:
         loan_id:
           type: string
           format: uuid
+        banxum_invests:
+          type: boolean
+          default: false
         product_type:
           type: string
         loan_title:

@@ -2564,10 +2564,55 @@ def list_open_marketplace_loans(
     )[:limit]
 
 
+# Q04 (2026-11-13): the investor accounts through which Garanta Finanzgruppe AG invests its own
+# money (emails of ordinary investor accounts), set by an admin.
+BANXUM_INVESTOR_EMAILS_SETTING = "investment.banxum_investor_emails"
+_BANXUM_RESERVED_ORDER_STATUSES = ("balance_allocated", "partially_allocated", "closed_invested")
+
+
+def banxum_invests_loan_ids(loan_ids: list[str]) -> set[str]:
+    """Q04: loans with a confirmed reservation or a real participation of a Garanta account.
+
+    The label "Banxum invests" shows no amount. It appears with a confirmed reservation (an
+    allocated order), stays after closing while the participation is held, and goes away when
+    the participation is cancelled or released.
+    """
+    emails = get_platform_setting_value(BANXUM_INVESTOR_EMAILS_SETTING, [])
+    if not loan_ids or not isinstance(emails, list) or not emails:
+        return set()
+    user_ids = list(
+        apps.get_model("accounts_auth", "User")
+        .objects.filter(email__in=[str(email).strip().lower() for email in emails if email])
+        .values_list("id", flat=True)
+    )
+    if not user_ids:
+        return set()
+    reserved = PrimaryInvestmentOrder.objects.filter(
+        loan_id__in=loan_ids,
+        investor_user_id__in=user_ids,
+        status__in=_BANXUM_RESERVED_ORDER_STATUSES,
+    ).values_list("loan_id", flat=True)
+    held = (
+        apps.get_model("holdings", "InvestorLoanHolding")
+        .objects.filter(loan_id__in=loan_ids, investor_user_id__in=user_ids, status="active")
+        .values_list("loan_id", flat=True)
+    )
+    return {str(loan_id) for loan_id in reserved} | {str(loan_id) for loan_id in held}
+
+
+def _with_banxum_invests(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ids = banxum_invests_loan_ids([str(payload["loan_id"]) for payload in payloads])
+    for payload in payloads:
+        payload["banxum_invests"] = str(payload["loan_id"]) in ids
+    return payloads
+
+
 def list_investor_marketplace_loans(*, actor: Model, limit: int = 100) -> list[dict[str, Any]]:
     """The investor marketplace list: full preview data, behind KYC (MKT-DEC-002)."""
     _require_investor_financial_access(actor)
-    return list_open_marketplace_loans(limit=limit, viewer_user_id=str(actor.pk))
+    return _with_banxum_invests(
+        list_open_marketplace_loans(limit=limit, viewer_user_id=str(actor.pk))
+    )
 
 
 def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
@@ -2579,6 +2624,10 @@ def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
 
 
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
+    return _with_banxum_invests([_full_marketplace_loan(actor=actor, loan_id=loan_id)])[0]
+
+
+def _full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
     _require_investor_financial_access(actor)
     loan = _loan_for_read(loan_id)
     if _is_coming_soon(loan):

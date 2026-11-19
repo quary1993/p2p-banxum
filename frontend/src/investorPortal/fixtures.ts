@@ -644,7 +644,9 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
     collateral_description: loan.collateral_type,
     security_types: loan.loan_id === "GA-2401" ? [loan.collateral_type, "personal_guarantee"] : [loan.collateral_type],
-    published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null
+    published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null,
+    // Q04: Banxum has a confirmed reservation in this preview loan.
+    banxum_invests: loan.loan_id === "GA-2401"
   })
 );
 

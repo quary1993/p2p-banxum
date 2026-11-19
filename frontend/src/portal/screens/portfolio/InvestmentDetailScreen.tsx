@@ -13,6 +13,7 @@ import { useLoanDetailData, usePortfolioData, usePrimaryOrdersData, useSecondary
 import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { currentLoanPrincipalMinor, loanLtvBps } from "../../../investorPortal/portfolioCollateral";
 import { Button, ButtonLink, EmptyState, InfoTip, NiIcon, PageHead, PortalLink } from "../../components";
+import { BanxumInvestsLabel } from "../invest/parts/BanxumInvestsLabel";
 import { CancelListingDialog, SellInvestmentDialog } from "./SellInvestmentDialog";
 import { InvestmentDocuments } from "./parts/documents";
 import { isReadonlyView } from "./parts/errors";
@@ -64,7 +65,7 @@ export function InvestmentDetailScreen({ holdingId, focusSection }: { holdingId:
   );
 }
 
-function DetailHead({ title, subtitle, tag, tagClass, actions }: { title: string; subtitle: string; tag: { tone: string; label: string }; tagClass: string; actions: ReactNode[] }) {
+function DetailHead({ title, subtitle, tag, tagClass, actions, banxumInvests = false }: { title: string; subtitle: string; tag: { tone: string; label: string }; tagClass: string; actions: ReactNode[]; banxumInvests?: boolean }) {
   const t = useT();
   const toneClass = tag.tone === "neutral" ? "" : `is-${tag.tone}`;
   return (
@@ -76,6 +77,7 @@ function DetailHead({ title, subtitle, tag, tagClass, actions }: { title: string
           <div className="nk-block-des text-soft">
             <p>
               {subtitle} <span className={`bxm-tag ${toneClass} r71-status ${tagClass}`.replace(/\s+/g, " ").trim()}>{tag.label}</span>
+              {banxumInvests ? <span className="u102-details-co"> <BanxumInvestsLabel /></span> : null}
             </p>
           </div>
         </div>
@@ -158,6 +160,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
     <main className={PAGE_CLASS}>
       <DetailHead
         actions={actions}
+        banxumInvests={loan.banxum_invests === true}
         subtitle={loan.borrower_name}
         tag={tag}
         tagClass={state === "active" ? "r71-on-schedule" : state === "repaid" ? "r79-repaid" : ""}

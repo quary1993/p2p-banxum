@@ -1425,6 +1425,10 @@ def get_investor_portfolio(
         if open_listings_by_holding_id
         else set()
     )
+    # Q04: the "Banxum invests" label on the investment page (no amount).
+    banxum_loan_ids = import_module(
+        "backend.apps.marketplace_primary.services"
+    ).banxum_invests_loan_ids(list({str(holding.loan_id) for holding in holdings}))
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
@@ -1443,11 +1447,14 @@ def get_investor_portfolio(
                 "currency": _currency_code(holding.currency),
                 "loan_share_ppm": int(holding.loan_share_ppm),
                 "assignment_effective_at": holding.assignment_effective_at,
-                "loan": _loan_projection(
-                    loan,
-                    as_of=as_of_value,
-                    schedule=schedules_by_loan_id.get(str(holding.loan_id), []),
-                ),
+                "loan": {
+                    **_loan_projection(
+                        loan,
+                        as_of=as_of_value,
+                        schedule=schedules_by_loan_id.get(str(holding.loan_id), []),
+                    ),
+                    "banxum_invests": str(holding.loan_id) in banxum_loan_ids,
+                },
                 "received_principal_minor": int(repayment.get("principal_minor", 0))
                 + int(originator_repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0))

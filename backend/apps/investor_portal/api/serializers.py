@@ -333,6 +333,8 @@ class PortfolioExposureSerializer(serializers.Serializer[Any]):
 
 class PortfolioLoanSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    # Q04: a Garanta account has a confirmed reservation or holds a participation (no amount).
+    banxum_invests = serializers.BooleanField(required=False, default=False)
     product_type = serializers.CharField()
     loan_title = serializers.CharField()
     loan_status = serializers.CharField()

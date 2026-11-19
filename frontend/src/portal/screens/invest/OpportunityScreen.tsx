@@ -68,6 +68,7 @@ import {
   usesOriginatorSubscription
 } from "./loanFacts";
 import { LtvFigure } from "./parts/LtvFigure";
+import { BanxumInvestsLabel } from "./parts/BanxumInvestsLabel";
 import { LtvAssets, SecurityTypeRow } from "./parts/SecurityDetails";
 import { ltvValueLabel, splitSecurities } from "./parts/securityParts";
 import { ScheduleTable } from "./parts/ScheduleTable";
@@ -268,6 +269,7 @@ function OpportunityPage({
             <div className="l8-project-story">
               <h2>{t("About this project")}</h2>
               <p>{loan.purpose_description || loan.investor_summary || collateralLabel(loan.purpose)}</p>
+              {loan.banxum_invests ? <div className="u102-loan-note"><BanxumInvestsLabel /></div> : null}
             </div>
             {claim && loan.originator_name ? (
               <p className="r36-originator">

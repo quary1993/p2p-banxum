@@ -278,6 +278,8 @@ class MarketplaceSecuritySerializer(serializers.Serializer[Any]):
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    # Q04: a Garanta account has a confirmed reservation or holds a participation (no amount).
+    banxum_invests = serializers.BooleanField(required=False, default=False)
     # U33-DEC-17: "coming_soon" for a draft shown before it opens (no investment possible).
     opportunity_status = serializers.CharField(required=False)
     planned_opening_date = serializers.DateField(required=False, allow_null=True)
