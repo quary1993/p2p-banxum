@@ -977,6 +977,8 @@ The answers to the approved deviations from the U33 HTML (`IMPLEMENTATION_PLAN.m
 | D-11 | Kept functions | Every kept function is reskinned and fitted into the U33 design; doubts are asked before building. |
 | D-12 | Signature before settlement | **Deferred:** a short research on electronic signatures first. The assignor signs: Garanta (Banxum) for direct loans, the loan originator for originator loans, the seller for resales. The research says what is done on the platform and what off it. Until then the current flows stay. |
 
+D-1 details confirmed by Vlad (2026-11-19): (1) the authenticator app is the sign-in second factor; an investor who chooses it confirms operations with the email code + the authenticator code; (2) an investor who chooses the app at registration sets no PIN; (3) an SMS investor can add the app later in Security, and from then on the PIN is no longer asked.
+
 Points that differ from Eduard's decisions (to signal):
 
 - D-1: U33-DEC-01 and Q05 approved the PIN alone for operations and asked not to add a code to each operation; the email code now stays, and the authenticator replaces the PIN when set up.
