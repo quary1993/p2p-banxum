@@ -31,6 +31,7 @@ from backend.apps.marketplace_primary.investor_limit import (
     loan_borrower_country,
     loan_borrower_uid,
     loan_investor_ids,
+    normalized_uid,
     regime_for_uid,
     uid_loans,
 )
@@ -99,10 +100,22 @@ def borrower_total_chf_minor(uid: str, *, on: date, include_loan: Model | None =
 
 
 def lock_borrower(loan: Model) -> Any | None:
-    """Lock the borrower's regime row so concurrent investments of the same UID queue (Q03)."""
+    """Lock the borrower's regime row so concurrent investments of the same UID queue (Q03).
+
+    A UID without a row yet (a loan published before 18.9) gets one in the pre-selected sandbox
+    mode, not confirmed, so there is always a row to lock. A loan without a valid UID has none.
+    """
     if not is_swiss_loan(loan):
         return None
-    return regime_for_uid(loan_borrower_uid(loan), lock=True)
+    uid = normalized_uid(loan_borrower_uid(loan))
+    if not uid:
+        return None
+    regime, _created = (
+        _model("entities", "SwissCreditorRegime")
+        .objects.select_for_update()
+        .get_or_create(uid=uid, defaults={"mode": rules.MODE_SANDBOX})
+    )
+    return regime
 
 
 def ensure_uid_and_regime(loan: Model, *, actor: Model) -> Any | None:
@@ -121,7 +134,7 @@ def ensure_uid_and_regime(loan: Model, *, actor: Model) -> Any | None:
         uid=uid, defaults={"mode": rules.MODE_SANDBOX}
     )
     if regime.confirmed_at is None:
-        # The publish confirmation shows the pre-selected mode; publishing confirms it.
+        # The admin's creditor mode panel shows the pre-selected mode; publishing confirms it.
         regime.confirmed_by_admin_id = cast(Any, actor).pk
         regime.confirmed_at = now_utc()
         regime.confirmation_note = "Confirmed with the first publication."
