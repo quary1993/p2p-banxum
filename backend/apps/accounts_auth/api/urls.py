@@ -46,6 +46,7 @@ from backend.apps.accounts_auth.api.views import (
     PhoneVerificationConfirmView,
     PhoneVerificationRequestView,
     RegistrationEmailConfirmView,
+    RegistrationLinkResendView,
     SensitiveActionCodeRequestView,
     SignInHistoryView,
     UserSessionRevokeView,
@@ -55,6 +56,11 @@ from backend.apps.accounts_auth.api.views import (
 
 urlpatterns = [
     path("register/natural-person/", NaturalPersonRegistrationView.as_view(), name="auth-register"),
+    path(
+        "register/resend-link/",
+        RegistrationLinkResendView.as_view(),
+        name="auth-register-resend-link",
+    ),
     path(
         "register/confirm-email/",
         RegistrationEmailConfirmView.as_view(),

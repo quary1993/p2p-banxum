@@ -343,7 +343,12 @@ function PurchaseDialog({ detail, onClose, refetch, refreshing }: { detail: Seco
   const noticeRef = useRef<HTMLDivElement>(null);
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const purchaseMutation = useV1MarketplaceSecondaryListingsPurchaseCreate();
-  const confirmation = useActionConfirmation(ActionEnum.secondary_market_purchase);
+  // 18.5: the email code confirms this listing at this total cost only (a new price needs a new code).
+  const confirmation = useActionConfirmation(ActionEnum.secondary_market_purchase, {
+    listing_id: detail.id,
+    currency: detail.currency,
+    amount_minor: detail.buyer_total_cost_minor
+  });
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve({ category: CategoryEnum.secondary_market_purchase }, { query: { enabled: !isFixturePreview, retry: false } });
   const busy = acceptanceMutation.isPending || purchaseMutation.isPending;
   const currency = detail.currency;

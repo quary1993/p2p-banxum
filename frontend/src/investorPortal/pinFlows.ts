@@ -18,6 +18,7 @@ import {
 import { ApiClientError } from "../api/client/httpClient";
 import { isFixturePreview } from "./data";
 import { PIN_LENGTH, pinApiError, pinWeakness } from "./pinRules";
+import { codeRequestBody, useOperationChange, type OperationDetails } from "./operationBinding";
 import { usePinStatus } from "./pinState";
 
 export function pinErrorText(error: unknown) {
@@ -47,14 +48,26 @@ export function retryAfter(error: unknown) {
   return match ? Number.parseInt(match[1], 10) : undefined;
 }
 
-/** The email code of a sensitive action: request, resend cooldown and the button label. */
-export function useFlowEmailCode(action: ActionEnum) {
+/**
+ * The email code of a sensitive action: request, resend cooldown and the button label. An
+ * operation (bank account change) passes its details: the code confirms only them, and a change
+ * of the details forgets the code (18.5).
+ */
+export function useFlowEmailCode(action: ActionEnum, operation?: OperationDetails | null) {
   const request = useV1AuthSensitiveActionCodeRequestCreate();
   const [codeId, setCodeId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [error, setError] = useState("");
+  const [summary, setSummary] = useState("");
   const cooldown = useSecondsLeft(cooldownUntil);
+  useOperationChange(operation, () => {
+    setCodeId(null);
+    setSummary("");
+    setCooldownUntil(0);
+  });
+  const body = codeRequestBody(action, operation);
+  const bodyKey = JSON.stringify(body);
   const send = useCallback(() => {
     setError("");
     if (isFixturePreview) {
@@ -64,11 +77,12 @@ export function useFlowEmailCode(action: ActionEnum) {
       return;
     }
     request.mutate(
-      { data: { action } },
+      { data: JSON.parse(bodyKey) as typeof body },
       {
         onSuccess: (response) => {
           setCodeId(response.code_id);
           setExpiresAt(response.expires_at);
+          setSummary(response.operation_summary ?? "");
           setCooldownUntil(Date.now() + 60_000);
         },
         onError: (mutationError) => {
@@ -78,13 +92,14 @@ export function useFlowEmailCode(action: ActionEnum) {
         }
       }
     );
-  }, [action, request]);
+    // bodyKey carries the action and the details.
+  }, [bodyKey, request]);
   const label = request.isPending
     ? "Sending code..."
     : cooldown > 0
       ? codeId ? `Code sent. Send new in ${cooldown}s` : `Send new in ${cooldown}s`
       : codeId ? "Send a new email code" : "Send email code";
-  return { codeId, expiresAt, send, label, cooldown, disabled: request.isPending || cooldown > 0, error, isSending: request.isPending };
+  return { codeId, expiresAt, summary, send, label, cooldown, disabled: request.isPending || cooldown > 0, error, isSending: request.isPending };
 }
 
 export type FlowEmailCode = ReturnType<typeof useFlowEmailCode>;
@@ -302,20 +317,24 @@ export function useChangePinFlow({ active = true }: { active?: boolean } = {}) {
 // ---- Forgot -------------------------------------------------------------------------------
 
 /** Setting a new PIN after a forgotten one: an email code and an SMS code to the verified phone. */
+/**
+ * Forgotten PIN (18.5): the account password, then an SMS code to the verified phone and the new
+ * PIN twice. No email code. Investors with an authenticator app have no PIN (D-1).
+ */
 export function useForgotPinFlow() {
   const { status } = usePinStatus();
   const [started, setStarted] = useState(false);
+  const [password, setPasswordState] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [smsCooldownUntil, setSmsCooldownUntil] = useState(0);
   const smsCooldown = useSecondsLeft(smsCooldownUntil);
-  const [code, setCode] = useState("");
   const [smsCode, setSmsCode] = useState("");
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [smsError, setSmsError] = useState("");
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  const emailCode = useFlowEmailCode(ActionEnum.pin_reset);
   const startMutation = useV1AuthPinResetStartCreate();
   const confirmMutation = useV1AuthPinResetConfirmCreate();
   const invalidate = useInvalidatePinQueries();
@@ -324,38 +343,53 @@ export function useForgotPinFlow() {
   const weakness = pin.length === PIN_LENGTH ? pinWeakness(pin) : null;
   const mismatch = confirmation.length === PIN_LENGTH && confirmation !== pin;
   const ready =
-    code.length === 6 &&
     smsCode.length === 6 &&
     pin.length === PIN_LENGTH &&
     !weakness &&
     confirmation === pin &&
-    (isFixturePreview || (Boolean(emailCode.codeId) && Boolean(challengeId)));
+    (isFixturePreview || Boolean(challengeId));
+
+  const setPassword = (value: string) => {
+    setPasswordState(value);
+    setPasswordError("");
+  };
 
   const sendSms = () => {
     setSmsError("");
+    setPasswordError("");
     if (isFixturePreview) {
+      setStarted(true);
       setChallengeId("fixture-pin-reset");
       setSmsCooldownUntil(Date.now() + 60_000);
       return;
     }
-    startMutation.mutate(undefined, {
-      onSuccess: (response) => {
-        setChallengeId(response.phone_challenge_id);
-        setSmsCooldownUntil(Date.now() + 60_000);
-      },
-      onError: (mutationError) => {
-        const wait = retryAfter(mutationError);
-        if (wait) setSmsCooldownUntil(Date.now() + wait * 1000);
-        setSmsError(pinApiError(mutationError)?.detail ?? pinErrorText(mutationError));
+    if (!password) {
+      setPasswordError("Enter your password.");
+      return;
+    }
+    startMutation.mutate(
+      { data: { password } },
+      {
+        onSuccess: (response) => {
+          setStarted(true);
+          setChallengeId(response.phone_challenge_id);
+          setSmsCooldownUntil(Date.now() + 60_000);
+        },
+        onError: (mutationError) => {
+          const wait = retryAfter(mutationError);
+          if (wait) setSmsCooldownUntil(Date.now() + wait * 1000);
+          const pinError = pinApiError(mutationError);
+          if (pinError?.code === "password_invalid") {
+            setPasswordError(pinError.detail);
+            return;
+          }
+          setSmsError(pinError?.detail ?? pinErrorText(mutationError));
+        }
       }
-    });
+    );
   };
 
-  const start = () => {
-    setStarted(true);
-    emailCode.send();
-    sendSms();
-  };
+  const start = sendSms;
 
   const submit = () => {
     setError("");
@@ -364,12 +398,10 @@ export function useForgotPinFlow() {
       setDone(true);
       return;
     }
-    if (!emailCode.codeId || !challengeId) return;
+    if (!challengeId) return;
     confirmMutation.mutate(
       {
         data: {
-          sensitive_action_code_id: emailCode.codeId,
-          sensitive_action_code: code,
           phone_challenge_id: challengeId,
           phone_code: smsCode,
           new_pin: pin,
@@ -402,11 +434,11 @@ export function useForgotPinFlow() {
   return {
     started,
     start,
+    password,
+    setPassword,
+    passwordError,
     lastDigits,
     resetAvailable,
-    emailCode,
-    code,
-    setCode,
     smsCode,
     setSmsCode,
     sendSms,

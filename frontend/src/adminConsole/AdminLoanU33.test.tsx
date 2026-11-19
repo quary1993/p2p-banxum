@@ -63,7 +63,8 @@ export function adminHandlers() {
             number_format: "european",
             language: "en",
             pin_set: false,
-            pin_locked_until: null
+            pin_locked_until: null,
+            second_factor: "app"
           },
           platform_business_date: "2026-03-10"
         })
@@ -177,7 +178,8 @@ test("a superadmin changes the platform's late and default days with a reason", 
             number_format: "european",
             language: "en",
             pin_set: false,
-            pin_locked_until: null
+            pin_locked_until: null,
+            second_factor: "app"
           },
           qa_controls_available: false,
           platform_business_date: "2026-03-10"

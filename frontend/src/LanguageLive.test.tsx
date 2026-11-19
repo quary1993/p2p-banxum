@@ -47,7 +47,8 @@ const accountUser = (language: string) => ({
   number_format: "european",
   language,
   pin_set: true,
-  pin_locked_until: null
+  pin_locked_until: null,
+  second_factor: "sms"
 });
 
 function accountHandlers(initial: string) {

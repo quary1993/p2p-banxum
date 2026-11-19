@@ -13,7 +13,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import { preloadPreferredLanguage } from "./i18n/language";
-import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
+import { captureMagicLinkTokenFromLocation, captureSecurityLinkTokenFromLocation } from "./magicLinkToken";
 import "./styles.css";
 import "./banxumSkin.css";
 import "./skin/projects.css";
@@ -43,6 +43,7 @@ const queryClient = new QueryClient({
 
 // Take a login-link token out of the address bar before the first request (audit A-49).
 captureMagicLinkTokenFromLocation();
+captureSecurityLinkTokenFromLocation();
 
 // U33-DEC-31: a visitor who chose German gets the German texts before the first render.
 void preloadPreferredLanguage().then(() =>

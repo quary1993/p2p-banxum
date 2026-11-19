@@ -53,6 +53,7 @@ function lender(overrides: Record<string, unknown> = {}) {
     marketing_consent: false,
     pin_set: true,
     pin_locked_until: null,
+    second_factor: "sms",
     ...overrides
   };
 }
@@ -67,6 +68,7 @@ function pinStatus(overrides: Record<string, unknown> = {}) {
       setup_requires_email_code: true,
       reset_available: true,
       phone_last_digits: "42",
+      second_factor: "sms",
       ...overrides
     }
   };
@@ -90,8 +92,8 @@ function pinHandlers(status: () => ReturnType<typeof pinStatus> = () => pinStatu
       }
       return HttpResponse.json(pinStatus());
     }),
-    http.post("*/api/v1/auth/pin/reset/start/", () => {
-      calls.pinResetStart.push({});
+    http.post("*/api/v1/auth/pin/reset/start/", async ({ request }) => {
+      calls.pinResetStart.push((await request.json()) as Record<string, unknown>);
       return HttpResponse.json(
         { phone_challenge_id: "33333333-3333-4333-8333-333333333333", expires_at: "2026-10-16T12:10:00Z", phone_last_digits: "42" },
         { status: 202 }
@@ -156,10 +158,11 @@ test("the PIN goes with the email code; a wrong PIN shows the attempts left and 
   expect(calls.withdrawals.map((body) => body.pin)).toEqual([NEW_PIN, TEST_PIN]);
   expect(calls.withdrawals[1].sensitive_action_code_id).toBe(calls.withdrawals[0].sensitive_action_code_id);
   expect(calls.withdrawals[1].sensitive_action_code).toBe("123456");
-  expect(calls.codes).toEqual([{ action: "withdrawal" }]);
+  // 18.5: the code was requested for this amount to this account only.
+  expect(calls.codes).toEqual([{ action: "withdrawal", operation: { amount_minor: 10_000, currency: "CHF", iban: verifiedIban.destination_iban } }]);
 }, 30_000);
 
-test("a locked PIN says until when; Forgot PIN resets it with the email and SMS codes", async () => {
+test("a locked PIN says until when; Forgot PIN resets it with the password and an SMS code", async () => {
   const lockedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   server.use(
     ...withdrawalHandlers([
@@ -182,12 +185,12 @@ test("a locked PIN says until when; Forgot PIN resets it with the email and SMS 
 
   fireEvent.click(screen.getAllByRole("button", { name: "Forgot PIN?" })[0]);
   const forgot = await screen.findByRole("dialog", { name: "Forgot PIN" });
-  expect(await within(forgot).findByText(/by SMS to your phone number ending in 42\./)).toBeInTheDocument();
-  fireEvent.click(within(forgot).getByRole("button", { name: "Send the codes" }));
-  await waitFor(() => expect(calls.pinResetStart).toHaveLength(1));
-  await waitFor(() => expect(calls.codes).toContainEqual({ action: "pin_reset" }));
-  fireEvent.change(within(forgot).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "111222" } });
-  fireEvent.change(within(forgot).getByRole("textbox", { name: "SMS code" }), { target: { value: "333444" } });
+  // 18.5: the password, then an SMS code (no email code).
+  expect(await within(forgot).findByText(/your password, then a code by SMS to your phone number ending in 42\./)).toBeInTheDocument();
+  fireEvent.change(within(forgot).getByLabelText("Password"), { target: { value: "quiet-harbour-lantern-47" } });
+  fireEvent.click(within(forgot).getByRole("button", { name: "Send SMS code" }));
+  await waitFor(() => expect(calls.pinResetStart).toEqual([{ password: "quiet-harbour-lantern-47" }]));
+  fireEvent.change(await within(forgot).findByRole("textbox", { name: "SMS code" }), { target: { value: "333444" } });
   enterPin(TEST_PIN, "New PIN", forgot);
   enterPin(TEST_PIN, "Repeat new PIN", forgot);
   fireEvent.click(within(forgot).getByRole("button", { name: "Save new PIN" }));
@@ -195,14 +198,13 @@ test("a locked PIN says until when; Forgot PIN resets it with the email and SMS 
   await screen.findByText("Your new PIN is active", {}, { timeout: 5000 });
   expect(calls.pinResetConfirm).toEqual([
     {
-      sensitive_action_code_id: "22222222-2222-4222-8222-222222222222",
-      sensitive_action_code: "111222",
       phone_challenge_id: "33333333-3333-4333-8333-333333333333",
       phone_code: "333444",
       new_pin: TEST_PIN,
       new_pin_confirmation: TEST_PIN
     }
   ]);
+  expect(calls.codes).not.toContainEqual({ action: "pin_reset" });
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
   // Back in the withdrawal: the lock is gone and the new PIN is filled in.
@@ -301,7 +303,7 @@ test("registration asks for the PIN after the phone and before identity verifica
   expect(await screen.findByRole("heading", { name: "Create your security PIN" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText("Step 3 of 4")).toBeInTheDocument();
   expect(screen.getByText("Use your PIN and an email code to confirm investments, withdrawals and bank account changes.")).toBeInTheDocument();
-  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByText("Security PIN").closest("li")).toHaveAttribute("aria-current", "step");
+  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByText("Security").closest("li")).toHaveAttribute("aria-current", "step");
   // No email code at registration: the user just proved the email and the phone.
   expect(screen.queryByRole("textbox", { name: "Email confirmation code" })).not.toBeInTheDocument();
   const save = screen.getByRole("button", { name: "Save PIN & continue" });
@@ -387,5 +389,34 @@ test("a verified bank account becomes the return account with the email code and
   expect(calls.defaults).toEqual([
     { instructionId: "pi2", sensitive_action_code_id: "22222222-2222-4222-8222-222222222222", sensitive_action_code: "123456", pin: TEST_PIN }
   ]);
-  expect(calls.codes).toEqual([{ action: "bank_account_change" }]);
+  expect(calls.codes).toEqual([{ action: "bank_account_change", operation: { instruction_id: "pi2" } }]);
+}, 30_000);
+
+test("D-1: an investor with an authenticator app confirms with the app code, never a PIN (18.5)", async () => {
+  server.use(
+    // First match wins: this investor uses the app.
+    http.get("*/api/v1/auth/pin/status/", () => HttpResponse.json(pinStatus({ pin_set: false, second_factor: "app", reset_available: false }))),
+    ...withdrawalHandlers([
+      () => HttpResponse.json(
+        { detail: "Wrong authenticator code. Check the time on your phone. 4 attempts left before the lock.", code: "authenticator_code_invalid", attempts_left: 4 },
+        { status: 400 }
+      )
+    ])
+  );
+  renderLiveApp(App, "/balances");
+  await openWithdrawalConfirm();
+
+  expect(screen.queryByRole("button", { name: "Forgot PIN?" })).not.toBeInTheDocument();
+  expect(screen.getByText("The 6-digit code shown in your authenticator app.")).toBeInTheDocument();
+  enterPin("246813", "Authenticator code");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+  expect(await screen.findByText(/Wrong authenticator code/, {}, { timeout: 5000 })).toBeInTheDocument();
+  // No "Create your PIN" dialog for this investor.
+  expect(screen.queryByRole("dialog", { name: "Create your PIN" })).not.toBeInTheDocument();
+
+  enterPin("135790", "Authenticator code");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+  await screen.findAllByText("Withdrawal requested", {}, { timeout: 5000 });
+  // The API field stays "pin" and carries the app code.
+  expect(calls.withdrawals.map((body) => body.pin)).toEqual(["246813", "135790"]);
 }, 30_000);

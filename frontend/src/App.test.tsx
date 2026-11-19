@@ -338,10 +338,7 @@ test("transactions label preserved pre-reset activity without replacing its deta
   entry.archived_at = "2026-09-09T12:00:00Z";
   try {
     renderApp();
-    fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    loginDemo();
     clickNav("Transactions");
     // The entry keeps its own label and details; the mark is added next to them.
     const row = screen.getByText("Before QA reset").closest("tr") as HTMLElement;
@@ -359,7 +356,7 @@ test("direct registration and login URLs render the requested public flow", () =
   registration.unmount();
 
   renderApp("/login");
-  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
 });
 
 test("client navigation writes a stable URL and browser history restores the screen", () => {
@@ -378,52 +375,20 @@ test("client navigation writes a stable URL and browser history restores the scr
 });
 
 test("login resume sends incomplete accounts back to onboarding", () => {
-  expect(
-    onboardingStepForUser({
-      account_type: "natural_person_lender",
-      status: "pending_kyc",
-      phone_verified: false
-    })
-  ).toBe(1);
-
-  // Phone verified, no PIN yet: the PIN step (ACC-DEC-009).
-  expect(
-    onboardingStepForUser({
-      account_type: "natural_person_lender",
-      status: "pending_kyc",
-      phone_verified: true,
-      pin_set: false
-    })
-  ).toBe(2);
-
-  // Phone verified and PIN created: identity verification.
-  expect(
-    onboardingStepForUser({
-      account_type: "natural_person_lender",
-      status: "pending_kyc",
-      phone_verified: true,
-      pin_set: true
-    })
-  ).toBe(3);
-
-  expect(
-    onboardingStepForUser({
-      account_type: "natural_person_lender",
-      status: "active",
-      phone_verified: true
-    })
-  ).toBeNull();
+  // 18.5: no second factor yet -> the security step.
+  expect(onboardingStepForUser({ account_type: "natural_person_lender", status: "pending_kyc", second_factor: "" })).toBe(2);
+  // SMS factor, no PIN yet: still the security step (the PIN of ACC-DEC-009).
+  expect(onboardingStepForUser({ account_type: "natural_person_lender", status: "pending_kyc", second_factor: "sms", pin_set: false })).toBe(2);
+  // D-1: an app investor needs no PIN.
+  expect(onboardingStepForUser({ account_type: "natural_person_lender", status: "pending_kyc", second_factor: "app", pin_set: false })).toBe(3);
+  expect(onboardingStepForUser({ account_type: "natural_person_lender", status: "pending_kyc", second_factor: "sms", pin_set: true })).toBe(3);
+  expect(onboardingStepForUser({ account_type: "natural_person_lender", status: "active", second_factor: "sms" })).toBeNull();
 });
 
 test("fixture-backed authenticated portal is visibly marked as preview data", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
 
   expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
   expect(screen.getByText("Preview data")).toBeInTheDocument();
@@ -575,12 +540,7 @@ test("Smart Invest explains matches whose minimum cannot be reached; Overview of
 test("balance ageing reminders appear in notifications instead of a persistent dashboard warning", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
 
   expect(screen.queryByText("Balance ageing - action needed")).not.toBeInTheDocument();
 
@@ -776,12 +736,7 @@ test("Investment opportunities mark Smart Invest matches and can show only them"
 test("investor data tables use the shared editorial table surface", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
 
   // U33 wallet screens (S4) use the design's tables: Balance details and the Documents list.
   clickNav(/^Account/);
@@ -813,103 +768,45 @@ test("read-only impersonation token survives a new tab and opens the investor po
   expect(screen.getByRole("heading", { name: "Welcome back, Viorel" })).toBeInTheDocument();
 });
 
-test("login form submits when the form is submitted from the email field", () => {
-  const login = renderApp();
-
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.submit(screen.getByTestId("login-magic-link-form"));
-
-  expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
-
-  login.unmount();
+test("sign-in asks for the password, then the second factor, and offers a recovery code (18.5)", () => {
   renderApp("/login");
 
-  expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
+  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  // No passkeys (D-2); the forgotten password is one click away.
+  expect(screen.queryByText(/passkey/i)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
+  fireEvent.submit(screen.getByTestId("login-password-form"));
+  expect(screen.getByText(/Enter your email address and your password/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "preview-password-1" } });
+  expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password");
+  fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+  expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+  fireEvent.submit(screen.getByTestId("login-password-form"));
+
+  expect(screen.getByRole("heading", { name: "Two-factor authentication" })).toBeInTheDocument();
+  expect(screen.getByText("Enter the 6-digit code we sent by SMS to your phone number ending in 00.")).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /Remember this browser for 30 days/ })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Use a recovery code" }));
+  expect(screen.getByLabelText("Recovery code")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Use the code instead" }));
+  fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
 });
 
-test("expired login links offer a cooldown-aware resend and a different-email escape", () => {
-  window.localStorage.setItem(
-    "banxum:login-flow:v1",
-    JSON.stringify({
-      email: "investor@example.test",
-      sent: true,
-      linkExpired: true,
-      resendCooldownUntil: 0
-    })
-  );
-
-  renderApp("/login?token=expired-token");
-
-  expect(screen.getByRole("heading", { name: "Your sign-in link has expired" })).toBeInTheDocument();
-  expect(screen.getByText(/expired or is no longer valid/i)).toBeInTheDocument();
-  const resend = screen.getByRole("button", { name: "Send a new link" });
-  expect(resend).toBeEnabled();
-
-  fireEvent.click(resend);
-
-  expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
-
-  fireEvent.click(screen.getByRole("button", { name: "Use a different email address" }));
-
-  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("");
-});
-
-test("expired login link keeps the email field while typing and sends only on submit", () => {
-  window.localStorage.setItem(
-    "banxum:login-flow:v1",
-    JSON.stringify({ email: "", sent: false, linkExpired: true, resendCooldownUntil: 0 })
-  );
-
+test("a forgotten password sends a link without saying whether the account exists", () => {
   renderApp("/login");
 
-  expect(screen.getByRole("heading", { name: "Your sign-in link has expired" })).toBeInTheDocument();
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "c" } });
-
-  // The first keystroke neither replaces the field nor sends anything.
-  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("c");
-  expect(screen.queryByText(/We will send the new link to/)).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Send a new link" })).toBeDisabled();
-
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "claire@example.test" } });
-  expect(screen.getByRole("heading", { name: "Your sign-in link has expired" })).toBeInTheDocument();
-
-  fireEvent.submit(screen.getByTestId("login-expired-form"));
+  fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
+  expect(screen.getByRole("heading", { name: "Reset your password" })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "someone@example.test" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send link" }));
 
   expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
-  expect(screen.getByText("claire@example.test")).toBeInTheDocument();
-});
-
-test("expired login link switches to a different address without sending early", () => {
-  window.localStorage.setItem(
-    "banxum:login-flow:v1",
-    JSON.stringify({ email: "investor@example.test", sent: true, linkExpired: true, resendCooldownUntil: 0 })
-  );
-
-  renderApp("/login?token=expired-token");
-
-  expect(screen.getByText("investor@example.test")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Use a different email address" }));
-
-  expect(screen.getByRole("heading", { name: "Your sign-in link has expired" })).toBeInTheDocument();
-  const field = screen.getByPlaceholderText("you@example.com");
-  expect(field).toHaveValue("");
-  expect(field).toHaveFocus();
-  fireEvent.change(field, { target: { value: "n" } });
-  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("n");
-  expect(screen.queryByText(/We will send the new link to/)).not.toBeInTheDocument();
-
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "new@example.test" } });
-  fireEvent.click(screen.getByRole("button", { name: "Send a new link" }));
-
-  expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
-  expect(screen.getByText("new@example.test")).toBeInTheDocument();
+  expect(screen.getByText(/If the address belongs to an account/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
+  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
 });
 
 test("an expired session returns to the login screen with an explanation", () => {
@@ -919,13 +816,16 @@ test("an expired session returns to the login screen with an explanation", () =>
   act(() => reportSessionExpired());
 
   expect(window.location.pathname).toBe("/login");
-  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
   expect(screen.getByText("Your session has expired")).toBeInTheDocument();
 
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
-  fireEvent.submit(screen.getByTestId("login-magic-link-form"));
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "preview-password-1" } });
+  fireEvent.submit(screen.getByTestId("login-password-form"));
+  fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-  expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
   expect(hasSessionExpiredNotice()).toBe(false);
 });
 
@@ -2180,12 +2080,7 @@ test("a frozen investor can inspect a resale offer but cannot buy it", () => {
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
   setUxState("frozen");
 
   const frozenNotice = screen.getByText(/Financial actions are frozen/i).closest(".alert") as HTMLElement;
@@ -2201,6 +2096,7 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   fireEvent.click(screen.getAllByRole("link", { name: /^Log in/ })[0]);
   fireEvent.click(screen.getByRole("link", { name: "Create an account" }));
   expect(screen.getByText("Step 1 of 4")).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "Registration steps" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["1Your details", "2Email", "3Security", "4Identity"]);
   // Checkbox labels embed new-tab document links, so the text spans elements.
   fireEvent.click(
     screen.getByLabelText((label) => label.includes("I have read, understood and accept the") && label.includes("General Terms and Conditions"))
@@ -2212,13 +2108,33 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   );
   // Marketing stays optional and unchecked (U33-DEC-30).
   expect(screen.getByLabelText("I agree to optional marketing communications.")).not.toBeChecked();
+  // 18.5: a password of at least 12 characters, typed twice.
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByText("Use at least 12 characters.")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "quiet-harbour-lantern-47" } });
+  fireEvent.change(screen.getByLabelText("Repeat password"), { target: { value: "quiet-harbour-lantern-47" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
+  expect(screen.getByRole("heading", { name: "Confirm your email" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Prototype: open the link" }));
+
+  // The second factor: the app is recommended; this investor chooses the SMS code.
+  expect(screen.getByRole("heading", { name: "Protect your account" })).toBeInTheDocument();
+  expect(screen.getByText("Recommended")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /^SMS code/ }));
   expect(screen.getByRole("heading", { name: "Verify your mobile number" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Send SMS code" }));
   expect(screen.getByRole("heading", { name: "Enter your SMS code" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify phone" }));
+
+  // The 10 recovery codes, shown once.
+  expect(screen.getByRole("heading", { name: "Save your recovery codes" })).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "Recovery codes" })).getAllByRole("listitem")).toHaveLength(10);
+  expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox", { name: /I saved these codes/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
   // The PIN step comes before the KYC hand-off (ACC-DEC-009).
   expect(screen.getByRole("heading", { name: "Create your security PIN" })).toBeInTheDocument();
@@ -2238,6 +2154,29 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   expect(screen.getByRole("heading", { name: "Your account is ready" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Open my account" }));
   expect(window.location.pathname).toBe("/dashboard");
+});
+
+test("an investor who chooses the authenticator app at registration sets no PIN (D-1)", () => {
+  renderApp("/register");
+  fireEvent.click(
+    screen.getByLabelText((label) => label.includes("I have read, understood and accept the") && label.includes("General Terms and Conditions"))
+  );
+  fireEvent.click(screen.getByLabelText((label) => label.includes("I acknowledge the") && label.includes("risk disclosure")));
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "quiet-harbour-lantern-47" } });
+  fireEvent.change(screen.getByLabelText("Repeat password"), { target: { value: "quiet-harbour-lantern-47" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Prototype: open the link" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /^Authenticator app/ }));
+  expect(screen.getByText("Or enter this key")).toBeInTheDocument();
+  expect(screen.getByText("JBSW Y3DP EHPK 3PXP")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Code from the app"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /I saved these codes/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(screen.queryByRole("heading", { name: "Create your security PIN" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Verify your identity" })).toBeInTheDocument();
 });
 
 test("Didit return page tells secondary devices to go back to the original device", () => {
@@ -2361,12 +2300,7 @@ test("admin loans distinguish annual borrower interest from investor yield", () 
 test("deposit instructions explain how to use the required payment reference", async () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
   clickNav(/^Account/);
   fireEvent.click(within(screen.getByRole("region", { name: "CHF account" })).getByRole("button", { name: "Add funds" }));
 
@@ -2388,12 +2322,7 @@ test("deposit instructions explain how to use the required payment reference", a
 test("account page shows one card per currency whose actions open that currency", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
   clickNav(/^Account/);
 
   const main = screen.getByRole("main");
@@ -2422,12 +2351,7 @@ test("account page shows one card per currency whose actions open that currency"
 test("profile and settings keep every section reachable from its tabs and the account menu", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  loginDemo();
   clickNav("Profile & Settings");
 
   expect(window.location.pathname).toBe("/settings");
@@ -2442,7 +2366,12 @@ test("profile and settings keep every section reachable from its tabs and the ac
 
   fireEvent.click(within(tabs).getByRole("link", { name: "Security" }));
   expect(window.location.pathname).toBe("/settings/security");
-  expect(screen.getByText("Sign-in link by email")).toBeInTheDocument();
+  // 18.5: two-factor authentication (the SMS code; the app can be added), recovery codes, password.
+  expect(screen.getByText("SMS code")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
+  expect(screen.getByText("10 of 10 left")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+  expect(screen.queryByText(/passkey/i)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Change PIN" })).toBeInTheDocument();
   // U33-DEC-25: signed-in devices with this device first, and the sign-in history.
   expect(screen.getByText("This device")).toBeInTheDocument();
@@ -2632,13 +2561,14 @@ test("borrower repayment asks for the payer account before recording", () => {
   expect(screen.getByText("Preview action recorded")).toBeInTheDocument();
 });
 
+/** Preview sign-in (18.5): email and password, then any 6 digits as the SMS code. */
 function loginDemo() {
   fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "preview-password-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 test("public and portal footers link the platform Terms and Conditions", () => {

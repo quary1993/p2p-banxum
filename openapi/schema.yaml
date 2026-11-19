@@ -1210,6 +1210,271 @@ paths:
               schema:
                 $ref: '#/components/schemas/StoryImage'
           description: ''
+  /api/v1/auth/account-recovery/complete/:
+    post:
+      operationId: v1_auth_account_recovery_complete_create
+      description: |-
+        The single-use link after the 24-hour wait: a new password, then (signed in) a new
+        second factor.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryCompleteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryCompleteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryCompleteRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/account-recovery/not-me/:
+    post:
+      operationId: v1_auth_account_recovery_not_me_create
+      description: '"This was not me": stops the recovery at once and alerts support.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/admin/account-recoveries/:
+    get:
+      operationId: v1_auth_admin_account_recoveries_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistedRecoveryList'
+          description: ''
+    post:
+      operationId: v1_auth_admin_account_recoveries_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryOpenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryOpenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryOpenRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistedRecoveryCase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/admin/account-recoveries/{case_id}/approve/:
+    post:
+      operationId: v1_auth_admin_account_recoveries_approve_create
+      parameters:
+      - in: path
+        name: case_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistedRecoveryCase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/admin/account-recoveries/{case_id}/confirm-identity/:
+    post:
+      operationId: v1_auth_admin_account_recoveries_confirm_identity_create
+      parameters:
+      - in: path
+        name: case_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryEvidenceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryEvidenceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistedRecoveryEvidenceRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistedRecoveryCase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
   /api/v1/auth/admin/login/confirm/:
     post:
       operationId: v1_auth_admin_login_confirm_create
@@ -1219,13 +1484,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+              $ref: '#/components/schemas/AdminSignInConfirmRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+              $ref: '#/components/schemas/AdminSignInConfirmRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+              $ref: '#/components/schemas/AdminSignInConfirmRequest'
         required: true
       responses:
         '200':
@@ -1233,6 +1498,80 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/admin/login/enroll/:
+    post:
+      operationId: v1_auth_admin_login_enroll_create
+      description: 'First admin sign-in (or after a reset): the email code and the
+        first app code.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminEnrollmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminEnrollmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminEnrollmentRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
           description: ''
   /api/v1/auth/admin/login/start/:
     post:
@@ -1243,20 +1582,44 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminLoginStartRequest'
+              $ref: '#/components/schemas/SignInRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/AdminLoginStartRequest'
+              $ref: '#/components/schemas/SignInRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/AdminLoginStartRequest'
+              $ref: '#/components/schemas/SignInRequest'
         required: true
       responses:
         '202':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminLoginStartResponse'
+                $ref: '#/components/schemas/AdminSignInStartResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
           description: ''
   /api/v1/auth/admin/users/:
     post:
@@ -1317,6 +1680,202 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountAccessChangeResponse'
           description: ''
+  /api/v1/auth/admin/users/{user_id}/authenticator/reset/:
+    post:
+      operationId: v1_auth_admin_users_authenticator_reset_create
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/login/:
+    post:
+      operationId: v1_auth_login_create
+      description: |-
+        Step 1: email and password. Answers ``signed_in`` (remembered browser),
+        ``factor_required`` (type the app or SMS code next) or ``enrollment_required`` (signed in;
+        set up a second factor before anything else).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/login/resend-sms/:
+    post:
+      operationId: v1_auth_login_resend_sms_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/login/verify/:
+    post:
+      operationId: v1_auth_login_verify_create
+      description: |-
+        Step 2: the app or SMS code, or a recovery code. ``trust_device`` remembers this
+        browser for 30 days (the password is still asked).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SignInVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SignInVerifyRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
   /api/v1/auth/logout/:
     post:
       operationId: v1_auth_logout_create
@@ -1326,50 +1885,6 @@ paths:
       - cookieAuth: []
       responses:
         '204':
-          description: No response body
-  /api/v1/auth/magic-link/consume/:
-    post:
-      operationId: v1_auth_magic_link_consume_create
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MagicLinkConsume'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/MagicLinkConsume'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/MagicLinkConsume'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthenticatedUserResponse'
-          description: ''
-  /api/v1/auth/magic-link/request/:
-    post:
-      operationId: v1_auth_magic_link_request_create
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MagicLinkRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/MagicLinkRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/MagicLinkRequest'
-        required: true
-      responses:
-        '202':
           description: No response body
   /api/v1/auth/me/:
     get:
@@ -1384,6 +1899,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CurrentUserResponse'
+          description: ''
+  /api/v1/auth/password/forgot/:
+    post:
+      operationId: v1_auth_password_forgot_create
+      description: Always answers 202 (no account enumeration); the link works once,
+        for 30 minutes.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordForgotRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordForgotRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordForgotRequest'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+  /api/v1/auth/password/reset/complete/:
+    post:
+      operationId: v1_auth_password_reset_complete_create
+      description: The new password with the second factor (or a recovery code). All
+        devices sign out.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetCompleteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetCompleteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetCompleteRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/password/reset/start/:
+    post:
+      operationId: v1_auth_password_reset_start_create
+      description: 'Open the link: the second factor is asked next (an SMS code is
+        sent now).'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorStepResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
           description: ''
   /api/v1/auth/phone/confirm/:
     post:
@@ -1489,8 +2130,8 @@ paths:
   /api/v1/auth/pin/reset/confirm/:
     post:
       operationId: v1_auth_pin_reset_confirm_create
-      description: 'Forgot PIN, step 2: email code, SMS code and the new PIN twice;
-        clears the lock.'
+      description: 'Forgot PIN, step 2: the SMS code and the new PIN twice; clears
+        the lock.'
       tags:
       - v1
       requestBody:
@@ -1542,10 +2183,22 @@ paths:
     post:
       operationId: v1_auth_pin_reset_start_create
       description: |-
-        Forgot PIN, step 1: an SMS code to the verified phone (the email code is requested
-        through /auth/sensitive-action-code/request/ with ``pin_reset``).
+        Forgot PIN, step 1 (18.5): the account password, then an SMS code to the verified
+        phone.
       tags:
       - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinResetStartRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PinResetStartRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PinResetStartRequest'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -1696,6 +2349,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthenticatedUserResponse'
           description: ''
+  /api/v1/auth/register/confirm-email/:
+    post:
+      operationId: v1_auth_register_confirm_email_create
+      description: |-
+        18.5: the link sent at registration confirms the email address and signs in, only
+        while the account has no second factor yet (to set one up).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
   /api/v1/auth/register/natural-person/:
     post:
       operationId: v1_auth_register_natural_person_create
@@ -1719,6 +2399,412 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NaturalPersonRegistrationResponse'
+          description: ''
+  /api/v1/auth/register/resend-link/:
+    post:
+      operationId: v1_auth_register_resend_link_create
+      description: |-
+        18.5: send the registration link again. Always 202 (no account enumeration); only an
+        account without a second factor gets a link (the others sign in with the password).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+        required: true
+      responses:
+        '202':
+          description: No response body
+  /api/v1/auth/security/:
+    get:
+      operationId: v1_auth_security_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOverview'
+          description: ''
+  /api/v1/auth/security/authenticator/confirm/:
+    post:
+      operationId: v1_auth_security_authenticator_confirm_create
+      description: |-
+        The first code from the app activates it. An account with a factor needs a fresh
+        security confirmation; the app then replaces the PIN and the SMS code (D-1).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthenticatorConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthenticatorConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthenticatorConfirmRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOverview'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/authenticator/start/:
+    post:
+      operationId: v1_auth_security_authenticator_start_create
+      description: A new app secret to scan (QR code from ``otpauth_uri``) or type.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatorEnrollmentResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/confirm/resend-sms/:
+    post:
+      operationId: v1_auth_security_confirm_resend_sms_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/confirm/start/:
+    post:
+      operationId: v1_auth_security_confirm_start_create
+      description: A security change starts with the password; the factor is asked
+        next.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityConfirmStartRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecurityConfirmStartRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecurityConfirmStartRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorStepResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/confirm/verify/:
+    post:
+      operationId: v1_auth_security_confirm_verify_create
+      description: The factor of a security change; answers a confirmation valid 10
+        minutes, once.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactorCodeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactorCodeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactorCodeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityConfirmResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/password/:
+    post:
+      operationId: v1_auth_security_password_create
+      description: Changing the password signs out the other devices and forgets remembered
+        browsers.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOverview'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/recovery-codes/:
+    post:
+      operationId: v1_auth_security_recovery_codes_create
+      description: 10 new recovery codes, shown once; older unused codes stop working.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecoveryCodesRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RecoveryCodesRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RecoveryCodesRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodesResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/security/trusted-devices/{device_id}/revoke/:
+    post:
+      operationId: v1_auth_security_trusted_devices_revoke_create
+      parameters:
+      - in: path
+        name: device_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOverview'
           description: ''
   /api/v1/auth/sensitive-action-code/request/:
     post:
@@ -7311,7 +8397,6 @@ components:
       - secondary_market_purchase
       - pin_setup
       - pin_change
-      - pin_reset
       type: string
       description: |-
         * `withdrawal` - withdrawal
@@ -7322,7 +8407,6 @@ components:
         * `secondary_market_purchase` - secondary_market_purchase
         * `pin_setup` - pin_setup
         * `pin_change` - pin_change
-        * `pin_reset` - pin_reset
     ActivityEntry:
       type: object
       properties:
@@ -7521,10 +8605,16 @@ components:
       - secondary_listing_approvals
       - servicing_due
       - withdrawals_requested
-    AdminLoginConfirmRequest:
+    AdminEnrollmentRequest:
       type: object
       properties:
         code_id:
+          type: string
+          format: uuid
+        email_code:
+          type: string
+          pattern: ^\d{6}$
+        enrollment_id:
           type: string
           format: uuid
         code:
@@ -7533,33 +8623,8 @@ components:
       required:
       - code
       - code_id
-    AdminLoginStartRequest:
-      type: object
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          writeOnly: true
-      required:
-      - email
-      - password
-    AdminLoginStartResponse:
-      type: object
-      properties:
-        code_id:
-          type: string
-          format: uuid
-        status:
-          type: string
-        expires_at:
-          type: string
-          format: date-time
-      required:
-      - code_id
-      - expires_at
-      - status
+      - email_code
+      - enrollment_id
     AdminLookupResult:
       type: object
       properties:
@@ -7897,6 +8962,45 @@ components:
       - taker_fee_minor
       - transfer_price_minor
       - updated_at
+    AdminSignInConfirmRequest:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - challenge_id
+      - code
+    AdminSignInStartResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        challenge_id:
+          type: string
+        code_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        enrollment_id:
+          type: string
+        secret:
+          type: string
+        otpauth_uri:
+          type: string
+      required:
+      - challenge_id
+      - code_id
+      - enrollment_id
+      - expires_at
+      - otpauth_uri
+      - secret
+      - status
     AdminTask:
       type: object
       properties:
@@ -8452,6 +9556,103 @@ components:
         * `below_minimum` - below_minimum
         * `above_available` - above_available
         * `closed` - closed
+    AssistedRecoveryCase:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        user_email:
+          type: string
+        status:
+          type: string
+        request_note:
+          type: string
+        identity_evidence:
+          type: string
+        requested_by_admin_id:
+          type: string
+        identity_confirmed_by_admin_id:
+          type: string
+        approved_by_admin_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        wait_until:
+          type: string
+          format: date-time
+          nullable: true
+        link_sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - approved_by_admin_id
+      - cancelled_at
+      - completed_at
+      - created_at
+      - id
+      - identity_confirmed_by_admin_id
+      - identity_evidence
+      - link_sent_at
+      - request_note
+      - requested_by_admin_id
+      - status
+      - user_email
+      - user_id
+      - wait_until
+    AssistedRecoveryCompleteRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 128
+        new_password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - new_password
+      - token
+    AssistedRecoveryEvidenceRequest:
+      type: object
+      properties:
+        evidence:
+          type: string
+          maxLength: 2000
+      required:
+      - evidence
+    AssistedRecoveryList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistedRecoveryCase'
+      required:
+      - results
+    AssistedRecoveryOpenRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        note:
+          type: string
+          maxLength: 2000
+      required:
+      - note
+      - user_id
     AuditEvent:
       type: object
       properties:
@@ -8484,6 +9685,13 @@ components:
       - request_id
       - target_id
       - target_type
+    AuthenticatedUser:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+      required:
+      - user
     AuthenticatedUserResponse:
       type: object
       properties:
@@ -8491,6 +9699,35 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    AuthenticatorConfirmRequest:
+      type: object
+      properties:
+        enrollment_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+        confirmation_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - code
+      - enrollment_id
+    AuthenticatorEnrollmentResponse:
+      type: object
+      properties:
+        enrollment_id:
+          type: string
+        secret:
+          type: string
+        otpauth_uri:
+          type: string
+      required:
+      - enrollment_id
+      - otpauth_uri
+      - secret
     BalanceAgeingForcedWithdrawalCandidate:
       type: object
       properties:
@@ -10135,6 +11372,14 @@ components:
         * `secondary_market_purchase` - Secondary-market purchase
         * `secondary_market_listing` - Secondary-market listing
         * `risk_disclosure` - Risk disclosure
+    ChallengeRequest:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+      required:
+      - challenge_id
     CollateralTypeEnum:
       enum:
       - real_estate
@@ -10819,6 +12064,38 @@ components:
       - key
       - name
       - outstanding_principal_minor
+    FactorCodeRequest:
+      type: object
+      description: 'The second factor of a pending step: a 6-digit code, or one recovery
+        code.'
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+        recovery_code:
+          type: string
+          maxLength: 16
+      required:
+      - challenge_id
+    FactorStepResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        method:
+          type: string
+        challenge_id:
+          type: string
+        phone_last_digits:
+          type: string
+      required:
+      - challenge_id
+      - method
+      - phone_last_digits
+      - status
     FxDeltaReport:
       type: object
       properties:
@@ -16222,6 +17499,10 @@ components:
         email:
           type: string
           format: email
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
         full_name:
           type: string
           maxLength: 255
@@ -16260,6 +17541,7 @@ components:
       required:
       - email
       - full_name
+      - password
       - phone_number
       - terms_hash
       - terms_version
@@ -16382,6 +17664,45 @@ components:
       description: |-
         * `european` - european
         * `swiss` - swiss
+    OperationDetails:
+      type: object
+      description: |-
+        18.5: the details the email code confirms. Each action takes one fixed set of fields:
+        withdrawal (amount_minor, currency, iban); bank_account_change (currency, iban) or
+        (instruction_id); fx (amount_minor, source_currency, target_currency); primary_investment
+        (amount_minor, currency, loan_id); secondary_market_listing (holding_id, price_bps) or
+        (listing_id, price_bps); secondary_market_purchase (amount_minor, currency, listing_id).
+      properties:
+        amount_minor:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          maxLength: 3
+        iban:
+          type: string
+          maxLength: 64
+        source_currency:
+          type: string
+          maxLength: 3
+        target_currency:
+          type: string
+          maxLength: 3
+        loan_id:
+          type: string
+          maxLength: 64
+        listing_id:
+          type: string
+          maxLength: 64
+        holding_id:
+          type: string
+          maxLength: 64
+        instruction_id:
+          type: string
+          maxLength: 64
+        price_bps:
+          type: integer
+          minimum: 0
     OriginEnum:
       enum:
       - investor_request
@@ -17388,6 +18709,49 @@ components:
           maxLength: 255
       required:
       - reason
+    PasswordChangeRequest:
+      type: object
+      properties:
+        new_password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+        confirmation_id:
+          type: string
+          format: uuid
+      required:
+      - confirmation_id
+      - new_password
+    PasswordForgotRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    PasswordResetCompleteRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 128
+        new_password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+        challenge_id:
+          type: string
+          maxLength: 64
+        code:
+          type: string
+          pattern: ^\d{6}$
+        recovery_code:
+          type: string
+          maxLength: 16
+      required:
+      - new_password
+      - token
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -17947,12 +19311,6 @@ components:
     PinResetConfirmRequest:
       type: object
       properties:
-        sensitive_action_code_id:
-          type: string
-          format: uuid
-        sensitive_action_code:
-          type: string
-          maxLength: 32
         phone_challenge_id:
           type: string
           format: uuid
@@ -17972,8 +19330,15 @@ components:
       - new_pin_confirmation
       - phone_challenge_id
       - phone_code
-      - sensitive_action_code
-      - sensitive_action_code_id
+    PinResetStartRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - password
     PinResetStartResponse:
       type: object
       properties:
@@ -18029,6 +19394,8 @@ components:
           type: boolean
         phone_last_digits:
           type: string
+        second_factor:
+          type: string
       required:
       - attempts_left
       - locked_until
@@ -18036,6 +19403,7 @@ components:
       - phone_last_digits
       - pin_set
       - reset_available
+      - second_factor
       - setup_requires_email_code
     PinStatusResponse:
       type: object
@@ -19657,6 +21025,22 @@ components:
       - as_of_date
       - bank_stated_balance_minor
       - currency
+    RecoveryCodesRequest:
+      type: object
+      properties:
+        confirmation_id:
+          type: string
+          format: uuid
+          nullable: true
+    RecoveryCodesResponse:
+      type: object
+      properties:
+        codes:
+          type: array
+          items:
+            type: string
+      required:
+      - codes
     RecoveryResultEnum:
       enum:
       - full
@@ -21192,9 +22576,77 @@ components:
       - seller_holding_id
       - seller_net_proceeds_minor
       - transfer_price_minor
+    SecurityConfirmResponse:
+      type: object
+      properties:
+        confirmation_id:
+          type: string
+      required:
+      - confirmation_id
+    SecurityConfirmStartRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - password
+    SecurityOverview:
+      type: object
+      properties:
+        second_factor:
+          type: string
+        phone_last_digits:
+          type: string
+        authenticator_added_at:
+          type: string
+          format: date-time
+          nullable: true
+        recovery_codes_remaining:
+          type: integer
+        recovery_codes_issued:
+          type: boolean
+        password_set:
+          type: boolean
+        password_changed_at:
+          type: string
+          format: date-time
+          nullable: true
+        trusted_devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustedDevice'
+        restriction:
+          allOf:
+          - $ref: '#/components/schemas/SecurityRestriction'
+          nullable: true
+      required:
+      - authenticator_added_at
+      - password_changed_at
+      - password_set
+      - phone_last_digits
+      - recovery_codes_issued
+      - recovery_codes_remaining
+      - restriction
+      - second_factor
+      - trusted_devices
+    SecurityRestriction:
+      type: object
+      properties:
+        reason:
+          type: string
+        ends_at:
+          type: string
+          format: date-time
+      required:
+      - ends_at
+      - reason
     SensitiveActionCodeRequest:
       type: object
       properties:
+        operation:
+          $ref: '#/components/schemas/OperationDetails'
         action:
           $ref: '#/components/schemas/ActionEnum'
       required:
@@ -21212,10 +22664,13 @@ components:
         expires_at:
           type: string
           format: date-time
+        operation_summary:
+          type: string
       required:
       - action
       - code_id
       - expires_at
+      - operation_summary
       - status
     SettlementCalendarConfirmRequest:
       type: object
@@ -21345,6 +22800,12 @@ components:
           type: string
         country_code:
           type: string
+        city:
+          type: string
+          default: ''
+        place:
+          type: string
+          default: ''
         method:
           type: string
         result:
@@ -21369,6 +22830,58 @@ components:
       required:
       - events
       - retention_days
+    SignInRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - email
+      - password
+    SignInResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        method:
+          type: string
+        challenge_id:
+          type: string
+        phone_last_digits:
+          type: string
+        user:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          nullable: true
+      required:
+      - challenge_id
+      - method
+      - phone_last_digits
+      - status
+    SignInVerifyRequest:
+      type: object
+      description: 'The second factor of a pending step: a 6-digit code, or one recovery
+        code.'
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+        recovery_code:
+          type: string
+          maxLength: 16
+        trust_device:
+          type: boolean
+          default: false
+      required:
+      - challenge_id
     SmartInvestChannels:
       type: object
       description: 'U33-DEC-30: the in-app and email channels of the match alerts.'
@@ -21764,6 +23277,13 @@ components:
         * `active` - Active
         * `blocked` - Blocked
         * `inactive` - Inactive
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
     StoryDocument:
       type: object
       properties:
@@ -21822,6 +23342,14 @@ components:
         * `auto` - auto
         * `seed` - seed
         * `snapshot` - snapshot
+    TokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 128
+      required:
+      - token
     TransactionEntry:
       type: object
       properties:
@@ -21929,6 +23457,44 @@ components:
       - deposited_minor
       - invested_minor
       - withdrawn_minor
+    TrustedDevice:
+      type: object
+      properties:
+        id:
+          type: string
+        device_label:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - created_at
+      - device_label
+      - expires_at
+      - id
+      - last_used_at
+    TwoFactorError:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        attempts_left:
+          type: integer
+        locked_until:
+          type: string
+          format: date-time
+      required:
+      - code
+      - detail
     UserSession:
       type: object
       description: 'U33-DEC-25: one signed-in browser. The place is a country code,
@@ -21943,6 +23509,13 @@ components:
           type: string
         country_code:
           type: string
+        city:
+          type: string
+          default: ''
+        place:
+          type: string
+          default: ''
+          description: 'Q06: ''City, CC (approximate)'', the country alone, or empty.'
         method:
           type: string
         started_at:
@@ -22005,6 +23578,9 @@ components:
           format: date-time
           nullable: true
           readOnly: true
+        second_factor:
+          type: string
+          readOnly: true
       required:
       - account_type
       - email
@@ -22017,6 +23593,7 @@ components:
       - phone_verified
       - pin_locked_until
       - pin_set
+      - second_factor
       - status
     VerificationStatusEnum:
       enum:

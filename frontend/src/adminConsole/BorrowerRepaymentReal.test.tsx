@@ -106,7 +106,8 @@ function useAdminApi() {
             number_format: "european",
             language: "en",
             pin_set: false,
-            pin_locked_until: null
+            pin_locked_until: null,
+            second_factor: "app"
           },
           platform_business_date: "2026-03-10"
         })

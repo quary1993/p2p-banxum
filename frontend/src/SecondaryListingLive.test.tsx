@@ -223,7 +223,9 @@ test("A-36: a new price after a failed confirm gets a new acceptance for that pr
   fireEvent.click(within(second).getByRole("button", { name: "Confirm listing" }));
   await screen.findAllByText("Listing published", {}, { timeout: 5000 });
 
-  expect(calls.codes).toHaveLength(1);
+  // 18.5: each price got its own email code, bound to that holding and price.
+  expect(calls.codes).toHaveLength(2);
+  expect(calls.codes[1]).toEqual({ action: "secondary_market_listing", operation: { holding_id: calls.listings[1].holding_id, price_bps: 9_500 } });
   expect(calls.acceptances).toHaveLength(2);
   expect(calls.acceptances[1].data_snapshot).toMatchObject({ price_bps: 9_500, seller_net_proceeds_minor: serverPricing(9_500).seller_net_proceeds_minor });
   expect(calls.acceptances[1].idempotency_key).not.toBe(calls.acceptances[0].idempotency_key);

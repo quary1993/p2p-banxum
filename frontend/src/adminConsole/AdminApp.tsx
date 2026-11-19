@@ -1,5 +1,6 @@
 //IP of Webby-Soft SRL.
 // source-seal: SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=
+import QRCode from "qrcode";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
@@ -9,6 +10,7 @@ import type {
 import {
   useV1AuthMeRetrieve,
   useV1AuthAdminLoginConfirmCreate,
+  useV1AuthAdminLoginEnrollCreate,
   useV1AuthAdminLoginStartCreate,
   useV1AuthLogoutCreate,
   useV1AdminOpsReconciliationBreakTasksSyncCreate,
@@ -54,62 +56,9 @@ import { isWithdrawalQueueItem, objectTypeLabel, uniqueQueueItems, useAdminOpera
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
-const adminLoginFlowStorageKey = "banxum:admin-login-flow:v1";
-
-type AdminLoginStep = "credentials" | "code";
-
-type AdminLoginFlowState = {
-  step: AdminLoginStep;
-  email: string;
-  codeId: string | null;
-  expiresAt: string | null;
-};
-
-function defaultAdminLoginFlowState(): AdminLoginFlowState {
-  return { step: "credentials", email: "", codeId: null, expiresAt: null };
-}
-
-function adminCodeStillValid(expiresAt: string | null) {
-  if (!expiresAt) return false;
-  return new Date(expiresAt).getTime() > Date.now();
-}
-
-function readAdminLoginFlowState(): AdminLoginFlowState {
-  if (typeof window === "undefined") return defaultAdminLoginFlowState();
-  try {
-    const raw = window.localStorage.getItem(adminLoginFlowStorageKey);
-    if (!raw) return defaultAdminLoginFlowState();
-    const parsed = JSON.parse(raw) as Partial<AdminLoginFlowState>;
-    if (parsed.step === "code" && parsed.codeId && adminCodeStillValid(parsed.expiresAt ?? null)) {
-      return {
-        step: "code",
-        email: typeof parsed.email === "string" ? parsed.email : "",
-        codeId: parsed.codeId,
-        expiresAt: parsed.expiresAt ?? null
-      };
-    }
-    return {
-      ...defaultAdminLoginFlowState(),
-      email: typeof parsed.email === "string" ? parsed.email : ""
-    };
-  } catch {
-    return defaultAdminLoginFlowState();
-  }
-}
-
-function writeAdminLoginFlowState(state: AdminLoginFlowState) {
-  if (typeof window === "undefined") return;
-  if (state.step === "credentials" && !state.email) {
-    window.localStorage.removeItem(adminLoginFlowStorageKey);
-    return;
-  }
-  window.localStorage.setItem(adminLoginFlowStorageKey, JSON.stringify(state));
-}
-
-function clearAdminLoginFlowState() {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(adminLoginFlowStorageKey);
-}
+// 18.5: admins sign in with the password and an authenticator app. Nothing of the flow is stored:
+// the step lives in memory, so a reload starts again at the password.
+type AdminLoginStep = "credentials" | "code" | "enroll";
 
 type QueueKey = keyof AdminDashboardQueues;
 
@@ -460,27 +409,46 @@ export function AdminApp() {
   );
 }
 
+function AdminLoginQr({ uri }: { uri: string }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let mounted = true;
+    QRCode.toDataURL(uri, { errorCorrectionLevel: "M", margin: 1, width: 180 })
+      .then((next) => mounted && setSrc(next))
+      .catch(() => mounted && setSrc(""));
+    return () => {
+      mounted = false;
+    };
+  }, [uri]);
+  return src ? <img alt="QR code for your authenticator app" height={164} src={src} width={164} /> : null;
+}
+
+/**
+ * Admin sign-in (18.5): password, then the code of the admin's authenticator app. The first
+ * sign-in (or after a super admin reset the app) sets up the app: the email code proves the
+ * mailbox, the first app code proves the new app. No SMS for admins.
+ */
 function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [initialLoginFlowState] = useState(readAdminLoginFlowState);
-  const [step, setStep] = useState<AdminLoginStep>(initialLoginFlowState.step);
-  const [email, setEmail] = useState(initialLoginFlowState.email);
+  const [step, setStep] = useState<AdminLoginStep>("credentials");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [codeId, setCodeId] = useState<string | null>(initialLoginFlowState.codeId);
-  const [expiresAt, setExpiresAt] = useState<string | null>(initialLoginFlowState.expiresAt);
+  const [emailCode, setEmailCode] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [enrollment, setEnrollment] = useState<{ codeId: string; enrollmentId: string; secret: string; uri: string; expiresAt: string | null } | null>(null);
   const [showSessionExpired] = useState(hasSessionExpiredNotice);
   const startLogin = useV1AuthAdminLoginStartCreate();
   const confirmLogin = useV1AuthAdminLoginConfirmCreate();
+  const enrollLogin = useV1AuthAdminLoginEnrollCreate();
 
-  useEffect(() => {
-    writeAdminLoginFlowState({ step, email, codeId, expiresAt });
-  }, [codeId, email, expiresAt, step]);
+  const finish = () => {
+    clearSessionExpiredNotice();
+    onAuthenticated();
+  };
 
   function submitCredentials(event: FormEvent) {
     event.preventDefault();
     if (isFixturePreview) {
-      setCodeId("preview-admin-code");
-      setExpiresAt(new Date(Date.now() + 10 * 60 * 1000).toISOString());
       setStep("code");
       return;
     }
@@ -488,9 +456,21 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
       { data: { email, password } },
       {
         onSuccess: (response) => {
-          setCodeId(response.code_id);
-          setExpiresAt(response.expires_at);
+          setPassword("");
           setCode("");
+          setEmailCode("");
+          if (response.status === "enrollment_required") {
+            setEnrollment({
+              codeId: response.code_id,
+              enrollmentId: response.enrollment_id,
+              secret: response.secret,
+              uri: response.otpauth_uri,
+              expiresAt: response.expires_at
+            });
+            setStep("enroll");
+            return;
+          }
+          setChallengeId(response.challenge_id);
           setStep("code");
         }
       }
@@ -500,28 +480,42 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
   function submitCode(event: FormEvent) {
     event.preventDefault();
     if (isFixturePreview) {
-      onAuthenticated();
+      finish();
       return;
     }
-    if (!codeId) return;
-    confirmLogin.mutate(
-      { data: { code_id: codeId, code } },
-      {
-        onSuccess: () => {
-          clearAdminLoginFlowState();
-          clearSessionExpiredNotice();
-          onAuthenticated();
-        }
-      }
+    confirmLogin.mutate({ data: { challenge_id: challengeId, code } }, { onSuccess: finish, onError: () => setCode("") });
+  }
+
+  function submitEnrollment(event: FormEvent) {
+    event.preventDefault();
+    if (!enrollment) return;
+    enrollLogin.mutate(
+      { data: { code_id: enrollment.codeId, email_code: emailCode, enrollment_id: enrollment.enrollmentId, code } },
+      { onSuccess: finish, onError: () => setCode("") }
     );
   }
 
   function returnToCredentials() {
     setStep("credentials");
     setCode("");
-    setCodeId(null);
-    setExpiresAt(null);
+    setEmailCode("");
+    setChallengeId("");
+    setEnrollment(null);
   }
+
+  const codeInput = (label: string, value: string, onChange: (value: string) => void, hint: string) => (
+    <Field hint={hint} label={label}>
+      <input
+        autoComplete="one-time-code"
+        inputMode="numeric"
+        maxLength={6}
+        onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+        placeholder="000000"
+        required={!isFixturePreview}
+        value={value}
+      />
+    </Field>
+  );
 
   return (
     <main className="admin-login">
@@ -553,7 +547,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
           <form className="col gap-14" onSubmit={submitCredentials}>
             <Field label="Admin email">
               <input
-                autoComplete="email"
+                autoComplete="username"
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="admin@banxum.com"
                 required={!isFixturePreview}
@@ -577,29 +571,12 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
               </Banner>
             ) : null}
             <Button block disabled={startLogin.isPending} type="submit" variant="primary">
-              {isFixturePreview ? "Continue to preview code" : "Send email code"}
+              Continue
             </Button>
           </form>
-        ) : (
+        ) : step === "code" ? (
           <form className="col gap-14" onSubmit={submitCode}>
-            <Field
-              hint={isFixturePreview ? "Preview accepts any 6 digits." : "Use the code sent to your admin email."}
-              label="Email code"
-            >
-              <input
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                required={!isFixturePreview}
-                value={code}
-              />
-            </Field>
-            {expiresAt ? (
-              <p className="muted" style={{ fontSize: 11.5 }}>
-                Code expires {formatDateTime(expiresAt)}.
-              </p>
-            ) : null}
+            {codeInput("Authenticator code", code, setCode, isFixturePreview ? "Preview accepts any 6 digits." : "The 6-digit code shown in your authenticator app.")}
             {confirmLogin.error ? (
               <Banner tone="bad" title="Code confirmation failed">
                 {errorMessage(confirmLogin.error)}
@@ -609,8 +586,39 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
               <Button onClick={returnToCredentials} variant="ghost">
                 Back
               </Button>
-              <Button disabled={code.length < 6 || confirmLogin.isPending} type="submit" variant="primary">
+              <Button disabled={(!isFixturePreview && code.length < 6) || confirmLogin.isPending} type="submit" variant="primary">
                 Open admin console
+              </Button>
+            </div>
+            <p className="muted" style={{ fontSize: 11.5 }}>Lost your phone? Ask a super admin to reset your authenticator app.</p>
+          </form>
+        ) : (
+          <form className="col gap-14" onSubmit={submitEnrollment}>
+            <Banner tone="info" title="Set up your authenticator app">
+              Admins sign in with an authenticator app. Scan the code (or type the key), then enter the email code we sent and the first code from the app.
+            </Banner>
+            {enrollment ? (
+              <div className="row gap-14" style={{ alignItems: "center" }}>
+                <AdminLoginQr uri={enrollment.uri} />
+                <div className="col" style={{ gap: 4 }}>
+                  <span className="muted" style={{ fontSize: 11.5 }}>Or enter this key</span>
+                  <code>{enrollment.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
+                </div>
+              </div>
+            ) : null}
+            {codeInput("Email code", emailCode, setEmailCode, enrollment?.expiresAt ? `Sent to your admin email. Expires ${formatDateTime(enrollment.expiresAt)}.` : "Sent to your admin email.")}
+            {codeInput("Code from the app", code, setCode, "The 6 digits shown in your authenticator app.")}
+            {enrollLogin.error ? (
+              <Banner tone="bad" title="Set-up failed">
+                {errorMessage(enrollLogin.error)}
+              </Banner>
+            ) : null}
+            <div className="row gap-8">
+              <Button onClick={returnToCredentials} variant="ghost">
+                Back
+              </Button>
+              <Button disabled={emailCode.length < 6 || code.length < 6 || enrollLogin.isPending} type="submit" variant="primary">
+                Activate and open admin console
               </Button>
             </div>
           </form>

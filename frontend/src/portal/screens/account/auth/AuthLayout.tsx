@@ -43,8 +43,11 @@ export function CaIcon({ name }: { name: CaIconName }) {
   return <i aria-hidden="true" className="ca-icon">{GLYPHS[name]}</i>;
 }
 
-/** The registration steps of the design: details, email & phone, PIN, identity. */
-const REGISTER_STEPS = ["Your details", "Email & phone", "Security PIN", "Identity"] as const;
+/**
+ * The registration steps: details (with the password), email, security (the second factor, the
+ * recovery codes and, for SMS, the PIN; 18.5), identity.
+ */
+const REGISTER_STEPS = ["Your details", "Email", "Security", "Identity"] as const;
 
 function Journey({ current, done }: { current: number; done: boolean }) {
   const t = useT();

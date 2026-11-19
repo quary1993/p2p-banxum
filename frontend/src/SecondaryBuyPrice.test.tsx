@@ -303,6 +303,11 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
   expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeDisabled();
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
+  // 18.5: the email code was for the old total; the new price needs a new code at once.
+  expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeDisabled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "654321" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
   await screen.findAllByText("Purchase confirmed", {}, { timeout: 5000 });
@@ -318,7 +323,7 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
     expected_buyer_total_cost_minor: 1_108_250,
     expected_price_bps: 11_000,
     expected_current_principal_minor: 1_000_000,
-    sensitive_action_code: "123456"
+    sensitive_action_code: "654321"
   });
 }, 30_000);
 

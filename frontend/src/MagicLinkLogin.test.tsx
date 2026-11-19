@@ -44,7 +44,7 @@ function renderLoginLink(path: string) {
     http.get("*/api/v1/auth/me/", () =>
       HttpResponse.json({ detail: "Authentication credentials were not provided." }, { status: 403 })
     ),
-    http.post("*/api/v1/auth/magic-link/consume/", async ({ request }) => {
+    http.post("*/api/v1/auth/register/confirm-email/", async ({ request }) => {
       const body = (await request.json()) as { token: string };
       consumed.push(body.token);
       return HttpResponse.json({ user: signedInUser });

@@ -1,18 +1,19 @@
 // IP of Webby-Soft SRL.
-// Registration (design: create-account module, steps Your details -> Email & phone -> Security PIN ->
-// Identity, plus the verification states). Today's flow and checks (ACC-DEC-001/009, KYC-DEC):
-// details and the server-published agreements, the magic link opened in this browser, the SMS code,
-// the PIN, then Didit. Marketing consent is optional and unchecked (U33-DEC-30). Every answer is the
-// same for a new address and one that already has an account (audit A-50/A-57).
+// Registration (design: create-account module and the prototype's signup and "Protect your account",
+// steps Your details -> Email -> Security -> Identity, plus the verification states). 18.5: details,
+// password and the server-published agreements; the email link opened in this browser; the second
+// factor (authenticator app, recommended, or an SMS code to the mobile), the 10 recovery codes and,
+// for SMS only, the PIN (D-1); then Didit. Marketing consent is optional and unchecked (U33-DEC-30).
+// Every answer is the same for a new address and one that already has an account (audit A-50/A-57).
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
   CategoryEnum,
-  useV1AuthMagicLinkRequestCreate,
   useV1AuthMeRetrieve,
   useV1AuthPhoneConfirmCreate,
   useV1AuthPhoneRequestCreate,
   useV1AuthRegisterNaturalPersonCreate,
+  useV1AuthRegisterResendLinkCreate,
   useV1DocumentsTemplatesCurrentRetrieve,
   useV1KycSessionCreate,
   useV1KycStatusRetrieve,
@@ -30,6 +31,7 @@ import {
   defaultRegisterFlowState,
   e164PhoneNumber,
   normalizedEmail,
+  passwordProblem,
   readStoredObject,
   registerFlowStorageKey,
   registrationCountries,
@@ -39,6 +41,7 @@ import {
   type RegisterFlowState,
   type RegisterPreviewDefaults
 } from "./authState";
+import { AuthenticatorSetup, AuthPasswordField, FactorChoice, RecoveryCodesStep } from "./secondFactor";
 
 const registrationTermsVersion = import.meta.env.VITE_REGISTRATION_TERMS_VERSION ?? "registration-v1";
 const registrationTermsHash =
@@ -74,8 +77,8 @@ function StatusDetails({ approved }: { approved: boolean }) {
   const t = useT();
   return (
     <div className="ca-status-details">
-      <div className="ca-status-item"><CaIcon name="checkCircle" />{t("Email and phone verified")}</div>
-      <div className="ca-status-item"><CaIcon name="checkCircle" />{t("Security PIN created")}</div>
+      <div className="ca-status-item"><CaIcon name="checkCircle" />{t("Email verified")}</div>
+      <div className="ca-status-item"><CaIcon name="checkCircle" />{t("Two-factor authentication on")}</div>
       <div className={`ca-status-item ${approved ? "" : "ca-pending"}`.trim()}>
         <CaIcon name={approved ? "checkCircle" : "clock"} />
         {t("Identity verification")}
@@ -106,13 +109,20 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
   const [phoneChallengeId, setPhoneChallengeId] = useState<string | null>(initial.phoneChallengeId);
   const [phoneCooldownUntil, setPhoneCooldownUntil] = useState(initial.phoneCooldownUntil);
   const [phoneCode, setPhoneCode] = useState("");
+  // 18.5: the password is never stored in the browser (only in this component's memory).
+  const [password, setPassword] = useState("");
+  const [passwordRepeat, setPasswordRepeat] = useState("");
+  // The security step: null follows the account (no factor -> choose; SMS without PIN -> pin).
+  const [factorStage, setFactorStage] = useState<"choose" | "app" | "sms" | "codes" | "pin" | null>(null);
+  const [chosenFactor, setChosenFactor] = useState<"app" | "sms">("app");
+  const [previewFactor, setPreviewFactor] = useState("");
   const [editingPhone, setEditingPhone] = useState(false);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [error, setError] = useState("");
   // Preview mode only: the Didit hand-off and result are simulated on this screen.
   const [previewKyc, setPreviewKyc] = useState<"not_started" | "pending" | "approved">("not_started");
   const registerMutation = useV1AuthRegisterNaturalPersonCreate();
-  const magicLinkMutation = useV1AuthMagicLinkRequestCreate();
+  const resendLinkMutation = useV1AuthRegisterResendLinkCreate();
   const phoneRequestMutation = useV1AuthPhoneRequestCreate();
   const phoneConfirmMutation = useV1AuthPhoneConfirmCreate();
   const kycSessionMutation = useV1KycSessionCreate();
@@ -183,17 +193,22 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kycStatus, step]);
 
+  // The security step follows the account until the investor acts in it.
+  const accountFactor = isFixturePreview ? previewFactor : sessionUser?.second_factor ?? "";
+  const securityStage =
+    factorStage ??
+    (accountFactor === "" ? "choose" : accountFactor === "sms" && (isFixturePreview ? false : sessionUser?.pin_set === false) ? "pin" : "done");
+
   useEffect(() => {
-    if (step === 1 && sessionUser?.phone_verified && normalizedEmail(sessionUser.email) === normalizedEmail(email)) {
+    // The email link opened in this browser: on to the second factor.
+    if (step === 1 && !isFixturePreview && sessionUser && normalizedEmail(sessionUser.email) === normalizedEmail(email)) {
       setStep(2);
-      setPhoneChallengeId(null);
-      setPhoneCooldownUntil(0);
     }
-    // The PIN step (ACC-DEC-009) is done once the account has a PIN.
-    if (step === 2 && sessionUser?.pin_set === true && normalizedEmail(sessionUser.email) === normalizedEmail(email)) {
+    // A factor (and, for SMS, the PIN) set up earlier: on to the identity check.
+    if (step === 2 && securityStage === "done" && (isFixturePreview || hasMatchingSession)) {
       setStep(3);
     }
-  }, [email, sessionUser, step]);
+  }, [email, hasMatchingSession, securityStage, sessionUser, step]);
 
   const goToStep = (next: number) => {
     setError("");
@@ -217,6 +232,11 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       setError(t("Enter a valid mobile number."));
       return;
     }
+    const problem = passwordProblem(password, passwordRepeat, email);
+    if (problem) {
+      setError(t(problem));
+      return;
+    }
     if (isFixturePreview) {
       goToStep(1);
       setEmailLoginSent(true);
@@ -234,6 +254,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       {
         data: {
           email: email.trim(),
+          password,
           full_name: `${firstName} ${lastName}`.trim(),
           phone_number: phoneNumber,
           terms_version: registrationTermsVersion,
@@ -249,6 +270,8 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       },
       {
         onSuccess: (response) => {
+          setPassword("");
+          setPasswordRepeat("");
           goToStep(1);
           setPhoneCode("");
           setPhoneChallengeId(null);
@@ -261,15 +284,16 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
     );
   };
 
-  // ---- Step 2: email link, then the SMS code ----------------------------------------------
+  // ---- Step 2: the email link -----------------------------------------------------------------
 
   const requestRegistrationMagicLink = () => {
     setError("");
     if (isFixturePreview) {
       setEmailLoginSent(true);
+      goToStep(2);
       return;
     }
-    magicLinkMutation.mutate(
+    resendLinkMutation.mutate(
       { data: { email: email.trim() } },
       {
         onSuccess: () => {
@@ -305,7 +329,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       onSuccess: (response) => {
         setEditingPhone(false);
         if (response.phone_verified) {
-          goToStep(2);
+          setFactorStage("codes");
           return;
         }
         setPhoneChallengeId(response.challenge_id);
@@ -331,7 +355,8 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       return;
     }
     if (isFixturePreview) {
-      goToStep(2);
+      setPreviewFactor("sms");
+      setFactorStage("codes");
       return;
     }
     if (!phoneChallengeId) {
@@ -342,7 +367,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       { data: { challenge_id: phoneChallengeId, code: phoneCode } },
       {
         onSuccess: () => {
-          goToStep(2);
+          setFactorStage("codes");
           setPhoneCooldownUntil(0);
         },
         onError: (mutationError) => setError(requestErrorText(mutationError))
@@ -350,10 +375,36 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
     );
   };
 
-  // ---- Step 3: PIN -------------------------------------------------------------------------
+  // ---- Step 3: second factor, recovery codes, PIN (SMS only) ----------------------------------
+
+  const chooseFactor = (factor: "app" | "sms") => {
+    setError("");
+    setChosenFactor(factor);
+    setFactorStage(factor);
+  };
+  const appDone = () => {
+    if (isFixturePreview) setPreviewFactor("app");
+    void authMeQuery.refetch();
+    setFactorStage("codes");
+  };
+  const codesDone = () => {
+    void authMeQuery.refetch();
+    if (chosenFactor === "sms") {
+      setFactorStage("pin");
+      return;
+    }
+    setFactorStage(null);
+    goToStep(3);
+  };
 
   // No email code at registration: the investor has just proved the email and the phone.
-  const pinFlow = useCreatePinFlow({ requiresEmailCode: false, onSaved: () => goToStep(3) });
+  const pinFlow = useCreatePinFlow({
+    requiresEmailCode: false,
+    onSaved: () => {
+      setFactorStage(null);
+      goToStep(3);
+    }
+  });
 
   // ---- Step 4: Didit -----------------------------------------------------------------------
 
@@ -374,6 +425,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       onError: (mutationError) => {
         // Identity verification needs the PIN first (ACC-DEC-009): back to the PIN step.
         if (pinApiError(mutationError)?.code === "pin_required") {
+          setFactorStage("pin");
           goToStep(2);
           return;
         }
@@ -434,6 +486,8 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
               <label htmlFor="register-email">{t("Email address")}</label>
               <input autoComplete="email" id="register-email" maxLength={120} onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
             </div>
+            <AuthPasswordField autoComplete="new-password" hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")} id="register-password" label={t("Password")} onChange={setPassword} value={password} />
+            <AuthPasswordField autoComplete="new-password" id="register-password-repeat" label={t("Repeat password")} onChange={setPasswordRepeat} value={passwordRepeat} />
             <div className="ca-field ca-phone-field">
               <label htmlFor="register-phone">{t("Mobile number")}</label>
               <div className="ca-phone-input">
@@ -505,17 +559,23 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
         <p className="ca-quiet-note">{t("Your acceptance is recorded with the document version, the time and the context. You find the accepted versions in Documents.")}</p>
       </AuthCard>
     );
-  } else if (step === 1 && !hasMatchingSession) {
+  } else if (step === 1) {
     content = (
-      <AuthCard icon="mail" intro={t("Open the link in your email to continue.")} title={t("Check your email")}>
+      <AuthCard icon="mail" intro={t("We sent a link to your email address. Open it to continue.")} title={t("Confirm your email")}>
         {hasDifferentSession ? (
           <CaError>{t("This browser is signed in as {current}. Open the link sent to {email} in this browser to continue this registration.", { current: sessionUser?.email ?? "", email })}</CaError>
         ) : null}
         <Recipient icon="mail" label={emailLoginSent ? t("Link sent to") : t("Email address")} value={email} />
         <p className="ca-email-note">{t("Use this browser to continue where you left off.")}</p>
         <CaError>{error || null}</CaError>
-        <button className="ca-secondary" disabled={!email.includes("@") || magicLinkMutation.isPending || emailCooldownSeconds > 0} onClick={requestRegistrationMagicLink} type="button">
-          {magicLinkMutation.isPending
+        {isFixturePreview ? (
+          <button className="ca-primary acc-auth-demo" onClick={() => goToStep(2)} type="button">
+            {t("Prototype: open the link")}
+            <CaIcon name="right" />
+          </button>
+        ) : null}
+        <button className="ca-secondary" disabled={!email.includes("@") || resendLinkMutation.isPending || emailCooldownSeconds > 0} onClick={requestRegistrationMagicLink} type="button">
+          {resendLinkMutation.isPending
             ? t("Sending...")
             : emailCooldownSeconds > 0
               ? t("Resend in {seconds}s", { seconds: emailCooldownSeconds })
@@ -527,7 +587,29 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
         <div className="ca-waiting"><CaIcon name="clock" />{t("Waiting for email confirmation")}</div>
       </AuthCard>
     );
-  } else if (step === 1 && !phoneChallengeId) {
+  } else if (step === 2 && securityStage === "choose") {
+    content = (
+      <AuthCard icon="shield" intro={t("Two-factor authentication is required. You need it to sign in, to invest and to change your bank account.")} title={t("Protect your account")}>
+        <FactorChoice onChoose={chooseFactor} phoneLabel={formatPhone(phoneCountryCode, phoneNationalNumber)} />
+        <p className="ca-quiet-note"><CaIcon name="check" /> {t("Email verified")}</p>
+      </AuthCard>
+    );
+  } else if (step === 2 && securityStage === "app") {
+    content = (
+      <AuthCard icon="shield" intro={t("Scan the code with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password), then enter the 6-digit code.")} title={t("Protect your account")}>
+        <AuthenticatorSetup onDone={appDone} />
+        <div className="ca-action-row">
+          <button className="ca-text-button" onClick={() => setFactorStage("choose")} type="button">{t("Choose another method")}</button>
+        </div>
+      </AuthCard>
+    );
+  } else if (step === 2 && securityStage === "codes") {
+    content = (
+      <AuthCard icon="lock" intro={t("Use one of these codes if you lose your phone. Each code works once. Store them where only you can find them.")} title={t("Save your recovery codes")}>
+        <RecoveryCodesStep onDone={codesDone} />
+      </AuthCard>
+    );
+  } else if (step === 2 && securityStage === "sms" && !phoneChallengeId) {
     content = (
       <AuthCard icon="phone" intro={t("We will send a six-digit code to your mobile.")} title={t("Verify your mobile number")}>
         {phoneRecipient}
@@ -538,10 +620,12 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
             : phoneCooldownSeconds > 0 ? t("Resend in {seconds}s", { seconds: phoneCooldownSeconds }) : t("Send SMS code")}
           <CaIcon name="right" />
         </button>
-        <p className="ca-quiet-note"><CaIcon name="check" /> {t("Email verified")}</p>
+        <div className="ca-action-row">
+          <button className="ca-text-button" onClick={() => setFactorStage("choose")} type="button">{t("Choose another method")}</button>
+        </div>
       </AuthCard>
     );
-  } else if (step === 1) {
+  } else if (step === 2 && securityStage === "sms") {
     content = (
       <AuthCard icon="phone" intro={t("Enter the six-digit code sent to your mobile.")} title={t("Enter your SMS code")}>
         {phoneRecipient}

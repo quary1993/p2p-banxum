@@ -164,3 +164,34 @@ def test_logout_api_is_idempotent_for_anonymous_session(client: Client) -> None:
 
     assert first_response.status_code == 204
     assert second_response.status_code == 204
+
+
+@pytest.mark.django_db
+def test_the_registration_link_can_be_sent_again_without_revealing_accounts(
+    client: Client, investor: User
+) -> None:
+    unknown = client.post(
+        "/api/v1/auth/register/resend-link/",
+        data={"email": "missing@example.test"},
+        content_type="application/json",
+    )
+    known = client.post(
+        "/api/v1/auth/register/resend-link/",
+        data={"email": investor.email},
+        content_type="application/json",
+        REMOTE_ADDR="198.51.100.40",
+    )
+
+    assert unknown.status_code == known.status_code == 202
+    assert EmailLoginToken.objects.filter(user=investor).count() == 1
+    # An account with a second factor gets no link.
+    give_sms_factor(investor)
+    EmailLoginToken.objects.all().delete()
+    again = client.post(
+        "/api/v1/auth/register/resend-link/",
+        data={"email": investor.email},
+        content_type="application/json",
+        REMOTE_ADDR="198.51.100.41",
+    )
+    assert again.status_code == 202
+    assert not EmailLoginToken.objects.exists()

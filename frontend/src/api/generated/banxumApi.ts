@@ -98,6 +98,7 @@ export interface UserSummary {
   readonly pin_set: boolean;
   /** @nullable */
   readonly pin_locked_until: string | null;
+  readonly second_factor: string;
 }
 
 export interface AccountAccessEvent {
@@ -130,7 +131,6 @@ export interface AccountAccessChangeResponse {
  * * `secondary_market_purchase` - secondary_market_purchase
  * * `pin_setup` - pin_setup
  * * `pin_change` - pin_change
- * * `pin_reset` - pin_reset
  */
 export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
 
@@ -144,7 +144,6 @@ export const ActionEnum = {
   secondary_market_purchase: 'secondary_market_purchase',
   pin_setup: 'pin_setup',
   pin_change: 'pin_change',
-  pin_reset: 'pin_reset',
 } as const;
 
 export interface ActivityEntry {
@@ -214,21 +213,13 @@ export interface AdminDashboardQueues {
   reconciliation_breaks: AdminDashboardQueueItem[];
 }
 
-export interface AdminLoginConfirmRequest {
+export interface AdminEnrollmentRequest {
   code_id: string;
   /** @pattern ^\d{6}$ */
+  email_code: string;
+  enrollment_id: string;
+  /** @pattern ^\d{6}$ */
   code: string;
-}
-
-export interface AdminLoginStartRequest {
-  email: string;
-  password: string;
-}
-
-export interface AdminLoginStartResponse {
-  code_id: string;
-  status: string;
-  expires_at: string;
 }
 
 export interface AdminLookupResult {
@@ -380,6 +371,23 @@ export interface AdminSecondaryMarketListingRow {
   loan_status: string;
   seller_email: string;
   seller_full_name: string;
+}
+
+export interface AdminSignInConfirmRequest {
+  challenge_id: string;
+  /** @pattern ^\d{6}$ */
+  code: string;
+}
+
+export interface AdminSignInStartResponse {
+  status: string;
+  challenge_id: string;
+  code_id: string;
+  /** @nullable */
+  expires_at: string | null;
+  enrollment_id: string;
+  secret: string;
+  otpauth_uri: string;
 }
 
 export interface AdminTask {
@@ -689,6 +697,49 @@ export const AmountCheckEnum = {
   closed: 'closed',
 } as const;
 
+export interface AssistedRecoveryCase {
+  id: string;
+  user_id: string;
+  user_email: string;
+  status: string;
+  request_note: string;
+  identity_evidence: string;
+  requested_by_admin_id: string;
+  identity_confirmed_by_admin_id: string;
+  approved_by_admin_id: string;
+  created_at: string;
+  /** @nullable */
+  wait_until: string | null;
+  /** @nullable */
+  link_sent_at: string | null;
+  /** @nullable */
+  completed_at: string | null;
+  /** @nullable */
+  cancelled_at: string | null;
+}
+
+export interface AssistedRecoveryCompleteRequest {
+  /** @maxLength 128 */
+  token: string;
+  /** @maxLength 128 */
+  new_password: string;
+}
+
+export interface AssistedRecoveryEvidenceRequest {
+  /** @maxLength 2000 */
+  evidence: string;
+}
+
+export interface AssistedRecoveryList {
+  results: AssistedRecoveryCase[];
+}
+
+export interface AssistedRecoveryOpenRequest {
+  user_id: string;
+  /** @maxLength 2000 */
+  note: string;
+}
+
 export interface AuditEvent {
   id: string;
   occurred_at: string;
@@ -701,8 +752,26 @@ export interface AuditEvent {
   metadata: unknown;
 }
 
+export interface AuthenticatedUser {
+  user: UserSummary;
+}
+
 export interface AuthenticatedUserResponse {
   user: UserSummary;
+}
+
+export interface AuthenticatorConfirmRequest {
+  enrollment_id: string;
+  /** @pattern ^\d{6}$ */
+  code: string;
+  /** @nullable */
+  confirmation_id?: string | null;
+}
+
+export interface AuthenticatorEnrollmentResponse {
+  enrollment_id: string;
+  secret: string;
+  otpauth_uri: string;
 }
 
 export interface BalanceAgeingForcedWithdrawalCandidate {
@@ -1565,6 +1634,10 @@ export const CategoryEnum = {
   risk_disclosure: 'risk_disclosure',
 } as const;
 
+export interface ChallengeRequest {
+  challenge_id: string;
+}
+
 /**
  * * `real_estate` - Real estate
  * * `corporate_guarantee` - Corporate guarantee
@@ -2021,6 +2094,24 @@ export interface ExposureBucket {
   currency: string;
   outstanding_principal_minor: number;
   holding_count: number;
+}
+
+/**
+ * The second factor of a pending step: a 6-digit code, or one recovery code.
+ */
+export interface FactorCodeRequest {
+  challenge_id: string;
+  /** @pattern ^\d{6}$ */
+  code?: string;
+  /** @maxLength 16 */
+  recovery_code?: string;
+}
+
+export interface FactorStepResponse {
+  status: string;
+  method: string;
+  challenge_id: string;
+  phone_last_digits: string;
 }
 
 export interface FxDeltaReport {
@@ -4721,6 +4812,8 @@ export interface MarketplaceLoanPreview {
 
 export interface NaturalPersonRegistrationRequest {
   email: string;
+  /** @maxLength 128 */
+  password: string;
   /** @maxLength 255 */
   full_name: string;
   /** @maxLength 32 */
@@ -4796,6 +4889,36 @@ export const NumberFormatEnum = {
   european: 'european',
   swiss: 'swiss',
 } as const;
+
+/**
+ * 18.5: the details the email code confirms. Each action takes one fixed set of fields:
+ * withdrawal (amount_minor, currency, iban); bank_account_change (currency, iban) or
+ * (instruction_id); fx (amount_minor, source_currency, target_currency); primary_investment
+ * (amount_minor, currency, loan_id); secondary_market_listing (holding_id, price_bps) or
+ * (listing_id, price_bps); secondary_market_purchase (amount_minor, currency, listing_id).
+ */
+export interface OperationDetails {
+  /** @minimum 1 */
+  amount_minor?: number;
+  /** @maxLength 3 */
+  currency?: string;
+  /** @maxLength 64 */
+  iban?: string;
+  /** @maxLength 3 */
+  source_currency?: string;
+  /** @maxLength 3 */
+  target_currency?: string;
+  /** @maxLength 64 */
+  loan_id?: string;
+  /** @maxLength 64 */
+  listing_id?: string;
+  /** @maxLength 64 */
+  holding_id?: string;
+  /** @maxLength 64 */
+  instruction_id?: string;
+  /** @minimum 0 */
+  price_bps?: number;
+}
 
 export interface OriginalLoanScheduleRow {
   installment_number: number;
@@ -5235,6 +5358,29 @@ export interface OriginatorSubscriptionResume {
   reason: string;
 }
 
+export interface PasswordChangeRequest {
+  /** @maxLength 128 */
+  new_password: string;
+  confirmation_id: string;
+}
+
+export interface PasswordForgotRequest {
+  email: string;
+}
+
+export interface PasswordResetCompleteRequest {
+  /** @maxLength 128 */
+  token: string;
+  /** @maxLength 128 */
+  new_password: string;
+  /** @maxLength 64 */
+  challenge_id?: string;
+  /** @pattern ^\d{6}$ */
+  code?: string;
+  /** @maxLength 16 */
+  recovery_code?: string;
+}
+
 export interface PatchedAdminTaskUpdateRequest {
   task_type?: AdminTaskTypeEnum;
   /** @maxLength 255 */
@@ -5526,9 +5672,6 @@ export interface PinErrorResponse {
 }
 
 export interface PinResetConfirmRequest {
-  sensitive_action_code_id: string;
-  /** @maxLength 32 */
-  sensitive_action_code: string;
   phone_challenge_id: string;
   /** @pattern ^\d{6}$ */
   phone_code: string;
@@ -5536,6 +5679,11 @@ export interface PinResetConfirmRequest {
   new_pin: string;
   /** @pattern ^\d{6}$ */
   new_pin_confirmation: string;
+}
+
+export interface PinResetStartRequest {
+  /** @maxLength 128 */
+  password: string;
 }
 
 export interface PinResetStartResponse {
@@ -5564,6 +5712,7 @@ export interface PinStatus {
   setup_requires_email_code: boolean;
   reset_available: boolean;
   phone_last_digits: string;
+  second_factor: string;
 }
 
 export interface PinStatusResponse {
@@ -6203,6 +6352,15 @@ export interface ReconciliationSnapshotCreateRequest {
   metadata?: unknown;
 }
 
+export interface RecoveryCodesRequest {
+  /** @nullable */
+  confirmation_id?: string | null;
+}
+
+export interface RecoveryCodesResponse {
+  codes: string[];
+}
+
 /**
  * * `redacted` - Redacted
  * * `full` - Full
@@ -6815,7 +6973,45 @@ export interface SecondaryMarketPurchaseRequest {
   pin: string;
 }
 
+export interface SecurityConfirmResponse {
+  confirmation_id: string;
+}
+
+export interface SecurityConfirmStartRequest {
+  /** @maxLength 128 */
+  password: string;
+}
+
+export interface TrustedDevice {
+  id: string;
+  device_label: string;
+  created_at: string;
+  expires_at: string;
+  /** @nullable */
+  last_used_at: string | null;
+}
+
+export interface SecurityRestriction {
+  reason: string;
+  ends_at: string;
+}
+
+export interface SecurityOverview {
+  second_factor: string;
+  phone_last_digits: string;
+  /** @nullable */
+  authenticator_added_at: string | null;
+  recovery_codes_remaining: number;
+  recovery_codes_issued: boolean;
+  password_set: boolean;
+  /** @nullable */
+  password_changed_at: string | null;
+  trusted_devices: TrustedDevice[];
+  restriction: SecurityRestriction | null;
+}
+
 export interface SensitiveActionCodeRequest {
+  operation?: OperationDetails;
   action: ActionEnum;
 }
 
@@ -6824,6 +7020,7 @@ export interface SensitiveActionCodeRequestResponse {
   action: string;
   status: string;
   expires_at: string;
+  operation_summary: string;
 }
 
 export interface SettlementCalendarConfirmRequest {
@@ -6895,6 +7092,8 @@ export interface SignInEvent {
   device_label: string;
   device_kind: string;
   country_code: string;
+  city?: string;
+  place?: string;
   method: string;
   result: string;
 }
@@ -6902,6 +7101,32 @@ export interface SignInEvent {
 export interface SignInHistoryResponse {
   events: SignInEvent[];
   retention_days: number;
+}
+
+export interface SignInRequest {
+  email: string;
+  /** @maxLength 128 */
+  password: string;
+}
+
+export interface SignInResponse {
+  status: string;
+  method: string;
+  challenge_id: string;
+  phone_last_digits: string;
+  user?: UserSummary | null;
+}
+
+/**
+ * The second factor of a pending step: a 6-digit code, or one recovery code.
+ */
+export interface SignInVerifyRequest {
+  challenge_id: string;
+  /** @pattern ^\d{6}$ */
+  code?: string;
+  /** @maxLength 16 */
+  recovery_code?: string;
+  trust_device?: boolean;
 }
 
 /**
@@ -7142,6 +7367,10 @@ export interface SmartInvestRuleSaveRequest {
   repayment?: SmartInvestRepaymentEnum[];
 }
 
+export interface StatusResponse {
+  status: string;
+}
+
 export interface StoryImage {
   id: string;
   url: string;
@@ -7154,6 +7383,11 @@ export interface StoryImage {
 
 export interface StoryImageUpload {
   file: string;
+}
+
+export interface TokenRequest {
+  /** @maxLength 128 */
+  token: string;
 }
 
 export interface TransactionEntry {
@@ -7196,6 +7430,13 @@ export interface TransactionPage {
   summary: TransactionSummary[];
 }
 
+export interface TwoFactorError {
+  detail: string;
+  code: string;
+  attempts_left?: number;
+  locked_until?: string;
+}
+
 /**
  * U33-DEC-25: one signed-in browser. The place is a country code, never GPS.
  */
@@ -7204,6 +7445,9 @@ export interface UserSession {
   device_label: string;
   device_kind: string;
   country_code: string;
+  city?: string;
+  /** Q06: 'City, CC (approximate)', the country alone, or empty. */
+  place?: string;
   method: string;
   started_at: string;
   last_activity_at: string;
@@ -11256,6 +11500,473 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AdminStoryImagesCreateMutationOptions(options), queryClient);
     }
 
+export const getV1AuthAccountRecoveryCompleteCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/account-recovery/complete/`
+}
+
+/**
+ * The single-use link after the 24-hour wait: a new password, then (signed in) a new
+ * second factor.
+ */
+export const v1AuthAccountRecoveryCompleteCreate = async (assistedRecoveryCompleteRequest: AssistedRecoveryCompleteRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AuthenticatedUser>(getV1AuthAccountRecoveryCompleteCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistedRecoveryCompleteRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthAccountRecoveryCompleteCreateMutationKey = () => ['v1AuthAccountRecoveryCompleteCreate'] as const;
+
+export const getV1AuthAccountRecoveryCompleteCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>, TError,V1AuthAccountRecoveryCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>, TError,V1AuthAccountRecoveryCompleteCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAccountRecoveryCompleteCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>, V1AuthAccountRecoveryCompleteCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAccountRecoveryCompleteCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAccountRecoveryCompleteCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>>
+    export type V1AuthAccountRecoveryCompleteCreateMutationBody = AssistedRecoveryCompleteRequest
+    export type V1AuthAccountRecoveryCompleteCreateMutationError = TwoFactorError
+    export type V1AuthAccountRecoveryCompleteCreateMutationVariables = {data: AssistedRecoveryCompleteRequest}
+
+    export const useV1AuthAccountRecoveryCompleteCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>, TError,V1AuthAccountRecoveryCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAccountRecoveryCompleteCreate>>,
+        TError,
+        V1AuthAccountRecoveryCompleteCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAccountRecoveryCompleteCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthAccountRecoveryNotMeCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/account-recovery/not-me/`
+}
+
+/**
+ * "This was not me": stops the recovery at once and alerts support.
+ */
+export const v1AuthAccountRecoveryNotMeCreate = async (tokenRequest: TokenRequest, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StatusResponse>(getV1AuthAccountRecoveryNotMeCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(tokenRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthAccountRecoveryNotMeCreateMutationKey = () => ['v1AuthAccountRecoveryNotMeCreate'] as const;
+
+export const getV1AuthAccountRecoveryNotMeCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>, TError,V1AuthAccountRecoveryNotMeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>, TError,V1AuthAccountRecoveryNotMeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAccountRecoveryNotMeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>, V1AuthAccountRecoveryNotMeCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAccountRecoveryNotMeCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAccountRecoveryNotMeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>>
+    export type V1AuthAccountRecoveryNotMeCreateMutationBody = TokenRequest
+    export type V1AuthAccountRecoveryNotMeCreateMutationError = TwoFactorError
+    export type V1AuthAccountRecoveryNotMeCreateMutationVariables = {data: TokenRequest}
+
+    export const useV1AuthAccountRecoveryNotMeCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>, TError,V1AuthAccountRecoveryNotMeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAccountRecoveryNotMeCreate>>,
+        TError,
+        V1AuthAccountRecoveryNotMeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAccountRecoveryNotMeCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthAdminAccountRecoveriesRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/auth/admin/account-recoveries/`
+}
+
+export const v1AuthAdminAccountRecoveriesRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryList> => {
+
+  return httpClient<AssistedRecoveryList>(getV1AuthAdminAccountRecoveriesRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/admin/account-recoveries/`
+    ] as const;
+    }
+
+
+export const getV1AuthAdminAccountRecoveriesRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthAdminAccountRecoveriesRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>> = ({ signal }) => v1AuthAdminAccountRecoveriesRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthAdminAccountRecoveriesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>>
+export type V1AuthAdminAccountRecoveriesRetrieveQueryError = unknown
+
+
+export function useV1AuthAdminAccountRecoveriesRetrieve<TData = Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthAdminAccountRecoveriesRetrieve<TData = Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthAdminAccountRecoveriesRetrieve<TData = Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthAdminAccountRecoveriesRetrieve<TData = Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthAdminAccountRecoveriesRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/admin/account-recoveries/`
+}
+
+export const v1AuthAdminAccountRecoveriesCreate = async (assistedRecoveryOpenRequest: AssistedRecoveryOpenRequest, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AssistedRecoveryCase>(getV1AuthAdminAccountRecoveriesCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistedRecoveryOpenRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesCreateMutationKey = () => ['v1AuthAdminAccountRecoveriesCreate'] as const;
+
+export const getV1AuthAdminAccountRecoveriesCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>, TError,V1AuthAdminAccountRecoveriesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>, TError,V1AuthAdminAccountRecoveriesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminAccountRecoveriesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>, V1AuthAdminAccountRecoveriesCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAdminAccountRecoveriesCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminAccountRecoveriesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>>
+    export type V1AuthAdminAccountRecoveriesCreateMutationBody = AssistedRecoveryOpenRequest
+    export type V1AuthAdminAccountRecoveriesCreateMutationError = TwoFactorError
+    export type V1AuthAdminAccountRecoveriesCreateMutationVariables = {data: AssistedRecoveryOpenRequest}
+
+    export const useV1AuthAdminAccountRecoveriesCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>, TError,V1AuthAdminAccountRecoveriesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesCreate>>,
+        TError,
+        V1AuthAdminAccountRecoveriesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminAccountRecoveriesCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthAdminAccountRecoveriesApproveCreateUrl = (caseId: string,) => {
+
+
+
+
+  return `/api/v1/auth/admin/account-recoveries/${caseId}/approve/`
+}
+
+export const v1AuthAdminAccountRecoveriesApproveCreate = async (caseId: string, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
+
+  return httpClient<AssistedRecoveryCase>(getV1AuthAdminAccountRecoveriesApproveCreateUrl(caseId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesApproveCreateMutationKey = () => ['v1AuthAdminAccountRecoveriesApproveCreate'] as const;
+
+export const getV1AuthAdminAccountRecoveriesApproveCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>, TError,V1AuthAdminAccountRecoveriesApproveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>, TError,V1AuthAdminAccountRecoveriesApproveCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminAccountRecoveriesApproveCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>, V1AuthAdminAccountRecoveriesApproveCreateMutationVariables> = (props) => {
+          const {caseId} = props ?? {};
+
+          return  v1AuthAdminAccountRecoveriesApproveCreate(caseId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminAccountRecoveriesApproveCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>>
+
+    export type V1AuthAdminAccountRecoveriesApproveCreateMutationError = TwoFactorError
+    export type V1AuthAdminAccountRecoveriesApproveCreateMutationVariables = {caseId: string}
+
+    export const useV1AuthAdminAccountRecoveriesApproveCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>, TError,V1AuthAdminAccountRecoveriesApproveCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesApproveCreate>>,
+        TError,
+        V1AuthAdminAccountRecoveriesApproveCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminAccountRecoveriesApproveCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateUrl = (caseId: string,) => {
+
+
+
+
+  return `/api/v1/auth/admin/account-recoveries/${caseId}/confirm-identity/`
+}
+
+export const v1AuthAdminAccountRecoveriesConfirmIdentityCreate = async (caseId: string,
+    assistedRecoveryEvidenceRequest: AssistedRecoveryEvidenceRequest, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AssistedRecoveryCase>(getV1AuthAdminAccountRecoveriesConfirmIdentityCreateUrl(caseId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistedRecoveryEvidenceRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationKey = () => ['v1AuthAdminAccountRecoveriesConfirmIdentityCreate'] as const;
+
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>, TError,V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>, TError,V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>, V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables> = (props) => {
+          const {caseId,data} = props ?? {};
+
+          return  v1AuthAdminAccountRecoveriesConfirmIdentityCreate(caseId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>>
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationBody = AssistedRecoveryEvidenceRequest
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationError = TwoFactorError
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables = {caseId: string;data: AssistedRecoveryEvidenceRequest}
+
+    export const useV1AuthAdminAccountRecoveriesConfirmIdentityCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>, TError,V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>,
+        TError,
+        V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AuthAdminLoginConfirmCreateUrl = () => {
 
 
@@ -11264,7 +11975,7 @@ export const getV1AuthAdminLoginConfirmCreateUrl = () => {
   return `/api/v1/auth/admin/login/confirm/`
 }
 
-export const v1AuthAdminLoginConfirmCreate = async (adminLoginConfirmRequest: AdminLoginConfirmRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
+export const v1AuthAdminLoginConfirmCreate = async (adminSignInConfirmRequest: AdminSignInConfirmRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -11277,7 +11988,7 @@ return httpClient<AuthenticatedUserResponse>(getV1AuthAdminLoginConfirmCreateUrl
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(adminLoginConfirmRequest)
+    body: JSON.stringify(adminSignInConfirmRequest)
   }
 );}
 
@@ -11287,7 +11998,7 @@ return httpClient<AuthenticatedUserResponse>(getV1AuthAdminLoginConfirmCreateUrl
 
 export const getV1AuthAdminLoginConfirmCreateMutationKey = () => ['v1AuthAdminLoginConfirmCreate'] as const;
 
-export const getV1AuthAdminLoginConfirmCreateMutationOptions = <TError = unknown,
+export const getV1AuthAdminLoginConfirmCreateMutationOptions = <TError = TwoFactorError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,V1AuthAdminLoginConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
 ): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,V1AuthAdminLoginConfirmCreateMutationVariables, TContext> => {
 
@@ -11315,11 +12026,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type V1AuthAdminLoginConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>>
-    export type V1AuthAdminLoginConfirmCreateMutationBody = AdminLoginConfirmRequest
-    export type V1AuthAdminLoginConfirmCreateMutationError = unknown
-    export type V1AuthAdminLoginConfirmCreateMutationVariables = {data: AdminLoginConfirmRequest}
+    export type V1AuthAdminLoginConfirmCreateMutationBody = AdminSignInConfirmRequest
+    export type V1AuthAdminLoginConfirmCreateMutationError = TwoFactorError
+    export type V1AuthAdminLoginConfirmCreateMutationVariables = {data: AdminSignInConfirmRequest}
 
-    export const useV1AuthAdminLoginConfirmCreate = <TError = unknown,
+    export const useV1AuthAdminLoginConfirmCreate = <TError = TwoFactorError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,V1AuthAdminLoginConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>,
@@ -11330,6 +12041,83 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AuthAdminLoginConfirmCreateMutationOptions(options), queryClient);
     }
 
+export const getV1AuthAdminLoginEnrollCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/admin/login/enroll/`
+}
+
+/**
+ * First admin sign-in (or after a reset): the email code and the first app code.
+ */
+export const v1AuthAdminLoginEnrollCreate = async (adminEnrollmentRequest: AdminEnrollmentRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AuthenticatedUserResponse>(getV1AuthAdminLoginEnrollCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminEnrollmentRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminLoginEnrollCreateMutationKey = () => ['v1AuthAdminLoginEnrollCreate'] as const;
+
+export const getV1AuthAdminLoginEnrollCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>, TError,V1AuthAdminLoginEnrollCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>, TError,V1AuthAdminLoginEnrollCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminLoginEnrollCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>, V1AuthAdminLoginEnrollCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAdminLoginEnrollCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminLoginEnrollCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>>
+    export type V1AuthAdminLoginEnrollCreateMutationBody = AdminEnrollmentRequest
+    export type V1AuthAdminLoginEnrollCreateMutationError = TwoFactorError
+    export type V1AuthAdminLoginEnrollCreateMutationVariables = {data: AdminEnrollmentRequest}
+
+    export const useV1AuthAdminLoginEnrollCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>, TError,V1AuthAdminLoginEnrollCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminLoginEnrollCreate>>,
+        TError,
+        V1AuthAdminLoginEnrollCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminLoginEnrollCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AuthAdminLoginStartCreateUrl = () => {
 
 
@@ -11338,7 +12126,7 @@ export const getV1AuthAdminLoginStartCreateUrl = () => {
   return `/api/v1/auth/admin/login/start/`
 }
 
-export const v1AuthAdminLoginStartCreate = async (adminLoginStartRequest: AdminLoginStartRequest, options?: Parameters<typeof httpClient>[1]): Promise<AdminLoginStartResponse> => {
+export const v1AuthAdminLoginStartCreate = async (signInRequest: SignInRequest, options?: Parameters<typeof httpClient>[1]): Promise<AdminSignInStartResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -11346,12 +12134,12 @@ export const v1AuthAdminLoginStartCreate = async (adminLoginStartRequest: AdminL
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return httpClient<AdminLoginStartResponse>(getV1AuthAdminLoginStartCreateUrl(),
+return httpClient<AdminSignInStartResponse>(getV1AuthAdminLoginStartCreateUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(adminLoginStartRequest)
+    body: JSON.stringify(signInRequest)
   }
 );}
 
@@ -11361,7 +12149,7 @@ return httpClient<AdminLoginStartResponse>(getV1AuthAdminLoginStartCreateUrl(),
 
 export const getV1AuthAdminLoginStartCreateMutationKey = () => ['v1AuthAdminLoginStartCreate'] as const;
 
-export const getV1AuthAdminLoginStartCreateMutationOptions = <TError = unknown,
+export const getV1AuthAdminLoginStartCreateMutationOptions = <TError = TwoFactorError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,V1AuthAdminLoginStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
 ): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,V1AuthAdminLoginStartCreateMutationVariables, TContext> => {
 
@@ -11389,11 +12177,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type V1AuthAdminLoginStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>>
-    export type V1AuthAdminLoginStartCreateMutationBody = AdminLoginStartRequest
-    export type V1AuthAdminLoginStartCreateMutationError = unknown
-    export type V1AuthAdminLoginStartCreateMutationVariables = {data: AdminLoginStartRequest}
+    export type V1AuthAdminLoginStartCreateMutationBody = SignInRequest
+    export type V1AuthAdminLoginStartCreateMutationError = TwoFactorError
+    export type V1AuthAdminLoginStartCreateMutationVariables = {data: SignInRequest}
 
-    export const useV1AuthAdminLoginStartCreate = <TError = unknown,
+    export const useV1AuthAdminLoginStartCreate = <TError = TwoFactorError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,V1AuthAdminLoginStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>,
@@ -11553,6 +12341,305 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AuthAdminUsersAccessCreateMutationOptions(options), queryClient);
     }
 
+export const getV1AuthAdminUsersAuthenticatorResetCreateUrl = (userId: string,) => {
+
+
+
+
+  return `/api/v1/auth/admin/users/${userId}/authenticator/reset/`
+}
+
+export const v1AuthAdminUsersAuthenticatorResetCreate = async (userId: string, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+  return httpClient<StatusResponse>(getV1AuthAdminUsersAuthenticatorResetCreateUrl(userId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminUsersAuthenticatorResetCreateMutationKey = () => ['v1AuthAdminUsersAuthenticatorResetCreate'] as const;
+
+export const getV1AuthAdminUsersAuthenticatorResetCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>, TError,V1AuthAdminUsersAuthenticatorResetCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>, TError,V1AuthAdminUsersAuthenticatorResetCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminUsersAuthenticatorResetCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>, V1AuthAdminUsersAuthenticatorResetCreateMutationVariables> = (props) => {
+          const {userId} = props ?? {};
+
+          return  v1AuthAdminUsersAuthenticatorResetCreate(userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminUsersAuthenticatorResetCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>>
+
+    export type V1AuthAdminUsersAuthenticatorResetCreateMutationError = TwoFactorError
+    export type V1AuthAdminUsersAuthenticatorResetCreateMutationVariables = {userId: string}
+
+    export const useV1AuthAdminUsersAuthenticatorResetCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>, TError,V1AuthAdminUsersAuthenticatorResetCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminUsersAuthenticatorResetCreate>>,
+        TError,
+        V1AuthAdminUsersAuthenticatorResetCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminUsersAuthenticatorResetCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthLoginCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/login/`
+}
+
+/**
+ * Step 1: email and password. Answers ``signed_in`` (remembered browser),
+ * ``factor_required`` (type the app or SMS code next) or ``enrollment_required`` (signed in;
+ * set up a second factor before anything else).
+ */
+export const v1AuthLoginCreate = async (signInRequest: SignInRequest, options?: Parameters<typeof httpClient>[1]): Promise<SignInResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<SignInResponse>(getV1AuthLoginCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(signInRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthLoginCreateMutationKey = () => ['v1AuthLoginCreate'] as const;
+
+export const getV1AuthLoginCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginCreate>>, TError,V1AuthLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginCreate>>, TError,V1AuthLoginCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthLoginCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthLoginCreate>>, V1AuthLoginCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthLoginCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthLoginCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthLoginCreate>>>
+    export type V1AuthLoginCreateMutationBody = SignInRequest
+    export type V1AuthLoginCreateMutationError = TwoFactorError
+    export type V1AuthLoginCreateMutationVariables = {data: SignInRequest}
+
+    export const useV1AuthLoginCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginCreate>>, TError,V1AuthLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthLoginCreate>>,
+        TError,
+        V1AuthLoginCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthLoginCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthLoginResendSmsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/login/resend-sms/`
+}
+
+export const v1AuthLoginResendSmsCreate = async (challengeRequest: ChallengeRequest, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StatusResponse>(getV1AuthLoginResendSmsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(challengeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthLoginResendSmsCreateMutationKey = () => ['v1AuthLoginResendSmsCreate'] as const;
+
+export const getV1AuthLoginResendSmsCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>, TError,V1AuthLoginResendSmsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>, TError,V1AuthLoginResendSmsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthLoginResendSmsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>, V1AuthLoginResendSmsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthLoginResendSmsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthLoginResendSmsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>>
+    export type V1AuthLoginResendSmsCreateMutationBody = ChallengeRequest
+    export type V1AuthLoginResendSmsCreateMutationError = TwoFactorError
+    export type V1AuthLoginResendSmsCreateMutationVariables = {data: ChallengeRequest}
+
+    export const useV1AuthLoginResendSmsCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>, TError,V1AuthLoginResendSmsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthLoginResendSmsCreate>>,
+        TError,
+        V1AuthLoginResendSmsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthLoginResendSmsCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthLoginVerifyCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/login/verify/`
+}
+
+/**
+ * Step 2: the app or SMS code, or a recovery code. ``trust_device`` remembers this
+ * browser for 30 days (the password is still asked).
+ */
+export const v1AuthLoginVerifyCreate = async (signInVerifyRequest: SignInVerifyRequest, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AuthenticatedUser>(getV1AuthLoginVerifyCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(signInVerifyRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthLoginVerifyCreateMutationKey = () => ['v1AuthLoginVerifyCreate'] as const;
+
+export const getV1AuthLoginVerifyCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>, TError,V1AuthLoginVerifyCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>, TError,V1AuthLoginVerifyCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthLoginVerifyCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>, V1AuthLoginVerifyCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthLoginVerifyCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthLoginVerifyCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>>
+    export type V1AuthLoginVerifyCreateMutationBody = SignInVerifyRequest
+    export type V1AuthLoginVerifyCreateMutationError = TwoFactorError
+    export type V1AuthLoginVerifyCreateMutationVariables = {data: SignInVerifyRequest}
+
+    export const useV1AuthLoginVerifyCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>, TError,V1AuthLoginVerifyCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthLoginVerifyCreate>>,
+        TError,
+        V1AuthLoginVerifyCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthLoginVerifyCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AuthLogoutCreateUrl = () => {
 
 
@@ -11619,154 +12706,6 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getV1AuthLogoutCreateMutationOptions(options), queryClient);
-    }
-
-export const getV1AuthMagicLinkConsumeCreateUrl = () => {
-
-
-
-
-  return `/api/v1/auth/magic-link/consume/`
-}
-
-export const v1AuthMagicLinkConsumeCreate = async (magicLinkConsume: MagicLinkConsume, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return httpClient<AuthenticatedUserResponse>(getV1AuthMagicLinkConsumeCreateUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(magicLinkConsume)
-  }
-);}
-
-
-
-
-
-export const getV1AuthMagicLinkConsumeCreateMutationKey = () => ['v1AuthMagicLinkConsumeCreate'] as const;
-
-export const getV1AuthMagicLinkConsumeCreateMutationOptions = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,V1AuthMagicLinkConsumeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
-): UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,V1AuthMagicLinkConsumeCreateMutationVariables, TContext> => {
-
-const mutationKey = getV1AuthMagicLinkConsumeCreateMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, V1AuthMagicLinkConsumeCreateMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  v1AuthMagicLinkConsumeCreate(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type V1AuthMagicLinkConsumeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>>
-    export type V1AuthMagicLinkConsumeCreateMutationBody = MagicLinkConsume
-    export type V1AuthMagicLinkConsumeCreateMutationError = unknown
-    export type V1AuthMagicLinkConsumeCreateMutationVariables = {data: MagicLinkConsume}
-
-    export const useV1AuthMagicLinkConsumeCreate = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,V1AuthMagicLinkConsumeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>,
-        TError,
-        V1AuthMagicLinkConsumeCreateMutationVariables,
-        TContext
-      > => {
-      return useMutation(getV1AuthMagicLinkConsumeCreateMutationOptions(options), queryClient);
-    }
-
-export const getV1AuthMagicLinkRequestCreateUrl = () => {
-
-
-
-
-  return `/api/v1/auth/magic-link/request/`
-}
-
-export const v1AuthMagicLinkRequestCreate = async (magicLinkRequest: MagicLinkRequest, options?: Parameters<typeof httpClient>[1]): Promise<void> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return httpClient<void>(getV1AuthMagicLinkRequestCreateUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(magicLinkRequest)
-  }
-);}
-
-
-
-
-
-export const getV1AuthMagicLinkRequestCreateMutationKey = () => ['v1AuthMagicLinkRequestCreate'] as const;
-
-export const getV1AuthMagicLinkRequestCreateMutationOptions = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,V1AuthMagicLinkRequestCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
-): UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,V1AuthMagicLinkRequestCreateMutationVariables, TContext> => {
-
-const mutationKey = getV1AuthMagicLinkRequestCreateMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, V1AuthMagicLinkRequestCreateMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  v1AuthMagicLinkRequestCreate(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type V1AuthMagicLinkRequestCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>>
-    export type V1AuthMagicLinkRequestCreateMutationBody = MagicLinkRequest
-    export type V1AuthMagicLinkRequestCreateMutationError = unknown
-    export type V1AuthMagicLinkRequestCreateMutationVariables = {data: MagicLinkRequest}
-
-    export const useV1AuthMagicLinkRequestCreate = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,V1AuthMagicLinkRequestCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>,
-        TError,
-        V1AuthMagicLinkRequestCreateMutationVariables,
-        TContext
-      > => {
-      return useMutation(getV1AuthMagicLinkRequestCreateMutationOptions(options), queryClient);
     }
 
 export const getV1AuthMeRetrieveUrl = () => {
@@ -11863,6 +12802,237 @@ export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRe
 
 
 
+
+export const getV1AuthPasswordForgotCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/password/forgot/`
+}
+
+/**
+ * Always answers 202 (no account enumeration); the link works once, for 30 minutes.
+ */
+export const v1AuthPasswordForgotCreate = async (passwordForgotRequest: PasswordForgotRequest, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StatusResponse>(getV1AuthPasswordForgotCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(passwordForgotRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPasswordForgotCreateMutationKey = () => ['v1AuthPasswordForgotCreate'] as const;
+
+export const getV1AuthPasswordForgotCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>, TError,V1AuthPasswordForgotCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>, TError,V1AuthPasswordForgotCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPasswordForgotCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>, V1AuthPasswordForgotCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPasswordForgotCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPasswordForgotCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>>
+    export type V1AuthPasswordForgotCreateMutationBody = PasswordForgotRequest
+    export type V1AuthPasswordForgotCreateMutationError = unknown
+    export type V1AuthPasswordForgotCreateMutationVariables = {data: PasswordForgotRequest}
+
+    export const useV1AuthPasswordForgotCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>, TError,V1AuthPasswordForgotCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPasswordForgotCreate>>,
+        TError,
+        V1AuthPasswordForgotCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPasswordForgotCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPasswordResetCompleteCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/password/reset/complete/`
+}
+
+/**
+ * The new password with the second factor (or a recovery code). All devices sign out.
+ */
+export const v1AuthPasswordResetCompleteCreate = async (passwordResetCompleteRequest: PasswordResetCompleteRequest, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StatusResponse>(getV1AuthPasswordResetCompleteCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(passwordResetCompleteRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPasswordResetCompleteCreateMutationKey = () => ['v1AuthPasswordResetCompleteCreate'] as const;
+
+export const getV1AuthPasswordResetCompleteCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>, TError,V1AuthPasswordResetCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>, TError,V1AuthPasswordResetCompleteCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPasswordResetCompleteCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>, V1AuthPasswordResetCompleteCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPasswordResetCompleteCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPasswordResetCompleteCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>>
+    export type V1AuthPasswordResetCompleteCreateMutationBody = PasswordResetCompleteRequest
+    export type V1AuthPasswordResetCompleteCreateMutationError = TwoFactorError
+    export type V1AuthPasswordResetCompleteCreateMutationVariables = {data: PasswordResetCompleteRequest}
+
+    export const useV1AuthPasswordResetCompleteCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>, TError,V1AuthPasswordResetCompleteCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPasswordResetCompleteCreate>>,
+        TError,
+        V1AuthPasswordResetCompleteCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPasswordResetCompleteCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthPasswordResetStartCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/password/reset/start/`
+}
+
+/**
+ * Open the link: the second factor is asked next (an SMS code is sent now).
+ */
+export const v1AuthPasswordResetStartCreate = async (tokenRequest: TokenRequest, options?: Parameters<typeof httpClient>[1]): Promise<FactorStepResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<FactorStepResponse>(getV1AuthPasswordResetStartCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(tokenRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthPasswordResetStartCreateMutationKey = () => ['v1AuthPasswordResetStartCreate'] as const;
+
+export const getV1AuthPasswordResetStartCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>, TError,V1AuthPasswordResetStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>, TError,V1AuthPasswordResetStartCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthPasswordResetStartCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>, V1AuthPasswordResetStartCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPasswordResetStartCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPasswordResetStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>>
+    export type V1AuthPasswordResetStartCreateMutationBody = TokenRequest
+    export type V1AuthPasswordResetStartCreateMutationError = TwoFactorError
+    export type V1AuthPasswordResetStartCreateMutationVariables = {data: TokenRequest}
+
+    export const useV1AuthPasswordResetStartCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>, TError,V1AuthPasswordResetStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPasswordResetStartCreate>>,
+        TError,
+        V1AuthPasswordResetStartCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthPasswordResetStartCreateMutationOptions(options), queryClient);
+    }
 
 export const getV1AuthPhoneConfirmCreateUrl = () => {
 
@@ -12095,7 +13265,7 @@ export const getV1AuthPinResetConfirmCreateUrl = () => {
 }
 
 /**
- * Forgot PIN, step 2: email code, SMS code and the new PIN twice; clears the lock.
+ * Forgot PIN, step 2: the SMS code and the new PIN twice; clears the lock.
  */
 export const v1AuthPinResetConfirmCreate = async (pinResetConfirmRequest: PinResetConfirmRequest, options?: Parameters<typeof httpClient>[1]): Promise<PinStatusResponse> => {
 
@@ -12172,17 +13342,23 @@ export const getV1AuthPinResetStartCreateUrl = () => {
 }
 
 /**
- * Forgot PIN, step 1: an SMS code to the verified phone (the email code is requested
- * through /auth/sensitive-action-code/request/ with ``pin_reset``).
+ * Forgot PIN, step 1 (18.5): the account password, then an SMS code to the verified
+ * phone.
  */
-export const v1AuthPinResetStartCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<PinResetStartResponse> => {
+export const v1AuthPinResetStartCreate = async (pinResetStartRequest: PinResetStartRequest, options?: Parameters<typeof httpClient>[1]): Promise<PinResetStartResponse> => {
 
-  return httpClient<PinResetStartResponse>(getV1AuthPinResetStartCreateUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<PinResetStartResponse>(getV1AuthPinResetStartCreateUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(pinResetStartRequest)
   }
 );}
 
@@ -12193,8 +13369,8 @@ export const v1AuthPinResetStartCreate = async ( options?: Parameters<typeof htt
 export const getV1AuthPinResetStartCreateMutationKey = () => ['v1AuthPinResetStartCreate'] as const;
 
 export const getV1AuthPinResetStartCreateMutationOptions = <TError = PinErrorResponse,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
-): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,V1AuthPinResetStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,V1AuthPinResetStartCreateMutationVariables, TContext> => {
 
 const mutationKey = getV1AuthPinResetStartCreateMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -12206,10 +13382,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, V1AuthPinResetStartCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  v1AuthPinResetStartCreate(requestOptions)
+          return  v1AuthPinResetStartCreate(data,requestOptions)
         }
 
 
@@ -12220,16 +13396,16 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type V1AuthPinResetStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>>
-
+    export type V1AuthPinResetStartCreateMutationBody = PinResetStartRequest
     export type V1AuthPinResetStartCreateMutationError = PinErrorResponse
-
+    export type V1AuthPinResetStartCreateMutationVariables = {data: PinResetStartRequest}
 
     export const useV1AuthPinResetStartCreate = <TError = PinErrorResponse,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>, TError,V1AuthPinResetStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof v1AuthPinResetStartCreate>>,
         TError,
-        void,
+        V1AuthPinResetStartCreateMutationVariables,
         TContext
       > => {
       return useMutation(getV1AuthPinResetStartCreateMutationOptions(options), queryClient);
@@ -12558,6 +13734,84 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AuthPreferencesMarketingPartialUpdateMutationOptions(options), queryClient);
     }
 
+export const getV1AuthRegisterConfirmEmailCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/register/confirm-email/`
+}
+
+/**
+ * 18.5: the link sent at registration confirms the email address and signs in, only
+ * while the account has no second factor yet (to set one up).
+ */
+export const v1AuthRegisterConfirmEmailCreate = async (magicLinkConsume: MagicLinkConsume, options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AuthenticatedUserResponse>(getV1AuthRegisterConfirmEmailCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(magicLinkConsume)
+  }
+);}
+
+
+
+
+
+export const getV1AuthRegisterConfirmEmailCreateMutationKey = () => ['v1AuthRegisterConfirmEmailCreate'] as const;
+
+export const getV1AuthRegisterConfirmEmailCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>, TError,V1AuthRegisterConfirmEmailCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>, TError,V1AuthRegisterConfirmEmailCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthRegisterConfirmEmailCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>, V1AuthRegisterConfirmEmailCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthRegisterConfirmEmailCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthRegisterConfirmEmailCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>>
+    export type V1AuthRegisterConfirmEmailCreateMutationBody = MagicLinkConsume
+    export type V1AuthRegisterConfirmEmailCreateMutationError = unknown
+    export type V1AuthRegisterConfirmEmailCreateMutationVariables = {data: MagicLinkConsume}
+
+    export const useV1AuthRegisterConfirmEmailCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>, TError,V1AuthRegisterConfirmEmailCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthRegisterConfirmEmailCreate>>,
+        TError,
+        V1AuthRegisterConfirmEmailCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthRegisterConfirmEmailCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AuthRegisterNaturalPersonCreateUrl = () => {
 
 
@@ -12630,6 +13884,778 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getV1AuthRegisterNaturalPersonCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthRegisterResendLinkCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/register/resend-link/`
+}
+
+/**
+ * 18.5: send the registration link again. Always 202 (no account enumeration); only an
+ * account without a second factor gets a link (the others sign in with the password).
+ */
+export const v1AuthRegisterResendLinkCreate = async (magicLinkRequest: MagicLinkRequest, options?: Parameters<typeof httpClient>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<void>(getV1AuthRegisterResendLinkCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(magicLinkRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthRegisterResendLinkCreateMutationKey = () => ['v1AuthRegisterResendLinkCreate'] as const;
+
+export const getV1AuthRegisterResendLinkCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>, TError,V1AuthRegisterResendLinkCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>, TError,V1AuthRegisterResendLinkCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthRegisterResendLinkCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>, V1AuthRegisterResendLinkCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthRegisterResendLinkCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthRegisterResendLinkCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>>
+    export type V1AuthRegisterResendLinkCreateMutationBody = MagicLinkRequest
+    export type V1AuthRegisterResendLinkCreateMutationError = unknown
+    export type V1AuthRegisterResendLinkCreateMutationVariables = {data: MagicLinkRequest}
+
+    export const useV1AuthRegisterResendLinkCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>, TError,V1AuthRegisterResendLinkCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthRegisterResendLinkCreate>>,
+        TError,
+        V1AuthRegisterResendLinkCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthRegisterResendLinkCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/`
+}
+
+export const v1AuthSecurityRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<SecurityOverview> => {
+
+  return httpClient<SecurityOverview>(getV1AuthSecurityRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/security/`
+    ] as const;
+    }
+
+
+export const getV1AuthSecurityRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthSecurityRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>> = ({ signal }) => v1AuthSecurityRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthSecurityRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>>
+export type V1AuthSecurityRetrieveQueryError = unknown
+
+
+export function useV1AuthSecurityRetrieve<TData = Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSecurityRetrieve<TData = Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthSecurityRetrieve<TData = Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthSecurityRetrieve<TData = Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthSecurityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthSecurityRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1AuthSecurityAuthenticatorConfirmCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/authenticator/confirm/`
+}
+
+/**
+ * The first code from the app activates it. An account with a factor needs a fresh
+ * security confirmation; the app then replaces the PIN and the SMS code (D-1).
+ */
+export const v1AuthSecurityAuthenticatorConfirmCreate = async (authenticatorConfirmRequest: AuthenticatorConfirmRequest, options?: Parameters<typeof httpClient>[1]): Promise<SecurityOverview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<SecurityOverview>(getV1AuthSecurityAuthenticatorConfirmCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(authenticatorConfirmRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityAuthenticatorConfirmCreateMutationKey = () => ['v1AuthSecurityAuthenticatorConfirmCreate'] as const;
+
+export const getV1AuthSecurityAuthenticatorConfirmCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>, TError,V1AuthSecurityAuthenticatorConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>, TError,V1AuthSecurityAuthenticatorConfirmCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityAuthenticatorConfirmCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>, V1AuthSecurityAuthenticatorConfirmCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityAuthenticatorConfirmCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityAuthenticatorConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>>
+    export type V1AuthSecurityAuthenticatorConfirmCreateMutationBody = AuthenticatorConfirmRequest
+    export type V1AuthSecurityAuthenticatorConfirmCreateMutationError = TwoFactorError
+    export type V1AuthSecurityAuthenticatorConfirmCreateMutationVariables = {data: AuthenticatorConfirmRequest}
+
+    export const useV1AuthSecurityAuthenticatorConfirmCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>, TError,V1AuthSecurityAuthenticatorConfirmCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorConfirmCreate>>,
+        TError,
+        V1AuthSecurityAuthenticatorConfirmCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityAuthenticatorConfirmCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityAuthenticatorStartCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/authenticator/start/`
+}
+
+/**
+ * A new app secret to scan (QR code from ``otpauth_uri``) or type.
+ */
+export const v1AuthSecurityAuthenticatorStartCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatorEnrollmentResponse> => {
+
+  return httpClient<AuthenticatorEnrollmentResponse>(getV1AuthSecurityAuthenticatorStartCreateUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityAuthenticatorStartCreateMutationKey = () => ['v1AuthSecurityAuthenticatorStartCreate'] as const;
+
+export const getV1AuthSecurityAuthenticatorStartCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>, TError,void, TContext> => {
+
+const mutationKey = getV1AuthSecurityAuthenticatorStartCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>, void> = () => {
+
+
+          return  v1AuthSecurityAuthenticatorStartCreate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityAuthenticatorStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>>
+
+    export type V1AuthSecurityAuthenticatorStartCreateMutationError = TwoFactorError
+
+
+    export const useV1AuthSecurityAuthenticatorStartCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityAuthenticatorStartCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityAuthenticatorStartCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityConfirmResendSmsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/confirm/resend-sms/`
+}
+
+export const v1AuthSecurityConfirmResendSmsCreate = async (challengeRequest: ChallengeRequest, options?: Parameters<typeof httpClient>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<StatusResponse>(getV1AuthSecurityConfirmResendSmsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(challengeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityConfirmResendSmsCreateMutationKey = () => ['v1AuthSecurityConfirmResendSmsCreate'] as const;
+
+export const getV1AuthSecurityConfirmResendSmsCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>, TError,V1AuthSecurityConfirmResendSmsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>, TError,V1AuthSecurityConfirmResendSmsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityConfirmResendSmsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>, V1AuthSecurityConfirmResendSmsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityConfirmResendSmsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityConfirmResendSmsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>>
+    export type V1AuthSecurityConfirmResendSmsCreateMutationBody = ChallengeRequest
+    export type V1AuthSecurityConfirmResendSmsCreateMutationError = TwoFactorError
+    export type V1AuthSecurityConfirmResendSmsCreateMutationVariables = {data: ChallengeRequest}
+
+    export const useV1AuthSecurityConfirmResendSmsCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>, TError,V1AuthSecurityConfirmResendSmsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityConfirmResendSmsCreate>>,
+        TError,
+        V1AuthSecurityConfirmResendSmsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityConfirmResendSmsCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityConfirmStartCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/confirm/start/`
+}
+
+/**
+ * A security change starts with the password; the factor is asked next.
+ */
+export const v1AuthSecurityConfirmStartCreate = async (securityConfirmStartRequest: SecurityConfirmStartRequest, options?: Parameters<typeof httpClient>[1]): Promise<FactorStepResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<FactorStepResponse>(getV1AuthSecurityConfirmStartCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(securityConfirmStartRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityConfirmStartCreateMutationKey = () => ['v1AuthSecurityConfirmStartCreate'] as const;
+
+export const getV1AuthSecurityConfirmStartCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>, TError,V1AuthSecurityConfirmStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>, TError,V1AuthSecurityConfirmStartCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityConfirmStartCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>, V1AuthSecurityConfirmStartCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityConfirmStartCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityConfirmStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>>
+    export type V1AuthSecurityConfirmStartCreateMutationBody = SecurityConfirmStartRequest
+    export type V1AuthSecurityConfirmStartCreateMutationError = TwoFactorError
+    export type V1AuthSecurityConfirmStartCreateMutationVariables = {data: SecurityConfirmStartRequest}
+
+    export const useV1AuthSecurityConfirmStartCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>, TError,V1AuthSecurityConfirmStartCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityConfirmStartCreate>>,
+        TError,
+        V1AuthSecurityConfirmStartCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityConfirmStartCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityConfirmVerifyCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/confirm/verify/`
+}
+
+/**
+ * The factor of a security change; answers a confirmation valid 10 minutes, once.
+ */
+export const v1AuthSecurityConfirmVerifyCreate = async (factorCodeRequest: FactorCodeRequest, options?: Parameters<typeof httpClient>[1]): Promise<SecurityConfirmResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<SecurityConfirmResponse>(getV1AuthSecurityConfirmVerifyCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(factorCodeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityConfirmVerifyCreateMutationKey = () => ['v1AuthSecurityConfirmVerifyCreate'] as const;
+
+export const getV1AuthSecurityConfirmVerifyCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>, TError,V1AuthSecurityConfirmVerifyCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>, TError,V1AuthSecurityConfirmVerifyCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityConfirmVerifyCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>, V1AuthSecurityConfirmVerifyCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityConfirmVerifyCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityConfirmVerifyCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>>
+    export type V1AuthSecurityConfirmVerifyCreateMutationBody = FactorCodeRequest
+    export type V1AuthSecurityConfirmVerifyCreateMutationError = TwoFactorError
+    export type V1AuthSecurityConfirmVerifyCreateMutationVariables = {data: FactorCodeRequest}
+
+    export const useV1AuthSecurityConfirmVerifyCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>, TError,V1AuthSecurityConfirmVerifyCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityConfirmVerifyCreate>>,
+        TError,
+        V1AuthSecurityConfirmVerifyCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityConfirmVerifyCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityPasswordCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/password/`
+}
+
+/**
+ * Changing the password signs out the other devices and forgets remembered browsers.
+ */
+export const v1AuthSecurityPasswordCreate = async (passwordChangeRequest: PasswordChangeRequest, options?: Parameters<typeof httpClient>[1]): Promise<SecurityOverview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<SecurityOverview>(getV1AuthSecurityPasswordCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(passwordChangeRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityPasswordCreateMutationKey = () => ['v1AuthSecurityPasswordCreate'] as const;
+
+export const getV1AuthSecurityPasswordCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>, TError,V1AuthSecurityPasswordCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>, TError,V1AuthSecurityPasswordCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityPasswordCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>, V1AuthSecurityPasswordCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityPasswordCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityPasswordCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>>
+    export type V1AuthSecurityPasswordCreateMutationBody = PasswordChangeRequest
+    export type V1AuthSecurityPasswordCreateMutationError = TwoFactorError
+    export type V1AuthSecurityPasswordCreateMutationVariables = {data: PasswordChangeRequest}
+
+    export const useV1AuthSecurityPasswordCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>, TError,V1AuthSecurityPasswordCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityPasswordCreate>>,
+        TError,
+        V1AuthSecurityPasswordCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityPasswordCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityRecoveryCodesCreateUrl = () => {
+
+
+
+
+  return `/api/v1/auth/security/recovery-codes/`
+}
+
+/**
+ * 10 new recovery codes, shown once; older unused codes stop working.
+ */
+export const v1AuthSecurityRecoveryCodesCreate = async (recoveryCodesRequest?: RecoveryCodesRequest, options?: Parameters<typeof httpClient>[1]): Promise<RecoveryCodesResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<RecoveryCodesResponse>(getV1AuthSecurityRecoveryCodesCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(recoveryCodesRequest)
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityRecoveryCodesCreateMutationKey = () => ['v1AuthSecurityRecoveryCodesCreate'] as const;
+
+export const getV1AuthSecurityRecoveryCodesCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>, TError,V1AuthSecurityRecoveryCodesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>, TError,V1AuthSecurityRecoveryCodesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityRecoveryCodesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>, V1AuthSecurityRecoveryCodesCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthSecurityRecoveryCodesCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityRecoveryCodesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>>
+    export type V1AuthSecurityRecoveryCodesCreateMutationBody = RecoveryCodesRequest | undefined
+    export type V1AuthSecurityRecoveryCodesCreateMutationError = TwoFactorError
+    export type V1AuthSecurityRecoveryCodesCreateMutationVariables = {data?: RecoveryCodesRequest}
+
+    export const useV1AuthSecurityRecoveryCodesCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>, TError,V1AuthSecurityRecoveryCodesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityRecoveryCodesCreate>>,
+        TError,
+        V1AuthSecurityRecoveryCodesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityRecoveryCodesCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthSecurityTrustedDevicesRevokeCreateUrl = (deviceId: string,) => {
+
+
+
+
+  return `/api/v1/auth/security/trusted-devices/${deviceId}/revoke/`
+}
+
+export const v1AuthSecurityTrustedDevicesRevokeCreate = async (deviceId: string, options?: Parameters<typeof httpClient>[1]): Promise<SecurityOverview> => {
+
+  return httpClient<SecurityOverview>(getV1AuthSecurityTrustedDevicesRevokeCreateUrl(deviceId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthSecurityTrustedDevicesRevokeCreateMutationKey = () => ['v1AuthSecurityTrustedDevicesRevokeCreate'] as const;
+
+export const getV1AuthSecurityTrustedDevicesRevokeCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>, TError,V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>, TError,V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthSecurityTrustedDevicesRevokeCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>, V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables> = (props) => {
+          const {deviceId} = props ?? {};
+
+          return  v1AuthSecurityTrustedDevicesRevokeCreate(deviceId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthSecurityTrustedDevicesRevokeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>>
+
+    export type V1AuthSecurityTrustedDevicesRevokeCreateMutationError = unknown
+    export type V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables = {deviceId: string}
+
+    export const useV1AuthSecurityTrustedDevicesRevokeCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>, TError,V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthSecurityTrustedDevicesRevokeCreate>>,
+        TError,
+        V1AuthSecurityTrustedDevicesRevokeCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthSecurityTrustedDevicesRevokeCreateMutationOptions(options), queryClient);
     }
 
 export const getV1AuthSensitiveActionCodeRequestCreateUrl = () => {
@@ -28636,45 +30662,91 @@ export const getV1AdminSettlementCalendarsDaysRemoveCreateResponseMock = (overri
 
 export const getV1AdminStoryImagesCreateResponseMock = (overrideResponse: Partial<Extract<StoryImage, object>> = {}): StoryImage => ({id: faker.string.uuid(), url: faker.string.alpha({length: {min: 10, max: 20}}), width: faker.number.int(), height: faker.number.int(), byte_size: faker.number.int(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAccountRecoveryCompleteCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUser, object>> = {}): AuthenticatedUser => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial<Extract<AdminLoginStartResponse, object>> = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1AuthAccountRecoveryNotMeCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesRetrieveResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryList, object>> = {}): AssistedRecoveryList => ({results: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
 
-export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
-export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesApproveCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
-export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthAdminLoginEnrollCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial<Extract<AdminSignInStartResponse, object>> = {}): AdminSignInStartResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), challenge_id: faker.string.alpha({length: {min: 10, max: 20}}), code_id: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), enrollment_id: faker.string.alpha({length: {min: 10, max: 20}}), secret: faker.string.alpha({length: {min: 10, max: 20}}), otpauth_uri: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial<Extract<AccountAccessChangeResponse, object>> = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, ...overrideResponse})
+
+export const getV1AuthAdminUsersAuthenticatorResetCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthLoginCreateResponseMock = (overrideResponse: Partial<Extract<SignInResponse, object>> = {}): SignInResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), challenge_id: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), user: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})},null,]), undefined]), ...overrideResponse})
+
+export const getV1AuthLoginResendSmsCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthLoginVerifyCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUser, object>> = {}): AuthenticatedUser => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
+
+export const getV1AuthPasswordForgotCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthPasswordResetCompleteCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthPasswordResetStartCreateResponseMock = (overrideResponse: Partial<Extract<FactorStepResponse, object>> = {}): FactorStepResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), challenge_id: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
 export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationRequestResponse, object>> = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1AuthPinChangeCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+export const getV1AuthPinChangeCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthPinResetConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+export const getV1AuthPinResetConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
 export const getV1AuthPinResetStartCreateResponseMock = (overrideResponse: Partial<Extract<PinResetStartResponse, object>> = {}): PinResetStartResponse => ({phone_challenge_id: faker.string.uuid(), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1AuthPinSetCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+export const getV1AuthPinSetCreateResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthPinStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+export const getV1AuthPinStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<PinStatusResponse, object>> = {}): PinStatusResponse => ({pin: {pin_set: faker.datatype.boolean(), locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), attempts_left: faker.number.int(), max_attempts: faker.number.int(), setup_requires_email_code: faker.datatype.boolean(), reset_available: faker.datatype.boolean(), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthPreferencesDisplayPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthPreferencesDisplayPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
-export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])}, ...overrideResponse})
+export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+
+export const getV1AuthRegisterConfirmEmailCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial<Extract<NaturalPersonRegistrationResponse, object>> = {}): NaturalPersonRegistrationResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), email_login_sent: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial<Extract<SensitiveActionCodeRequestResponse, object>> = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1AuthSecurityRetrieveResponseMock = (overrideResponse: Partial<Extract<SecurityOverview, object>> = {}): SecurityOverview => ({second_factor: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), authenticator_added_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), recovery_codes_remaining: faker.number.int(), recovery_codes_issued: faker.datatype.boolean(), password_set: faker.datatype.boolean(), password_changed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), trusted_devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), device_label: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_used_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), restriction: faker.helpers.arrayElement([{reason: faker.string.alpha({length: {min: 10, max: 20}}), ends_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), ...overrideResponse})
 
-export const getV1AuthSessionsRetrieveResponseMock = (overrideResponse: Partial<Extract<UserSessionsResponse, object>> = {}): UserSessionsResponse => ({sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_activity_at: faker.date.past().toISOString().slice(0, 19) + 'Z', current: faker.datatype.boolean()})), ...overrideResponse})
+export const getV1AuthSecurityAuthenticatorConfirmCreateResponseMock = (overrideResponse: Partial<Extract<SecurityOverview, object>> = {}): SecurityOverview => ({second_factor: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), authenticator_added_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), recovery_codes_remaining: faker.number.int(), recovery_codes_issued: faker.datatype.boolean(), password_set: faker.datatype.boolean(), password_changed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), trusted_devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), device_label: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_used_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), restriction: faker.helpers.arrayElement([{reason: faker.string.alpha({length: {min: 10, max: 20}}), ends_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), ...overrideResponse})
+
+export const getV1AuthSecurityAuthenticatorStartCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatorEnrollmentResponse, object>> = {}): AuthenticatorEnrollmentResponse => ({enrollment_id: faker.string.alpha({length: {min: 10, max: 20}}), secret: faker.string.alpha({length: {min: 10, max: 20}}), otpauth_uri: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthSecurityConfirmResendSmsCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthSecurityConfirmStartCreateResponseMock = (overrideResponse: Partial<Extract<FactorStepResponse, object>> = {}): FactorStepResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), challenge_id: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthSecurityConfirmVerifyCreateResponseMock = (overrideResponse: Partial<Extract<SecurityConfirmResponse, object>> = {}): SecurityConfirmResponse => ({confirmation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthSecurityPasswordCreateResponseMock = (overrideResponse: Partial<Extract<SecurityOverview, object>> = {}): SecurityOverview => ({second_factor: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), authenticator_added_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), recovery_codes_remaining: faker.number.int(), recovery_codes_issued: faker.datatype.boolean(), password_set: faker.datatype.boolean(), password_changed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), trusted_devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), device_label: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_used_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), restriction: faker.helpers.arrayElement([{reason: faker.string.alpha({length: {min: 10, max: 20}}), ends_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), ...overrideResponse})
+
+export const getV1AuthSecurityRecoveryCodesCreateResponseMock = (overrideResponse: Partial<Extract<RecoveryCodesResponse, object>> = {}): RecoveryCodesResponse => ({codes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), ...overrideResponse})
+
+export const getV1AuthSecurityTrustedDevicesRevokeCreateResponseMock = (overrideResponse: Partial<Extract<SecurityOverview, object>> = {}): SecurityOverview => ({second_factor: faker.string.alpha({length: {min: 10, max: 20}}), phone_last_digits: faker.string.alpha({length: {min: 10, max: 20}}), authenticator_added_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), recovery_codes_remaining: faker.number.int(), recovery_codes_issued: faker.datatype.boolean(), password_set: faker.datatype.boolean(), password_changed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), trusted_devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), device_label: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_used_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), restriction: faker.helpers.arrayElement([{reason: faker.string.alpha({length: {min: 10, max: 20}}), ends_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), ...overrideResponse})
+
+export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial<Extract<SensitiveActionCodeRequestResponse, object>> = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', operation_summary: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AuthSessionsRetrieveResponseMock = (overrideResponse: Partial<Extract<UserSessionsResponse, object>> = {}): UserSessionsResponse => ({sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_activity_at: faker.date.past().toISOString().slice(0, 19) + 'Z', current: faker.datatype.boolean()})), ...overrideResponse})
 
 export const getV1AuthSessionsRevokeOthersCreateResponseMock = (overrideResponse: Partial<Extract<RevokeOtherSessionsResponse, object>> = {}): RevokeOtherSessionsResponse => ({sessions_ended: faker.number.int(), ...overrideResponse})
 
-export const getV1AuthSignInHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<SignInHistoryResponse, object>> = {}): SignInHistoryResponse => ({events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}})})), retention_days: faker.number.int(), ...overrideResponse})
+export const getV1AuthSignInHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<SignInHistoryResponse, object>> = {}): SignInHistoryResponse => ({events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}})})), retention_days: faker.number.int(), ...overrideResponse})
 
 export const getV1DocumentsAcceptancesCreateResponseMock = (overrideResponse: Partial<Extract<DocumentAcceptanceEvidence, object>> = {}): DocumentAcceptanceEvidence => ({id: faker.string.uuid(), user_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_id: faker.string.uuid(), template_version_id: faker.string.uuid(), template_version_number: faker.number.int(), template_hash: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.string.alpha({length: {min: 10, max: 20}}), context_id: faker.string.alpha({length: {min: 10, max: 20}}), accepted_checkbox_labels: {}, data_snapshot: {
         [faker.string.alphanumeric(5)]: {}
@@ -29429,6 +31501,78 @@ export const getV1AdminStoryImagesCreateMockHandler = (overrideResponse?: StoryI
   }, options)
 }
 
+export const getV1AuthAccountRecoveryCompleteCreateMockHandler = (overrideResponse?: AuthenticatedUser | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUser> | AuthenticatedUser), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/account-recovery/complete/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAccountRecoveryCompleteCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAccountRecoveryNotMeCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/account-recovery/not-me/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAccountRecoveryNotMeCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAdminAccountRecoveriesRetrieveMockHandler = (overrideResponse?: AssistedRecoveryList | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AssistedRecoveryList> | AssistedRecoveryList), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/admin/account-recoveries/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminAccountRecoveriesRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAdminAccountRecoveriesCreateMockHandler = (overrideResponse?: AssistedRecoveryCase | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AssistedRecoveryCase> | AssistedRecoveryCase), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/account-recoveries/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminAccountRecoveriesCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1AuthAdminAccountRecoveriesApproveCreateMockHandler = (overrideResponse?: AssistedRecoveryCase | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AssistedRecoveryCase> | AssistedRecoveryCase), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/account-recoveries/:caseId/approve/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminAccountRecoveriesApproveCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMockHandler = (overrideResponse?: AssistedRecoveryCase | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AssistedRecoveryCase> | AssistedRecoveryCase), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/account-recoveries/:caseId/confirm-identity/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminAccountRecoveriesConfirmIdentityCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/confirm/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -29441,7 +31585,19 @@ export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: A
   }, options)
 }
 
-export const getV1AuthAdminLoginStartCreateMockHandler = (overrideResponse?: AdminLoginStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminLoginStartResponse> | AdminLoginStartResponse), options?: RequestHandlerOptions) => {
+export const getV1AuthAdminLoginEnrollCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/login/enroll/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminLoginEnrollCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAdminLoginStartCreateMockHandler = (overrideResponse?: AdminSignInStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminSignInStartResponse> | AdminSignInStartResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/start/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
@@ -29477,34 +31633,60 @@ export const getV1AuthAdminUsersAccessCreateMockHandler = (overrideResponse?: Ac
   }, options)
 }
 
+export const getV1AuthAdminUsersAuthenticatorResetCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/users/:userId/authenticator/reset/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminUsersAuthenticatorResetCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthLoginCreateMockHandler = (overrideResponse?: SignInResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SignInResponse> | SignInResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/login/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthLoginCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthLoginResendSmsCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/login/resend-sms/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthLoginResendSmsCreateResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthLoginVerifyCreateMockHandler = (overrideResponse?: AuthenticatedUser | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUser> | AuthenticatedUser), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/login/verify/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthLoginVerifyCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1AuthLogoutCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/logout/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
 
     return new HttpResponse(null,
       { status: 204
-      })
-  }, options)
-}
-
-export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
-  return http.post('*/api/v1/auth/magic-link/consume/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getV1AuthMagicLinkConsumeCreateResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
-export const getV1AuthMagicLinkRequestCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
-  return http.post('*/api/v1/auth/magic-link/request/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-
-    return new HttpResponse(null,
-      { status: 202
       })
   }, options)
 }
@@ -29516,6 +31698,42 @@ export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: CurrentUserRes
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthMeRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthPasswordForgotCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/password/forgot/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPasswordForgotCreateResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthPasswordResetCompleteCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/password/reset/complete/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPasswordResetCompleteCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthPasswordResetStartCreateMockHandler = (overrideResponse?: FactorStepResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<FactorStepResponse> | FactorStepResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/password/reset/start/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPasswordResetStartCreateResponseMock(),
       { status: 200
       })
   }, options)
@@ -29629,6 +31847,18 @@ export const getV1AuthPreferencesMarketingPartialUpdateMockHandler = (overrideRe
   }, options)
 }
 
+export const getV1AuthRegisterConfirmEmailCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/register/confirm-email/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthRegisterConfirmEmailCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse?: NaturalPersonRegistrationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NaturalPersonRegistrationResponse> | NaturalPersonRegistrationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/register/natural-person/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -29637,6 +31867,124 @@ export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthRegisterNaturalPersonCreateResponseMock(),
       { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthRegisterResendLinkCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/register/resend-link/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityRetrieveMockHandler = (overrideResponse?: SecurityOverview | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SecurityOverview> | SecurityOverview), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/security/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityAuthenticatorConfirmCreateMockHandler = (overrideResponse?: SecurityOverview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecurityOverview> | SecurityOverview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/authenticator/confirm/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityAuthenticatorConfirmCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityAuthenticatorStartCreateMockHandler = (overrideResponse?: AuthenticatorEnrollmentResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatorEnrollmentResponse> | AuthenticatorEnrollmentResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/authenticator/start/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityAuthenticatorStartCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityConfirmResendSmsCreateMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/confirm/resend-sms/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityConfirmResendSmsCreateResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityConfirmStartCreateMockHandler = (overrideResponse?: FactorStepResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<FactorStepResponse> | FactorStepResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/confirm/start/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityConfirmStartCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityConfirmVerifyCreateMockHandler = (overrideResponse?: SecurityConfirmResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecurityConfirmResponse> | SecurityConfirmResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/confirm/verify/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityConfirmVerifyCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityPasswordCreateMockHandler = (overrideResponse?: SecurityOverview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecurityOverview> | SecurityOverview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/password/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityPasswordCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityRecoveryCodesCreateMockHandler = (overrideResponse?: RecoveryCodesResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<RecoveryCodesResponse> | RecoveryCodesResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/recovery-codes/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityRecoveryCodesCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthSecurityTrustedDevicesRevokeCreateMockHandler = (overrideResponse?: SecurityOverview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecurityOverview> | SecurityOverview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/security/trusted-devices/:deviceId/revoke/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthSecurityTrustedDevicesRevokeCreateResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -31933,14 +34281,26 @@ export const getBanxumApiMock = () => [
   getV1AdminSettlementCalendarsDaysCreateMockHandler(),
   getV1AdminSettlementCalendarsDaysRemoveCreateMockHandler(),
   getV1AdminStoryImagesCreateMockHandler(),
+  getV1AuthAccountRecoveryCompleteCreateMockHandler(),
+  getV1AuthAccountRecoveryNotMeCreateMockHandler(),
+  getV1AuthAdminAccountRecoveriesRetrieveMockHandler(),
+  getV1AuthAdminAccountRecoveriesCreateMockHandler(),
+  getV1AuthAdminAccountRecoveriesApproveCreateMockHandler(),
+  getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
+  getV1AuthAdminLoginEnrollCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),
   getV1AuthAdminUsersAccessCreateMockHandler(),
+  getV1AuthAdminUsersAuthenticatorResetCreateMockHandler(),
+  getV1AuthLoginCreateMockHandler(),
+  getV1AuthLoginResendSmsCreateMockHandler(),
+  getV1AuthLoginVerifyCreateMockHandler(),
   getV1AuthLogoutCreateMockHandler(),
-  getV1AuthMagicLinkConsumeCreateMockHandler(),
-  getV1AuthMagicLinkRequestCreateMockHandler(),
   getV1AuthMeRetrieveMockHandler(),
+  getV1AuthPasswordForgotCreateMockHandler(),
+  getV1AuthPasswordResetCompleteCreateMockHandler(),
+  getV1AuthPasswordResetStartCreateMockHandler(),
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthPinChangeCreateMockHandler(),
@@ -31950,7 +34310,18 @@ export const getBanxumApiMock = () => [
   getV1AuthPinStatusRetrieveMockHandler(),
   getV1AuthPreferencesDisplayPartialUpdateMockHandler(),
   getV1AuthPreferencesMarketingPartialUpdateMockHandler(),
+  getV1AuthRegisterConfirmEmailCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
+  getV1AuthRegisterResendLinkCreateMockHandler(),
+  getV1AuthSecurityRetrieveMockHandler(),
+  getV1AuthSecurityAuthenticatorConfirmCreateMockHandler(),
+  getV1AuthSecurityAuthenticatorStartCreateMockHandler(),
+  getV1AuthSecurityConfirmResendSmsCreateMockHandler(),
+  getV1AuthSecurityConfirmStartCreateMockHandler(),
+  getV1AuthSecurityConfirmVerifyCreateMockHandler(),
+  getV1AuthSecurityPasswordCreateMockHandler(),
+  getV1AuthSecurityRecoveryCodesCreateMockHandler(),
+  getV1AuthSecurityTrustedDevicesRevokeCreateMockHandler(),
   getV1AuthSensitiveActionCodeRequestCreateMockHandler(),
   getV1AuthSessionsRetrieveMockHandler(),
   getV1AuthSessionsRevokeCreateMockHandler(),

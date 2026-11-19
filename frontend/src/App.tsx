@@ -61,7 +61,9 @@ import { AuthLoading } from "./portal/screens/account/auth/AuthLayout";
 import { loginFlowStorageKey, registerFlowStorageKey } from "./portal/screens/account/auth/authState";
 import { KycReturnScreen } from "./portal/screens/account/auth/KycReturnScreen";
 import { LoginScreen } from "./portal/screens/account/auth/LoginScreen";
+import { FactorGateScreen } from "./portal/screens/account/auth/FactorGateScreen";
 import { PinGateScreen } from "./portal/screens/account/auth/PinGateScreen";
+import { AccountRecoveryScreen, ResetPasswordScreen } from "./portal/screens/account/auth/RecoveryScreens";
 import { RegisterScreen } from "./portal/screens/account/auth/RegisterScreen";
 import { HelpScreen } from "./portal/screens/account/HelpScreen";
 import { KycStatusScreen, VerificationLoading } from "./portal/screens/account/KycStatusScreen";
@@ -90,6 +92,7 @@ import { ReportsScreen } from "./portal/screens/wallet/ReportsScreen";
 import { TransactionsScreen } from "./portal/screens/wallet/TransactionsScreen";
 import { U33Skin } from "./portal/U33Skin";
 import { UserSkin } from "./investorPortal/ui";
+import { codeRequestBody, useOperationChange, type OperationDetails } from "./investorPortal/operationBinding";
 
 // Routes whose screens are rebuilt in U33 (portal/screens); every other screen body is wrapped in
 // <LegacyBody> by InvestorShell until its slice replaces it. One list per slice (kept apart so the
@@ -211,7 +214,7 @@ function homeOrStoredRoute(): AppRoute {
 
 /** Public routes: the site and the login/registration flows. Never "the last portal page". */
 function isPublicRouteName(name: RouteName) {
-  return name === "public" || name === "site" || name === "login" || name === "register";
+  return name === "public" || name === "site" || name === "login" || name === "register" || name === "resetPassword" || name === "accountRecovery";
 }
 
 // The site's old FAQ address now shows Help: keep the address bar on the new path.
@@ -237,6 +240,8 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/": "public",
     "/login": "login",
     "/register": "register",
+    "/reset-password": "resetPassword",
+    "/account-recovery": "accountRecovery",
     "/verification": "kyc",
     "/dashboard": "dashboard",
     "/marketplace": "market",
@@ -253,6 +258,7 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
+  if (normalized === "/account-recovery/not-me") return { name: "accountRecovery", params: { view: "not-me" } };
   // Profile & Settings tabs (/settings/security...).
   const settingsMatch = normalized.match(/^\/settings\/([a-z-]+)$/);
   if (settingsMatch && isSettingsPathSegment(settingsMatch[1])) return { name: "settings", params: { tab: settingsMatch[1] } };
@@ -300,6 +306,8 @@ function routePath(route: AppRoute) {
     site: "/",
     login: "/login",
     register: "/register",
+    resetPassword: "/reset-password",
+    accountRecovery: route.params?.view === "not-me" ? "/account-recovery/not-me" : "/account-recovery",
     kyc: "/verification",
     dashboard: "/dashboard",
     market: route.params?.view === "archive"
@@ -368,6 +376,8 @@ const routeTitles: Record<RouteName, string> = {
   site: platformName,
   login: "Log in",
   register: "Register",
+  resetPassword: "Reset password",
+  accountRecovery: "Account recovery",
   kyc: "Verification",
   dashboard: "Overview",
   market: "Investment opportunities",
@@ -393,13 +403,21 @@ function apiErrorMessage(error: unknown) {
   return "Request failed. Retry once the connection is restored.";
 }
 
-function useSensitiveActionCode(action: ActionEnum) {
+function useSensitiveActionCode(action: ActionEnum, operation?: OperationDetails | null) {
   const requestMutation = useV1AuthSensitiveActionCodeRequestCreate();
   const [codeId, setCodeId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
   const [error, setError] = useState("");
+  const [summary, setSummary] = useState("");
   const resendCooldownSeconds = useSecondsUntil(resendCooldownUntil);
+  // 18.5: the code confirms only these operation details; changed details need a new code.
+  useOperationChange(operation, () => {
+    setCodeId(null);
+    setSummary("");
+    setResendCooldownUntil(0);
+  });
+  const bodyKey = JSON.stringify(codeRequestBody(action, operation));
 
   const requestCode = useCallback(() => {
     setError("");
@@ -410,11 +428,12 @@ function useSensitiveActionCode(action: ActionEnum) {
       return;
     }
     requestMutation.mutate(
-      { data: { action } },
+      { data: JSON.parse(bodyKey) as ReturnType<typeof codeRequestBody<ActionEnum>> },
       {
         onSuccess: (response) => {
           setCodeId(response.code_id);
           setExpiresAt(response.expires_at);
+          setSummary(response.operation_summary ?? "");
           setResendCooldownUntil(Date.now() + 60_000);
         },
         onError: (mutationError) => {
@@ -426,11 +445,11 @@ function useSensitiveActionCode(action: ActionEnum) {
         }
       }
     );
-  }, [action, requestMutation]);
-  // Every sensitive action needs the PIN with the email code (ACC-DEC-009).
+  }, [bodyKey, requestMutation]);
+  // Every sensitive action needs the PIN (or the authenticator code, D-1) with the email code.
   const pin = useSensitivePin();
 
-  return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, resendCooldownSeconds, requestCode, pin };
+  return { codeId, expiresAt, summary, error, isRequesting: requestMutation.isPending, resendCooldownSeconds, requestCode, pin };
 }
 
 function useAutoRequestEmailCode(
@@ -602,6 +621,18 @@ export function App() {
     return <PortalNavProvider value={authNavFor(route, setRoute)}><LoginScreen /></PortalNavProvider>;
   }
 
+  // 18.5: the security email links (forgotten password, assisted recovery).
+  if (route.name === "resetPassword") {
+    return <PortalNavProvider value={authNavFor(route, setRoute)}><ResetPasswordScreen /></PortalNavProvider>;
+  }
+  if (route.name === "accountRecovery") {
+    return (
+      <PortalNavProvider value={authNavFor(route, setRoute)}>
+        <AccountRecoveryScreen notMe={route.params?.view === "not-me"} />
+      </PortalNavProvider>
+    );
+  }
+
   if (route.name === "register") {
     return (
       <PortalNavProvider value={authNavFor(route, setRoute)}>
@@ -681,6 +712,8 @@ function InvestorShell({
   const [signOutError, setSignOutError] = useState("");
   // Set once the post-login "Create your PIN" screen saved a PIN, before /auth/me says so.
   const [pinJustCreated, setPinJustCreated] = useState(false);
+  // 18.5: the factor set up at the factor gate ("app" needs no PIN), before /auth/me reloads.
+  const [factorJustSetUp, setFactorJustSetUp] = useState<"" | "app" | "sms">("");
   const logoutMutation = useV1AuthLogoutCreate({
     mutation: {
       onSuccess: () => {
@@ -953,13 +986,34 @@ function InvestorShell({
       ? t("Signing out...")
       : t("Sign out");
 
-  // ACC-DEC-009: an investor without a PIN creates one before anything else.
+  // 18.5: an investor without a second factor sets one up before anything else (after an assisted
+  // recovery, or an account from before 18.5).
+  const needsFactor =
+    !isFixturePreview &&
+    Boolean(sessionUser) &&
+    !readonlyImpersonation.active &&
+    !factorJustSetUp &&
+    sessionUser?.second_factor === "" &&
+    lenderAccountTypes.has(sessionUser.account_type) &&
+    !blockedAccountStatuses.has(sessionUser.status);
+  if (needsFactor) {
+    return (
+      <PortalNavProvider value={authNavFor(route, setRoute)}>
+        <FactorGateScreen onDone={setFactorJustSetUp} onSignOut={signOut} signOutError={signOutError} signOutLabel={signOutLabel} />
+      </PortalNavProvider>
+    );
+  }
+
+  // ACC-DEC-009: an SMS investor without a PIN creates one before anything else. D-1: an investor
+  // with an authenticator app has no PIN.
   const needsPin = isFixturePreview
     ? demoState === "no_pin"
     : Boolean(sessionUser) &&
       !readonlyImpersonation.active &&
       !pinJustCreated &&
       sessionUser?.pin_set === false &&
+      sessionUser?.second_factor !== "app" &&
+      factorJustSetUp !== "app" &&
       lenderAccountTypes.has(sessionUser.account_type) &&
       !blockedAccountStatuses.has(sessionUser.status);
   if (needsPin) {

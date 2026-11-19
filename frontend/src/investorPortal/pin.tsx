@@ -338,7 +338,7 @@ export function CreatePinDialog({ onClose, onSaved, intro }: { onClose: () => vo
 export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onReset: (pin: string) => void }) {
   const t = useT();
   const flow = useForgotPinFlow();
-  const { started, start, lastDigits, resetAvailable, code, smsCode, pin, confirmation, weakness, error, done, ready } = flow;
+  const { started, lastDigits, resetAvailable, smsCode, pin, confirmation, weakness, error, done, ready } = flow;
 
   if (done) {
     return (
@@ -353,21 +353,34 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
   if (!started) {
     return (
       <Modal
-        footer={<><Button variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button disabled={!resetAvailable} variant="primary" onClick={start}>{t("Send the codes")}</Button></>}
+        footer={<><Button variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button disabled={!resetAvailable || flow.smsSending} variant="primary" onClick={flow.start}>{flow.smsSending ? t("Sending...") : t("Send SMS code")}</Button></>}
         onClose={onClose}
         title={t("Forgot PIN")}
       >
         <div className="col gap-16 pin-dialog">
           <p className="pin-dialog-intro">
             {lastDigits
-              ? t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your phone number ending in {digits}.", { digits: lastDigits })
-              : t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your verified phone number.")}
+              ? t("To set a new PIN, confirm it is you: your password, then a code by SMS to your phone number ending in {digits}.", { digits: lastDigits })
+              : t("To set a new PIN, confirm it is you: your password, then a code by SMS to your verified phone number.")}
           </p>
           {!resetAvailable ? (
             <Banner tone="warn" title={t("No verified phone number")}>
               {t("We cannot send an SMS code. Contact support to reset your PIN.")}
             </Banner>
-          ) : null}
+          ) : (
+            <Field error={flow.passwordError ? t(flow.passwordError) : undefined} label={t("Password")}>
+              <input
+                aria-label={t("Password")}
+                autoComplete="current-password"
+                className="input"
+                maxLength={128}
+                onChange={(event) => flow.setPassword(event.target.value)}
+                type="password"
+                value={flow.password}
+              />
+            </Field>
+          )}
+          {flow.smsError ? <Banner tone="bad" title={t("Could not send the SMS code")}>{flow.smsError}</Banner> : null}
         </div>
       </Modal>
     );
@@ -380,7 +393,6 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
       title={t("Forgot PIN")}
     >
       <div className="col gap-16 pin-dialog">
-        <EmailCodeInput code={flow.emailCode} value={code} onChange={flow.setCode} />
         <Field error={flow.smsError || undefined} hint={isFixturePreview ? t("Demo: any 6 digits") : lastDigits ? t("Sent to your phone number ending in {digits}.", { digits: lastDigits }) : undefined} label={t("SMS code")}>
           <div className="code-request-row">
             <input
@@ -414,9 +426,18 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
 
 // ---- The PIN of a sensitive action --------------------------------------------------------
 
-function PinLockedBanner({ lockedUntil, onForgot }: { lockedUntil: string; onForgot: () => void }) {
+function PinLockedBanner({ lockedUntil, onForgot, app = false }: { lockedUntil: string; onForgot: () => void; app?: boolean }) {
   const t = useT();
   const time = lockedUntil ? formatPinLockTime(lockedUntil) : "";
+  if (app) {
+    return (
+      <Banner icon="lock" tone="bad" title={t("Authenticator codes paused")}>
+        {time
+          ? t("Too many wrong codes. You can try again after {time}.", { time })
+          : t("Too many wrong codes. Try again later.")}
+      </Banner>
+    );
+  }
   return (
     <Banner
       actions={<Button size="sm" onClick={onForgot}>{t("Forgot PIN?")}</Button>}
@@ -447,6 +468,23 @@ export function SensitivePinField({ pin, onContinue }: { pin: SensitivePin; onCo
     if (continueToken > 0) continueRef.current?.();
   }, [continueToken]);
 
+  if (pin.factor === "app") {
+    // D-1: the code from the authenticator app replaces the PIN; there is no PIN to forget.
+    return (
+      <div className="pin-sensitive">
+        {pin.lockedUntil !== null ? <PinLockedBanner app lockedUntil={pin.lockedUntil} onForgot={pin.openForgot} /> : null}
+        <PinInput
+          disabled={pin.lockedUntil !== null}
+          error={pin.error || undefined}
+          focusSignal={pin.wrongCount}
+          hint={isFixturePreview ? t("Demo: any 6 digits") : t("The 6-digit code shown in your authenticator app.")}
+          label={t("Authenticator code")}
+          value={pin.value}
+          onChange={pin.setValue}
+        />
+      </div>
+    );
+  }
   return (
     <div className="pin-sensitive">
       {pin.lockedUntil !== null ? <PinLockedBanner lockedUntil={pin.lockedUntil} onForgot={pin.openForgot} /> : null}

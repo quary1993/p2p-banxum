@@ -18,3 +18,8 @@ export function emailCodeLabel(t: typeof translate, code: Pick<FlowEmailCode, "i
   }
   return code.codeId ? t("Send a new email code") : t("Send email code");
 }
+
+/** "your PIN" or "the code from your authenticator app" (D-1), for the dialog intros. */
+export function factorPhrase(t: (text: string) => string, pin: { factor: string }) {
+  return pin.factor === "app" ? t("the code from your authenticator app") : t("your PIN");
+}

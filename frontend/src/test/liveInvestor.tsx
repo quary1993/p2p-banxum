@@ -110,8 +110,23 @@ export function investorShellHandlers(
           account_type: "investor",
           status: "active",
           phone_verified: true,
-          marketing_consent: false
+          marketing_consent: false,
+          second_factor: "sms"
         }
+      })
+    ),
+    // 18.5: Profile & Settings -> Security.
+    http.get("*/api/v1/auth/security/", () =>
+      HttpResponse.json({
+        second_factor: "sms",
+        phone_last_digits: "42",
+        authenticator_added_at: null,
+        recovery_codes_remaining: 10,
+        recovery_codes_issued: true,
+        password_set: true,
+        password_changed_at: "2026-10-01T09:00:00Z",
+        trusted_devices: [],
+        restriction: null
       })
     ),
     http.get("*/api/v1/kyc/status/", () =>

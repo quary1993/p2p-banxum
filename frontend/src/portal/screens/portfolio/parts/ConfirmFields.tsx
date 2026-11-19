@@ -2,7 +2,8 @@
 // Confirmation of a resale action in U33 markup (design .bxm-code-form with .bxm-otp): today's email
 // code + PIN (ACC-DEC-009, until U33-DEC-01 / Phase 17.3 moves to the PIN only). The logic is the
 // platform's existing one (App.tsx useSensitiveActionCode, investorPortal/pin*): one code per action,
-// a 60-second resend cooldown, the PIN boxes with the wrong-PIN, lock and "Forgot PIN?" handling.
+// a 60-second resend cooldown, the PIN boxes with the wrong-PIN, lock and "Forgot PIN?" handling (or the
+// authenticator code for an investor with the app, D-1).
 // The create/forgot PIN dialogs are the existing old-skin dialogs, shown in a LegacyBody above the
 // U33 dialog (slice S5 rebuilds them).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -54,6 +55,8 @@ export function ConfirmFields({
       : confirmation.codeId
         ? t("Send a new email code")
         : t("Send email code");
+  // D-1 (18.5): an investor with an authenticator app types its code instead of the PIN.
+  const app = pin.factor === "app";
   const locked = pin.lockedUntil !== null;
   const lockTime = pin.lockedUntil ? formatPinLockTime(pin.lockedUntil) : "";
   return (
@@ -84,7 +87,15 @@ export function ConfirmFields({
         {isFixturePreview ? <p className="u33-confirm-hint">{t("Preview: any 6 digits")}</p> : null}
       </div>
       <div className="u33-confirm-pin">
-        {locked ? (
+        {locked && app ? (
+          <div className="alert alert-danger alert-icon u33-confirm-lock" role="alert">
+            <NiIcon name="lock-alt" />
+            <div>
+              <strong>{t("Authenticator codes paused")}</strong>
+              <p>{lockTime ? t("Too many wrong codes. You can try again after {time}.", { time: lockTime }) : t("Too many wrong codes. Try again later.")}</p>
+            </div>
+          </div>
+        ) : locked ? (
           <div className="alert alert-danger alert-icon u33-confirm-lock" role="alert">
             <NiIcon name="lock-alt" />
             <div>
@@ -95,12 +106,16 @@ export function ConfirmFields({
           </div>
         ) : null}
         <PinInput
-          aside={locked ? null : <button className="pin-text-btn" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button>}
+          aside={locked || app ? null : <button className="pin-text-btn" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button>}
           disabled={locked}
           error={pin.error || undefined}
           focusSignal={pin.wrongCount}
-          hint={isFixturePreview ? t("Preview: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")}
-          label={t("PIN")}
+          hint={
+            app
+              ? isFixturePreview ? t("Preview: any 6 digits") : t("The 6-digit code shown in your authenticator app.")
+              : isFixturePreview ? t("Preview: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")
+          }
+          label={app ? t("Authenticator code") : t("PIN")}
           onChange={pin.setValue}
           value={pin.value}
         />

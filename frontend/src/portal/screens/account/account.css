@@ -162,3 +162,63 @@ html.bxu .acc-blocked-panel { margin-top: 8px; }
 /* Help: the support email is a link here (the design shows plain text); keep the box's text colour,
    which the global link colour would make unreadable in Dark. */
 html.bxu .hp-support dd a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- 18.5 sign-in and account protection (create-account layout) -------------------------------- */
+
+/* Password with Show/Hide: the design's u03 toggle as a text button next to the label, like the PIN. */
+html.bxu .u04-account .acc-password-tools { display: inline-flex; align-items: center; gap: 12px; }
+html.bxu .u04-account .acc-password-tools button,
+html.bxu .u04-account .acc-password-tools a { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 4px; text-underline-offset: 3px; }
+html.bxu .u04-account .acc-password { margin: 0 0 16px; }
+html.bxu .u04-account .acc-password-hint { margin: 8px 0 0; }
+
+/* The two second factors: full-width choice rows (the design has one method; the SMS choice is ours). */
+html.bxu .u04-account .acc-factor-choice { display: grid; gap: 12px; margin: 4px 0 8px; }
+html.bxu .u04-account .acc-factor-option {
+  display: grid;
+  grid-template-columns: 28px 1fr 20px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+html.bxu .u04-account .acc-factor-option:hover { border-color: var(--focus); }
+html.bxu .u04-account .acc-factor-option strong { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+html.bxu .u04-account .acc-factor-option em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--green); background: var(--positive); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+html.bxu .u04-account .acc-factor-option small { display: block; font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 3px; }
+
+/* App set-up: the QR code next to the key (design onboarding "Protect your account"). */
+html.bxu .u04-account .acc-app-qr { display: grid; grid-template-columns: 164px 1fr; gap: 20px; align-items: center; background: var(--surface); border-radius: 16px; padding: 16px; margin: 0 0 22px; }
+html.bxu .u04-account .acc-app-qr img,
+html.bxu .u04-account .acc-app-qr-wait { width: 164px; height: 164px; border-radius: 10px; background: #fff; display: block; }
+html.bxu .u04-account .acc-app-qr small { display: block; font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+html.bxu .u04-account .acc-app-key { display: block; font-size: 15px; letter-spacing: 1px; color: var(--ink); overflow-wrap: anywhere; }
+html.bxu .u04-account .acc-app-open { display: inline-block; font-size: 12px; margin-top: 10px; text-underline-offset: 3px; }
+@media (max-width: 560px) {
+  html.bxu .u04-account .acc-app-qr { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+}
+
+/* Recovery codes: two columns of monospace codes, shown once. */
+html.bxu .u04-account .acc-recovery-list { list-style: none; padding: 16px; margin: 0 0 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; background: var(--surface); border-radius: 16px; }
+html.bxu .u04-account .acc-recovery-list code { font-size: 14px; letter-spacing: .5px; color: var(--ink); }
+html.bxu .u04-account .acc-recovery-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 18px; }
+html.bxu .u04-account .acc-recovery-saved { margin: 0 0 18px; }
+
+/* The code step of sign-in: "Remember this browser" under the code. */
+html.bxu .u04-account .acc-trust { margin: 0 0 18px; }
+
+/* Security tab dialogs (p73): the QR code next to the key, and the recovery codes. */
+html.bxu .acc-app-qr-row { display: grid; grid-template-columns: 164px 1fr; gap: 18px; align-items: center; margin: 0 0 18px; }
+html.bxu .acc-app-qr-row img,
+html.bxu .acc-app-qr-row .acc-app-qr-wait { width: 164px; height: 164px; border-radius: 10px; background: #fff; display: block; }
+html.bxu .acc-app-qr-row small { display: block; font-size: 11px; color: #59636d; margin: 0 0 6px; }
+html.bxu .acc-app-qr-row code { font-size: 15px; letter-spacing: 1px; overflow-wrap: anywhere; }
+html.bxu .acc-recovery-grid { list-style: none; padding: 14px; margin: 0 0 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; border-radius: 14px; background: var(--ui-surface, #f5f6f7); }
+html.bxu .acc-recovery-grid code { font-size: 14px; letter-spacing: .5px; }
+html.bxu .acc-check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin: 12px 0 0; }
+html.bxu[data-theme="dark"] .acc-recovery-grid { background: #23272c; }

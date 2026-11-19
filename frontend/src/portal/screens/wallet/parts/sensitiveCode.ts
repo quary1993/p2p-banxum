@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useV1AuthSensitiveActionCodeRequestCreate, type ActionEnum } from "../../../../api/generated/banxumApi";
 import { ApiClientError } from "../../../../api/client/httpClient";
 import { isFixturePreview } from "../../../../investorPortal/data";
+import { codeRequestBody, useOperationChange, type OperationDetails } from "../../../../investorPortal/operationBinding";
 import { useSensitivePin } from "../../../../investorPortal/pinState";
 import { errorMessage } from "./downloads";
 
@@ -36,14 +37,25 @@ function useSecondsLeft(untilMs: number) {
   return Math.max(0, Math.ceil((untilMs - nowMs) / 1000));
 }
 
-/** The email code of one sensitive action and the PIN that goes with it. */
-export function useSensitiveCode(action: ActionEnum) {
+/**
+ * The email code of one sensitive action and the PIN (or authenticator code, D-1) that goes with
+ * it. 18.5: the code is requested with the operation details and confirms only them; changed
+ * details forget the code, so a new one is sent.
+ */
+export function useSensitiveCode(action: ActionEnum, operation?: OperationDetails | null) {
   const { mutate, isPending } = useV1AuthSensitiveActionCodeRequestCreate();
   const [codeId, setCodeId] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [error, setError] = useState("");
+  const [summary, setSummary] = useState("");
   const cooldown = useSecondsLeft(cooldownUntil);
   const pin = useSensitivePin();
+  useOperationChange(operation, () => {
+    setCodeId(null);
+    setSummary("");
+    setCooldownUntil(0);
+  });
+  const bodyKey = JSON.stringify(codeRequestBody(action, operation));
   const requestCode = useCallback(() => {
     setError("");
     if (isFixturePreview) {
@@ -52,10 +64,11 @@ export function useSensitiveCode(action: ActionEnum) {
       return;
     }
     mutate(
-      { data: { action } },
+      { data: JSON.parse(bodyKey) as ReturnType<typeof codeRequestBody<ActionEnum>> },
       {
         onSuccess: (response) => {
           setCodeId(response.code_id);
+          setSummary(response.operation_summary ?? "");
           setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
         },
         onError: (failure) => {
@@ -65,8 +78,8 @@ export function useSensitiveCode(action: ActionEnum) {
         }
       }
     );
-  }, [action, mutate]);
-  return { codeId, error, isRequesting: isPending, cooldown, requestCode, pin };
+  }, [bodyKey, mutate]);
+  return { codeId, summary, error, isRequesting: isPending, cooldown, requestCode, pin };
 }
 
 export type SensitiveCode = ReturnType<typeof useSensitiveCode>;

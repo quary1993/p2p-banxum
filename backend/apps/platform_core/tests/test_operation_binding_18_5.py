@@ -242,3 +242,25 @@ def test_no_new_bank_account_or_default_return_account_for_72_hours_after_a_reco
         ledger.set_investor_default_return_account(
             ledger.SetInvestorDefaultReturnAccountCommand(actor=investor, instruction_id="x")
         )
+
+
+@pytest.mark.django_db
+def test_new_operation_details_get_a_new_code_at_once(investor: Model) -> None:
+    """A price that moved (or a new amount) needs a new code; the cooldown holds only a
+    repeated request for the same details."""
+    client = _client(investor)
+    first = _request_code(
+        client, "withdrawal", {"amount_minor": 100_00, "currency": "CHF", "iban": IBAN}
+    )
+    same = _request_code(
+        client, "withdrawal", {"amount_minor": 100_00, "currency": "CHF", "iban": IBAN}
+    )
+    changed = _request_code(
+        client, "withdrawal", {"amount_minor": 200_00, "currency": "CHF", "iban": IBAN}
+    )
+
+    assert first.status_code == 202
+    assert same.status_code == 429
+    assert changed.status_code == 202
+    code_model = apps.get_model("accounts_auth", "SensitiveActionCode")
+    assert code_model.objects.get(id=first.json()["code_id"]).superseded_at is not None

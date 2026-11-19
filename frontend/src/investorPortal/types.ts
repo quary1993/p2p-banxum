@@ -8,6 +8,9 @@ export type RouteName =
   | "site"
   | "login"
   | "register"
+  // 18.5: the forgotten-password link and the assisted-recovery links (outside the shell).
+  | "resetPassword"
+  | "accountRecovery"
   | "kyc"
   | "dashboard"
   | "market"

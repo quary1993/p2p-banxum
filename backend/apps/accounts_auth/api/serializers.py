@@ -119,6 +119,10 @@ class PhoneVerificationRequestSerializer(serializers.Serializer[Any]):
         return _validated_phone_number(value)
 
 
+class MagicLinkRequestSerializer(serializers.Serializer[Any]):
+    email = serializers.EmailField()
+
+
 class MagicLinkConsumeSerializer(serializers.Serializer[Any]):
     token = serializers.CharField()
 

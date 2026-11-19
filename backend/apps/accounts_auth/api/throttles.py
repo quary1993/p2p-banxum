@@ -99,6 +99,23 @@ class AuthThrottle(BaseThrottle):
         return self._wait
 
 
+class RegistrationLinkThrottle(AuthThrottle):
+    """18.5: a new registration link (only accounts without a second factor get one)."""
+
+    scope = "registration_link"
+    cooldown_rules = (CooldownRule("cooldown", settings.AUTH_MAGIC_LINK_COOLDOWN_SECONDS),)
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_MAGIC_LINK_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_MAGIC_LINK_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if _request_email(request):
+            identifiers.append(email_ip_identifier(request))
+        return tuple(identifiers)
+
+
 class NaturalPersonRegistrationThrottle(AuthThrottle):
     scope = "natural_person_registration"
     cooldown_rules = (CooldownRule("cooldown", settings.AUTH_REGISTRATION_COOLDOWN_SECONDS),)

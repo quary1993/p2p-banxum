@@ -1197,7 +1197,10 @@ def issue_sensitive_action_code(
         # cooldown in real time: after a QA clock advance the QA-time created_at lies in
         # the future, and no new code could be sent until the old one expired.
         elapsed = now - (latest_active.expires_at - command.ttl)
-        if elapsed < timedelta(seconds=cooldown_seconds):
+        # 18.5: changed operation details (a new amount, or a price that moved) need a new
+        # code at once; the cooldown holds only a repeated request for the same details.
+        same_operation = latest_active.operation_fingerprint == fingerprint
+        if same_operation and elapsed < timedelta(seconds=cooldown_seconds):
             raise SensitiveActionCodeThrottleError("Sensitive-action code requested too recently.")
 
         SensitiveActionCode.objects.filter(

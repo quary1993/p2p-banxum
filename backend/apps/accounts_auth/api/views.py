@@ -21,6 +21,7 @@ from backend.apps.accounts_auth.api.serializers import (
     CurrentUserResponseSerializer,
     DisplayPreferencesUpdateRequestSerializer,
     MagicLinkConsumeSerializer,
+    MagicLinkRequestSerializer,
     MarketingConsentUpdateRequestSerializer,
     NaturalPersonRegistrationRequestSerializer,
     NaturalPersonRegistrationResponseSerializer,
@@ -40,6 +41,7 @@ from backend.apps.accounts_auth.api.throttles import (
     NaturalPersonRegistrationThrottle,
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
+    RegistrationLinkThrottle,
 )
 from backend.apps.accounts_auth.models import (
     AccountAccessReason,
@@ -72,6 +74,7 @@ from backend.apps.accounts_auth.services import (
     InvalidRegistrationDataError,
     InvalidTermsAcceptanceError,
     MagicLinkConsumeCommand,
+    MagicLinkRequestCommand,
     OperationDetailsError,
     PhoneAlreadyVerifiedError,
     PhoneVerificationConfirmCommand,
@@ -88,6 +91,7 @@ from backend.apps.accounts_auth.services import (
     confirm_phone_verification,
     consume_magic_link,
     create_admin_user,
+    issue_magic_link,
     issue_sensitive_action_code,
     register_natural_person_lender,
     request_phone_verification,
@@ -157,6 +161,31 @@ class NaturalPersonRegistrationView(APIView):
             {"status": "accepted", "email_login_sent": True},
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class RegistrationLinkResendView(APIView):
+    """18.5: send the registration link again. Always 202 (no account enumeration); only an
+    account without a second factor gets a link (the others sign in with the password)."""
+
+    authentication_classes: list[type] = []
+    permission_classes = [SameSiteRequestOnly]
+    throttle_classes = [RegistrationLinkThrottle]
+
+    @extend_schema(request=MagicLinkRequestSerializer, responses={202: None})
+    def post(self, request: Request) -> Response:
+        serializer = MagicLinkRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            issue_magic_link(
+                MagicLinkRequestCommand(
+                    email=str(serializer.validated_data["email"]),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except AccountsAuthError:
+            pass
+        return Response(status=status.HTTP_202_ACCEPTED)
 
 
 class RegistrationEmailConfirmView(APIView):

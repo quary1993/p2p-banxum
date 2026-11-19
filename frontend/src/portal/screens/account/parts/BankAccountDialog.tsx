@@ -13,10 +13,10 @@ import { isFixturePreview } from "../../../../investorPortal/data";
 import { useAutoSend, useFlowEmailCode, pinErrorText } from "../../../../investorPortal/pinFlows";
 import { formatPinLockTime } from "../../../../investorPortal/pinRules";
 import { useSensitivePin } from "../../../../investorPortal/pinState";
-import { Button, Dialog, NiIcon } from "../../../components";
-import { formatIban } from "./format";
+import { Dialog, NiIcon } from "../../../components";
+import { factorPhrase, formatIban } from "./format";
 import { CreatePinDialog, DialogResult, EmailCodeField, ForgotPinDialog } from "./PinDialogs";
-import { DialogActions, Notice, PinCodeField } from "./ui";
+import { DialogActions, Notice, OperationFactorField } from "./ui";
 
 const CURRENCIES = ["CHF", "EUR"] as const;
 
@@ -43,10 +43,14 @@ export function BankAccountDialog({
   const [error, setError] = useState("");
   const [continueToken, setContinueToken] = useState(0);
   const mutation = useV1LedgerPayoutInstructionsCreate();
-  const emailCode = useFlowEmailCode(ActionEnum.bank_account_change);
+  const compactIban = iban.replace(/\s/g, "");
+  // 18.5: the email code confirms this account only (currency and IBAN).
+  const emailCode = useFlowEmailCode(
+    ActionEnum.bank_account_change,
+    step === "confirm" ? { currency, iban: compactIban } : null
+  );
   const pin = useSensitivePin();
   useAutoSend(emailCode.send, step === "confirm");
-  const compactIban = iban.replace(/\s/g, "");
   const typedBank = compactIban.length >= 2 && !["CH", "LI"].includes(compactIban.slice(0, 2));
   const detailsValid = CURRENCIES.includes(currency as (typeof CURRENCIES)[number]) && compactIban.length >= 15 && accountName.trim().length > 1;
   const canSubmit = detailsValid && pin.ready && (isFixturePreview || (Boolean(emailCode.codeId) && code.length === 6));
@@ -166,7 +170,7 @@ export function BankAccountDialog({
             if (canSubmit && !mutation.isPending) submit();
           }}
         >
-          <p className="p73-intro">{t("Confirm with the code we send to your email and your PIN.")}</p>
+          <p className="p73-intro">{t("Confirm with the code we send to your email and {factor}.", { factor: factorPhrase(t, pin) })}</p>
           <dl className="acc-summary">
             <div><dt>{t("Currency")}</dt><dd>{currency}</dd></div>
             <div><dt>{t("IBAN")}</dt><dd><span className="bxm-iban">{formatIban(compactIban)}</span></dd></div>
@@ -174,22 +178,7 @@ export function BankAccountDialog({
             {typedBank && bankName.trim() ? <div><dt>{t("Bank")}</dt><dd>{bankName.trim()}</dd></div> : null}
           </dl>
           <EmailCodeField code={emailCode} onChange={setCode} value={code} />
-          {pin.lockedUntil !== null ? (
-            <Notice action={<Button onClick={pin.openForgot} size="sm">{t("Forgot PIN?")}</Button>} title={t("PIN locked")} tone="danger">
-              {lockTime
-                ? t("Too many wrong PINs. You can try again after {time}, or set a new PIN now.", { time: lockTime })
-                : t("Too many wrong PINs. Try again later, or set a new PIN now.")}
-            </Notice>
-          ) : null}
-          <PinCodeField
-            aside={pin.lockedUntil === null ? <button className="acc-text-button" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button> : null}
-            disabled={pin.lockedUntil !== null}
-            error={pin.error || undefined}
-            hint={isFixturePreview ? t("Demo: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")}
-            label={t("PIN")}
-            onChange={pin.setValue}
-            value={pin.value}
-          />
+          <OperationFactorField lockTime={lockTime} pin={pin} />
           {error ? <Notice title={t("Could not add the bank account")} tone="danger">{error}</Notice> : null}
           <DialogActions
             cancelLabel={t("Back")}

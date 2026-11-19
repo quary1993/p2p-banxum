@@ -157,7 +157,11 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const createMutation = useV1MarketplaceSecondaryListingsCreate();
   const editMutation = useV1MarketplaceSecondaryListingsEditCreate();
-  const confirmation = useActionConfirmation(ActionEnum.secondary_market_listing);
+  // 18.5: the email code confirms this holding (or listing) at this price only.
+  const confirmation = useActionConfirmation(
+    ActionEnum.secondary_market_listing,
+    step === "review" ? (listing ? { listing_id: listing.id, price_bps: priceBps } : { holding_id: holding.id, price_bps: priceBps }) : null
+  );
   const busy = acceptanceMutation.isPending || createMutation.isPending || editMutation.isPending;
 
   // The amount field follows the server's price for the chosen basis points, unless it is being typed.
@@ -167,7 +171,12 @@ export function SellInvestmentDialog({ holding, listing, onClose }: { holding: H
   // One email code for the confirmation step, sent when the seller reaches it.
   const requested = useRef(false);
   useEffect(() => {
-    if (step !== "review" || requested.current || isFixturePreview) return;
+    if (step !== "review") {
+      // Back to the price: a new price needs a new code when the seller returns.
+      requested.current = false;
+      return;
+    }
+    if (requested.current || isFixturePreview) return;
     requested.current = true;
     confirmation.requestCode();
   }, [confirmation, step]);

@@ -176,3 +176,12 @@ export function requestErrorText(error: unknown) {
   if (error instanceof Error) return error.message;
   return "Request failed. Retry once the connection is restored.";
 }
+
+/** NIST SP 800-63B-4 in one line, as the server checks it (passwords.py). */
+export function passwordProblem(password: string, repeat: string | null, email = "") {
+  if (password.length < 12) return "Use at least 12 characters.";
+  if (password.length > 128) return "Use at most 128 characters.";
+  if (email && password.trim().toLowerCase() === email.trim().toLowerCase()) return "Do not use your email address.";
+  if (repeat !== null && repeat !== password) return "The passwords do not match.";
+  return "";
+}

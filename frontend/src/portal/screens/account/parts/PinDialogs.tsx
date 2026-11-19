@@ -1,7 +1,7 @@
 // IP of Webby-Soft SRL.
 // The PIN dialogs of Profile & Settings -> Security in U33 style (design: .modal.p73-modal with the
 // large code input), on the shared flow logic of investorPortal/pinFlows.ts (ACC-DEC-009: the PIN
-// goes with an email code; a forgotten PIN is reset with an email code and an SMS code).
+// goes with an email code; 18.5: a forgotten PIN is reset with the password and an SMS code).
 import type { ReactNode } from "react";
 
 import { useT } from "../../../../i18n";
@@ -11,7 +11,7 @@ import { formatPinLockTime } from "../../../../investorPortal/pinRules";
 import { usePinStatus } from "../../../../investorPortal/pinState";
 import { Button, Dialog, NiIcon } from "../../../components";
 import { emailCodeLabel } from "./format";
-import { CodeField, DialogActions, Notice, PinCodeField } from "./ui";
+import { CodeField, DialogActions, Notice, PasswordField, PinCodeField } from "./ui";
 
 /** The success state of a dialog (design: .hp-message-result). */
 export function DialogResult({ title, children, onDone }: { title: ReactNode; children: ReactNode; onDone: () => void }) {
@@ -122,18 +122,34 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
   }
   if (!flow.started) {
     return (
-      <Dialog className="p73-modal" onClose={onClose} size="sm" title={t("Forgot PIN")}>
-        <p className="p73-intro">
-          {flow.lastDigits
-            ? t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your phone number ending in {digits}.", { digits: flow.lastDigits })
-            : t("To set a new PIN, confirm it is you with two codes: one by email and one by SMS to your verified phone number.")}
-        </p>
-        {!flow.resetAvailable ? (
-          <Notice title={t("No verified phone number")} tone="warning">
-            {t("We cannot send an SMS code. Contact support to reset your PIN.")}
-          </Notice>
-        ) : null}
-        <DialogActions onCancel={onClose} onPrimary={flow.start} primaryDisabled={!flow.resetAvailable} primaryLabel={t("Send the codes")} />
+      <Dialog busy={flow.smsSending} className="p73-modal" onClose={onClose} size="sm" title={t("Forgot PIN")}>
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (flow.resetAvailable && !flow.smsSending) flow.start();
+          }}
+        >
+          <p className="p73-intro">
+            {flow.lastDigits
+              ? t("To set a new PIN, confirm it is you: your password, then a code by SMS to your phone number ending in {digits}.", { digits: flow.lastDigits })
+              : t("To set a new PIN, confirm it is you: your password, then a code by SMS to your verified phone number.")}
+          </p>
+          {!flow.resetAvailable ? (
+            <Notice title={t("No verified phone number")} tone="warning">
+              {t("We cannot send an SMS code. Contact support to reset your PIN.")}
+            </Notice>
+          ) : (
+            <PasswordField autoFocus error={flow.passwordError ? t(flow.passwordError) : undefined} label={t("Password")} onChange={flow.setPassword} value={flow.password} />
+          )}
+          {flow.smsError ? <Notice title={t("Could not send the SMS code")} tone="danger">{flow.smsError}</Notice> : null}
+          <DialogActions
+            onCancel={onClose}
+            primaryDisabled={!flow.resetAvailable || flow.smsSending || (!isFixturePreview && !flow.password)}
+            primaryLabel={flow.smsSending ? t("Sending...") : t("Send SMS code")}
+            primaryType="submit"
+          />
+        </form>
       </Dialog>
     );
   }
@@ -146,8 +162,8 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
           if (flow.ready && !flow.saving) flow.submit();
         }}
       >
-        <EmailCodeField code={flow.emailCode} onChange={flow.setCode} value={flow.code} />
         <CodeField
+          autoFocus
           error={flow.smsError || undefined}
           hint={isFixturePreview ? t("Demo: any 6 digits") : flow.lastDigits ? t("Sent to your phone number ending in {digits}.", { digits: flow.lastDigits }) : undefined}
           label={t("SMS code")}
@@ -159,7 +175,7 @@ export function ForgotPinDialog({ onClose, onReset }: { onClose: () => void; onR
               ? t("Sending...")
               : flow.smsCooldown > 0
                 ? t("Resend in {seconds}s", { seconds: flow.smsCooldown })
-                : flow.smsSent ? t("Resend SMS") : t("Send SMS")
+                : t("Resend SMS")
           }
           value={flow.smsCode}
         />

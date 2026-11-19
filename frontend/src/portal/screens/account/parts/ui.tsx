@@ -6,6 +6,9 @@
 import { useId, useState, type ReactNode } from "react";
 
 import { useT } from "../../../../i18n";
+import { isFixturePreview } from "../../../../investorPortal/data";
+import type { SensitivePin } from "../../../../investorPortal/pinState";
+import { Button } from "../../../components";
 
 /** section.ps-panel with its header (title and an optional status on the right). */
 export function PsPanel({ title, status, className = "", children }: { title: ReactNode; status?: ReactNode; className?: string; children: ReactNode }) {
@@ -189,6 +192,104 @@ export function PinCodeField({
         <p className="acc-field-hint" id={`${id}-note`}>{hint}</p>
       ) : null}
     </div>
+  );
+}
+
+/** A password in a p73 dialog (18.5): Show/Hide, the browser's password manager attributes. */
+export function PasswordField({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  autoComplete = "current-password",
+  autoFocus = false
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  hint?: ReactNode;
+  autoComplete?: "current-password" | "new-password";
+  autoFocus?: boolean;
+}) {
+  const t = useT();
+  const id = useId();
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="acc-code-field acc-password-field">
+      <div className="acc-code-label-row">
+        <label className="p73-code-label" htmlFor={id}>{label}</label>
+        <span className="acc-code-tools">
+          <button aria-controls={id} aria-label={shown ? t("Hide password") : t("Show password")} aria-pressed={shown} className="acc-text-button" onClick={() => setShown((current) => !current)} type="button">
+            {shown ? t("Hide") : t("Show")}
+          </button>
+        </span>
+      </div>
+      <input
+        aria-describedby={error || hint ? `${id}-note` : undefined}
+        aria-invalid={error ? true : undefined}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+        className={`form-control form-control-lg ${error ? "is-invalid" : ""}`.trim()}
+        id={id}
+        maxLength={128}
+        onChange={(event) => onChange(event.target.value)}
+        type={shown ? "text" : "password"}
+        value={value}
+      />
+      {error ? (
+        <div className="invalid-feedback" id={`${id}-note`} role="alert">{error}</div>
+      ) : hint ? (
+        <p className="acc-field-hint" id={`${id}-note`}>{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The second factor of an operation next to its email code: the PIN (with the lock notice and
+ * "Forgot PIN?"), or, for an investor with an authenticator app, the app code (D-1, 18.5).
+ */
+export function OperationFactorField({ pin, lockTime }: { pin: SensitivePin; lockTime: string }) {
+  const t = useT();
+  if (pin.factor === "app") {
+    return (
+      <>
+        {pin.lockedUntil !== null ? (
+          <Notice title={t("Authenticator codes paused")} tone="danger">
+            {lockTime ? t("Too many wrong codes. You can try again after {time}.", { time: lockTime }) : t("Too many wrong codes. Try again later.")}
+          </Notice>
+        ) : null}
+        <CodeField
+          error={pin.error || undefined}
+          hint={isFixturePreview ? t("Demo: any 6 digits") : t("The 6-digit code shown in your authenticator app.")}
+          label={t("Authenticator code")}
+          onChange={pin.setValue}
+          value={pin.value}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      {pin.lockedUntil !== null ? (
+        <Notice action={<Button onClick={pin.openForgot} size="sm">{t("Forgot PIN?")}</Button>} title={t("PIN locked")} tone="danger">
+          {lockTime
+            ? t("Too many wrong PINs. You can try again after {time}, or set a new PIN now.", { time: lockTime })
+            : t("Too many wrong PINs. Try again later, or set a new PIN now.")}
+        </Notice>
+      ) : null}
+      <PinCodeField
+        aside={pin.lockedUntil === null ? <button className="acc-text-button" onClick={pin.openForgot} type="button">{t("Forgot PIN?")}</button> : null}
+        disabled={pin.lockedUntil !== null}
+        error={pin.error || undefined}
+        hint={isFixturePreview ? t("Demo: any 6 digits that are not all the same or a straight run") : t("The 6-digit PIN of your account.")}
+        label={t("PIN")}
+        onChange={pin.setValue}
+        value={pin.value}
+      />
+    </>
   );
 }
 

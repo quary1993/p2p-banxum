@@ -228,7 +228,11 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const allocateMutation = useV1MarketplacePrimaryOrdersAllocateBalanceCreate();
   const { useCode, useAutoRequest } = kit;
-  const codeRequest = useCode(ActionEnum.primary_investment);
+  // 18.5: the email code confirms this amount in this loan only.
+  const codeRequest = useCode(
+    ActionEnum.primary_investment,
+    confirmOpen ? { loan_id: loan.loan_id, amount_minor: amountMinor, currency: loan.currency } : null
+  );
   useAutoRequest(codeRequest, confirmOpen);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.primary_market_investment },
@@ -499,7 +503,11 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
   const [purchase, setPurchase] = useState<OriginatorClaimPurchaseResponse | null>(null);
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const { useCode, useAutoRequest } = kit;
-  const codeRequest = useCode(ActionEnum.primary_investment);
+  // 18.5: the email code confirms this amount in this loan only.
+  const codeRequest = useCode(
+    ActionEnum.primary_investment,
+    confirmOpen ? { loan_id: loan.loan_id, amount_minor: amountMinor, currency: loan.currency } : null
+  );
   useAutoRequest(codeRequest, confirmOpen);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.primary_market_investment },

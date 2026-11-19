@@ -63,7 +63,11 @@ export function WithdrawDialog({
   const amountMinor = parsed.amountMinor;
   const amountError = parsed.error
     ?? (amountMinor <= 0 ? t("Enter the amount to withdraw.") : amountMinor > maxMinor ? t("You can withdraw at most {amount}.", { amount: formatMoneyLabel(currency, maxMinor) }) : undefined);
-  const sensitive = useSensitiveCode(ActionEnum.withdrawal);
+  // 18.5: the email code confirms this amount to this account only.
+  const sensitive = useSensitiveCode(
+    ActionEnum.withdrawal,
+    step === "confirm" && account ? { amount_minor: amountMinor, currency, iban: account.destination_iban } : null
+  );
   useAutoRequestCode(sensitive, step === "confirm");
   const mutation = useV1LedgerWithdrawalRequestsCreate();
 

@@ -36,7 +36,8 @@ const accountUser = (numberFormat: string) => ({
   marketing_consent: false,
   number_format: numberFormat,
   pin_set: true,
-  pin_locked_until: null
+  pin_locked_until: null,
+  second_factor: "sms"
 });
 
 test("U33-DEC-32: the account's number format applies, and a new choice is saved in the account", async () => {
