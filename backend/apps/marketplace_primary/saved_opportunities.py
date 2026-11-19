@@ -94,7 +94,11 @@ def _saved_payload(saved: SavedOpportunity, payload: dict[str, Any] | None) -> d
 
 
 def list_saved_opportunities(*, actor: Model) -> list[dict[str, Any]]:
-    """The investor's saved opportunities, newest first, each checked again now."""
+    """The investor's saved opportunities, each checked again now.
+
+    C05 (2026-11-13): "Closing soonest" orders the saved group, as on the opportunities page:
+    open items by funding deadline (then the newest saved first); items no longer open last.
+    """
     primary._require_investor_financial_access(actor)
     saved = list(
         SavedOpportunity.objects.filter(investor_user_id=actor.pk).select_related(
@@ -104,7 +108,15 @@ def list_saved_opportunities(*, actor: Model) -> list[dict[str, Any]]:
     if not saved:
         return []
     open_by_id = _open_payloads(viewer_user_id=str(actor.pk), today=business_date(now_utc()))
-    return [_saved_payload(item, open_by_id.get(str(item.loan_id))) for item in saved]
+    payloads = [_saved_payload(item, open_by_id.get(str(item.loan_id))) for item in saved]
+    payloads.sort(key=lambda item: item["saved_at"], reverse=True)
+    payloads.sort(
+        key=lambda item: (
+            not item["is_open"],
+            str(item.get("funding_deadline") or "9999-12-31") if item["is_open"] else "",
+        )
+    )
+    return payloads
 
 
 def save_opportunity(*, actor: Model, loan_id: str, amount_minor: int | None) -> dict[str, Any]:

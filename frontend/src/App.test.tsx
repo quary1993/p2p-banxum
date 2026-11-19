@@ -1039,7 +1039,7 @@ test("Save for later keeps the opportunity and the amount, on Overview and on th
   expect(amount()).toHaveValue("5000,00");
   expect(screen.getByRole("button", { name: "Saved" })).toBeInTheDocument();
 
-  // The card has the Saved badge; it removes the saved opportunity. The order does not change.
+  // The card has the Saved badge; it removes the saved opportunity.
   goToPath("/marketplace");
   fireEvent.click(screen.getByRole("button", { name: "Remove saved opportunity: Helvetia Logistik AG" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: /Remove saved opportunity/ })).not.toBeInTheDocument());
@@ -1047,10 +1047,16 @@ test("Save for later keeps the opportunity and the amount, on Overview and on th
   expect(screen.queryByRole("region", { name: "Saved investment reviews" })).not.toBeInTheDocument();
 
   // Without an amount the opportunity is saved alone.
+  const firstCardTitle = () => document.querySelector(".u33-invest-project-link h6")?.textContent;
+  goToPath("/marketplace");
+  expect(firstCardTitle()).not.toBe("Nordwind Energie GmbH");
   goToPath("/marketplace/GA-2402");
   expect(amount()).toHaveValue("");
   fireEvent.click(screen.getByRole("button", { name: "Save for later" }));
   expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
+  // C05: saved opportunities come first, then "Closing soonest" in each group.
+  goToPath("/marketplace");
+  expect(firstCardTitle()).toBe("Nordwind Energie GmbH");
   goToPath("/dashboard");
   const row = within(screen.getByRole("region", { name: "Saved investment reviews" }));
   expect(row.getByRole("heading", { name: "Nordwind Energie GmbH" })).toBeInTheDocument();

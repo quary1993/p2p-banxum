@@ -238,3 +238,20 @@ def test_a_new_funding_deadline_schedules_the_reminders_again(
 
     assert _run_on(later - timedelta(days=7))["reminders_sent"] == 1
     assert SavedOpportunityReminder.objects.filter(funding_deadline=later, days_before=7).exists()
+
+
+def test_saved_list_is_ordered_by_closing_date(admin_user: Model, investor: Model) -> None:
+    """C05: "Closing soonest" orders the saved group (Overview panel), whatever the saving order."""
+    later = _open_loan(admin_user, title="Closes later")
+    sooner = _open_loan(admin_user, title="Closes sooner")
+    loan_model = apps.get_model("loans", "Loan")
+    loan_model.objects.filter(pk=later.pk).update(
+        funding_deadline=_deadline(sooner) + timedelta(days=5)
+    )
+    # Saved first, so "newest saved first" would list it last.
+    assert _save(investor, sooner).status_code == 200
+    assert _save(investor, later).status_code == 200
+
+    titles = [item["title"] for item in _saved_list(investor)]
+
+    assert titles == ["Closes sooner", "Closes later"]

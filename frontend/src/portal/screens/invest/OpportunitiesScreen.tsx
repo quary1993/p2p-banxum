@@ -8,7 +8,8 @@
  * U33-DEC-17: Coming soon opportunities follow the open ones, the next to open first, as in the design
  * (r31-coming-soon card without the funding block, "Opens {date}", the ol-soon list tag).
  * U33-DEC-18: a saved opportunity has the design's "Saved" badge (v107-saved-badge), which removes it.
- * The design moves saved cards first; the decision keeps the chosen sort, so the order does not change.
+ * C05 (2026-11-13): saved opportunities come first, as in the design; the chosen sort ("Closing
+ * soonest" by default) orders the saved group and the other group.
  */
 import { useState } from "react";
 
@@ -157,7 +158,8 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const matchCount = openLoans.filter((loan) => matchIds.has(loan.loan_id)).length;
   const shown = (loan: MarketplaceLoanPreview) => matchesFilters(loan, filters) && (!matchesOnly || !ruleActive || matchIds.has(loan.loan_id));
   const visibleSoon = sortComingSoon(soonLoans.filter(shown));
-  const visible = [...sortLoans(openLoans.filter(shown), sort), ...visibleSoon];
+  const sortedOpen = sortLoans(openLoans.filter(shown), sort);
+  const visible = [...sortedOpen.filter((loan) => savedIds.has(loan.loan_id)), ...sortedOpen.filter((loan) => !savedIds.has(loan.loan_id)), ...visibleSoon];
   const currencies = Array.from(new Set(["EUR", "CHF", ...listedLoans.map((loan) => loan.currency)]));
   const securityTypes = Array.from(new Set(listedLoans.flatMap(securityTypesOf)));
   const originators = Array.from(
