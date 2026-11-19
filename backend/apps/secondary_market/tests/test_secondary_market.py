@@ -784,6 +784,21 @@ def test_seller_can_cancel_open_listing_and_relist_holding(
     )
     assert relisted.status == SecondaryMarketListingStatus.ACTIVE
 
+    # 18.3: My listings states: the new listing is listed, the first one cancelled with its day.
+    from importlib import import_module
+
+    portal = import_module("backend.apps.investor_portal.services")
+    states = {
+        row["id"]: (row["state"], row["closed_at"] is not None)
+        for row in portal.get_secondary_market_activity(actor=investor)["listings"]
+    }
+    assert states == {str(relisted.id): ("listed", False), str(listing.id): ("cancelled", True)}
+    buyer_rows = Client()
+    buyer_rows.force_login(cast(Any, other_investor))
+    offers = buyer_rows.get("/api/v1/marketplace/secondary/listings/").json()
+    offer = next(row for row in offers if row["id"] == str(relisted.id))
+    assert offer["maturity_date"] == "2027-01-01"
+
 
 @pytest.mark.django_db
 def test_create_listing_requires_sensitive_action_code(

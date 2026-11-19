@@ -99,6 +99,14 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     # buyer-safe values as on the listing detail.
     borrower_name = serializers.SerializerMethodField()
     borrower_country = serializers.SerializerMethodField()
+    # 18.3: the loan's maturity (last scheduled due date) for the design's "Maturity" column.
+    maturity_date = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_maturity_date(self, listing: Any) -> Any:
+        if isinstance(listing, dict):
+            return listing.get("maturity_date")
+        return getattr(listing, "maturity_date", None)
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_own_listing(self, listing: Any) -> bool:
@@ -252,7 +260,7 @@ class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSer
     ltv_bps = serializers.IntegerField(allow_null=True)
     loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField(allow_null=True)
-    maturity_date = serializers.DateField(allow_null=True)
+    maturity_date = serializers.DateField(allow_null=True)  # type: ignore[assignment]
     schedule_version = serializers.IntegerField()
     loan_schedule = SecondaryMarketLoanInstallmentSerializer(many=True)
     investment_schedule = SecondaryMarketInvestmentInstallmentSerializer(many=True)

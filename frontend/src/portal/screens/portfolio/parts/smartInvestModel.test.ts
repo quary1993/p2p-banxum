@@ -48,7 +48,8 @@ describe("rule mapping", () => {
       maxLtv: null,
       originators: [],
       countries: [],
-      preferredAmount: null
+      preferredAmount: null,
+      repayment: []
     });
     expect(preferencesFromRule(null)).toEqual(preferences({}));
     // A paused rule keeps its preferences for editing (U33-DEC-19).
@@ -65,7 +66,8 @@ describe("rule mapping", () => {
       currencies: ["CHF"],
       maximum_ltv_bps: 6500,
       countries: ["CH"],
-      preferred_amount_minor: 100050
+      preferred_amount_minor: 100050,
+      repayment: []
     });
     expect(requestFromPreferences(preferences({ security: ["real_estate", "corporate_guarantee"] })).collateral).toEqual(["real_estate", "corporate_guarantee"]);
   });
@@ -146,5 +148,25 @@ describe("loan-to-value, country and usual amount", () => {
     expect(matchesPreferences(opportunity, preferences({ countries: ["ch"] }))).toBe(true);
     expect(matchesPreferences(opportunity, preferences({ countries: ["RO"] }))).toBe(false);
     expect(matchesPreferences(opportunity, preferences({ preferredAmount: 1_000_000 }))).toBe(true);
+  });
+});
+
+describe("repayments (18.3)", () => {
+  test("today's repayment types fall into the design's groups; no preference never restricts", () => {
+    const annuity = { ...opportunity, repayment_type: "equal_installments" };
+    const interestOnly = { ...opportunity, repayment_type: "bullet_periodic_interest" };
+    const onePayment = { ...interestOnly, term_months: 1 };
+    expect(matchesPreferences(annuity, preferences({ repayment: ["principal_and_interest"] }))).toBe(true);
+    expect(matchesPreferences(annuity, preferences({ repayment: ["interest_only"] }))).toBe(false);
+    expect(matchesPreferences(interestOnly, preferences({ repayment: ["interest_only"] }))).toBe(true);
+    expect(matchesPreferences(onePayment, preferences({ repayment: ["at_maturity"] }))).toBe(true);
+    expect(matchesPreferences(annuity, preferences({ repayment: [] }))).toBe(true);
+    expect(matchesPreferences(annuity, preferences({ repayment: ["interest_only", "principal_and_interest", "at_maturity"] }))).toBe(true);
+  });
+
+  test("one repayment structure is a criterion; every option ticked is not", () => {
+    expect(hasEffectiveCriterion(preferences({ repayment: ["at_maturity"] }))).toBe(true);
+    expect(hasEffectiveCriterion(preferences({ repayment: ["interest_only", "principal_and_interest", "at_maturity"] }))).toBe(false);
+    expect(requestFromPreferences(preferences({ repayment: ["interest_only"] })).repayment).toEqual(["interest_only"]);
   });
 });

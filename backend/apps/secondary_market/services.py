@@ -3415,6 +3415,7 @@ def list_active_secondary_market_listings(
                 as_of_date=as_of_date,
             )
             profile = cast(Any, listing.loan).originator_profile
+            listing.maturity_date = profile.maturity_date  # type: ignore[attr-defined]
             listing.remaining_term_months = max(  # type: ignore[attr-defined]
                 1,
                 ((profile.maturity_date - as_of_date).days + 29) // 30,
@@ -3443,6 +3444,9 @@ def list_active_secondary_market_listings(
         listing.remaining_term_months = sum(  # type: ignore[attr-defined]
             1 for row in schedule if row.row_type == "scheduled_installment" and not row.is_paid
         )
+        listing.maturity_date = _schedule_maturity_date(  # type: ignore[attr-defined]
+            schedule, listing.loan
+        )
         direct_projection = _direct_holding_projection(
             holding=cast(Model, listing.holding),
             loan_schedule=schedule,
@@ -3453,6 +3457,27 @@ def list_active_secondary_market_listings(
             pricing_date=as_of_date,
         )
     return listings
+
+
+def _schedule_maturity_date(schedule: Any, loan: Any = None) -> date | None:
+    """18.3: the last due date of the scheduled installments (the loan's maturity).
+
+    Without installments yet, the loan's start date plus its term in months.
+    """
+    dates: list[date] = []
+    for row in schedule or []:
+        row_type = row.get("row_type") if isinstance(row, dict) else getattr(row, "row_type", "")
+        due = row.get("due_date") if isinstance(row, dict) else getattr(row, "due_date", None)
+        if row_type in {"scheduled_installment", "originator_schedule"} and isinstance(due, date):
+            dates.append(due)
+    if dates:
+        return max(dates)
+    start = getattr(loan, "loan_start_date", None)
+    term = getattr(loan, "term_months", None)
+    if isinstance(start, date) and isinstance(term, int) and term > 0:
+        schedules = import_module("backend.apps.loans.domain.schedules")
+        return cast(date, schedules.add_months(start, term))
+    return None
 
 
 def get_active_secondary_market_listing_detail(
@@ -3624,7 +3649,7 @@ def get_active_secondary_market_listing_detail(
         "maturity_date": (
             originator_loan_payload["maturity_date"]
             if originator_loan_payload is not None
-            else None
+            else _schedule_maturity_date(loan_schedule, loan)
         ),
         "schedule_version": (
             int(originator_loan_payload["schedule_version"])

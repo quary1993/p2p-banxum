@@ -6,7 +6,14 @@
 // has none.
 import { useState, type MouseEvent } from "react";
 
-import type { Holding, HoldingOpenSecondaryListing, SecondaryMarketActivityEntryPortal, SecondaryMarketBuyerListing } from "../../../api/generated/banxumApi";
+import type {
+  Holding,
+  HoldingOpenSecondaryListing,
+  SecondaryListingPortal,
+  SecondaryMarketActivityEntryPortal,
+  SecondaryMarketBuyerListing,
+  SecondarySaleAsSellerPortal
+} from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { frozenActionReason, useFrozenAccount } from "../../../investorPortal/accountState";
 import { usePortfolioData, useSecondaryActivityData, useSecondaryListingsData } from "../../../investorPortal/data";
@@ -144,7 +151,13 @@ function ResaleList({
           <OffersTable onOffer={onOffer} rows={rows} t={t} />
         )
       ) : (
-        <MyListings activity={empty ? [] : activityQuery.data?.entries ?? []} holdings={holdings} t={t} />
+        <MyListings
+          activity={empty ? [] : activityQuery.data?.entries ?? []}
+          holdings={holdings}
+          listings={empty ? [] : activityQuery.data?.listings ?? []}
+          sales={empty ? [] : activityQuery.data?.sales_as_seller ?? []}
+          t={t}
+        />
       )}
       {helpOpen ? <ResaleHelpDialog buyerFeeFree={buyerFeeFree} onClose={() => setHelpOpen(false)} /> : null}
     </main>
@@ -208,7 +221,10 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
                 <small className={`r31m-price-adjustment${listing.discount_premium_bps < 0 ? " is-discount" : ""}`}>{priceAdjustmentText(listing.discount_premium_bps)}</small>
               </td>
               <td data-mobile-label={t("Projected annual return")}><span className="rs-return">{listing.projected_yield_bps === null ? "—" : formatRateBps(listing.projected_yield_bps)}</span></td>
-              <td data-mobile-label={t("Remaining term")}><span className="rs-time">{monthsText(listing.remaining_term_months)}</span></td>
+              <td data-mobile-label={t("Remaining term")}>
+                <span className="rs-time">{monthsText(listing.remaining_term_months)}</span>
+                {listing.maturity_date ? <small className="rs-maturity">{t("Until {date}", { date: formatDate(listing.maturity_date) })}</small> : null}
+              </td>
               <td data-mobile-label={t("Offer")}>
                 <button className="btn btn-sm btn-primary r67-view" onClick={() => onOffer(listing.id)} type="button">
                   {t("View offer")} <NiIcon name="arrow-right" />
@@ -223,18 +239,108 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
   );
 }
 
-function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: SecondaryMarketActivityEntryPortal[]; t: ReturnType<typeof useT> }) {
+type ListingState = "listed" | "sold" | "cancelled";
+
+/** 18.3: sold and cancelled listings of the investor (My listings states). */
+function ClosedListings({ state, listings, sales, t }: { state: Exclude<ListingState, "listed">; listings: SecondaryListingPortal[]; sales: SecondarySaleAsSellerPortal[]; t: ReturnType<typeof useT> }) {
+  const money = useMoneyText();
+  const rows = listings.filter((listing) => listing.state === state);
+  if (rows.length === 0) {
+    return (
+      <div className="card card-bordered">
+        <div className="bxm-empty r75-empty">
+          <NiIcon name="coins" />
+          <p>{state === "sold" ? t("No sold listings yet.") : t("No cancelled listings.")}</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <table className="rs-table r31m-resale-table u33-own-table mobile-records" data-mobile-table="true">
+      <caption className="visually-hidden">{state === "sold" ? t("Your listings that were sold.") : t("Your listings that are no longer on sale.")}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t("Investment")}</th>
+          <th scope="col">{t("Principal")}</th>
+          <th scope="col">{t("Selling price")}</th>
+          <th scope="col">{state === "sold" ? t("You received") : t("Listed on")}</th>
+          <th scope="col">{state === "sold" ? t("Sold on") : t("Cancelled on")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((listing) => {
+          const sale = sales.find((item) => item.listing_id === listing.id);
+          const byBanxum = listing.status === "removed" || listing.status === "rejected";
+          return (
+            <tr key={listing.id}>
+              <td data-mobile-label={t("Investment")}>
+                <div className="rs-investment">
+                  <div>
+                    <strong>{listing.loan_title}</strong>
+                    <StatusTag status={state === "sold" ? "sold" : undefined} tone={state === "sold" ? undefined : "neutral"}>{state === "sold" ? undefined : byBanxum ? t("Removed by Banxum") : t("Cancelled")}</StatusTag>
+                  </div>
+                </div>
+              </td>
+              <td data-mobile-label={t("Principal")}><span className="rs-capital">{money(listing.currency, sale?.current_principal_minor ?? listing.current_principal_minor)}</span></td>
+              <td data-mobile-label={t("Selling price")}>
+                <strong className="rs-total">{money(listing.currency, sale?.transfer_price_minor ?? listing.transfer_price_minor)}</strong>
+                <small className={`r31m-price-adjustment${listing.discount_premium_bps < 0 ? " is-discount" : ""}`}>{priceAdjustmentText(listing.discount_premium_bps)}</small>
+              </td>
+              {state === "sold" ? (
+                <td data-mobile-label={t("You received")}><span className="rs-capital">{money(listing.currency, sale?.seller_net_proceeds_minor ?? listing.seller_net_proceeds_minor)}</span></td>
+              ) : (
+                <td data-mobile-label={t("Listed on")}><span className="rs-time">{listing.listed_at ? formatDate(listing.listed_at) : "—"}</span></td>
+              )}
+              <td data-mobile-label={state === "sold" ? t("Sold on") : t("Cancelled on")}>
+                <span className="rs-time">{state === "sold" ? (sale ? formatDate(sale.purchased_at) : "—") : listing.closed_at ? formatDate(listing.closed_at) : "—"}</span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function MyListings({
+  holdings,
+  activity,
+  listings,
+  sales,
+  t
+}: {
+  holdings: Holding[];
+  activity: SecondaryMarketActivityEntryPortal[];
+  listings: SecondaryListingPortal[];
+  sales: SecondarySaleAsSellerPortal[];
+  t: ReturnType<typeof useT>;
+}) {
   const money = useMoneyText();
   useNumberFormat();
+  const [state, setState] = useState<ListingState>("listed");
   const frozenAccount = useFrozenAccount();
   const blockedReason = frozenAccount.frozen ? frozenActionReason(frozenAccount) : isReadonlyView() ? t("This is a read-only view. Resale actions are disabled.") : "";
   const [dialog, setDialog] = useState<{ kind: "edit" | "cancel"; holding: Holding; listing: HoldingOpenSecondaryListing } | null>(null);
   const listed = holdings.filter((holding) => holding.open_secondary_listing && ["active", "approval_requested"].includes(holding.open_secondary_listing.status));
   const pausedNote = t("Pending: an installment of this loan is due and not yet paid. Buyers do not see the listing until the payment is recorded.");
-  const completed = activity.filter((entry) => entry.action === "sale" || entry.action === "buy");
+  // Sales are listed under Sold; this list keeps the completed purchases.
+  const completed = activity.filter((entry) => entry.action === "buy");
+  const counts: Record<ListingState, number> = {
+    listed: listed.length,
+    sold: listings.filter((listing) => listing.state === "sold").length,
+    cancelled: listings.filter((listing) => listing.state === "cancelled").length
+  };
+  const states: Array<[ListingState, string]> = [["listed", "Listed"], ["sold", "Sold"], ["cancelled", "Cancelled"]];
   return (
     <div className="rs-own-list">
-      {listed.length === 0 ? (
+      <div aria-label={t("Listing state")} className="bxm-seg rs-own-states" role="group">
+        {states.map(([value, label]) => (
+          <button aria-pressed={state === value} className={state === value ? "active" : ""} key={value} onClick={() => setState(value)} type="button">
+            {t(label)} <span>{counts[value]}</span>
+          </button>
+        ))}
+      </div>
+      {state !== "listed" ? <ClosedListings listings={listings} sales={sales} state={state} t={t} /> : listed.length === 0 ? (
         <div className="card card-bordered">
           <div className="bxm-empty r75-empty">
             <NiIcon name="coins" />
@@ -296,11 +402,11 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
           </tbody>
         </table>
       )}
-      {blockedReason && listed.length > 0 ? <p className="u33-muted u33-blocked-note">{blockedReason}</p> : null}
-      {listed.some((holding) => holding.open_secondary_listing?.paused_for_due_installment) ? <p className="u33-muted u33-blocked-note">{pausedNote}</p> : null}
+      {state === "listed" && blockedReason && listed.length > 0 ? <p className="u33-muted u33-blocked-note">{blockedReason}</p> : null}
+      {state === "listed" && listed.some((holding) => holding.open_secondary_listing?.paused_for_due_installment) ? <p className="u33-muted u33-blocked-note">{pausedNote}</p> : null}
       {completed.length > 0 ? (
         <section aria-labelledby="rs-completed-title" className="u33-resale-activity">
-          <h2 id="rs-completed-title">{t("Completed sales and purchases")}</h2>
+          <h2 id="rs-completed-title">{t("Completed purchases")}</h2>
           <table className="rs-table r31m-resale-table mobile-records" data-mobile-table="true">
             <thead>
               <tr>

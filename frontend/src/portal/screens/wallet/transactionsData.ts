@@ -37,10 +37,14 @@ export function useTransactionsData(query: TransactionQuery, pageSize: number) {
         : v1InvestorPortalTransactionsRetrieve({ ...params, offset: pageParam, limit: pageSize }, { signal }),
     initialPageParam: 0,
     getNextPageParam: (last: TransactionPage) => last.next_offset ?? undefined,
+    // The review build has its first page at once (no network); live data is always fetched.
+    initialData: isFixturePreview
+      ? { pages: [previewTransactionPage(activityFixture.entries, query, 0, pageSize)], pageParams: [0] }
+      : undefined,
     // Keep the rows of the last filters on screen while the new ones load.
     placeholderData: keepPreviousData,
     retry: false,
-    staleTime: 0
+    staleTime: isFixturePreview ? Infinity : 0
   });
 }
 

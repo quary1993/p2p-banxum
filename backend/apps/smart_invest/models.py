@@ -28,6 +28,17 @@ class SmartInvestCollateralOption(models.TextChoices):
     UNSECURED = "unsecured", "No collateral (unsecured)"
 
 
+class SmartInvestRepaymentOption(models.TextChoices):
+    """18.3: the design's Repayments step (U33-DEC-11 groups; final types in 18.6)."""
+
+    # Periodic repayments: interest during the term, principal at the end.
+    INTEREST_ONLY = "interest_only", "Periodic repayments: interest only"
+    # Periodic repayments: part of the principal and interest with each payment.
+    PRINCIPAL_AND_INTEREST = "principal_and_interest", "Periodic repayments: principal and interest"
+    # Payment at maturity: principal and interest in one payment at the end.
+    AT_MATURITY = "at_maturity", "Payment at maturity"
+
+
 class SmartInvestRuleEventType(models.TextChoices):
     SAVED = "saved", "Saved and activated"
     # Before U33-DEC-19 switching off cleared the preferences; now the investor pauses.
@@ -47,7 +58,8 @@ class SmartInvestRule(TimestampedModel):
 
     Active: matches are shown and new matches are announced. Paused (`is_active` false with
     the preferences kept, `deactivated_at` = when paused): no marks, counters or alerts until
-    the investor resumes. A rule without any effective criterion counts as not set up.
+    the investor resumes. 18.3: an active rule without any limiting criterion matches every open
+    opportunity; a paused rule without one counts as not set up.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -71,6 +83,8 @@ class SmartInvestRule(TimestampedModel):
     # "any_secured", "unsecured" and/or loan collateral types.
     collateral = models.JSONField(default=list, blank=True)
     currencies = models.JSONField(default=list, blank=True)
+    # 18.3: SmartInvestRepaymentOption values; empty = no preference.
+    repayment = models.JSONField(default=list, blank=True)
     revision = models.PositiveIntegerField(default=0)
     # U33-DEC-30: each channel of the match alerts has its own switch. Off stops only that
     # channel: matching, the matches list and service messages go on. Pause stops both.

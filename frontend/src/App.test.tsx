@@ -644,9 +644,10 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
     "Currency",
     "Interest & duration",
     "Security",
+    "Repayments",
     "Review & activate"
   ]);
-  expect(screen.getByText("Step 1 of 4")).toBeInTheDocument();
+  expect(screen.getByText("Step 1 of 5")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Choose your currencies" })).toBeInTheDocument();
   // Both currencies are preselected; at least one is required.
   fireEvent.click(screen.getByRole("checkbox", { name: /EUR/ }));
@@ -670,7 +671,21 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
   fireEvent.click(within(ltv).getByRole("button", { name: "70%" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
+  // 18.3: the design's fifth step. No preference is exclusive with the repayment options.
+  expect(screen.getByRole("heading", { name: "Choose your repayment preferences" })).toBeInTheDocument();
+  const anyRepayment = screen.getByRole("checkbox", { name: "No preference" });
+  expect(anyRepayment).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Periodic repayments" }));
+  expect(screen.getByRole("checkbox", { name: /Interest only/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /Principal and interest/ })).toBeChecked();
+  expect(anyRepayment).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: /Interest only/ }));
+  fireEvent.click(anyRepayment);
+  expect(screen.getByRole("checkbox", { name: "Periodic repayments" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
   expect(screen.getByRole("heading", { name: "Review & activate Smart Invest" })).toBeInTheDocument();
+  expect(screen.getByText("Repayments", { selector: "dt" }).nextElementSibling).toHaveTextContent("No preference");
   expect(screen.getByText("Currencies", { selector: "dt" }).nextElementSibling).toHaveTextContent("CHF");
   const rates = screen.getByText("Interest & duration", { selector: "dt" }).nextElementSibling;
   expect(rates).toHaveTextContent("Interest rate: no preference");
@@ -678,7 +693,7 @@ test("Smart Invest uses the four U33 preference steps and never implies automati
   const security = screen.getByText("Security", { selector: "dt" }).nextElementSibling;
   expect(security).toHaveTextContent("Security type: no preference");
   expect(security).toHaveTextContent("Maximum loan-to-value 70%");
-  for (const name of ["Edit currencies", "Edit interest & duration", "Edit security"]) {
+  for (const name of ["Edit currencies", "Edit interest & duration", "Edit security", "Edit repayments"]) {
     expect(screen.getByRole("button", { name })).toBeInTheDocument();
   }
   // More preferences: borrower country, originator and the optional usual amount.
@@ -2110,10 +2125,20 @@ test("listed holdings expose edit and cancel controls, and My listings shows com
   const ownRow = screen.getByText("Engadin Alpine refinancing").closest("tr") as HTMLElement;
   expect(within(ownRow).getByRole("button", { name: "Edit" })).toBeInTheDocument();
   expect(within(ownRow).getByRole("button", { name: "Cancel listing" })).toBeInTheDocument();
-  const completed = screen.getByRole("region", { name: "Completed sales and purchases" });
-  expect(within(completed).getAllByText("Sale").length).toBeGreaterThan(0);
+  const completed = screen.getByRole("region", { name: "Completed purchases" });
   expect(within(completed).getAllByText("Purchase").length).toBeGreaterThan(0);
   expect(within(completed).queryByText(/Listing updated|Listing cancelled/)).not.toBeInTheDocument();
+
+  // 18.3: My listings states: sold listings with the sale, cancelled ones with the day they ended.
+  const states = screen.getByRole("group", { name: "Listing state" });
+  fireEvent.click(within(states).getByRole("button", { name: /^Sold/ }));
+  const soldRow = screen.getByText("Holding transfer").closest("tr") as HTMLElement;
+  expect(soldRow).toHaveTextContent("4.907,70");
+  expect(soldRow).toHaveTextContent("30 Apr 2026");
+  fireEvent.click(within(states).getByRole("button", { name: /^Cancelled/ }));
+  const cancelledRow = screen.getByText("Wallis Agrar AG").closest("tr") as HTMLElement;
+  expect(within(cancelledRow).getByText("Cancelled")).toBeInTheDocument();
+  expect(cancelledRow).toHaveTextContent("15 Apr 2026");
 });
 
 test("secondary purchase review shows the remaining payments and waits for a manual code request", () => {

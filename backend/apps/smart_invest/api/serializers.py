@@ -4,7 +4,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.smart_invest.models import SmartInvestCurrency
+from backend.apps.smart_invest.models import SmartInvestCurrency, SmartInvestRepaymentOption
 from backend.apps.smart_invest.services import (
     STATE_ACTIVE,
     STATE_NOT_SET_UP,
@@ -30,6 +30,10 @@ COUNTRIES_HELP = (
 LTV_HELP = (
     "Maximum loan-to-value in basis points. An opportunity without a loan-to-value figure "
     "does not match a limit."
+)
+REPAYMENT_HELP = (
+    "18.3: the design's Repayments step. interest_only and principal_and_interest are the "
+    "Periodic repayments; at_maturity is Payment at maturity. Empty means no preference."
 )
 AMOUNT_HELP = (
     "U33-DEC-19: optional usual amount per investment, in minor units of each selected "
@@ -65,6 +69,10 @@ class SmartInvestRuleSerializer(serializers.Serializer[Any]):
         child=serializers.ChoiceField(choices=SmartInvestCurrency.choices)
     )
     countries = serializers.ListField(child=serializers.CharField(), help_text=COUNTRIES_HELP)
+    repayment = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestRepaymentOption.choices),
+        help_text=REPAYMENT_HELP,
+    )
     activated_at = serializers.DateTimeField(allow_null=True)
     deactivated_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
@@ -116,6 +124,13 @@ class SmartInvestRuleSaveRequestSerializer(serializers.Serializer[Any]):
         max_length=MAX_CHOICES,
         help_text=COUNTRIES_HELP,
     )
+    repayment = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestRepaymentOption.choices),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
+        help_text=REPAYMENT_HELP,
+    )
 
 
 class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
@@ -126,6 +141,7 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
     security_types = serializers.ListField(child=serializers.CharField(), required=False)
+    repayment_type = serializers.CharField(required=False, allow_blank=True)
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()

@@ -19123,8 +19123,15 @@ components:
         created_at:
           type: string
           format: date-time
+        state:
+          $ref: '#/components/schemas/SecondaryListingPortalStateEnum'
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
       required:
       - accrued_interest_minor
+      - closed_at
       - created_at
       - currency
       - current_principal_minor
@@ -19141,8 +19148,19 @@ components:
       - publication_type
       - risk_acknowledgement_required
       - seller_net_proceeds_minor
+      - state
       - status
       - transfer_price_minor
+    SecondaryListingPortalStateEnum:
+      enum:
+      - listed
+      - sold
+      - cancelled
+      type: string
+      description: |-
+        * `listed` - listed
+        * `sold` - sold
+        * `cancelled` - cancelled
     SecondaryMarketActivityEntryPortal:
       type: object
       properties:
@@ -19309,6 +19327,11 @@ components:
         borrower_country:
           type: string
           readOnly: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+          readOnly: true
       required:
       - accrued_interest_from_date
       - accrued_interest_minor
@@ -19329,6 +19352,7 @@ components:
       - loan_id
       - loan_status_at_listing
       - loan_title
+      - maturity_date
       - minimum_taker_fee_minor
       - originator_name
       - paused_for_due_installment
@@ -19429,6 +19453,10 @@ components:
           type: string
         borrower_country:
           type: string
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
         originator_id:
           type: string
           format: uuid
@@ -19446,10 +19474,6 @@ components:
           type: string
           format: date
         first_payment_date:
-          type: string
-          format: date
-          nullable: true
-        maturity_date:
           type: string
           format: date
           nullable: true
@@ -20349,6 +20373,8 @@ components:
           type: array
           items:
             type: string
+        repayment_type:
+          type: string
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -20445,6 +20471,16 @@ components:
       - title
       - underlying_interest_rate_bps
       - yield_bps
+    SmartInvestRepaymentEnum:
+      enum:
+      - interest_only
+      - principal_and_interest
+      - at_maturity
+      type: string
+      description: |-
+        * `interest_only` - Periodic repayments: interest only
+        * `principal_and_interest` - Periodic repayments: principal and interest
+        * `at_maturity` - Payment at maturity
     SmartInvestResponse:
       type: object
       properties:
@@ -20532,6 +20568,13 @@ components:
             type: string
           description: Borrower countries as the opportunities carry them (borrower_country).
             Empty means any country.
+        repayment:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestRepaymentEnum'
+          description: '18.3: the design''s Repayments step. interest_only and principal_and_interest
+            are the Periodic repayments; at_maturity is Payment at maturity. Empty
+            means no preference.'
         activated_at:
           type: string
           format: date-time
@@ -20560,6 +20603,7 @@ components:
       - minimum_yield_bps
       - originators
       - preferred_amount_minor
+      - repayment
       - revision
       - state
       - updated_at
@@ -20620,6 +20664,14 @@ components:
             maxLength: 64
           description: Borrower countries as the opportunities carry them (borrower_country).
             Empty means any country.
+          maxItems: 100
+        repayment:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestRepaymentEnum'
+          description: '18.3: the design''s Repayments step. interest_only and principal_and_interest
+            are the Periodic repayments; at_maturity is Payment at maturity. Empty
+            means no preference.'
           maxItems: 100
     SmartInvestRuleStateEnum:
       enum:

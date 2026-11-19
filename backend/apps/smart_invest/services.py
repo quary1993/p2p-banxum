@@ -32,6 +32,7 @@ from backend.apps.smart_invest.models import (
     SmartInvestCollateralOption,
     SmartInvestCurrency,
     SmartInvestMatchNotification,
+    SmartInvestRepaymentOption,
     SmartInvestRule,
     SmartInvestRuleEvent,
     SmartInvestRuleEventType,
@@ -59,6 +60,8 @@ class SaveSmartInvestRuleCommand:
     collateral: Sequence[str] = ()
     currencies: Sequence[str] = ()
     countries: Sequence[str] = ()
+    # 18.3: SmartInvestRepaymentOption values; empty = no preference.
+    repayment: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +96,30 @@ _LIST_CRITERIA = (
     "collateral",
     "currencies",
     "countries",
+    "repayment",
 )
+# 18.3: today's repayment types in the design's groups (U33-DEC-11). A loan with one payment
+# pays principal and interest at maturity, whatever its type. 18.6 adds the final types.
+_INTEREST_ONLY_TYPES = {"bullet_periodic_interest", "interest_only_then_bullet"}
+_PRINCIPAL_AND_INTEREST_TYPES = {
+    "equal_installments",
+    "amortizing_principal_interest",
+    "interest_only_then_amortizing",
+}
+
+
+def opportunity_repayment_option(opportunity: dict[str, Any]) -> str | None:
+    """The Repayments group of an opportunity, or None for a structure without a group."""
+    if int(opportunity.get("term_months") or 0) == 1:
+        return str(SmartInvestRepaymentOption.AT_MATURITY)
+    repayment_type = str(opportunity.get("repayment_type") or "")
+    if repayment_type in _INTEREST_ONLY_TYPES:
+        return str(SmartInvestRepaymentOption.INTEREST_ONLY)
+    if repayment_type in _PRINCIPAL_AND_INTEREST_TYPES:
+        return str(SmartInvestRepaymentOption.PRINCIPAL_AND_INTEREST)
+    if repayment_type in {"bullet", "bullet_at_maturity"}:
+        return str(SmartInvestRepaymentOption.AT_MATURITY)
+    return None
 # Smart Invest states (U33-DEC-19). A rule without an effective criterion is not set up.
 STATE_NOT_SET_UP = "not_set_up"
 STATE_ACTIVE = "active"
@@ -220,11 +246,11 @@ def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
             command.currencies, SmartInvestCurrency.values, "Currency"
         ),
         "countries": _validated_countries(command.countries),
+        "repayment": _validated_choices(
+            command.repayment, SmartInvestRepaymentOption.values, "Repayment"
+        ),
     }
-    if not _has_effective_criterion(criteria):
-        raise SmartInvestValidationError(
-            "Choose at least one Smart-Invest criterion before activating the rule."
-        )
+    # 18.3: "No preference" everywhere is allowed; such a rule matches every open opportunity.
     return criteria
 
 
@@ -249,6 +275,7 @@ def _has_effective_criterion(criteria: dict[str, Any]) -> bool:
             ),
             _restricts(criteria["currencies"], SmartInvestCurrency.values),
             _restricts(criteria.get("countries") or []),
+            _restricts(criteria.get("repayment") or [], SmartInvestRepaymentOption.values),
         )
     )
 
@@ -264,9 +291,16 @@ def _criteria_snapshot(rule: SmartInvestRule) -> dict[str, Any]:
 
 
 def _rule_state(rule: SmartInvestRule | None) -> str:
-    if rule is None or not _has_effective_criterion(_criteria_snapshot(rule)):
+    """Active or paused; not set up without a rule.
+
+    18.3: an active rule may have no limiting criterion (it matches every open opportunity). A
+    paused rule without any criterion (also one cleared before U33-DEC-19) counts as not set up.
+    """
+    if rule is None:
         return STATE_NOT_SET_UP
-    return STATE_ACTIVE if rule.is_active else STATE_PAUSED
+    if rule.is_active:
+        return STATE_ACTIVE
+    return STATE_PAUSED if _has_effective_criterion(_criteria_snapshot(rule)) else STATE_NOT_SET_UP
 
 
 def _rule_payload(rule: SmartInvestRule | None) -> dict[str, Any] | None:
@@ -343,6 +377,11 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
     countries = {str(value).casefold() for value in criteria.get("countries") or []}
     if countries and str(opportunity.get("borrower_country") or "").casefold() not in countries:
         return False
+
+    repayment = set(criteria.get("repayment") or [])
+    if repayment and not set(SmartInvestRepaymentOption.values).issubset(repayment):
+        if opportunity_repayment_option(opportunity) not in repayment:
+            return False
     return True
 
 

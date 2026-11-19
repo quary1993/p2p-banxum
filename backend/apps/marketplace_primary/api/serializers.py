@@ -298,6 +298,8 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
+    # 18.3: the repayment structure, for the Smart Invest Repayments step and the cards.
+    repayment_type = serializers.CharField(required=False, allow_blank=True, default="")
     remaining_term_days = serializers.IntegerField(allow_null=True)
     funding_deadline = serializers.DateField(allow_null=True)
     maturity_date = serializers.DateField(allow_null=True)

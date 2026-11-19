@@ -416,6 +416,9 @@ SPECTACULAR_SETTINGS = {
         "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",
         "PurposeEnum": "backend.apps.loans.models.LoanPurpose.choices",
         "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
+        "SmartInvestRepaymentEnum": (
+            "backend.apps.smart_invest.models.SmartInvestRepaymentOption.choices"
+        ),
         "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
         "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
         "PublicEnquiryCurrencyEnum": (

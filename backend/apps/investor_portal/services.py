@@ -2339,6 +2339,18 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
     return result
 
 
+def _listing_state(status: str) -> str:
+    """18.3: the design's state of a seller's listing: listed, sold or cancelled.
+
+    A listing removed or refused by Banxum is shown as cancelled (it is no longer on sale).
+    """
+    if status in {"active", "approval_requested"}:
+        return "listed"
+    if status == "sold":
+        return "sold"
+    return "cancelled"
+
+
 def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -> dict[str, Any]:
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     listing_event_model = _model("secondary_market", "SecondaryMarketListingEvent")
@@ -2381,6 +2393,13 @@ def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -
             "public_disclosure_note": str(listing.public_disclosure_note),
             "listed_at": listing.listed_at,
             "created_at": listing.created_at,
+            # 18.3: My listings states (listed, sold, cancelled) and the day the listing closed.
+            "state": _listing_state(str(listing.status)),
+            "closed_at": (
+                listing.cancelled_at or listing.removed_at or listing.rejected_at
+                if str(listing.status) in {"cancelled", "removed", "rejected"}
+                else None
+            ),
             "paused_for_due_installment": (
                 str(listing.status) in {"active", "approval_requested"}
                 and str(listing.loan_id) in paused_loan_ids

@@ -614,6 +614,9 @@ class SecondaryListingPortalSerializer(serializers.Serializer[Any]):
     public_disclosure_note = serializers.CharField(allow_blank=True)
     listed_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
+    # 18.3: "listed", "sold" or "cancelled" (a listing removed or refused by Banxum is cancelled).
+    state = serializers.ChoiceField(choices=["listed", "sold", "cancelled"])
+    closed_at = serializers.DateTimeField(allow_null=True)
 
 
 class SecondaryPurchaseAsBuyerPortalSerializer(serializers.Serializer[Any]):

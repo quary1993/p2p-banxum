@@ -152,20 +152,9 @@ def _rule_command(investor: Model, **overrides: Any) -> SaveSmartInvestRuleComma
 
 
 @pytest.mark.django_db
-def test_rule_requires_a_real_criterion_and_pause_keeps_the_preferences(
+def test_rule_can_be_resumed_only_once_set_up_and_pause_keeps_the_preferences(
     investor: Model,
 ) -> None:
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor))
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(
-            SaveSmartInvestRuleCommand(actor=investor, minimum_yield_bps=0)
-        )
-    # The usual amount alone never limits the matches (U33-DEC-19).
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(
-            SaveSmartInvestRuleCommand(actor=investor, preferred_amount_minor=500_00)
-        )
     with pytest.raises(SmartInvestValidationError, match="Set up Smart Invest"):
         resume_smart_invest_rule(actor=investor)
 
@@ -389,8 +378,11 @@ def test_rule_rejects_values_outside_the_catalog(
 def test_ticking_every_option_is_not_a_criterion(
     investor: Model, overrides: dict[str, Any]
 ) -> None:
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, **overrides))
+    # 18.3: saved as an active rule without a limit (it matches every open opportunity); paused,
+    # it counts as not set up because nothing limits it.
+    open_rule = save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, **overrides))
+    assert open_rule["match_count"] == open_rule["open_opportunity_count"]
+    assert pause_smart_invest_rule(actor=investor)["rule"]["state"] == "not_set_up"
     # Combined with a real condition the full selection is stored as ticked.
     payload = save_smart_invest_rule(
         SaveSmartInvestRuleCommand(actor=investor, minimum_yield_bps=800, **overrides)
@@ -859,3 +851,49 @@ def test_api_pauses_and_resumes(investor: Model) -> None:
     assert resumed.status_code == 200
     assert resumed.json()["rule"]["state"] == "active"
     assert client.post("/api/v1/investor/smart-invest/deactivate/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_repayment_step_groups_todays_repayment_types(investor: Model) -> None:
+    """18.3: Periodic repayments (interest only, principal and interest) and Payment at maturity."""
+
+    def matches(opportunity: dict[str, Any], *options: str) -> bool:
+        return opportunity_matches_criteria(opportunity, _criteria(repayment=list(options)))
+
+    annuity = {**_DIRECT, "repayment_type": "equal_installments"}
+    interest_only = {**_DIRECT, "repayment_type": "bullet_periodic_interest"}
+    one_payment = {**_DIRECT, "repayment_type": "bullet_periodic_interest", "term_months": 1}
+    assert matches(annuity, "principal_and_interest") is True
+    assert matches(annuity, "interest_only") is False
+    assert matches(interest_only, "interest_only", "at_maturity") is True
+    assert matches(one_payment, "at_maturity") is True
+    assert matches(one_payment, "interest_only") is False
+    # No preference (empty) and every option ticked do not restrict.
+    assert matches(annuity) is True
+    assert matches(annuity, "interest_only", "principal_and_interest", "at_maturity") is True
+
+    saved = save_smart_invest_rule(
+        SaveSmartInvestRuleCommand(actor=investor, repayment=["at_maturity", "at_maturity"])
+    )
+    assert saved["rule"]["repayment"] == ["at_maturity"]
+    with pytest.raises(SmartInvestValidationError, match="Repayment"):
+        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, repayment=["monthly"]))
+
+
+@pytest.mark.django_db
+def test_no_preference_everywhere_is_an_active_rule_that_matches_every_open_loan(
+    investor: Model,
+) -> None:
+    """18.3: "No preference" is allowed; paused without any criterion it counts as not set up."""
+    saved = save_smart_invest_rule(
+        SaveSmartInvestRuleCommand(
+            actor=investor,
+            currencies=["CHF", "EUR"],
+            repayment=["interest_only", "principal_and_interest", "at_maturity"],
+            preferred_amount_minor=500_00,
+        )
+    )
+    assert saved["rule"]["state"] == "active"
+    assert saved["match_count"] == saved["open_opportunity_count"]
+    assert opportunity_matches_criteria(_DIRECT, _criteria()) is True
+    assert pause_smart_invest_rule(actor=investor)["rule"]["state"] == "not_set_up"

@@ -1,10 +1,9 @@
 // IP of Webby-Soft SRL.
 // Smart Invest setup and edit (design: the guided steps of #/auto-invest, .si-wizard.si-guided, U33-DEC-19).
-// Steps: Currency, Interest & duration, Security (types and maximum loan-to-value), Review (with borrower
-// country, originator and the optional usual amount under "More preferences"). The design's Repayments
-// step waits for the repayment groups (U33-DEC-11) and the notification channels for U33-DEC-30; the step
-// list is data so Repayments can be added back. Editing starts from the saved preferences and saves at
-// the end.
+// Steps: Currency, Interest & duration, Security (types and maximum loan-to-value), Repayments (18.3:
+// No preference, Periodic repayments with interest only / principal and interest, Payment at maturity;
+// U33-DEC-11 groups), Review (with borrower country, originator and the optional usual amount under
+// "More preferences"). Editing starts from the saved preferences and saves at the end.
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
@@ -13,16 +12,18 @@ import { formatDecimal, formatMoneyLabel, useNumberFormat } from "../../../inves
 import { Dialog, InfoTip, NiIcon } from "../../components";
 import { countryName } from "../invest/loanFacts";
 import { SECURITY_GROUPS, securityLabel, securityPreferenceText } from "./parts/labels";
-import { preferenceSummary } from "./parts/smartSummary";
+import { preferenceSummary, repaymentPreferenceText } from "./parts/smartSummary";
 import { BANXUM_SOURCE, SMART_CURRENCIES, hasEffectiveCriterion, isOpenOpportunity, matchesPreferences, type SmartPreferences } from "./parts/smartInvestModel";
 
-type StepKey = "currency" | "rates" | "security" | "review";
+type StepKey = "currency" | "rates" | "security" | "repayment" | "review";
 const STEPS: Array<{ key: StepKey; label: string }> = [
   { key: "currency", label: "Currency" },
   { key: "rates", label: "Interest & duration" },
   { key: "security", label: "Security" },
+  { key: "repayment", label: "Repayments" },
   { key: "review", label: "Review & activate" }
 ];
+const PERIODIC_OPTIONS = ["interest_only", "principal_and_interest"];
 
 const CURRENCY_NAMES: Record<string, string> = { EUR: "Euro", CHF: "Swiss franc" };
 
@@ -226,7 +227,6 @@ export function SmartInvestWizard({
   const [stepIndex, setStepIndex] = useState(0);
   const [preferences, setPreferences] = useState<SmartPreferences>(initial);
   const [currencyError, setCurrencyError] = useState(false);
-  const [criterionError, setCriterionError] = useState(false);
   const [matchesOpen, setMatchesOpen] = useState(false);
   const [amountText, setAmountText] = useState(initial.preferredAmount === null ? "" : formatDecimal(initial.preferredAmount, Number.isInteger(initial.preferredAmount) ? 0 : 2));
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -246,7 +246,6 @@ export function SmartInvestWizard({
   const terms = open.map((loan) => loan.term_months);
   const update = (patch: Partial<SmartPreferences>) => {
     setPreferences((current) => ({ ...current, ...patch }));
-    setCriterionError(false);
   };
   const reviewLabel = mode === "edit" ? t("Review & save") : t("Review & activate");
   const stepLabel = (key: StepKey, label: string) => (key === "review" ? reviewLabel : t(label));
@@ -257,14 +256,21 @@ export function SmartInvestWizard({
       return;
     }
     if (step.key === "review") {
-      if (!hasEffectiveCriterion(preferences)) {
-        setCriterionError(true);
-        return;
-      }
+      // 18.3: "No preference" everywhere is allowed; it matches every open opportunity.
       onSave(preferences);
       return;
     }
     setStepIndex((index) => Math.min(STEPS.length - 1, index + 1));
+  };
+
+  const repayment = preferences.repayment;
+  const periodicSelected = PERIODIC_OPTIONS.some((option) => repayment.includes(option));
+  const toggleRepayment = (option: string) => {
+    update({ repayment: repayment.includes(option) ? repayment.filter((item) => item !== option) : [...repayment, option] });
+  };
+  // The "Periodic repayments" card ticks or clears both periodic options.
+  const togglePeriodic = () => {
+    update({ repayment: periodicSelected ? repayment.filter((item) => !PERIODIC_OPTIONS.includes(item)) : Array.from(new Set([...repayment, ...PERIODIC_OPTIONS])) });
   };
 
   const security = preferences.security;
@@ -424,6 +430,45 @@ export function SmartInvestWizard({
         <LtvField onChange={(value) => update({ maxLtv: value })} value={preferences.maxLtv} />
       </>
     ),
+    repayment: (
+      <>
+        <h4 id="si-step-heading" ref={headingRef} tabIndex={-1}>{t("Choose your repayment preferences")}</h4>
+        <fieldset className="rs33-repayment-group" data-si-group="repayment">
+          <legend className="visually-hidden">{t("Repayment preferences")}</legend>
+          <label className={`rs33-any${repayment.length === 0 ? " is-selected" : ""}`}>
+            <input checked={repayment.length === 0} onChange={() => update({ repayment: [] })} type="checkbox" />
+            <span>{t("No preference")}</span>
+          </label>
+          <div className="rs33-repayment-cards">
+            <section className={`rs33-repayment-card${periodicSelected ? " is-selected" : ""}`}>
+              <label className="rs33-repayment-heading">
+                <span>{t("Periodic repayments")}</span>
+                <input aria-controls="rs33-periodic-options" aria-expanded={periodicSelected} checked={periodicSelected} onChange={togglePeriodic} type="checkbox" />
+              </label>
+              <p>{t("Receive payments during the investment term.")}</p>
+              <div className="rs33-periodic-options" hidden={!periodicSelected} id="rs33-periodic-options">
+                <label className="rs33-repayment-option">
+                  <input checked={repayment.includes("interest_only")} name="repayment" onChange={() => toggleRepayment("interest_only")} type="checkbox" value="interest_only" />
+                  <span><strong>{t("Interest only")}</strong><small>{t("Interest during the term. Your invested amount at the end.")}</small></span>
+                </label>
+                <label className="rs33-repayment-option">
+                  <input checked={repayment.includes("principal_and_interest")} name="repayment" onChange={() => toggleRepayment("principal_and_interest")} type="checkbox" value="principal_and_interest" />
+                  <span><strong>{t("Principal and interest")}</strong><small>{t("Part of your invested amount and interest with each payment.")}</small></span>
+                </label>
+              </div>
+            </section>
+            <section className={`rs33-repayment-card${repayment.includes("at_maturity") ? " is-selected" : ""}`}>
+              <label className="rs33-repayment-heading">
+                <span>{t("Payment at maturity")}</span>
+                <input checked={repayment.includes("at_maturity")} name="repayment" onChange={() => toggleRepayment("at_maturity")} type="checkbox" value="at_maturity" />
+              </label>
+              <p>{t("Your invested amount and interest are paid at the end of the term.")}</p>
+            </section>
+          </div>
+        </fieldset>
+        <p className="si-setup-note rs33-periodic-note">{t("Periodic repayments may be monthly, quarterly, half-yearly or annual. The exact frequency is shown for each opportunity.")}</p>
+      </>
+    ),
     review: (
       <>
         <h4 id="si-step-heading" ref={headingRef} tabIndex={-1}>{mode === "edit" ? t("Review & save your preferences") : t("Review & activate Smart Invest")}</h4>
@@ -451,6 +496,11 @@ export function SmartInvestWizard({
               {preferences.maxLtv === null ? t("Loan-to-value: no preference") : t("Maximum loan-to-value {ratio}%", { ratio: formatDecimal(preferences.maxLtv, Number.isInteger(preferences.maxLtv) ? 0 : 1) })}
             </dd>
             <button aria-label={t("Edit security")} className="si-link" onClick={() => setStepIndex(2)} type="button">{t("Edit")}</button>
+          </div>
+          <div>
+            <dt>{t("Repayments")}</dt>
+            <dd>{repaymentPreferenceText(repayment)}</dd>
+            <button aria-label={t("Edit repayments")} className="si-link" onClick={() => setStepIndex(3)} type="button">{t("Edit")}</button>
           </div>
         </dl>
         <div aria-atomic="true" aria-live="polite" className="r56-match-preview" role="status">
@@ -527,11 +577,9 @@ export function SmartInvestWizard({
             </p>
           </div>
         </details>
-        {criterionError ? (
-          <p className="si-validation" role="alert">
-            {t("Set at least one preference that limits the matches: one currency only, a minimum interest rate, a maximum duration, a security type, a loan-to-value limit, a country or an originator. The preferred amount does not limit the matches.")}
-          </p>
-        ) : null}
+        {hasEffectiveCriterion(preferences) ? null : (
+          <p className="si-setup-note">{t("With no preference set, every open opportunity matches.")}</p>
+        )}
       </>
     )
   };
