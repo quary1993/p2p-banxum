@@ -16,6 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiClientError, httpClient } from "../api/client/httpClient";
 import type {
+  AlertStopResult,
   PublicEnquiryCreated as GeneratedPublicEnquiryCreated,
   PublicOriginator as GeneratedPublicOriginator,
   PublicProject as GeneratedPublicProject,
@@ -201,6 +202,7 @@ const ORIGINATORS_URL = "/api/v1/marketplace/primary/public/originators/";
 const SUBSCRIBE_URL = "/api/v1/public/newsletter/subscribe/";
 const CONFIRM_URL = "/api/v1/public/newsletter/confirm/";
 const UNSUBSCRIBE_URL = "/api/v1/public/newsletter/unsubscribe/";
+const ALERT_STOP_URL = "/api/v1/public/alerts/stop/";
 const ENQUIRIES_URL = "/api/v1/public/enquiries/";
 
 export const siteQueryKeys = {
@@ -291,6 +293,16 @@ export function useNewsletterConfirm() {
   return useMutation<{ status: "confirmed" }, unknown, NewsletterTokenBody>({
     mutationFn: (body) =>
       isFixturePreview ? previewAnswer({ status: "confirmed" as const }) : postJson<{ status: "confirmed" }>(CONFIRM_URL, body)
+  });
+}
+
+/** Q14: the one-click "Stop these alerts" link of an alert email (no sign-in). */
+export function useAlertStop() {
+  return useMutation<AlertStopResult, unknown, NewsletterTokenBody>({
+    mutationFn: (body) =>
+      isFixturePreview
+        ? previewAnswer<AlertStopResult>({ kind: "smart_invest", loan_id: null, loan_title: "", message: "Smart Invest emails are stopped. Your preferences, the in-app alerts and your matches stay." })
+        : postJson<AlertStopResult>(ALERT_STOP_URL, body)
   });
 }
 

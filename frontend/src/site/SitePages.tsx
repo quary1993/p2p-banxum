@@ -26,6 +26,7 @@ import { Help } from "./pages/Help";
 import { HowItWorks } from "./pages/HowItWorks";
 import { NewsletterConfirm } from "./pages/NewsletterConfirm";
 import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe";
+import { AlertStop } from "./pages/AlertStop";
 import { NotFound } from "./pages/NotFound";
 import { Projects } from "./pages/Projects";
 import { Statistics } from "./pages/Statistics";
@@ -73,7 +74,9 @@ const SITE_ROUTES: SiteRoute[] = [
   },
   { pattern: "/contact", page: Contact, title: "Contact", u33: { bundle: "contact" } },
   { pattern: "/newsletter/confirm", page: NewsletterConfirm, title: "New projects by email" },
-  { pattern: "/newsletter/unsubscribe", page: NewsletterUnsubscribe, title: "New projects by email" }
+  { pattern: "/newsletter/unsubscribe", page: NewsletterUnsubscribe, title: "New projects by email" },
+  // Q14: the "Stop these alerts" link of alert emails.
+  { pattern: "/alerts/stop", page: AlertStop, title: "Stop these alerts" }
 ];
 
 const NOT_FOUND: SiteRoute = { pattern: "/404", page: NotFound, title: "Not found" };

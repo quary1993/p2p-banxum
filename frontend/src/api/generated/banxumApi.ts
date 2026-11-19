@@ -630,6 +630,36 @@ export interface AdvanceRepaymentScheduleRow {
   total_minor: number;
 }
 
+export interface AlertStopRequest {
+  /** @maxLength 512 */
+  token: string;
+}
+
+/**
+ * * `smart_invest` - smart_invest
+ * * `opening_alert` - opening_alert
+ * * `saved_reminder` - saved_reminder
+ */
+export type AlertStopResultKindEnum = typeof AlertStopResultKindEnum[keyof typeof AlertStopResultKindEnum];
+
+
+export const AlertStopResultKindEnum = {
+  smart_invest: 'smart_invest',
+  opening_alert: 'opening_alert',
+  saved_reminder: 'saved_reminder',
+} as const;
+
+/**
+ * Q14: what the "Stop these alerts" link stopped.
+ */
+export interface AlertStopResult {
+  kind: AlertStopResultKindEnum;
+  /** @nullable */
+  loan_id: string | null;
+  loan_title: string;
+  message: string;
+}
+
 export interface AmountByCurrency {
   currency: string;
   amount_minor: number;
@@ -24372,6 +24402,85 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getOriginatorClaimsQuotesPurchaseCreateMutationOptions(options), queryClient);
     }
 
+export const getV1PublicAlertsStopCreateUrl = () => {
+
+
+
+
+  return `/api/v1/public/alerts/stop/`
+}
+
+/**
+ * Q14: the one-click "Stop these alerts" link of an alert email, without signing in.
+ *
+ * The public page posts the token when it opens; repeating it is fine.
+ */
+export const v1PublicAlertsStopCreate = async (alertStopRequest: AlertStopRequest, options?: Parameters<typeof httpClient>[1]): Promise<AlertStopResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<AlertStopResult>(getV1PublicAlertsStopCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(alertStopRequest)
+  }
+);}
+
+
+
+
+
+export const getV1PublicAlertsStopCreateMutationKey = () => ['v1PublicAlertsStopCreate'] as const;
+
+export const getV1PublicAlertsStopCreateMutationOptions = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>, TError,V1PublicAlertsStopCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>, TError,V1PublicAlertsStopCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1PublicAlertsStopCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>, V1PublicAlertsStopCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1PublicAlertsStopCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1PublicAlertsStopCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>>
+    export type V1PublicAlertsStopCreateMutationBody = AlertStopRequest
+    export type V1PublicAlertsStopCreateMutationError = PublicError
+    export type V1PublicAlertsStopCreateMutationVariables = {data: AlertStopRequest}
+
+    export const useV1PublicAlertsStopCreate = <TError = PublicError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>, TError,V1PublicAlertsStopCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1PublicAlertsStopCreate>>,
+        TError,
+        V1PublicAlertsStopCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1PublicAlertsStopCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1PublicEnquiriesCreateUrl = () => {
 
 
@@ -26697,6 +26806,8 @@ export const getOriginatorClaimsAdminSettlementsOutstandingListResponseMock = ()
 export const getOriginatorClaimsLoansQuoteCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorClaimQuoteResponse, object>> = {}): OriginatorClaimQuoteResponse => ({quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), requested_cash_minor: faker.number.int(), executable_cash_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), premium_discount_minor: faker.number.int(), rounding_remainder_minor: faker.number.int(), entitlement_start_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', cash_flows: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), accrual_start_date: faker.date.past().toISOString().slice(0, 10), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), total_minor: faker.number.int(), days_to_payment: faker.number.int(), present_value_minor: faker.number.int()})), ...overrideResponse})
 
 export const getOriginatorClaimsQuotesPurchaseCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorClaimPurchaseResponse, object>> = {}): OriginatorClaimPurchaseResponse => ({purchase_id: faker.string.uuid(), quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), holding_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), cash_consideration_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getV1PublicAlertsStopCreateResponseMock = (overrideResponse: Partial<Extract<AlertStopResult, object>> = {}): AlertStopResult => ({kind: faker.helpers.arrayElement(Object.values(AlertStopResultKindEnum)), loan_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1PublicEnquiriesCreateResponseMock = (overrideResponse: Partial<Extract<PublicEnquiryCreated, object>> = {}): PublicEnquiryCreated => ({reference: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -29083,6 +29194,18 @@ export const getOriginatorClaimsQuotesPurchaseCreateMockHandler = (overrideRespo
   }, options)
 }
 
+export const getV1PublicAlertsStopCreateMockHandler = (overrideResponse?: AlertStopResult | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AlertStopResult> | AlertStopResult), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/public/alerts/stop/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1PublicAlertsStopCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1PublicEnquiriesCreateMockHandler = (overrideResponse?: PublicEnquiryCreated | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PublicEnquiryCreated> | PublicEnquiryCreated), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/public/enquiries/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -29571,6 +29694,7 @@ export const getBanxumApiMock = () => [
   getOriginatorClaimsAdminSettlementsOutstandingListMockHandler(),
   getOriginatorClaimsLoansQuoteCreateMockHandler(),
   getOriginatorClaimsQuotesPurchaseCreateMockHandler(),
+  getV1PublicAlertsStopCreateMockHandler(),
   getV1PublicEnquiriesCreateMockHandler(),
   getV1PublicNewsletterConfirmCreateMockHandler(),
   getV1PublicNewsletterSubscribeCreateMockHandler(),

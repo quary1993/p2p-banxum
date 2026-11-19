@@ -225,3 +225,23 @@ test("a throttled newsletter link shows the server's message and can try again",
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(newsletterCalls).toHaveLength(2));
 });
+
+test("Q14: a Stop these alerts link posts its token once and says exactly what stopped", async () => {
+  const stops: string[] = [];
+  server.use(
+    http.post("*/api/v1/public/alerts/stop/", async ({ request }) => {
+      const { token } = (await request.json()) as { token: string };
+      stops.push(token);
+      if (token === "bad") return HttpResponse.json({ detail: "This link is not valid.", code: "invalid_token" }, { status: 400 });
+      return HttpResponse.json({ kind: "saved_reminder", loan_id: "l1", loan_title: "Alpine loan", message: "Reminder emails for Alpine loan are stopped. The opportunity stays saved and the reminders still show in the platform." });
+    })
+  );
+  const view = renderSite("/alerts/stop?token=good-token");
+  expect(await screen.findByRole("heading", { name: "Reminder emails stopped" })).toBeInTheDocument();
+  expect(screen.getByText(/The opportunity stays saved/)).toBeInTheDocument();
+  expect(stops).toEqual(["good-token"]);
+  view.unmount();
+
+  renderSite("/alerts/stop?token=bad");
+  expect(await screen.findByRole("heading", { name: "This link is not valid or is too old." })).toBeInTheDocument();
+});

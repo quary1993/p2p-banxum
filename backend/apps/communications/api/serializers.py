@@ -291,3 +291,16 @@ class NewsletterTokenRequestSerializer(serializers.Serializer[Any]):
 
 class NewsletterStatusSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
+
+
+class AlertStopRequestSerializer(serializers.Serializer[Any]):
+    token = serializers.CharField(max_length=512)
+
+
+class AlertStopResultSerializer(serializers.Serializer[Any]):
+    """Q14: what the "Stop these alerts" link stopped."""
+
+    kind = serializers.ChoiceField(choices=["smart_invest", "opening_alert", "saved_reminder"])
+    loan_id = serializers.UUIDField(allow_null=True)
+    loan_title = serializers.CharField(allow_blank=True)
+    message = serializers.CharField()

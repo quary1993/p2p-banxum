@@ -27,8 +27,11 @@ from backend.apps.marketplace_primary.models import (
     SavedOpportunityReminder,
     SavedOpportunityReminderStatus,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
+from backend.apps.platform_core.models.events import OutboxStatus
+from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
 
 REMINDER_DAYS_BEFORE = (7, 3, 1)
@@ -197,11 +200,38 @@ def _reminder_payload(
             }
         ],
         "loan_id": loan_id,
+        # Q14: the email carries a one-click "Stop these alerts" link.
+        "stop_alerts": {"kind": "saved_reminder", "loan_id": loan_id},
         "template_key": "marketplace.saved_opportunity_closing.v1",
         "fine_print": (
             "You get this because you saved this opportunity. Remove it to stop the reminders."
         ),
     }
+
+
+# Q14: the in-app reminder of an investor who stopped the reminder emails (never emailed).
+SAVED_REMINDER_IN_APP_TOPIC = "notice.saved_opportunity_closing"
+
+
+def stop_saved_reminder_emails(*, investor_user_id: str, loan_id: str) -> bool:
+    """Q14: "Stop these alerts" in a reminder email stops the reminder emails for that project.
+
+    The saved item and the in-app reminders stay. Returns True when it changed.
+    """
+    changed = SavedOpportunity.objects.filter(
+        loan_id=loan_id, investor_user_id=investor_user_id, email_reminders_stopped_at__isnull=True
+    ).update(email_reminders_stopped_at=now_utc())
+    if changed:
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef("investor", str(investor_user_id)),
+                action="marketplace.saved_reminder_emails_stopped",
+                target_type="Loan",
+                target_id=str(loan_id),
+                metadata={"decision": "Q14", "source": "email_stop_link"},
+            )
+        )
+    return bool(changed)
 
 
 def send_saved_opportunity_reminders(*, as_of: datetime) -> dict[str, Any]:
@@ -265,10 +295,16 @@ def send_saved_opportunity_reminders(*, as_of: datetime) -> dict[str, Any]:
                     days_before=latest,
                     status=SavedOpportunityReminderStatus.SENT,
                 )
+                emails_stopped = saved.email_reminders_stopped_at is not None
                 message = enqueue_outbox_message(
                     OutboxCommand(
                         idempotency_key=f"saved-opportunity-reminder:{reminder.id}",
-                        topic="email.saved_opportunity_closing",
+                        # Q14: after "Stop these alerts" the reminder is in-app only.
+                        topic=(
+                            SAVED_REMINDER_IN_APP_TOPIC
+                            if emails_stopped
+                            else "email.saved_opportunity_closing"
+                        ),
                         payload=_reminder_payload(
                             user=user,
                             saved=saved,
@@ -278,6 +314,11 @@ def send_saved_opportunity_reminders(*, as_of: datetime) -> dict[str, Any]:
                         ),
                     )
                 )
+                if emails_stopped:
+                    # Not an email topic, so no sender picks it up: done once it is listed.
+                    type(message).objects.filter(pk=message.pk).update(
+                        status=OutboxStatus.PROCESSED, processed_at=now_utc()
+                    )
                 SavedOpportunityReminder.objects.filter(pk=reminder.pk).update(
                     outbox_message=message
                 )

@@ -17,6 +17,7 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -650,12 +651,39 @@ def _email_payload(
         ),
         "loan_id": str(opportunity["loan_id"]),
         "action_url": action_url,
+        # Q14: the email carries a one-click "Stop these alerts" link.
+        "stop_alerts": {"kind": "smart_invest"},
         # U33-DEC-30: false keeps the email out of Notifications (in-app channel off).
         **({} if in_app else {"in_app": False}),
     }
 
 
 IN_APP_MATCH_TOPIC = "notice.smart_invest_opportunity_match"
+
+
+def stop_smart_invest_emails(*, investor_user_id: str) -> bool:
+    """Q14: "Stop these alerts" in a Smart Invest email switches its email channel off.
+
+    The preferences, the in-app channel and the matching stay. Returns True when it changed.
+    """
+    with transaction.atomic():
+        rule = (
+            SmartInvestRule.objects.select_for_update().filter(user_id=investor_user_id).first()
+        )
+        if rule is None or not rule.notify_email:
+            return False
+        rule.notify_email = False
+        rule.save(update_fields=["notify_email", "updated_at"])
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef("investor", str(investor_user_id)),
+                action="smart_invest.email_alerts_stopped",
+                target_type="SmartInvestRule",
+                target_id=str(rule.pk),
+                metadata={"decision": "Q14", "source": "email_stop_link"},
+            )
+        )
+    return True
 
 
 def _opening_alert_sent(*, investor_user_id: str, loan_id: str) -> bool:

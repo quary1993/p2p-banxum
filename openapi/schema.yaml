@@ -5901,6 +5901,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/OriginatorClaimPurchaseResponse'
           description: ''
+  /api/v1/public/alerts/stop/:
+    post:
+      operationId: v1_public_alerts_stop_create
+      description: |-
+        Q14: the one-click "Stop these alerts" link of an alert email, without signing in.
+
+        The public page posts the token when it opens; repeating it is fine.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertStopRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertStopResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+          description: ''
   /api/v1/public/enquiries/:
     post:
       operationId: v1_public_enquiries_create
@@ -7763,6 +7799,43 @@ components:
       - interest_minor
       - principal_minor
       - total_minor
+    AlertStopRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 512
+      required:
+      - token
+    AlertStopResult:
+      type: object
+      description: 'Q14: what the "Stop these alerts" link stopped.'
+      properties:
+        kind:
+          $ref: '#/components/schemas/AlertStopResultKindEnum'
+        loan_id:
+          type: string
+          format: uuid
+          nullable: true
+        loan_title:
+          type: string
+        message:
+          type: string
+      required:
+      - kind
+      - loan_id
+      - loan_title
+      - message
+    AlertStopResultKindEnum:
+      enum:
+      - smart_invest
+      - opening_alert
+      - saved_reminder
+      type: string
+      description: |-
+        * `smart_invest` - smart_invest
+        * `opening_alert` - opening_alert
+        * `saved_reminder` - saved_reminder
     AmountByCurrency:
       type: object
       properties:

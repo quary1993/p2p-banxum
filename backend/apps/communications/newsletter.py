@@ -316,8 +316,33 @@ def confirm_newsletter_subscription(token: object) -> NewsletterSubscription:
 
 
 @transaction.atomic
+def _mark_unsubscribed(subscription: NewsletterSubscription) -> bool:
+    if subscription.status == NewsletterSubscriptionStatus.UNSUBSCRIBED:
+        return False
+    subscription.status = NewsletterSubscriptionStatus.UNSUBSCRIBED
+    subscription.unsubscribed_at = now_utc()
+    subscription.confirm_token_nonce = ""
+    subscription.confirm_token_hash = ""
+    subscription.confirm_token_expires_at = None
+    subscription.save(
+        update_fields=[
+            "status",
+            "unsubscribed_at",
+            "confirm_token_nonce",
+            "confirm_token_hash",
+            "confirm_token_expires_at",
+            "updated_at",
+        ]
+    )
+    return True
+
+
 def unsubscribe_from_newsletter(token: object) -> NewsletterSubscription:
-    """Unsubscribe with the link of any newsletter email. Repeating it is a no-op."""
+    """Unsubscribe with the link of any newsletter email. Repeating it is a no-op.
+
+    Q14: the newsletter and "News from Banxum" are one preference for the same address, so an
+    investor account with this email stops "News from Banxum" too.
+    """
 
     digest = _presented_token_hash(token)
     subscription = (
@@ -327,23 +352,24 @@ def unsubscribe_from_newsletter(token: object) -> NewsletterSubscription:
     )
     if subscription is None:
         raise NewsletterTokenError("This link is not valid or has expired.")
-    if subscription.status != NewsletterSubscriptionStatus.UNSUBSCRIBED:
-        subscription.status = NewsletterSubscriptionStatus.UNSUBSCRIBED
-        subscription.unsubscribed_at = now_utc()
-        subscription.confirm_token_nonce = ""
-        subscription.confirm_token_hash = ""
-        subscription.confirm_token_expires_at = None
-        subscription.save(
-            update_fields=[
-                "status",
-                "unsubscribed_at",
-                "confirm_token_nonce",
-                "confirm_token_hash",
-                "confirm_token_expires_at",
-                "updated_at",
-            ]
+    _mark_unsubscribed(subscription)
+    if subscription.email:
+        import_module("backend.apps.accounts_auth.services").stop_marketing_consent_for_email(
+            subscription.email, source="newsletter_unsubscribe"
         )
     return subscription
+
+
+def unsubscribe_email_from_newsletter(email: str) -> bool:
+    """Q14: "News from Banxum" switched off in an account also ends the public newsletter
+    subscription of the same address (no link needed). Returns True when it changed."""
+    normalized = email.strip().lower()
+    if not normalized:
+        return False
+    subscription = (
+        NewsletterSubscription.objects.select_for_update().filter(email__iexact=normalized).first()
+    )
+    return subscription is not None and _mark_unsubscribed(subscription)
 
 
 # --- Emails ---------------------------------------------------------------------------------

@@ -35,6 +35,7 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.investor_limit import (
     SWISS_INVESTOR_LIMIT_CODE,
     InvestorLimit,
@@ -2798,6 +2799,24 @@ def set_loan_opening_alert(*, actor: Model, loan_id: str, wanted: bool) -> dict[
     return _coming_soon_payload(loan, viewer_user_id=str(actor.pk), full=True)
 
 
+def stop_loan_opening_alert(*, investor_user_id: str, loan_id: str) -> bool:
+    """Q14: "Stop these alerts" in an opening email cancels the request for that project."""
+    deleted, _ = LoanOpeningAlert.objects.filter(
+        loan_id=loan_id, investor_user_id=investor_user_id, notified_at__isnull=True
+    ).delete()
+    if deleted:
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef("investor", str(investor_user_id)),
+                action="marketplace.opening_alert_stopped",
+                target_type="Loan",
+                target_id=str(loan_id),
+                metadata={"decision": "Q14", "source": "email_stop_link"},
+            )
+        )
+    return bool(deleted)
+
+
 def send_loan_opening_alerts(*, loan_id: str) -> list[str]:
     """At publication: one email per investor who asked, listed in their notifications.
 
@@ -2837,6 +2856,8 @@ def send_loan_opening_alerts(*, loan_id: str) -> list[str]:
                     ),
                     "buttons": [{"label": "Review opportunity", "url": action_url}],
                     "loan_id": str(loan.id),
+                    # Q14: the email carries a one-click "Stop these alerts" link.
+                    "stop_alerts": {"kind": "opening_alert", "loan_id": str(loan.id)},
                     "template_key": "marketplace.opening_alert.v1",
                     "fine_print": "Capital is at risk. Opening does not guarantee a place.",
                 },

@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.communications.api.views import (
+    AlertStopView,
     NewsletterConfirmView,
     NewsletterSubscribeView,
     NewsletterUnsubscribeView,
@@ -26,4 +27,5 @@ urlpatterns = [
         NewsletterUnsubscribeView.as_view(),
         name="public-newsletter-unsubscribe",
     ),
+    path("alerts/stop/", AlertStopView.as_view(), name="public-alert-stop"),
 ]

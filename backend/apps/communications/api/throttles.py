@@ -27,6 +27,8 @@ NEWSLETTER_SUBSCRIBE_SCOPE = "newsletter_subscribe"
 NEWSLETTER_CONFIRMATION_EMAIL_SCOPE = "newsletter_confirmation_email"
 NEWSLETTER_CONFIRM_SCOPE = "newsletter_confirm"
 NEWSLETTER_UNSUBSCRIBE_SCOPE = "newsletter_unsubscribe"
+# Q14: one-click "Stop these alerts" links of alert emails.
+ALERT_STOP_SCOPE = "alert_stop"
 GLOBAL_IDENTIFIER = "global"
 
 
@@ -102,3 +104,7 @@ class NewsletterConfirmThrottle(_NewsletterTokenThrottle):
 
 class NewsletterUnsubscribeThrottle(_NewsletterTokenThrottle):
     scope = NEWSLETTER_UNSUBSCRIBE_SCOPE
+
+
+class AlertStopThrottle(_NewsletterTokenThrottle):
+    scope = ALERT_STOP_SCOPE

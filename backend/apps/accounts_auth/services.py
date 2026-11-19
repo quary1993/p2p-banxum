@@ -683,6 +683,33 @@ def send_registration_follow_up_email(
 
 
 @transaction.atomic
+def stop_marketing_consent_for_email(email: str, *, source: str) -> bool:
+    """Q14: an unsubscribe from the public newsletter also stops "News from Banxum" of the
+    account with the same (verified) email. Returns True when it changed."""
+    normalized = email.strip().lower()
+    if not normalized:
+        return False
+    user = (
+        User.objects.select_for_update()
+        .filter(email__iexact=normalized, marketing_consent=True)
+        .first()
+    )
+    if user is None:
+        return False
+    user.marketing_consent = False
+    user.save(update_fields=["marketing_consent"])
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="account.marketing_consent_changed",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"previous_value": True, "new_value": False, "source": source},
+        )
+    )
+    return True
+
+
 def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
     user = User.objects.select_for_update().filter(id=command.user.id).first()
     if user is None or not is_lender_actor(user):
@@ -692,6 +719,14 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
         return user
     user.marketing_consent = command.marketing_consent
     user.save(update_fields=["marketing_consent"])
+    newsletter_stopped = False
+    if not command.marketing_consent:
+        # Q14: one preference with the public newsletter of the same verified address.
+        newsletter_stopped = bool(
+            import_module(
+                "backend.apps.communications.newsletter"
+            ).unsubscribe_email_from_newsletter(str(user.email))
+        )
     record_audit_event(
         AuditCommand(
             actor=actor_for_user(user),
@@ -701,6 +736,7 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
             metadata={
                 "previous_value": previous_value,
                 "new_value": command.marketing_consent,
+                "newsletter_unsubscribed": newsletter_stopped,
             },
         )
     )

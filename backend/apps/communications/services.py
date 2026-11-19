@@ -125,6 +125,8 @@ class EmailTemplateContent:
     # site) and for internal emails. Empty keeps the default footer.
     footer_note: str = ""
     footer_links: tuple[tuple[str, str], ...] = ()
+    # Q14: the one-click "Stop these alerts" link of an alert email (label, URL).
+    stop_link: tuple[str, str] | None = None
 
 
 class EmailProvider(Protocol):
@@ -631,6 +633,12 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
         if content.fine_print
         else ""
     )
+    if content.stop_link:
+        stop_label, stop_url = content.stop_link
+        fine_print += f"""
+                    <p class="font-sans" style="margin:12px 0 0 0; color:{EMAIL_STEEL}; font-size:12px; line-height:19px;">
+                      <a href="{_escape_attr(stop_url)}" target="_blank" style="color:{EMAIL_INK}; text-decoration:underline;">{html.escape(stop_label)}</a>
+                    </p>"""
     footer_link = "color:#ffffff; text-decoration:underline; font-size:12px; line-height:18px;"
     if content.footer_note:
         footer_note = _linkified_text(content.footer_note, link_color="#ffffff")
@@ -1146,8 +1154,12 @@ def _localized_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return localized
 
 
-def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
+def _render_payload_email(message: OutboxMessage, *, redact: bool = False) -> RenderedEmail:
     payload = _localized_payload(dict(message.payload or {}))
+    from backend.apps.communications.alert_stop import stop_link_from_payload
+
+    # Q14: alert emails carry a one-click "Stop these alerts" link (redacted in stored copies).
+    stop_link = stop_link_from_payload(payload, base_url=_base_url(), redact=redact)
     recipient = (
         str(payload.get("email") or payload.get("recipient_email") or payload.get("to_email") or "")
         .strip()
@@ -1163,9 +1175,16 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
         )
     if not body_text:
         body_text = html.unescape(body_html)
+    if stop_link is not None and not body_html:
+        paragraphs_text = body_text
+        body_text = f"{body_text}\n\n{stop_link[0]}: {stop_link[1]}"
+    else:
+        paragraphs_text = body_text
     if not body_html:
         status_label, status_tone = _payload_status_for_topic(message.topic, template_key)
-        paragraphs = tuple(paragraph for paragraph in body_text.split("\n\n") if paragraph.strip())
+        paragraphs = tuple(
+            paragraph for paragraph in paragraphs_text.split("\n\n") if paragraph.strip()
+        )
         body_html = _render_banxum_email_html(
             EmailTemplateContent(
                 notice_label=str(payload.get("notice_label", "Investor notice")),
@@ -1185,6 +1204,7 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
                         ),
                     )
                 ),
+                stop_link=stop_link,
             )
         )
     return RenderedEmail(
@@ -1237,7 +1257,7 @@ def render_email_for_outbox_message(
 
         return newsletter.render_newsletter_email(message, redact=redact_secrets)
     if message.topic.startswith("email."):
-        return _render_payload_email(message)
+        return _render_payload_email(message, redact=redact_secrets)
     raise UnsupportedEmailTopicError(f"Outbox topic '{message.topic}' is not an email topic.")
 
 

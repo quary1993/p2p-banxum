@@ -313,6 +313,9 @@ class SavedOpportunity(TimestampedModel):
     )
     investor_user_id = models.UUIDField()
     amount_minor = models.BigIntegerField(null=True, blank=True)
+    # Q14: the investor used "Stop these alerts" in a reminder email: no more reminder emails
+    # for this opportunity; the saved item and the in-app reminders stay.
+    email_reminders_stopped_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at", "id"]

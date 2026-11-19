@@ -24,8 +24,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.communications.alert_stop import AlertStopTokenError, stop_alerts
 from backend.apps.communications.api.serializers import (
     ENQUIRY_REQUEST_SERIALIZERS,
+    AlertStopRequestSerializer,
+    AlertStopResultSerializer,
     CompanyEnquiryRequestSerializer,
     ContactEnquiryRequestSerializer,
     NewsletterAcceptedSerializer,
@@ -39,6 +42,7 @@ from backend.apps.communications.api.serializers import (
 from backend.apps.communications.api.throttles import (
     NEWSLETTER_CONFIRMATION_EMAIL_SCOPE,
     PUBLIC_ENQUIRY_SCOPE,
+    AlertStopThrottle,
     NewsletterConfirmThrottle,
     NewsletterSubscribeThrottle,
     NewsletterUnsubscribeThrottle,
@@ -327,3 +331,36 @@ class NewsletterUnsubscribeView(PublicWriteView):
         except NewsletterTokenError:
             return _invalid_token_response()
         return Response({"status": "unsubscribed"}, status=status.HTTP_200_OK)
+
+
+class AlertStopView(PublicWriteView):
+    """Q14: the one-click "Stop these alerts" link of an alert email, without signing in.
+
+    The public page posts the token when it opens; repeating it is fine.
+    """
+
+    parser_classes = [JSONParser]
+    throttle_classes = [AlertStopThrottle]
+
+    @extend_schema(
+        request=AlertStopRequestSerializer,
+        responses={
+            200: AlertStopResultSerializer,
+            400: PublicErrorSerializer,
+            429: PublicErrorSerializer,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        try:
+            result = stop_alerts(_request_token(request))
+        except AlertStopTokenError:
+            return _invalid_token_response()
+        return Response(
+            {
+                "kind": result.kind,
+                "loan_id": result.loan_id,
+                "loan_title": result.loan_title,
+                "message": result.message,
+            },
+            status=status.HTTP_200_OK,
+        )
