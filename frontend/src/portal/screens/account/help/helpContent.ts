@@ -143,10 +143,10 @@ export function helpQuestions(t: typeof translate, { days, brand, fxEnabled }: {
       id: "unused",
       topic: "money",
       question: t("What happens to money I do not invest?"),
-      answer: t("Money in your {brand} account earns no interest. Money you do not invest goes back to your bank automatically after {days} days, to your return account in the same currency (a verified bank account; you choose it in Bank accounts). Account shows the date for each amount.", { brand, days }),
+      answer: t("Money in your {brand} account earns no interest. Money you do not invest goes back to your bank automatically: it can stay until day {days} after it arrives, and then we return it to your return account in the same currency (a verified bank account; you choose it in Bank accounts). Account shows the date for each amount.", { brand, days }),
       more: {
-        title: t("After {days} days", { days }),
-        text: t("Day {days} is the last day: you can still withdraw the money until the end of that day (Europe/Zurich), but you can no longer invest it. The next day we send it back automatically to your verified bank account. Without a verified bank account the money stays in your account and we ask you to add one. Money may not stay longer than 60 days, the legal limit. There is no penalty: money past its return date stays on your balance until we can return it, and you cannot invest it.", { days })
+        title: t("Day {days} and the return", { days }),
+        text: t("Day {days} is the last day: you can still withdraw the money until the end of that day (Europe/Zurich), but you can no longer invest it. The next day we start the return, or earlier when the bank is closed that day; our team sends the transfer by hand, and we tell you 14, 10 and 3 days before. Without a verified bank account the money stays in your account and we ask you to add one. If your bank sends the money back, it stays on your balance with its original dates; we send it again only to a verified bank account. Money may not stay longer than 60 days, the legal limit. There is no penalty: money past its return date stays on your balance until we can return it, and you cannot invest it.", { days })
       },
       links: [
         { label: t("Account"), to: "balances" },

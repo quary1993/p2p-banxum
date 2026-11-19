@@ -72,9 +72,13 @@ export function lot(values: Partial<BalanceLot> & Pick<BalanceLot, "id" | "curre
     withdrawal_deadline_at: "2026-11-30T23:00:00Z",
     days_until_investment_deadline: 20,
     days_until_withdrawal_deadline: 20,
+    return_after_days: 56,
     last_day: "2026-11-29",
     return_date: "2026-11-30",
+    return_date_adjusted: false,
     days_until_last_day: 18,
+    direct_funding_until: "2026-11-20",
+    return_failed: false,
     original_amount_minor: 0,
     available_amount_minor: 0,
     invested_amount_minor: 0,
@@ -94,7 +98,8 @@ export function balances(values: Partial<InvestorBalancePortal> = {}): InvestorB
     lots: [],
     payout_instructions: [],
     pending_withdrawals: [],
-    auto_return_after_days: 58,
+    auto_return_after_days: 56,
+    return_failures: [],
     ...values
   };
 }

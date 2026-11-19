@@ -84,7 +84,7 @@ function InstructionBody({ instruction, returnDays, referenceRule, verifiedIban 
           <p>{t("Transfer only from your verified bank account. Deposits we cannot match to you are checked by hand before they become available.")}</p>
           {referenceRule ? <p>{referenceRule}</p> : null}
           {instruction.notes ? <p>{instruction.notes}</p> : null}
-          <p>{t("Uninvested funds return after {days} days. Money held here earns no interest.", { days: returnDays })}</p>
+          <p>{t("Uninvested funds can stay until day {days}, then go back to your bank. Money held here earns no interest.", { days: returnDays })}</p>
         </div>
       </details>
     </>

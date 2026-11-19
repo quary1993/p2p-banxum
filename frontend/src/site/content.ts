@@ -135,7 +135,7 @@ export const siteFaq: FaqGroup[] = [
     items: [
       {
         q: "What is my Banxum wallet?",
-        a: "<p>Every investor has a segregated electronic wallet with a CHF and a EUR balance. The money is held on Garanta's collection account, apart from Garanta's own money, and recorded investor by investor. The wallet is not a bank account: it earns no interest, and money you do not invest goes back to your bank after 58 days.</p>"
+        a: "<p>Every investor has a segregated electronic wallet with a CHF and a EUR balance. The money is held on Garanta's collection account, apart from Garanta's own money, and recorded investor by investor. The wallet is not a bank account: it earns no interest, and money you do not invest can stay until day 56; then it goes back to your bank.</p>"
       },
       {
         q: "How do I pay for an investment?",
@@ -143,7 +143,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "What happens to money I do not invest?",
-        a: "<p>It stays in your wallet without interest. After 58 days it goes back automatically to your verified bank account in the same currency. Banxum is not a bank and cannot keep money longer than 60 days.</p>"
+        a: "<p>It stays in your wallet without interest until day 56 after it arrives. Then we return it automatically to your verified bank account in the same currency: the return starts on day 57, or earlier when the bank is closed that day. Banxum is not a bank and cannot keep money longer than 60 days.</p>"
       },
       {
         q: "Where are repayments paid?",

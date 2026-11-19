@@ -80,22 +80,42 @@ export function nextReturn(summary: BalanceSummary, lots: BalanceLot[]): NextRet
 }
 
 export type AccountNotice =
+  | { kind: "returnFailed"; currency: string; amountMinor: number; reasonText: string; bankSide: boolean }
   | { kind: "dueBackNoAccount"; currency: string; amountMinor: number }
   | { kind: "dueBack"; currency: string; amountMinor: number }
   | { kind: "lastDay"; currency: string; amountMinor: number; returnDate: string | null; hasAccount: boolean };
 
+const BANK_SIDE_REASONS = new Set(["technical", "bank_restriction"]);
+
 /**
- * Today's states that need the investor (PAY-DEC-017/022, until U33-DEC-03/04): money on its last
+ * The states that need the investor (18.4): a return that the bank sent back (Q02), money on its last
  * day (withdraw-only), money due back to the bank, and money due back with no verified bank account
  * to send it to. The frozen state has its own banner in the shell.
  */
-export function accountNotices(balances: Pick<InvestorBalancePortal, "summaries" | "lots" | "payout_instructions">): AccountNotice[] {
+export function accountNotices(
+  balances: Pick<InvestorBalancePortal, "summaries" | "lots" | "payout_instructions"> & Partial<Pick<InvestorBalancePortal, "return_failures">>
+): AccountNotice[] {
   const notices: AccountNotice[] = [];
+  const failures = balances.return_failures ?? [];
+  for (const failure of failures) {
+    notices.push({
+      kind: "returnFailed",
+      currency: failure.currency,
+      amountMinor: failure.amount_minor,
+      reasonText: failure.reason_text,
+      bankSide: BANK_SIDE_REASONS.has(failure.reason_code)
+    });
+  }
   for (const summary of orderedSummaries(balances.summaries)) {
     const currency = summary.currency;
     const hasAccount = verifiedAccounts(balances.payout_instructions, currency).length > 0;
-    if (summary.overdue_minor > 0) {
-      notices.push({ kind: hasAccount ? "dueBack" : "dueBackNoAccount", currency, amountMinor: summary.overdue_minor });
+    // Money of a failed return waits for the team: it has its own notice.
+    const failedMinor = liveLots(balances.lots, currency)
+      .filter((lot) => lot.return_failed)
+      .reduce((total, lot) => total + lot.available_amount_minor, 0);
+    const dueBackMinor = summary.overdue_minor - failedMinor;
+    if (dueBackMinor > 0) {
+      notices.push({ kind: hasAccount ? "dueBack" : "dueBackNoAccount", currency, amountMinor: dueBackMinor });
     }
     if (summary.withdraw_only_minor > 0) {
       const lastDayLots = liveLots(balances.lots, currency).filter((lot) => lot.bucket === "withdraw_only");
@@ -104,7 +124,7 @@ export function accountNotices(balances: Pick<InvestorBalancePortal, "summaries"
     }
   }
   // Money that cannot go back comes first.
-  const rank = { dueBackNoAccount: 0, lastDay: 1, dueBack: 2 } as const;
+  const rank = { returnFailed: 0, dueBackNoAccount: 1, lastDay: 2, dueBack: 3 } as const;
   return notices.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

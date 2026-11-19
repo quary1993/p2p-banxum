@@ -3,7 +3,7 @@
  * Banxum account (design #/account: main.ap-page.r70-account), route /balances. Per currency: the
  * available balance, reserved money (primary orders allocated until funding closes), withdrawals in
  * progress, Add funds and Withdraw, and the next automatic return with its real date from the API
- * (58 days today; U33-DEC-03 changes it in Phase 17.2). Balance details lists the balance lots, the
+ * (day 56 last day, return from day 57; 18.4). Balance details lists the balance lots, the
  * reservations and the withdrawals in progress. Bank accounts live in Profile & Settings (design).
  * Today's last-day, due-back and penalty states use the design's alert component; the design has no
  * screens for them (U33-DEC-29/04, see docs/claude-design/TODO.md).
@@ -57,12 +57,26 @@ function AccountNoticeAlert({
   const addAccount = onAddBankAccount
     ? <button className="alert-link" onClick={() => onAddBankAccount(notice.currency)} type="button">{t("Add a bank account")}</button>
     : <PortalLink className="alert-link" to="settings">{t("Add a bank account")}</PortalLink>;
+  if (notice.kind === "returnFailed") {
+    // Q02: the bank sent the return back; the money keeps its dates and waits for the team.
+    return (
+      <div className="alert alert-danger alert-icon">
+        <NiIcon name="alert-circle" />
+        <strong className="bxm-signal-text">{t("Your bank sent {amount} back.", { amount })}</strong>{" "}
+        {t(notice.reasonText)}{" "}
+        {t("The money is on your balance again with its original dates: you can withdraw it, but not invest it. There is no penalty.")}{" "}
+        {notice.bankSide
+          ? t("Our team will contact you and send it again as soon as possible.")
+          : <>{t("We send it again only to a verified bank account in your name.")} {addAccount}</>}
+      </div>
+    );
+  }
   if (notice.kind === "dueBackNoAccount") {
     return (
       <div className="alert alert-danger alert-icon">
         <NiIcon name="alert-circle" />
         <strong className="bxm-signal-text">{t("Add a verified bank account so we can return your money.")}</strong>{" "}
-        {t("{amount} was not invested within {days} days and must go back to your bank, but there is no verified {currency} bank account.", { amount, days, currency: notice.currency })}{" "}
+        {t("{amount} was not invested in time and must go back to your bank, but there is no verified {currency} bank account.", { amount, currency: notice.currency })}{" "}
         {t("Until then it stays on your balance and you cannot invest it. There is no penalty.")}{" "}
         {addAccount}
       </div>
@@ -73,7 +87,7 @@ function AccountNoticeAlert({
       <div className="alert alert-warning alert-icon wl-alert-amber">
         <NiIcon name="undo" />
         <strong className="bxm-signal-text">{t("{amount} goes back to your bank.", { amount })}</strong>{" "}
-        {t("It was not invested within {days} days. We send it to your verified bank account.", { days })}
+        {t("It was not invested by day {days}. Our team sends it to your verified bank account.", { days })}
       </div>
     );
   }
@@ -94,7 +108,7 @@ function AccountNoticeAlert({
 function ReturnLine({ summary, lots, days }: { summary: BalanceSummary; lots: BalanceLot[]; days: number }) {
   const t = useT();
   const next = nextReturn(summary, lots);
-  if (!next) return <p>{t("Money that is not invested goes back to your bank account after {days} days.", { days })}</p>;
+  if (!next) return <p>{t("Money that is not invested can stay until day {days}. Then it goes back to your bank account.", { days })}</p>;
   const date = <strong>{formatDate(next.date)}</strong>;
   if (next.amountMinor === null) return <p>{rich(t("Money that is not invested returns on {date}."), { date })}</p>;
   const amount = <strong>{formatMoneyLabel(summary.currency, next.amountMinor)}</strong>;
@@ -185,6 +199,7 @@ function lotStatus(lot: BalanceLot, previewFrozen: boolean): { label: string; to
   if (isFrozenLot(lot) || (previewFrozen && lot.bucket === "overdue")) {
     return { label: lot.bucket === "penalty_exhausted" ? "Used up by penalty" : lot.status === "frozen" && !lot.bucket.startsWith("penalty") ? "Frozen" : "Frozen, penalty charged", tone: "default" };
   }
+  if (lot.return_failed) return { label: "Return failed", tone: "default" };
   if (lot.bucket === "overdue") return { label: "Due back", tone: "late" };
   if (lot.bucket === "withdraw_only") return { label: "Last day", tone: "late" };
   return null;
@@ -313,8 +328,8 @@ export function AccountRulesDialog({ days, fxEnabled, onClose }: { days: number;
   return (
     <Dialog onClose={onClose} title={t("How your account works")}>
       <ul className="bxm-rules mt-3">
-        {/* The design's three rules; the return deadline is today's platform value (U33-DEC-03 changes it). */}
-        <li>{t("Your Banxum account holds funds for investment. Uninvested funds earn no interest and return automatically to your verified bank account (IBAN) after {days} days.", { days })}</li>
+        {/* The design's three rules, with the 18.4 return rule (day 56 last day, return from day 57). */}
+        <li>{t("Your Banxum account holds funds for investment. Uninvested funds earn no interest. They can stay until day {days}, then go back automatically to your verified bank account (IBAN).", { days })}</li>
         {/* U33-DEC-02: repayments go to the Banxum balance, not directly to the bank account. */}
         <li>{t("Loan repayments go to your Banxum account.")}</li>
         {fxEnabled ? <li>{t("A currency exchange does not restart this count.")}</li> : null}

@@ -185,6 +185,16 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
         icon: forced ? "undo" : "wallet-out",
         description: iban ? { text: "To {iban}", vars: { iban: maskedIban(iban) } } : { text: "To your bank account" }
       };
+    case "withdrawal_returned":
+      // 18.4 (Q02): the receiving bank sent the transfer back; the money is on the balance again.
+      return {
+        ...base,
+        group: forced ? "return" : "withdrawal",
+        label: forced ? "Return sent back by the bank" : "Withdrawal sent back by the bank",
+        status: "Back on your balance",
+        icon: "undo",
+        description: { text: "Banxum account" }
+      };
     case "withdrawal_cancellation":
       return {
         ...base,

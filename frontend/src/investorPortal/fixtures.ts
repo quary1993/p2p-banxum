@@ -269,7 +269,10 @@ export const publicLoanNotesFixture: PublicLoanRiskNote[] = [
 ];
 
 // The return dates are derived below from the holding deadline (day 60), like the API does.
-const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "days_until_last_day">[] = [
+const sourceBalanceLotsFixture: Omit<
+  BalanceLot,
+  "last_day" | "return_date" | "days_until_last_day" | "return_after_days" | "return_date_adjusted" | "direct_funding_until" | "return_failed"
+>[] = [
   {
     id: "L-2041",
     currency: "CHF",
@@ -320,7 +323,7 @@ const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "d
     investment_deadline_at: "2026-06-08T00:00:00+02:00",
     withdrawal_deadline_at: "2026-07-08T00:00:00+02:00",
     days_until_investment_deadline: 3,
-    days_until_withdrawal_deadline: 33,
+    days_until_withdrawal_deadline: 35,
     original_amount_minor: amount(12000),
     available_amount_minor: amount(12000),
     invested_amount_minor: 0,
@@ -432,7 +435,8 @@ const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "d
   }
 ];
 
-// Money not invested goes back to the bank after day 58, two days before the 60-day limit.
+// 18.4: money not invested can stay until day 56; the return starts on day 57 (the fixtures do not
+// apply the bank calendar).
 const FIXTURE_DAYS_BEFORE_LIMIT = 60 - AUTO_RETURN_AFTER_DAYS;
 
 export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lot) => {
@@ -446,9 +450,14 @@ export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lo
     withdrawal_deadline_at: deadline,
     days_until_investment_deadline: daysLeft,
     days_until_withdrawal_deadline: daysLeft,
+    return_after_days: AUTO_RETURN_AFTER_DAYS,
     last_day: fixtureIsoDateFromToday(daysToLastDay),
     return_date: fixtureIsoDateFromToday(daysToLastDay + 1),
+    return_date_adjusted: false,
     days_until_last_day: daysToLastDay,
+    // F01: close + 3 business days by day 56; about a week before the last day in the preview.
+    direct_funding_until: daysToLastDay > 7 ? fixtureIsoDateFromToday(daysToLastDay - 6) : null,
+    return_failed: false,
     bucket: daysToLastDay > 0 ? "investable" : daysToLastDay === 0 ? "withdraw_only" : "overdue",
     requires_withdrawal: daysToLastDay <= 0
   };
@@ -494,7 +503,8 @@ export const balancesFixture: InvestorBalancePortal = {
     }
   ],
   pending_withdrawals: [],
-  auto_return_after_days: AUTO_RETURN_AFTER_DAYS
+  auto_return_after_days: AUTO_RETURN_AFTER_DAYS,
+  return_failures: []
 };
 
 type DirectMarketplaceFixtureInput = Omit<
@@ -2610,7 +2620,7 @@ export const dashboardFixture: InvestorDashboard = {
       currency: "CHF",
       amount_minor: amount(980),
       count: 1,
-      message: "CHF 980.00 was not invested within 58 days and goes back to your bank."
+      message: "CHF 980.00 was not invested by day 56 and goes back to your bank."
     },
     {
       type: "loan_default",

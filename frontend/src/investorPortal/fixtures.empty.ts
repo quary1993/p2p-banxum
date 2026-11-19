@@ -68,7 +68,8 @@ export const balancesFixture: InvestorBalancePortal = {
   lots: [],
   payout_instructions: [],
   pending_withdrawals: [],
-  auto_return_after_days: 58
+  auto_return_after_days: 56,
+  return_failures: []
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];

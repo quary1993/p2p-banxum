@@ -1,7 +1,8 @@
 // IP of Webby-Soft SRL.
-// Real-API checks of the 58-day automatic return (owner decision 2026-10-16): the Account page shows
-// the last day and the return date of each lot, the money due back, and asks for a verified IBAN
-// when the money cannot go back; the Help page answers with the same rule.
+// Real-API checks of the automatic return (18.4, Q01/Q02): day 56 is the last day and the return starts
+// on day 57. The Account page shows the last day and the return date of each lot, the money due back,
+// asks for a verified IBAN when the money cannot go back and shows a failed return; the Help page
+// answers with the same rule.
 import { fireEvent, screen, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
@@ -18,8 +19,8 @@ beforeAll(async () => {
   App = (await import("./App")).App;
 });
 
-// 10 Dec 2026: one CHF lot on its last day (day 58), one CHF lot with 10 days left, and EUR money
-// due back since today (day 59) with no verified EUR IBAN.
+// 10 Dec 2026: one CHF lot on its last day (day 56), one CHF lot with 10 days left, and EUR money
+// due back since today (day 57) with no verified EUR IBAN.
 const ageingBalances = () =>
   balances({
     summaries: [
@@ -82,7 +83,7 @@ const ageingBalances = () =>
         created_at: "2026-10-09T11:00:00Z"
       }
     ],
-    auto_return_after_days: 58
+    auto_return_after_days: 56
   });
 
 test("Account shows the last day, the return date and asks for an IBAN when money cannot go back", async () => {
@@ -97,12 +98,12 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   expect(within(chf).getByText("21 Dec 2026").closest("p")).toHaveTextContent("CHF 200,00 returns on 21 Dec 2026 if not invested.");
   // EUR money is already due back: no upcoming return date, the rule with the API's day count.
   const eur = screen.getByRole("region", { name: "EUR account" });
-  expect(within(eur).getByText("Money that is not invested goes back to your bank account after 58 days.")).toBeInTheDocument();
+  expect(within(eur).getByText("Money that is not invested can stay until day 56. Then it goes back to your bank account.")).toBeInTheDocument();
 
   // Notices: EUR cannot go back (no verified EUR account); the CHF last-day money can be withdrawn.
   const notices = within(screen.getByRole("region", { name: "Account notices" }));
   const noAccount = notices.getByText("Add a verified bank account so we can return your money.").closest(".alert") as HTMLElement;
-  expect(noAccount).toHaveTextContent("EUR 500,00 was not invested within 58 days and must go back to your bank, but there is no verified EUR bank account.");
+  expect(noAccount).toHaveTextContent("EUR 500,00 was not invested in time and must go back to your bank, but there is no verified EUR bank account.");
   expect(noAccount).toHaveTextContent("Until then it stays on your balance and you cannot invest it. There is no penalty.");
   expect(within(noAccount).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
   const lastDay = notices.getByText("Last day for CHF 100,00.").closest(".alert") as HTMLElement;
@@ -120,10 +121,10 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   expect(within(dueRow).getByText("Due since 10 Dec 2026")).toBeInTheDocument();
   expect(within(dueRow).getByText("Due back")).toBeInTheDocument();
 
-  // The account rules name the same 58 days and today's 60-day limit.
+  // The account rules name the same day 56.
   fireEvent.click(screen.getByRole("button", { name: "How your account works" }));
   const rules = screen.getByRole("dialog", { name: "How your account works" });
-  expect(rules).toHaveTextContent("return automatically to your verified bank account (IBAN) after 58 days");
+  expect(rules).toHaveTextContent("They can stay until day 56, then go back automatically to your verified bank account (IBAN).");
   // U33-DEC-02: repayments go to the Banxum account.
   expect(rules).toHaveTextContent("Loan repayments go to your Banxum account.");
 
@@ -136,7 +137,56 @@ test("Account shows the last day, the return date and asks for an IBAN when mone
   expect(await screen.findByRole("dialog", { name: "New EUR bank account" })).toBeInTheDocument();
 }, 30_000);
 
-test("the Help page explains the 58-day return and the 60-day legal limit", async () => {
+test("a failed return shows its own notice and the lot state", async () => {
+  const failedBalances = () =>
+    balances({
+      summaries: [summary("CHF", { total_available_minor: 400_00, overdue_minor: 400_00, lot_count: 1, active_lot_count: 1 })],
+      lots: [
+        lot({
+          id: "lot-chf-failed",
+          currency: "CHF",
+          bucket: "overdue",
+          available_amount_minor: 400_00,
+          original_amount_minor: 400_00,
+          last_day: "2026-12-07",
+          return_date: "2026-12-08",
+          days_until_last_day: -3,
+          requires_withdrawal: true,
+          return_failed: true
+        })
+      ],
+      return_failures: [
+        {
+          id: "failure-1",
+          currency: "CHF",
+          amount_minor: 400_00,
+          is_forced: true,
+          reason_code: "account_closed",
+          reason_text: "Your bank says the account is closed.",
+          destination_iban: "CH5604835012345678009",
+          returned_value_date: "2026-12-09",
+          recorded_at: "2026-12-09T10:00:00Z"
+        }
+      ]
+    });
+  server.use(
+    ...shellHandlers({ balances: failedBalances }),
+    http.get("*/api/v1/investor/portal/primary-orders/", () => HttpResponse.json({ orders: [] }))
+  );
+  renderLiveApp(App, "/balances");
+
+  const notices = within(await screen.findByRole("region", { name: "Account notices" }, { timeout: 5000 }));
+  const failed = notices.getByText("Your bank sent CHF 400,00 back.").closest(".alert") as HTMLElement;
+  expect(failed).toHaveTextContent("Your bank says the account is closed.");
+  expect(failed).toHaveTextContent("you can withdraw it, but not invest it. There is no penalty.");
+  expect(failed).toHaveTextContent("We send it again only to a verified bank account in your name.");
+  // The failed money is not shown a second time as plain "due back" money.
+  expect(notices.queryByText("CHF 400,00 goes back to your bank.")).not.toBeInTheDocument();
+  const table = within(screen.getByText("Balance details").closest("details") as HTMLElement).getByRole("table");
+  expect(within(table).getByText("Return failed")).toBeInTheDocument();
+}, 30_000);
+
+test("the Help page explains the day-56 return and the 60-day legal limit", async () => {
   server.use(...shellHandlers({ balances: ageingBalances }));
   renderLiveApp(App, "/portal/help");
 
@@ -145,9 +195,10 @@ test("the Help page explains the 58-day return and the 60-day legal limit", asyn
   const answer = question.closest("details") as HTMLElement;
   expect(answer).toHaveAttribute("open");
   // The day count comes from the balances API (auto_return_after_days).
-  expect(answer).toHaveTextContent("Money you do not invest goes back to your bank automatically after 58 days");
-  expect(within(answer).getByText("After 58 days")).toBeInTheDocument();
-  expect(answer).toHaveTextContent("Day 58 is the last day");
-  expect(answer).toHaveTextContent("The next day we send it back automatically to your verified bank account.");
+  expect(answer).toHaveTextContent("it can stay until day 56 after it arrives");
+  expect(within(answer).getByText("Day 56 and the return")).toBeInTheDocument();
+  expect(answer).toHaveTextContent("Day 56 is the last day");
+  expect(answer).toHaveTextContent("The next day we start the return, or earlier when the bank is closed that day");
+  expect(answer).toHaveTextContent("we tell you 14, 10 and 3 days before");
   expect(answer).toHaveTextContent("There is no penalty: money past its return date stays on your balance");
 }, 30_000);

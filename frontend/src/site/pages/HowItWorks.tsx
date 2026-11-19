@@ -429,7 +429,7 @@ export function HowItWorksSections() {
             <h2 className="site-h2">Where your money is at each step</h2>
             <p className="site-lead mt-4">
               Every investor has a segregated wallet with a CHF and a EUR balance. Garanta is not a bank: money waiting in
-              the wallet earns no interest and stays at most 58 days.
+              the wallet earns no interest and stays at most until day 56.
             </p>
           </div>
           <ol className="site-numbered">
@@ -450,7 +450,7 @@ export function HowItWorksSections() {
               verified bank account.
             </MoneyStep>
             <MoneyStep index="05" title="Returned">
-              Money you do not invest within 58 days goes back to your bank account automatically.
+              Money you do not invest by day 56 goes back to your bank account automatically (the return starts on day 57).
             </MoneyStep>
           </ol>
         </div>

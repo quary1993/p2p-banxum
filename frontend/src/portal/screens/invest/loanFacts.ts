@@ -89,16 +89,22 @@ export function daysLeftLabel(days: number) {
   return days === 1 ? t("1 day left") : t("{count} days left", { count: days });
 }
 
-/** Lots of the loan's currency that may fund this loan (the whole funding window before their last day). */
-export function eligibleLots(lots: BalanceLot[] | undefined, loan: Pick<MarketplaceLoanPreview, "currency" | "funding_deadline">) {
-  return (lots ?? []).filter(
-    (lot) =>
-      lot.currency === loan.currency &&
-      lot.status === "available" &&
-      lot.bucket === "investable" &&
-      (!loan.funding_deadline || loan.funding_deadline < lot.last_day) &&
-      lot.available_amount_minor > 0
-  );
+/**
+ * Lots of the loan's currency that may fund this loan. Direct loans (F01, 18.4): the money must reach
+ * the borrower by day 56, so the funding deadline must be on or before the lot's `direct_funding_until`.
+ * Loan Originator rounds: the whole funding window before the lot's last day.
+ */
+export function eligibleLots(
+  lots: BalanceLot[] | undefined,
+  loan: Pick<MarketplaceLoanPreview, "currency" | "funding_deadline"> & { product_type?: string }
+) {
+  const direct = loan.product_type !== "originator_claim";
+  return (lots ?? []).filter((lot) => {
+    if (lot.currency !== loan.currency || lot.status !== "available" || lot.bucket !== "investable" || lot.available_amount_minor <= 0) return false;
+    if (!loan.funding_deadline) return true;
+    if (direct) return Boolean(lot.direct_funding_until) && loan.funding_deadline <= (lot.direct_funding_until as string);
+    return loan.funding_deadline < lot.last_day;
+  });
 }
 
 export function sumAvailableMinor(lots: BalanceLot[]) {

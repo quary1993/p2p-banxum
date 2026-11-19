@@ -234,6 +234,12 @@ import {
   useLoansData
 } from "./data";
 import { useAdminBusinessDate } from "./adminBusinessDate";
+import {
+  DepositAccountVerificationCard,
+  ReturnedTransferForm,
+  ReturnFailuresCard,
+  SettlementCalendarsCard
+} from "./ReturnsAndCalendars";
 import { CollectionAccountSelect } from "./CollectionAccountSelect";
 import { PayoutIbanQueue } from "./PayoutIbans";
 
@@ -1797,7 +1803,7 @@ function FinancePendingTasksTable({
                     <strong>{item.title}</strong>
                     <span className="mono muted">{labelize(item.kind)}</span>
                     {(item.metadata as { is_forced?: unknown } | null)?.is_forced === true ? (
-                      <Chip dot={false} tone="warn">Forced return (58-day rule)</Chip>
+                      <Chip dot={false} tone="warn">Forced return (day 57 rule)</Chip>
                     ) : null}
                   </td>
                   <td><Chip status={item.status}>{labelize(item.status)}</Chip></td>
@@ -1833,10 +1839,14 @@ export function FinanceOpsPanel() {
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
       <FinancePendingTasksTable onSelectWithdrawal={setSelectedWithdrawalId} />
       <WithdrawalHistoryCard />
+      <ReturnFailuresCard />
       <OriginatorSettlementQueue />
       <section className="admin-module-grid">
         <DepositForm />
         <PayoutIbanQueue />
+        <ReturnedTransferForm />
+        <DepositAccountVerificationCard />
+        <SettlementCalendarsCard />
         <BalanceSummaryLookup />
         <BalanceAgeingScanForm />
         <ReconciliationSnapshotForm />
@@ -2219,7 +2229,7 @@ function BalanceAgeingScanForm() {
   return (
     <Card padded>
       <h2>Balance ageing scan</h2>
-      <p>Find reminders, automatic returns after 58 days and penalty-mode actions after the 60-day holding limit.</p>
+      <p>Find notices before the return date, automatic returns from day 57 and the 60-day holding limit.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <TextInput label="As of timestamp" onChange={setAsOf} type="datetime-local" value={asOf} />
