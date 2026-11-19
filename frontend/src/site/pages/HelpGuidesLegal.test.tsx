@@ -143,10 +143,12 @@ test("legal pages: the real documents in the U33 layout and the backend template
   expect(screen.queryByRole("heading", { name: "The borrower" })).not.toBeInTheDocument();
   risk.unmount();
 
+  // 18.12: the privacy notice is the full text drafted from the real application.
   const privacy = renderSite("/legal/privacy");
   expect(screen.getByRole("heading", { level: 1, name: "Privacy policy" })).toBeInTheDocument();
-  expect(screen.getByText("Outline. The full text follows from the lawyers.")).toBeInTheDocument();
+  expect(screen.queryByText("Outline. The full text follows from the lawyers.")).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 2, name: "Transfers abroad" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "DB-IP" })).toHaveAttribute("href", "https://db-ip.com");
   privacy.unmount();
 
   const imprint = renderSite("/legal/imprint");

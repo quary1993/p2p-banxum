@@ -361,31 +361,83 @@ export const siteLegal: SiteLegalDoc[] = [
   {
     id: "privacy",
     title: "Privacy notice",
-    version: "1.2",
-    date: "2026-09-01",
-    outline: [
-      "Who is responsible",
-      "Which data we collect (account, online identity check, transactions, website)",
-      "Why we process it and on which legal basis (FADP, GDPR)",
-      "Who receives it (identity provider, banks, authorities, service providers)",
-      "Transfers abroad",
-      "How long we keep it",
-      "Your rights and how to use them",
-      "Contact and supervisory authorities"
-    ]
+    version: "2.0",
+    date: "2026-11-20",
+    body: `<p>This notice tells you which personal data Banxum uses, why, who receives it, how long we keep it and what your rights are. It follows the Swiss Federal Act on Data Protection (FADP) and, for people in the European Economic Area, the EU General Data Protection Regulation (GDPR). [Draft of 20 November 2026: the points marked "to confirm" are completed before launch.]</p>
+        <h2>Who is responsible</h2>
+        <p>Banxum is a brand of Garanta Finanzgruppe AG, Schauplatzgasse 26, CH-3011 Bern, Switzerland (UID CHE-302.757.239). Garanta is responsible for your data. For every question about your data, write to <a href="mailto:support@banxum.com">support@banxum.com</a> or by post to the address above.</p>
+        <h2>Which data we use</h2>
+        <ul>
+          <li><strong>Account:</strong> name, email address, phone number, password (stored only as a hash), your PIN or authenticator app (stored only as a hash or an encrypted secret), recovery codes (hashed), language, number format and your choice about news emails.</li>
+          <li><strong>Identity check:</strong> our identity provider checks your identity document and takes a live photo. We receive the result and, when the provider gives them, your verified address, date of birth and nationality.</li>
+          <li><strong>Declarations:</strong> beneficial owner of the funds, sources of funds, whether you or a close person are politically exposed, your expected yearly investment volume, and for companies the company, its representative and its controlling persons.</li>
+          <li><strong>Money and investments:</strong> your bank accounts (IBAN, holder, bank), deposits, reservations, investments, repayments, resale offers and withdrawals, and the documents you accept (with the time, the version, the amount and the technical data of the confirmation).</li>
+          <li><strong>Security:</strong> signed-in devices and sign-ins (date, device and browser, approximate place, method and result). We keep your IP address only as a keyed hash, not in clear. The approximate place (city and country) comes from an IP database kept on our server; no IP address goes to an outside service for this.</li>
+          <li><strong>Messages:</strong> emails and notices we send you, and what you send to support (help messages, complaints, account closure requests).</li>
+          <li><strong>Website:</strong> messages sent with the contact forms, newsletter subscriptions (with the confirmation of your consent) and your cookie choice.</li>
+        </ul>
+        <h2>Why we use it</h2>
+        <ul>
+          <li>To open and run your account and your investments under the terms of use (contract).</li>
+          <li>To meet our legal duties: identification and anti-money-laundering checks, accounting, tax and reports to authorities (legal obligation).</li>
+          <li>To protect your account and the platform: sign-in checks, alerts for new devices, prevention of fraud and abuse (legitimate interest).</li>
+          <li>To send news about Banxum, only when you agree; you can stop it at any time (consent).</li>
+          <li>To measure the use of the public website, only when you agree in the cookie settings (consent).</li>
+        </ul>
+        <p>We do not sell your data and we do not use it for advertising profiles. We do not make automated decisions that have legal effects on you; a compliance review is always done by a person.</p>
+        <h2>Who receives it</h2>
+        <ul>
+          <li>Our identity provider (Didit) for the identity check. [To confirm: place of processing and contract terms.]</li>
+          <li>Twilio (Twilio Verify) to send sign-in codes by SMS, and SendGrid (part of Twilio) to send emails. [To confirm: SendGrid region and the data processing terms.]</li>
+          <li>Our hosting provider, which runs our server. [To confirm: provider and country.] Backups are stored with Amazon Web Services in Zurich, Switzerland.</li>
+          <li>Banks that execute deposits, payments and returns.</li>
+          <li>Authorities when the law requires it (for example the Money Laundering Reporting Office Switzerland, FINMA, tax authorities, courts), and our auditors and lawyers under professional secrecy.</li>
+          <li>Google (Google Analytics) for the measurement of the public website, only after your consent in the cookie settings.</li>
+        </ul>
+        <p>To check new passwords against known data breaches, we send only the first five characters of a one-way hash of the password to the "Have I Been Pwned" service; the password itself never leaves our server.</p>
+        <h2>Transfers abroad</h2>
+        <p>Some providers process data outside Switzerland, for example in the European Union or in the United States (Twilio, SendGrid, Google). We send data to a country without an adequate level of protection only with suitable safeguards, such as the standard contractual clauses recognised by the Federal Data Protection and Information Commissioner, or a certification under the Swiss-U.S. Data Privacy Framework. [To confirm per provider.]</p>
+        <h2>How long we keep it</h2>
+        <ul>
+          <li>Identification and anti-money-laundering files: 10 years after the end of the business relationship (AMLA art. 7).</li>
+          <li>Accounting, payment and ledger records: 10 years (CO art. 958f).</li>
+          <li>Contracts and signed assignments: 10 years after they end (CO art. 127).</li>
+          <li>Sign-in history: 365 days.</li>
+          <li>Contact form messages: 24 months.</li>
+          <li>Newsletter: as long as you are subscribed; the personal data of a subscription that was cancelled or never confirmed is deleted after 30 days.</li>
+          <li>Other data: only as long as we need it for the purpose above.</li>
+        </ul>
+        <h2>Your rights</h2>
+        <p>You can ask for a copy of your data, its correction, its deletion (where no legal duty requires us to keep it), a copy in a common electronic format, and you can object to processing based on our legitimate interest. You can withdraw a consent at any time, without effect on processing done before. Write to <a href="mailto:support@banxum.com">support@banxum.com</a>; we check your identity before we answer.</p>
+        <p>You can complain to the Federal Data Protection and Information Commissioner (FDPIC, www.edoeb.admin.ch) or, in the European Economic Area, to the data protection authority of your country.</p>
+        <h2>Security</h2>
+        <p>We protect your data with technical and organisational measures: encrypted connections, sign-in with a password and a second factor, confirmation of sensitive operations, access only for authorised staff, and logs of important actions.</p>
+        <h2>Credits and changes</h2>
+        <p>IP geolocation by <a href="https://db-ip.com" rel="noopener noreferrer" target="_blank">DB-IP</a>, licensed under Creative Commons Attribution 4.0. We may update this notice; the date and version at the top show the current one, and we tell you about important changes.</p>`
   },
   {
     id: "cookies",
     title: "Cookie policy",
-    version: "1.0",
-    date: "2026-09-01",
-    outline: [
-      "What cookies are",
-      "Necessary cookies (sign-in, security, your cookie choice)",
-      "Measurement cookies (only with your consent)",
-      "No advertising cookies",
-      "How to change your choice"
-    ]
+    version: "2.0",
+    date: "2026-11-20",
+    body: `<p>Cookies are small files that a website stores in your browser. Banxum also stores a few settings in your browser's local storage. This page lists them.</p>
+        <h2>Necessary cookies and storage</h2>
+        <p>These are needed for the site and the platform to work and to keep your account safe. They are always on.</p>
+        <ul>
+          <li><strong>sessionid</strong>: keeps you signed in. Ends when you sign out or after 2 weeks.</li>
+          <li><strong>csrftoken</strong>: protects forms against requests from other sites. 1 year.</li>
+          <li><strong>banxum_device</strong>: recognises your browser so that we can show your signed-in devices and warn you about a sign-in from a new device. Stored on our side only as a hash. 2 years.</li>
+          <li><strong>banxum_trusted</strong>: only when you choose "Trust this device" at sign-in; the second factor is then not asked on this device. 30 days.</li>
+          <li><strong>bxm-site-cookies</strong> (local storage): your cookie choice and its date, until you change it.</li>
+          <li>Settings in local storage: appearance (light or dark), sidebar width, number format, and the filters of the projects page. They stay until you clear them.</li>
+        </ul>
+        <h2>Measurement cookies (only with your consent)</h2>
+        <p>With your consent we use Google Analytics to count visits to the public website and see which pages are useful. It sets the cookies <strong>_ga</strong> and <strong>_ga_&lt;ID&gt;</strong> (2 years). Without your consent it does not load.</p>
+        <h2>No advertising cookies</h2>
+        <p>Banxum does not use advertising or social media tracking cookies.</p>
+        <h2>How to change your choice</h2>
+        <p>Use "Cookie settings" at the bottom of every page of the website. You can also delete cookies in your browser settings; you are then signed out, and we ask for your choice again.</p>
+        <p>More about how we use your data: <a href="/legal/privacy">Privacy notice</a>.</p>`
   },
   {
     id: "imprint",
