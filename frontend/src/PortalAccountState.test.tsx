@@ -119,15 +119,6 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   fireEvent.click(await screen.findByRole("button", { name: "EUR" }));
   expect(await screen.findByText("Of which EUR 4.898.036,89 is frozen.")).toBeInTheDocument();
 
-  // FX: the converter is blocked with the reason before any quote is requested.
-  server.use(
-    ...shellHandlers({ balances: frozenBalances })
-  );
-  window.history.pushState({}, "", "/fx");
-  window.dispatchEvent(new PopStateEvent("popstate"));
-  expect(await screen.findByText("FX is frozen", {}, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByLabelText("Amount to convert from CHF")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Convert" })).toBeDisabled();
 }, 30_000);
 
 test("Account shows each IBAN's real state, pending withdrawals with forced returns, and the withdraw maximum", async () => {

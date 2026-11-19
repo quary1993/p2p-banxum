@@ -44,9 +44,6 @@ export const NAV_GROUPS: NavGroup[] = [
   }
 ];
 
-/** Currency exchange: only when the fx.enabled platform switch is on (U33-DEC-33: off today). */
-export const FX_NAV_ITEM: NavItem = { route: "fx", label: "Currency exchange", icon: "exchange", section: "fx" };
-
 export const HELP_NAV_ITEM: NavItem = { route: "faq", label: "Help", icon: "help-alt", section: "help" };
 
 /** Pages that belong to a menu entry without being one themselves. */

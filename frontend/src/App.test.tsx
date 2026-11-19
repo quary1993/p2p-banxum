@@ -1371,43 +1371,6 @@ test("an originator subscription names the originator, checks the minimum and re
   expect(screen.getByText(/reserved for the Loan Originator funding round/)).toBeInTheDocument();
 });
 
-test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {
-  // FX is off by default since 2026-10-16; the preview switch shows the FX screens.
-  window.localStorage.setItem("banxum.preview.fx", "on");
-  renderApp();
-
-  fireEvent.click(screen.getByRole("link", { name: "Log in" }));
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "lukas.brunner@example.ch" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  clickNav("Currency exchange");
-
-  expect(screen.getByRole("heading", { name: "Currency exchange" })).toBeInTheDocument();
-  expect(
-    screen.getByText("Convert available CHF and EUR balances. The executable rate and fee are shown before confirmation.")
-  ).toBeInTheDocument();
-  expect(screen.queryByRole("navigation", { name: "My money" })).not.toBeInTheDocument();
-  expect(screen.getByText("Your balances")).toBeInTheDocument();
-  fireEvent.change(screen.getByRole("textbox", { name: "Amount to convert from CHF" }), {
-    target: { value: "1000.00" }
-  });
-
-  expect(screen.getAllByText("1 CHF = 1,0262 EUR")).toHaveLength(2);
-  expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled();
-  expect(screen.getByRole("table", { name: "Your conversions" })).toBeInTheDocument();
-  expect(screen.getByText(/Every rate below is the rate you received, net of fees/i)).toBeInTheDocument();
-  expect(screen.queryByText(/Euro is the only currency/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Convert incoming payments/i)).not.toBeInTheDocument();
-
-  // The page keeps the redesign's rates rail and closing band without duplicating money navigation.
-  expect(screen.getByText("Rates, net of fees", { selector: ".fx-cap" })).toBeInTheDocument();
-  expect(screen.getByText("How to avoid all of this")).toBeInTheDocument();
-  expect(screen.getByText(/We earn less when you do this/i)).toBeInTheDocument();
-  expect(screen.getByText(/balance CHF/i)).toBeInTheDocument();
-});
-
 test("a refinancing loan is named in the credit file Summary and keeps its original terms in Loan terms", () => {
   renderApp();
   loginDemo();
