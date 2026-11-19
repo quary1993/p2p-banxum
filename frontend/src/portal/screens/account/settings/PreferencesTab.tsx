@@ -16,7 +16,7 @@ import {
   type InvestorSupportRequestReceipt
 } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
-import { INTERFACE_LANGUAGES, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
+import { INTERFACE_LANGUAGES, isMultilanguageEnabled, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
 import { isFixturePreview } from "../../../../investorPortal/data";
 import { useNumberFormat, type NumberFormat } from "../../../../investorPortal/format";
 import { useSetInterfaceLanguage } from "../../../../investorPortal/languagePreference";
@@ -120,7 +120,8 @@ export function PreferencesTab({ account }: { account: AccountData }) {
             className="p30-appearance-row"
             title={<span id="p30-appearance-label">{t("Appearance")}</span>}
           />
-          <SettingsRow
+          {/* Hidden while multilanguage is paused (IMPLEMENTATION_PLAN 18.0). */}
+          {isMultilanguageEnabled() ? <SettingsRow
             actions={
               <select
                 aria-label={t("Language")}
@@ -138,7 +139,7 @@ export function PreferencesTab({ account }: { account: AccountData }) {
               </select>
             }
             title={t("Language")}
-          />
+          /> : null}
           <SettingsRow
             actions={
               <div aria-label={t("Number format")} className="bxm-seg bxm-number-formats" role="group">

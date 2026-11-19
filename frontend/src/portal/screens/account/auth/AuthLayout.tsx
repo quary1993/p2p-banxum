@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useV1AuthMeRetrieve } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
-import { INTERFACE_LANGUAGES, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
+import { INTERFACE_LANGUAGES, isMultilanguageEnabled, parseInterfaceLanguage, usePreferredLanguage } from "../../../../i18n/language";
 import { isFixturePreview } from "../../../../investorPortal/data";
 import { useSetInterfaceLanguage } from "../../../../investorPortal/languagePreference";
 import { useAppearance } from "../../../appearance";
@@ -126,8 +126,9 @@ export function AuthLayout({ children, step, stepsDone = false }: { children: Re
               >
                 <CaIcon name={appearance === "dark" ? "sun" : "moon"} />
               </button>
-              {/* U33-DEC-31: saved in this browser now and in the account after sign-in. */}
-              <select
+              {/* U33-DEC-31: saved in this browser now and in the account after sign-in. Hidden while
+                  multilanguage is paused (IMPLEMENTATION_PLAN 18.0). */}
+              {isMultilanguageEnabled() ? <select
                 aria-label={t("Language")}
                 onChange={(event) => {
                   const next = parseInterfaceLanguage(event.target.value);
@@ -138,7 +139,7 @@ export function AuthLayout({ children, step, stepsDone = false }: { children: Re
                 {INTERFACE_LANGUAGES.map((option) => (
                   <option key={option.value} lang={option.value} value={option.value}>{option.short}</option>
                 ))}
-              </select>
+              </select> : null}
             </div>
           </header>
           {step !== undefined ? <Journey current={step} done={stepsDone} /> : null}

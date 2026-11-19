@@ -9,7 +9,7 @@ import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
 import { getLocale } from "./i18n";
-import { chooseLanguage, hasUnsavedLanguageChoice, resetLanguageForTests } from "./i18n/language";
+import { chooseLanguage, hasUnsavedLanguageChoice, resetLanguageForTests, setMultilanguageForTests } from "./i18n/language";
 import { formatDate, resetNumberFormatForTests } from "./investorPortal/format";
 import { emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
 
@@ -27,8 +27,13 @@ beforeEach(() => {
   window.localStorage.clear();
   resetNumberFormatForTests();
   resetLanguageForTests();
+  // Multilanguage is paused in the product (IMPLEMENTATION_PLAN 18.0); these tests keep the code ready for 18.13.
+  setMultilanguageForTests(true);
 });
-afterEach(() => resetLanguageForTests());
+afterEach(() => {
+  resetLanguageForTests();
+  setMultilanguageForTests(false);
+});
 
 const accountUser = (language: string) => ({
   id: "u1",

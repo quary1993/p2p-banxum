@@ -5,7 +5,7 @@
 import { useState } from "react";
 
 import { useT } from "../../i18n";
-import { INTERFACE_LANGUAGES, usePreferredLanguage } from "../../i18n/language";
+import { INTERFACE_LANGUAGES, isMultilanguageEnabled, usePreferredLanguage } from "../../i18n/language";
 import { useSetInterfaceLanguage } from "../../investorPortal/languagePreference";
 import { Dropdown, MoneyAmount, NiIcon, PortalLink } from "../components";
 import { brandDisplayName } from "../brand";
@@ -104,7 +104,8 @@ export function UserMenu({
               {SETTINGS_ENTRIES.map(([tab, icon, label]) => (
                 <li key={tab}><PortalLink onNavigate={close} params={{ tab }} to="settings"><NiIcon name={icon} /><span>{t(label)}</span></PortalLink></li>
               ))}
-              <li className="p30-language">
+              {/* Hidden while multilanguage is paused (IMPLEMENTATION_PLAN 18.0). */}
+              {isMultilanguageEnabled() ? <li className="p30-language">
                 <button
                   aria-controls="p30-language-options"
                   aria-expanded={languageOpen}
@@ -135,7 +136,7 @@ export function UserMenu({
                     </button>
                   ))}
                 </div>
-              </li>
+              </li> : null}
             </ul>
           </div>
           <div className="dropdown-inner">

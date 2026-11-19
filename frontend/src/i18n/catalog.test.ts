@@ -47,7 +47,8 @@ const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((mat
 describe("de-CH catalog", () => {
   const catalog: Record<string, string> = { ...design, ...drafts };
 
-  it("has a German text for every t() text of the investor area", () => {
+  // Paused with multilanguage (IMPLEMENTATION_PLAN 18.0, Vlad E-06): new texts are English only until 18.13.
+  it.skip("has a German text for every t() text of the investor area", () => {
     const missing = [...messageKeys()].filter(([key]) => !(key in catalog)).map(([key, file]) => `${file}: ${key}`);
     expect(missing).toEqual([]);
   });

@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 
 import { App } from "./App";
+import { setMultilanguageForTests } from "./i18n/language";
 import { loansFixture } from "./adminConsole/adminFixtures";
 import {
   readReadonlyImpersonationLabel,
@@ -280,7 +281,14 @@ test("the cookie choice is stored and can be changed from the footer", () => {
   expect(JSON.parse(window.localStorage.getItem("bxm-site-cookies") ?? "{}")).toMatchObject({ measure: true });
 });
 
-test("the language menu announces German and French with a toast", () => {
+test("the language menu is hidden while multilanguage is paused", () => {
+  renderApp("/");
+  expect(within(screen.getByRole("banner")).queryByRole("button", { name: /^Language/ })).not.toBeInTheDocument();
+});
+
+test("the language menu announces German and French with a toast (kept for 18.13)", () => {
+  setMultilanguageForTests(true);
+  onTestFinished(() => setMultilanguageForTests(false));
   renderApp("/");
   const header = screen.getByRole("banner");
   const toggle = within(header).getByRole("button", { name: "Language: English" });
@@ -2455,8 +2463,8 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(document.documentElement.dataset.theme).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: /^Swiss/ }));
   expect(screen.getByRole("button", { name: /^Swiss/ })).toHaveAttribute("aria-pressed", "true");
-  // U33-DEC-31: German can be chosen; each language is named in its own language.
-  expect(screen.getByRole("option", { name: "Deutsch" })).toBeEnabled();
+  // Multilanguage is paused (IMPLEMENTATION_PLAN 18.0): no language choice in Preferences.
+  expect(screen.queryByRole("combobox", { name: "Language" })).not.toBeInTheDocument();
   // Closing is a request to support, not an instant closure (U33-DEC-28).
   fireEvent.click(screen.getByRole("button", { name: "Close account" }));
   const closure = screen.getByRole("dialog", { name: "Request account closure" });

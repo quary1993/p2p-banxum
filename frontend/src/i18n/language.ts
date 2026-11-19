@@ -22,6 +22,22 @@ export const INTERFACE_LANGUAGES: ReadonlyArray<{ value: InterfaceLanguage; labe
   { value: "de-CH", label: "Deutsch", short: "DE" }
 ];
 
+/*
+ * Multilanguage is paused until the translation phase (IMPLEMENTATION_PLAN 18.13, Vlad E-06):
+ * the platform is English only, the language controls are hidden, and a stored choice, `?lang=` or
+ * the account's language do not switch the interface. The German code and texts stay for 18.13.
+ * Tests of the language features switch it on with `setMultilanguageForTests(true)`.
+ */
+let multilanguage = false;
+
+export function isMultilanguageEnabled(): boolean {
+  return multilanguage;
+}
+
+export function setMultilanguageForTests(enabled: boolean) {
+  multilanguage = enabled;
+}
+
 export const LANGUAGE_STORAGE_KEY = "banxum-investor-language";
 // Set while a choice made before sign-in (or with ?lang=) is not yet saved in the account.
 const UNSAVED_CHOICE_KEY = "banxum-investor-language-unsaved";
@@ -67,7 +83,7 @@ export function hasUnsavedLanguageChoice(): boolean {
 }
 
 function initialLanguage(): InterfaceLanguage {
-  if (typeof window === "undefined") return "en";
+  if (typeof window === "undefined" || !multilanguage) return "en";
   try {
     const fromAddress = parseInterfaceLanguage(new URL(window.location.href).searchParams.get("lang"));
     if (fromAddress) {
@@ -122,7 +138,8 @@ export function getPreferredLanguage(): InterfaceLanguage {
   return preferredLanguage;
 }
 
-function setPreferredLanguage(language: InterfaceLanguage): Promise<void> {
+function setPreferredLanguage(requested: InterfaceLanguage): Promise<void> {
+  const language: InterfaceLanguage = multilanguage ? requested : "en";
   if (language !== preferredLanguage) {
     preferredLanguage = language;
     storeLanguage(language);

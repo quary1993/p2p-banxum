@@ -27,6 +27,7 @@ import {
 } from "react";
 
 import { useT } from "../../i18n";
+import { isMultilanguageEnabled } from "../../i18n/language";
 import { siteCompany } from "../content";
 import { SiteToastContext, useSiteNav, useSiteToast } from "../context";
 import { saveCookieChoice, useCookieChoice } from "../cookies";
@@ -243,7 +244,10 @@ export function PublicShell({ children, mainClassName, footerDivider = false }: 
                 </PublicLink>
               ) : null}
             </nav>
-            <div className="header-actions">{narrow ? [contactLink, loginLink, language] : [language, contactLink, loginLink]}</div>
+            {/* The language switcher is hidden while multilanguage is paused (IMPLEMENTATION_PLAN 18.0). */}
+            <div className="header-actions">
+              {isMultilanguageEnabled() ? (narrow ? [contactLink, loginLink, language] : [language, contactLink, loginLink]) : [contactLink, loginLink]}
+            </div>
             {narrow ? (
               <button
                 aria-controls="public-navigation"
