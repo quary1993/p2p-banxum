@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
@@ -17,7 +17,6 @@ from backend.apps.platform_core.domain.access import (
     has_lender_role,
     user_can_access_financial_features,
 )
-from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.money import clean_number_format, localize_number_text
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import (
@@ -25,6 +24,7 @@ from backend.apps.platform_core.selectors.settings import (
     get_platform_setting_value,
 )
 from backend.apps.platform_core.services.activity_archive import merge_archived_activity
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 
 # Email bodies are private by default in the investor portal. Add a topic here only after
 # confirming the body cannot contain one-time codes, login links, bank details, or third-party PII.
@@ -57,6 +57,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.originator_subscription_activated",
         "email.originator_subscription_cancelled",
         "email.balance_forced_return",
+        "email.balance_return_failed",
         "email.balance_penalty_mode",
         "email.payout_account_status",
         "email.loan_funding_status",
@@ -71,6 +72,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.deposit_reconciled": "Deposit",
     "email.withdrawal_status": "Withdrawal",
     "email.balance_forced_return": "Balance return",
+    "email.balance_return_failed": "Return failed",
     "email.balance_penalty_mode": "Penalty mode",
     "email.payout_account_status": "Payout IBAN",
     "email.fx_exchange_confirmation": "Currency exchange",
@@ -189,13 +191,7 @@ def _effective_fx_rate(exchange: Any) -> str:
     return str((target_major / source_major).quantize(Decimal("0.000000000001")))
 
 
-def _lot_last_day(lot: Any, *, return_after_days: int) -> date:
-    return balance_last_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at, return_after_days=return_after_days
-    )
-
-
-def _balance_bucket(lot: Any, *, as_of: datetime, return_after_days: int) -> str:
+def _balance_bucket(lot: Any, *, as_of: datetime, scheduler: BalanceScheduler) -> str:
     status = str(lot.status)
     if status == "frozen":
         return "frozen"
@@ -205,12 +201,12 @@ def _balance_bucket(lot: Any, *, as_of: datetime, return_after_days: int) -> str
         return "penalty_exhausted"
     if status != "available":
         return status
-    last_day = _lot_last_day(lot, return_after_days=return_after_days)
+    last_day = scheduler.schedule(lot).last_day
     if business_date(as_of) > last_day:
-        # Due back to the bank (day 59 on); without a usable IBAN it waits here.
+        # Due back to the bank (from the return date); without a usable IBAN it waits here.
         return "overdue"
     if business_date(as_of) == last_day:
-        # Last day (day 58): it can still be withdrawn today, but no longer invested.
+        # Last day (day 56): it can still be withdrawn today, but no longer invested.
         return "withdraw_only"
     return "investable"
 
@@ -239,9 +235,17 @@ def _reserved_minor_by_lot(investor_user_id: str) -> dict[str, int]:
     return dict(reserved)
 
 
-def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[str, Any]:
-    bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
-    last_day = _lot_last_day(lot, return_after_days=return_after_days)
+def _lot_payload(
+    lot: Any,
+    *,
+    as_of: datetime,
+    scheduler: BalanceScheduler,
+    failed_lot_ids: set[str],
+) -> dict[str, Any]:
+    bucket = _balance_bucket(lot, as_of=as_of, scheduler=scheduler)
+    schedule = scheduler.schedule(lot)
+    last_day = schedule.last_day
+    return_failed = bucket == "overdue" and str(lot.pk) in failed_lot_ids
     return {
         "id": str(lot.pk),
         "currency": _currency_code(lot.currency),
@@ -259,9 +263,17 @@ def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[s
             lot.withdrawal_deadline_at,
             as_of=as_of,
         ),
+        "return_after_days": schedule.return_after_days,
         "last_day": last_day,
-        "return_date": last_day + timedelta(days=1),
+        # Q01: the day the return is requested, with the calendar adjustment.
+        "return_date": schedule.return_date,
+        "return_date_adjusted": schedule.adjusted,
         "days_until_last_day": (last_day - business_date(as_of)).days,
+        # F01: the latest last subscription date of a direct loan this money can fund.
+        "direct_funding_until": (
+            scheduler.direct_funding_until(lot, as_of=as_of) if bucket == "investable" else None
+        ),
+        "return_failed": return_failed,
         "original_amount_minor": int(lot.original_amount_minor),
         "available_amount_minor": int(lot.available_amount_minor),
         "invested_amount_minor": int(lot.invested_amount_minor),
@@ -269,7 +281,7 @@ def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[s
         "withdrawn_amount_minor": int(lot.withdrawn_amount_minor),
         "penalized_amount_minor": int(lot.penalized_amount_minor),
         "requires_withdrawal": bucket in {"withdraw_only", "overdue", "penalty_mode"},
-        # Penalty mode is gone (U33-DEC-04); kept for the failed-return state still to decide.
+        # Penalty mode is gone (U33-DEC-04); a failed return does not block other actions.
         "blocks_financial_actions": bucket == "penalty_mode",
     }
 
@@ -298,7 +310,7 @@ def _balance_summaries(
     investor_user_id: str,
     as_of: datetime,
     lots: Iterable[Any],
-    return_after_days: int,
+    scheduler: BalanceScheduler,
 ) -> list[dict[str, Any]]:
     summaries = {
         _currency_code(currency): _empty_balance_summary(
@@ -321,7 +333,7 @@ def _balance_summaries(
             continue
         summary["active_lot_count"] += 1
         summary["total_available_minor"] += available
-        bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
+        bucket = _balance_bucket(lot, as_of=as_of, scheduler=scheduler)
         if bucket == "investable":
             summary["investable_minor"] += available
         elif bucket == "withdraw_only":
@@ -349,9 +361,7 @@ def _balance_summaries(
                 summary["next_withdrawal_deadline_at"] = withdrawal_deadline
         if bucket in {"investable", "withdraw_only"}:
             # The next return still ahead; money already due back has its own figure.
-            return_date = _lot_last_day(lot, return_after_days=return_after_days) + timedelta(
-                days=1
-            )
+            return_date = scheduler.schedule(lot).return_date
             if summary["next_return_date"] is None or return_date < summary["next_return_date"]:
                 summary["next_return_date"] = return_date
     return [summaries[key] for key in sorted(summaries)]
@@ -369,10 +379,17 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .order_by("withdrawal_deadline_at", "received_at", "created_at", "id")
     )
     return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     reserved_by_lot = _reserved_minor_by_lot(investor_user_id)
+    return_failures = _open_return_failures(investor_user_id)
+    failed_lot_ids = {
+        str(lot_id) for failure in return_failures for lot_id in failure.pop("lot_ids")
+    }
     visible_lots = [
         {
-            **_lot_payload(lot, as_of=as_of_value, return_after_days=return_after_days),
+            **_lot_payload(
+                lot, as_of=as_of_value, scheduler=scheduler, failed_lot_ids=failed_lot_ids
+            ),
             "reserved_amount_minor": reserved_by_lot.get(str(lot.pk), 0),
         }
         for lot in lots
@@ -417,7 +434,7 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         investor_user_id=investor_user_id,
         as_of=as_of_value,
         lots=lots,
-        return_after_days=return_after_days,
+        scheduler=scheduler,
     )
     # Requested withdrawals (voluntary and forced) wait for the bank transfer; their amount is
     # already out of the balance.
@@ -446,7 +463,46 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         "payout_instructions": payout_instructions,
         "pending_withdrawals": pending_withdrawals,
         "auto_return_after_days": return_after_days,
+        "return_failures": return_failures,
     }
+
+
+# Q02: the cause shown follows the bank's answer; a bank-side cause is not the investor's fault.
+RETURN_FAILURE_INVESTOR_TEXT = {
+    "account_closed": "Your bank says the account is closed.",
+    "account_unknown": "Your bank does not know this account number.",
+    "name_mismatch": "The account holder name does not match the account.",
+    "account_blocked": "Your bank says the account is blocked or restricted.",
+    "bank_restriction": "The receiving bank could not accept the transfer.",
+    "technical": "The transfer came back because of a technical error. This is not your fault.",
+    "other": "Your bank sent the transfer back.",
+}
+
+
+def _open_return_failures(investor_user_id: str) -> list[dict[str, Any]]:
+    """18.4 (Q02): the investor's open failed returns, for the Account page."""
+    failure_model = _model("ledger", "BalanceReturnFailure")
+    return [
+        {
+            "id": str(failure.pk),
+            "currency": _currency_code(failure.currency),
+            "amount_minor": int(failure.amount_minor),
+            "is_forced": bool(failure.is_forced),
+            "reason_code": str(failure.reason_code),
+            "reason_text": RETURN_FAILURE_INVESTOR_TEXT.get(
+                str(failure.reason_code), RETURN_FAILURE_INVESTOR_TEXT["other"]
+            ),
+            "destination_iban": str(failure.failed_destination_iban),
+            "returned_value_date": failure.returned_value_date,
+            "recorded_at": failure.recorded_at,
+            "lot_ids": list(failure.lot_ids or []),
+        }
+        for failure in failure_model.objects.filter(
+            investor_user_id=investor_user_id, status="open"
+        )
+        .select_related("currency")
+        .order_by("recorded_at", "id")
+    ]
 
 
 def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
@@ -880,6 +936,7 @@ _BALANCE_NOTIFICATION_TOPICS = frozenset(
         "email.deposit_reconciled",
         "email.withdrawal_status",
         "email.balance_forced_return",
+        "email.balance_return_failed",
         "email.balance_penalty_mode",
         "email.payout_account_status",
         "email.primary_order_released",
@@ -2070,7 +2127,7 @@ def _investor_activity_entries(
         )
     for withdrawal in (
         withdrawal_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency")
+        .select_related("currency", "return_failure")
         .order_by("-requested_at")[:limit_value]
     ):
         withdrawal_status = str(withdrawal.status)
@@ -2103,6 +2160,35 @@ def _investor_activity_entries(
                 },
             )
         )
+        returned = (
+            getattr(withdrawal, "return_failure", None)
+            if withdrawal_status == "returned"
+            else None
+        )
+        if returned is not None:
+            # 18.4 (Q02): the bank sent the transfer back; the money is on the balance again.
+            entries.append(
+                _activity(
+                    activity_id=f"{withdrawal.pk}:returned",
+                    activity_type="withdrawal_returned",
+                    occurred_at=returned.recorded_at,
+                    direction="in",
+                    title=(
+                        "Return sent back by the bank"
+                        if withdrawal.is_forced
+                        else "Withdrawal sent back by the bank"
+                    ),
+                    amount_minor=int(withdrawal.amount_minor),
+                    currency=_currency_code(withdrawal.currency),
+                    status="returned",
+                    metadata={
+                        "withdrawal_request_id": str(withdrawal.pk),
+                        "is_forced": bool(withdrawal.is_forced),
+                        "reason_code": str(returned.reason_code),
+                        "value_date": returned.returned_value_date.isoformat(),
+                    },
+                )
+            )
         if withdrawal_status == "cancelled" and withdrawal.cancelled_at is not None:
             # The cancellation reverses the request journal entry and restores the reserved
             # lots; show that credit as its own line instead of leaving it implied.

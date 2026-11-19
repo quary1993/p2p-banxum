@@ -1140,6 +1140,8 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
                 amount_minor=amount_to_allocate,
                 currency=order.currency_id,
                 loan_funding_deadline=loan_ref.funding_deadline,
+                # F01 (18.4): direct loans need the payout margin before day 56 of each lot.
+                direct_loan=str(loan_ref.product_type) != "originator_claim",
                 source_type="primary_investment_order",
                 source_id=str(order.id),
                 idempotency_key=idempotency_key,

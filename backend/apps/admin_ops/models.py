@@ -29,6 +29,10 @@ class AdminTaskType(models.TextChoices):
     EMAIL_DELIVERY_FAILURE = "email_delivery_failure", "Email delivery failure"
     REPORTING = "reporting", "Reporting"
     SUPPORT = "support", "Support"
+    # 18.4: settlement calendars to confirm, failed returns, compliance escalations.
+    SETTLEMENT_CALENDAR = "settlement_calendar", "Settlement calendar"
+    RETURN_FAILED = "return_failed", "Return failed"
+    COMPLIANCE_REVIEW = "compliance_review", "Compliance review"
     OTHER = "other", "Other"
 
 
@@ -160,6 +164,14 @@ class AdminTask(TimestampedModel):
                 ),
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_paused_subscription_round_task",
+            ),
+            # 18.4: one task per calendar year, failed return and compliance alert.
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type__in=["settlement_calendar", "return_failed", "compliance_review"]
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_related_task_18_4",
             ),
         ]
 

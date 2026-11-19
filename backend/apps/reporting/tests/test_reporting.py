@@ -230,14 +230,15 @@ def investor() -> Model:
 
 
 @pytest.mark.django_db
-def test_balance_ageing_report_buckets_follow_the_58_day_return(
+def test_balance_ageing_report_buckets_follow_the_56_day_return(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    # On 2026-03-01: day 59 (due back), day 58 (last day), day 55, day 40.
-    with freeze_time("2026-01-20T12:00:00Z"):
+    # 18.4, on Tuesday 2026-03-03: day 57 (due back), day 56 (last day), day 53 (its return
+    # moves to Friday 03-06, last day 03-05), day 40.
+    with freeze_time("2026-01-25T12:00:00Z"):
         for index, value_date in enumerate(
-            (date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 20))
+            (date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 9), date(2026, 1, 22))
         ):
             _declare_deposit(
                 admin_user,
@@ -251,16 +252,16 @@ def test_balance_ageing_report_buckets_follow_the_58_day_return(
             GenerateReportCommand(
                 actor=admin_user,
                 report_type=ReportType.BALANCE_AGEING,
-                start_date=date(2026, 3, 1),
-                end_date=date(2026, 3, 1),
+                start_date=date(2026, 3, 3),
+                end_date=date(2026, 3, 3),
             )
         ).content
     )
 
     assert [(row["age_days"], row["ageing_bucket"], row["action_required"]) for row in rows] == [
-        ("59", "return_due_or_penalty_mode", "forced_return_or_usable_iban_required"),
-        ("58", "last_day_withdraw_only", "last_day_reminder"),
-        ("55", "final_reminders", "withdrawal_reminder"),
+        ("57", "return_due_or_penalty_mode", "forced_return_or_usable_iban_required"),
+        ("56", "last_day_withdraw_only", "last_day_reminder"),
+        ("53", "final_reminders", "withdrawal_reminder"),
         ("40", "investable", "loan_specific_funding_deadline_check"),
     ]
 

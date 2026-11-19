@@ -78,7 +78,7 @@ def activity_group(entry: dict[str, Any]) -> str:
     metadata = entry.get("metadata") or {}
     if activity_type.startswith("balance_") and activity_type != "balance_penalty_charge":
         return _BALANCE_SOURCE_GROUPS.get(activity_type.removeprefix("balance_"), "other")
-    if activity_type in {"withdrawal_request", "withdrawal_cancellation"}:
+    if activity_type in {"withdrawal_request", "withdrawal_cancellation", "withdrawal_returned"}:
         forced = isinstance(metadata, dict) and bool(metadata.get("is_forced"))
         return "return" if forced else "withdrawal"
     if activity_type == "primary_order":
@@ -182,6 +182,15 @@ def _journal_ids_by_entry(entries: list[dict[str, Any]]) -> dict[str, str]:
         ):
             if journal_id:
                 result[f"{pk}:cancellation"] = str(journal_id)
+    if by_type.get("withdrawal_returned"):
+        ids = [eid.removesuffix(":returned") for eid in by_type["withdrawal_returned"]]
+        for pk, journal_id in (
+            apps.get_model("ledger", "BalanceReturnFailure")
+            .objects.filter(withdrawal_request_id__in=ids)
+            .values_list("withdrawal_request_id", "return_journal_entry_id")
+        ):
+            if journal_id:
+                result[f"{pk}:returned"] = str(journal_id)
     if by_type.get("originator_claim_purchase"):
         add(
             apps.get_model("originator_claims", "OriginatorClaimPurchase")

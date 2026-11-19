@@ -159,14 +159,16 @@ def test_deposit_credit_sends_one_notice_with_amount_value_date_and_hold_limit(
     body = notice.payload["body_text"]
     assert "CHF 25'000.00" in body
     assert "Value date: 2026-01-05" in body
-    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 58, 2026-03-04, and
-    # what is not invested goes back to the bank on 2026-03-05.
-    assert "goes back to your bank automatically after 58 days" in body
-    assert "it can stay until 2026-03-04, and we return what is left on 2026-03-05" in body
-    assert ["Goes back to your bank on", "2026-03-05"] in notice.payload["data_rows"]
+    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 56, 2026-03-02, and
+    # the return of what is not invested starts on day 57, 2026-03-03 (18.4, Q01).
+    assert (
+        "it can stay until 2026-03-02 (day 56 after the value date), and we start the return "
+        "of what is left on 2026-03-03" in body
+    )
+    assert ["Goes back to your bank on", "2026-03-03"] in notice.payload["data_rows"]
     assert notice.payload["metadata"]["navigation_target"] == "balances"
     assert notice.payload["metadata"]["bank_operation_id"] == str(result.bank_operation.id)
-    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-05")
+    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-03")
 
     # The deposit verified the sending IBAN: one notice, IBAN masked, never in full.
     iban_notice = only_notice(investor, "email.payout_account_status")
@@ -273,31 +275,33 @@ def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
     InvestorPayoutInstruction.objects.filter(investor_user_id=other.pk).update(status="disabled")
     assert first.payout_instruction is not None
 
+    # 18.4: value date 2026-01-01 -> day 57 is Friday 02-27, but the debit must come by day 59
+    # (Sunday -> Friday), so the return is requested on Thursday 02-26 (day 56). The lot of
+    # 01-02 goes back on Friday 02-27 (its day 56).
     for day in (
-        date(2026, 3, 1),
-        date(2026, 3, 1),
+        date(2026, 2, 26),
+        date(2026, 2, 26),
+        date(2026, 2, 27),
         date(2026, 3, 2),
         date(2026, 3, 3),
         date(2026, 3, 3),
         date(2026, 3, 4),
-        date(2026, 3, 5),
     ):
         run_balance_ageing_scan(RunBalanceAgeingScanCommand(actor=admin_user, as_of=_at(day)))
 
     forced = only_notice(investor, "email.balance_forced_return")
     assert forced.payload["subject"] == "We are returning CHF 1'000.00 to your bank account"
     assert forced.payload["headline"] == "Your money goes back to your bank"
-    assert "was not invested within 58 days" in forced.payload["body_text"]
+    assert "was not invested in time" in forced.payload["body_text"]
     assert "IBAN ending 2957" in forced.payload["body_text"]
-    assert "Started on" in [row[0] for row in forced.payload["data_rows"]]
-    assert ["Started on", "2026-03-01"] in forced.payload["data_rows"]
+    assert ["Transfer sent on", "2026-02-26"] in forced.payload["data_rows"]
     # Without IBAN: one urgent notice when the money is due back, one on day 60, per lot.
     blocked = [
         (notice.payload["metadata"]["lot_id"], notice.payload["metadata"]["day"])
         for notice in investor_notices(other, "email.balance_ageing_reminder")
-        if notice.payload["metadata"]["day"] > 58
+        if notice.payload["metadata"]["kind"] != "reminder"
     ]
-    assert sorted(day for _lot, day in blocked) == [59, 59, 60, 60]
+    assert sorted(day for _lot, day in blocked) == [56, 56, 60, 60]
     assert len(set(blocked)) == 4
     assert_renders_to(forced, investor, "CHF 1'000.00")
     assert not investor_notices(investor, "email.balance_penalty_mode")

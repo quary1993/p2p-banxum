@@ -3,9 +3,15 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.ledger.api.views import (
+    AdminDepositAccountVerifyView,
+    AdminDepositVerificationCandidatesView,
     AdminPayoutInstructionDetailView,
     AdminPayoutInstructionRevokeView,
     AdminPayoutInstructionVerifyView,
+    AdminReturnFailureListView,
+    AdminReturnFailureResendView,
+    AdminReturnFailureResolveView,
+    AdminWithdrawalReturnedView,
     BalanceAgeingScanView,
     BorrowerDisbursementFinalizeView,
     CollectionAccountListView,
@@ -86,6 +92,36 @@ urlpatterns = [
         "admin/withdrawal-requests/<uuid:withdrawal_request_id>/cancel/",
         InvestorWithdrawalCancelView.as_view(),
         name="ledger-investor-withdrawal-cancel",
+    ),
+    path(
+        "admin/withdrawal-requests/<uuid:withdrawal_request_id>/returned/",
+        AdminWithdrawalReturnedView.as_view(),
+        name="ledger-admin-withdrawal-returned",
+    ),
+    path(
+        "admin/return-failures/",
+        AdminReturnFailureListView.as_view(),
+        name="ledger-admin-return-failures",
+    ),
+    path(
+        "admin/return-failures/<uuid:failure_id>/resend/",
+        AdminReturnFailureResendView.as_view(),
+        name="ledger-admin-return-failure-resend",
+    ),
+    path(
+        "admin/return-failures/<uuid:failure_id>/resolve/",
+        AdminReturnFailureResolveView.as_view(),
+        name="ledger-admin-return-failure-resolve",
+    ),
+    path(
+        "admin/investors/<uuid:investor_user_id>/deposit-verification-candidates/",
+        AdminDepositVerificationCandidatesView.as_view(),
+        name="ledger-admin-deposit-verification-candidates",
+    ),
+    path(
+        "admin/lender-deposits/<uuid:bank_operation_id>/verify-account/",
+        AdminDepositAccountVerifyView.as_view(),
+        name="ledger-admin-deposit-account-verify",
     ),
     path(
         "admin/borrower-disbursements/",

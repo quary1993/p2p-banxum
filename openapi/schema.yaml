@@ -698,6 +698,9 @@ paths:
           - email_delivery_failure
           - reporting
           - support
+          - settlement_calendar
+          - return_failed
+          - compliance_review
           - other
           type: string
           minLength: 1
@@ -715,6 +718,9 @@ paths:
           * `email_delivery_failure` - Email delivery failure
           * `reporting` - Reporting
           * `support` - Support
+          * `settlement_calendar` - Settlement calendar
+          * `return_failed` - Return failed
+          * `compliance_review` - Compliance review
           * `other` - Other
       - in: query
         name: workstream
@@ -1068,6 +1074,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PlatformFeatures'
+          description: ''
+  /api/v1/admin/settlement-calendars/:
+    get:
+      operationId: v1_admin_settlement_calendars_retrieve
+      description: One year of the CHF or EUR settlement calendar (closed days, preload
+        and confirmation).
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          maxLength: 3
+          minLength: 1
+        description: CHF or EUR.
+        required: true
+      - in: query
+        name: year
+        schema:
+          type: integer
+          maximum: 2100
+          minimum: 2000
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementCalendarYear'
+          description: ''
+  /api/v1/admin/settlement-calendars/confirm/:
+    post:
+      operationId: v1_admin_settlement_calendars_confirm_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarConfirmRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementCalendarYear'
+          description: ''
+  /api/v1/admin/settlement-calendars/days/:
+    post:
+      operationId: v1_admin_settlement_calendars_days_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayAddRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayAddRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayAddRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementCalendarYear'
+          description: ''
+  /api/v1/admin/settlement-calendars/days/remove/:
+    post:
+      operationId: v1_admin_settlement_calendars_days_remove_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayRemoveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayRemoveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SettlementCalendarDayRemoveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementCalendarYear'
           description: ''
   /api/v1/admin/story-images/:
     post:
@@ -3548,6 +3664,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorBalanceSummary'
           description: ''
+  /api/v1/ledger/admin/investors/{investor_user_id}/deposit-verification-candidates/:
+    get:
+      operationId: v1_ledger_admin_investors_deposit_verification_candidates_retrieve
+      description: Deposits of an investor whose paying account is not verified yet
+        (Q02.5).
+      parameters:
+      - in: path
+        name: investor_user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DepositVerificationCandidateList'
+          description: ''
   /api/v1/ledger/admin/lender-deposits/:
     post:
       operationId: v1_ledger_admin_lender_deposits_create
@@ -3573,6 +3712,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LenderDepositDeclareResponse'
+          description: ''
+  /api/v1/ledger/admin/lender-deposits/{bank_operation_id}/verify-account/:
+    post:
+      operationId: v1_ledger_admin_lender_deposits_verify_account_create
+      description: Verify the account that sent a deposit as a return account, with
+        evidence (Q02.5).
+      parameters:
+      - in: path
+        name: bank_operation_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepositAccountVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DepositAccountVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DepositAccountVerificationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
           description: ''
   /api/v1/ledger/admin/payout-instructions/:
     get:
@@ -3772,6 +3946,107 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReconciliationSnapshot'
           description: ''
+  /api/v1/ledger/admin/return-failures/:
+    get:
+      operationId: v1_ledger_admin_return_failures_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+      - in: query
+        name: status
+        schema:
+          enum:
+          - open
+          - resolved
+          - ''
+          type: string
+        description: |-
+          * `open` - Return failed
+          * `resolved` - Resolved
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceReturnFailureListResponse'
+          description: ''
+  /api/v1/ledger/admin/return-failures/{failure_id}/resend/:
+    post:
+      operationId: v1_ledger_admin_return_failures_resend_create
+      description: Send a failed return again, to a corrected or newly verified account
+        only.
+      parameters:
+      - in: path
+        name: failure_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResendRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResendRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResendRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceReturnFailureResendResponse'
+          description: ''
+  /api/v1/ledger/admin/return-failures/{failure_id}/resolve/:
+    post:
+      operationId: v1_ledger_admin_return_failures_resolve_create
+      parameters:
+      - in: path
+        name: failure_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResolveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResolveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BalanceReturnFailureResolveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceReturnFailure'
+          description: ''
   /api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/cancel/:
     post:
       operationId: v1_ledger_admin_withdrawal_requests_cancel_create
@@ -3837,6 +4112,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvestorWithdrawalFinalizeResponse'
+          description: ''
+  /api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/returned/:
+    post:
+      operationId: v1_ledger_admin_withdrawal_requests_returned_create
+      description: 'The bank sent a withdrawal or return back: record it once (the
+        money is restored).'
+      parameters:
+      - in: path
+        name: withdrawal_request_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawalReturnedRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WithdrawalReturnedRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WithdrawalReturnedRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceReturnFailure'
           description: ''
   /api/v1/ledger/admin/withdrawal-requests/history/:
     get:
@@ -7763,6 +8073,9 @@ components:
       - email_delivery_failure
       - reporting
       - support
+      - settlement_calendar
+      - return_failed
+      - compliance_review
       - other
       type: string
       description: |-
@@ -7779,6 +8092,9 @@ components:
         * `email_delivery_failure` - Email delivery failure
         * `reporting` - Reporting
         * `support` - Support
+        * `settlement_calendar` - Settlement calendar
+        * `return_failed` - Return failed
+        * `compliance_review` - Compliance review
         * `other` - Other
     AdminUserCreateRequest:
       type: object
@@ -8236,12 +8552,25 @@ components:
         withdrawal_deadline_at:
           type: string
           format: date-time
+        kind:
+          type: string
+          description: reminder, return_blocked or penalty_warning (day 60).
+        return_date:
+          type: string
+          format: date
+          nullable: true
+        days_before_return:
+          type: integer
+          nullable: true
       required:
       - amount_minor
       - currency
       - day
+      - days_before_return
       - investor_user_id
+      - kind
       - lot_id
+      - return_date
       - withdrawal_deadline_at
     BalanceAgeingScanRequest:
       type: object
@@ -8285,13 +8614,23 @@ components:
           type: array
           items:
             type: string
+        compliance_alerts:
+          type: array
+          items:
+            type: string
+        return_failure_notices:
+          type: array
+          items:
+            type: string
       required:
       - as_of
+      - compliance_alerts
       - forced_withdrawal_candidates
       - forced_withdrawal_requests
       - penalty_charges
       - penalty_mode_transitions
       - reminders_due
+      - return_failure_notices
       - skipped_lot_ids
     BalanceLot:
       type: object
@@ -8321,26 +8660,46 @@ components:
         withdrawal_deadline_at:
           type: string
           format: date-time
-          description: 60-day legal holding limit; penalty mode can start only after
-            this day.
+          description: 60-day legal holding limit (day 60 after the value date).
         days_until_investment_deadline:
           type: integer
         days_until_withdrawal_deadline:
           type: integer
+        return_after_days:
+          type: integer
+          description: 'Q01: the holding day this money may stay until (56; 58 for
+            older money).'
         last_day:
           type: string
           format: date
-          description: Last Europe/Zurich day the money may stay (holding day auto_return_after_days,
-            58 by default). On that day it can only be withdrawn.
+          description: Last Europe/Zurich day the money may stay (day 56 after the
+            value date, earlier when the return date moves). On that day it can only
+            be withdrawn.
         return_date:
           type: string
           format: date
-          description: Day the platform returns money still not invested to the investor's
-            verified bank account (the day after last_day).
+          description: 'Day the platform starts the return of money still not invested
+            to the investor''s verified bank account: day 57, moved to an earlier
+            settlement day when the calendar or the bank''s processing time needs
+            it.'
+        return_date_adjusted:
+          type: boolean
+          description: True when the return date moved earlier than day 57.
         days_until_last_day:
           type: integer
           description: 'Days until last_day: 0 on the last day, negative once the
             money is due back.'
+        direct_funding_until:
+          type: string
+          format: date
+          nullable: true
+          description: 'F01: the latest last subscription date of a direct loan this
+            money can fund (close + payout margin on or before day 56); null when
+            none fits.'
+        return_failed:
+          type: boolean
+          description: 'Q02: this money came back from a failed return and waits for
+            the team.'
         original_amount_minor:
           type: integer
         available_amount_minor:
@@ -8367,6 +8726,7 @@ components:
       - days_until_investment_deadline
       - days_until_last_day
       - days_until_withdrawal_deadline
+      - direct_funding_until
       - id
       - invested_amount_minor
       - investment_deadline_at
@@ -8375,7 +8735,10 @@ components:
       - penalized_amount_minor
       - received_at
       - requires_withdrawal
+      - return_after_days
       - return_date
+      - return_date_adjusted
+      - return_failed
       - source_type
       - status
       - withdrawal_deadline_at
@@ -8421,6 +8784,150 @@ components:
       - penalized_before_minor
       - penalty_basis_minor
       - penalty_bps_per_day
+    BalanceReturnFailure:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        withdrawal_request_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        is_forced:
+          type: boolean
+        reason_code:
+          type: string
+        reason_label:
+          type: string
+        bank_reason_text:
+          type: string
+        returned_value_date:
+          type: string
+          format: date
+        failed_destination_iban:
+          type: string
+        failed_payout_instruction_id:
+          type: string
+          format: uuid
+          nullable: true
+        lot_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        recorded_by_admin_id:
+          type: string
+          format: uuid
+        recorded_at:
+          type: string
+          format: date-time
+        last_notice_date:
+          type: string
+          format: date
+          nullable: true
+        escalated_at:
+          type: string
+          format: date-time
+          nullable: true
+        escalation_reason:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolution:
+          type: string
+        resolution_note:
+          type: string
+        resend_withdrawal_request_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - amount_minor
+      - bank_reason_text
+      - currency
+      - escalated_at
+      - escalation_reason
+      - failed_destination_iban
+      - failed_payout_instruction_id
+      - id
+      - investor_user_id
+      - is_forced
+      - last_notice_date
+      - lot_ids
+      - reason_code
+      - reason_label
+      - recorded_at
+      - recorded_by_admin_id
+      - resend_withdrawal_request_id
+      - resolution
+      - resolution_note
+      - resolved_at
+      - returned_value_date
+      - status
+      - withdrawal_request_id
+    BalanceReturnFailureListResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceReturnFailure'
+      required:
+      - results
+    BalanceReturnFailureReasonEnum:
+      enum:
+      - account_closed
+      - account_unknown
+      - name_mismatch
+      - account_blocked
+      - bank_restriction
+      - technical
+      - other
+      type: string
+      description: |-
+        * `account_closed` - Account closed
+        * `account_unknown` - Account number unknown
+        * `name_mismatch` - Account holder name does not match
+        * `account_blocked` - Account blocked or restricted
+        * `bank_restriction` - Restriction at the receiving bank
+        * `technical` - Technical error
+        * `other` - Other reason
+    BalanceReturnFailureResendRequest:
+      type: object
+      properties:
+        payout_instruction_id:
+          type: string
+          format: uuid
+        note:
+          type: string
+          maxLength: 2000
+      required:
+      - payout_instruction_id
+    BalanceReturnFailureResendResponse:
+      type: object
+      properties:
+        withdrawal_request:
+          $ref: '#/components/schemas/InvestorWithdrawalRequest'
+      required:
+      - withdrawal_request
+    BalanceReturnFailureResolveRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 2000
+      required:
+      - note
     BalanceSummary:
       type: object
       properties:
@@ -8437,8 +8944,7 @@ components:
             window is checked separately.
         withdraw_only_minor:
           type: integer
-          description: 'Balance on its last day (day 58 by default): it can only be
-            withdrawn.'
+          description: 'Balance on its last day (day 56): it can only be withdrawn.'
         overdue_minor:
           type: integer
           description: Balance due back to the investor's bank (from the day after
@@ -9844,6 +10350,26 @@ components:
       description: |-
         * `seed` - seed
         * `snapshot` - snapshot
+    DepositAccountVerificationRequest:
+      type: object
+      properties:
+        holder_matches_identity:
+          type: boolean
+          description: The holder of the incoming transfer matches the verified identity.
+        not_intermediary_account:
+          type: boolean
+          description: The transfer did not come through a collecting or intermediary
+            account.
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+          maxLength: 2000
+      required:
+      - evidence_reference
+      - holder_matches_identity
+      - not_intermediary_account
     DepositInstruction:
       type: object
       properties:
@@ -9879,6 +10405,45 @@ components:
       - is_configured
       - notes
       - payment_reference
+    DepositVerificationCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        value_date:
+          type: string
+          format: date
+        payer_name:
+          type: string
+        payer_iban:
+          type: string
+      required:
+      - amount_minor
+      - currency
+      - id
+      - payer_iban
+      - payer_name
+      - value_date
+    DepositVerificationCandidateList:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+          format: uuid
+        verified_identity_name:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepositVerificationCandidate'
+      required:
+      - investor_user_id
+      - results
+      - verified_identity_name
     DiditWebhookResponse:
       type: object
       properties:
@@ -11170,6 +11735,10 @@ components:
         penalized_amount_minor:
           type: integer
         lineage: {}
+        return_after_days:
+          type: integer
+          description: 'Q01: the holding day this money may stay until (56; 58 for
+            older lots).'
         created_at:
           type: string
           format: date-time
@@ -11189,6 +11758,7 @@ components:
       - original_amount_minor
       - penalized_amount_minor
       - received_at
+      - return_after_days
       - source_id
       - source_journal_entry_id
       - source_type
@@ -11221,14 +11791,20 @@ components:
           description: Withdrawal requests waiting for the bank transfer, oldest first.
         auto_return_after_days:
           type: integer
-          description: Money still not invested goes back to the investor's bank the
-            day after this holding day (58 by default; the legal limit is 60).
+          description: New money may stay until this holding day (56); the return
+            is requested the next day or earlier. The legal limit is 60.
+        return_failures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReturnFailurePortal'
+          description: 'Q02: failed returns waiting for the team, oldest first.'
       required:
       - as_of
       - auto_return_after_days
       - lots
       - payout_instructions
       - pending_withdrawals
+      - return_failures
       - summaries
     InvestorBalanceSummary:
       type: object
@@ -17252,8 +17828,8 @@ components:
           format: date-time
         is_forced:
           type: boolean
-          description: Automatic return of money not invested within auto_return_after_days
-            days, not asked by the investor.
+          description: Automatic return of money not invested in time (day 57), not
+            asked by the investor.
       required:
       - amount_minor
       - currency
@@ -19287,6 +19863,41 @@ components:
       description: |-
         * `seed` - seed
         * `snapshot` - snapshot
+    ReturnFailurePortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        is_forced:
+          type: boolean
+        reason_code:
+          type: string
+        reason_text:
+          type: string
+          description: The bank's reason, for the investor.
+        destination_iban:
+          type: string
+        returned_value_date:
+          type: string
+          format: date
+        recorded_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - currency
+      - destination_iban
+      - id
+      - is_forced
+      - reason_code
+      - reason_text
+      - recorded_at
+      - returned_value_date
     RevokeOtherSessionsResponse:
       type: object
       properties:
@@ -20606,6 +21217,119 @@ components:
       - code_id
       - expires_at
       - status
+    SettlementCalendarConfirmRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          description: CHF or EUR.
+          maxLength: 3
+        year:
+          type: integer
+          maximum: 2100
+          minimum: 2000
+        note:
+          type: string
+          maxLength: 2000
+      required:
+      - currency
+      - year
+    SettlementCalendarDay:
+      type: object
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+        origin:
+          type: string
+          description: rule (preloaded) or admin (added by an admin).
+        is_active:
+          type: boolean
+          description: 'False: the admin opened this day.'
+        removal_reason:
+          type: string
+      required:
+      - date
+      - id
+      - is_active
+      - name
+      - origin
+      - removal_reason
+    SettlementCalendarDayAddRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          description: CHF or EUR.
+          maxLength: 3
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+          maxLength: 128
+      required:
+      - currency
+      - date
+      - name
+    SettlementCalendarDayRemoveRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          description: CHF or EUR.
+          maxLength: 3
+        date:
+          type: string
+          format: date
+        reason:
+          type: string
+          maxLength: 2000
+      required:
+      - currency
+      - date
+      - reason
+    SettlementCalendarYear:
+      type: object
+      properties:
+        currency:
+          type: string
+        year:
+          type: integer
+        stored:
+          type: boolean
+          description: 'False: the year is not preloaded yet; the days are the rule
+            list.'
+        preloaded_at:
+          type: string
+          format: date-time
+          nullable: true
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+        confirmed_by_admin_id:
+          type: string
+          nullable: true
+        confirmation_note:
+          type: string
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettlementCalendarDay'
+      required:
+      - confirmation_note
+      - confirmed_at
+      - confirmed_by_admin_id
+      - currency
+      - days
+      - preloaded_at
+      - stored
+      - year
     SignInEvent:
       type: object
       properties:
@@ -21310,6 +22034,40 @@ components:
       description: |-
         * `internal` - Internal
         * `public` - Public
+    WithdrawalReturnedRequest:
+      type: object
+      properties:
+        returned_value_date:
+          type: string
+          format: date
+        booking_date:
+          type: string
+          format: date
+          nullable: true
+        reason_code:
+          $ref: '#/components/schemas/BalanceReturnFailureReasonEnum'
+        bank_reason_text:
+          type: string
+          maxLength: 2000
+        bank_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        notes:
+          type: string
+          maxLength: 2000
+        idempotency_key:
+          type: string
+          maxLength: 120
+      required:
+      - idempotency_key
+      - reason_code
+      - returned_value_date
   securitySchemes:
     cookieAuth:
       type: apiKey

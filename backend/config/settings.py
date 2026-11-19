@@ -416,6 +416,12 @@ SPECTACULAR_SETTINGS = {
         "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",
         "PurposeEnum": "backend.apps.loans.models.LoanPurpose.choices",
         "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
+        "BalanceReturnFailureStatusEnum": (
+            "backend.apps.ledger.models.BalanceReturnFailureStatus.choices"
+        ),
+        "BalanceReturnFailureReasonEnum": (
+            "backend.apps.ledger.models.BalanceReturnFailureReason.choices"
+        ),
         # 18.3: new choice fields reuse these value sets; keep the existing names stable.
         "CategoryEnum": "backend.apps.documents.models.DocumentCategory.choices",
         "AdminUserDocumentArtifactRequestOutputFormatEnum": [("pdf", "pdf"), ("csv", "csv")],

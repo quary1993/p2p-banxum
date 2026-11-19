@@ -5,6 +5,10 @@ from django.urls import path
 from backend.apps.platform_core.api.views import (
     AdminLoanStatusDaysView,
     AdminPlatformFeaturesView,
+    AdminSettlementCalendarConfirmView,
+    AdminSettlementCalendarDayAddView,
+    AdminSettlementCalendarDayRemoveView,
+    AdminSettlementCalendarView,
     AdminStoryImageUploadView,
     HealthView,
     QaDevModeAdvanceView,
@@ -26,6 +30,26 @@ urlpatterns = [
         "admin/loan-status-days/",
         AdminLoanStatusDaysView.as_view(),
         name="admin-loan-status-days",
+    ),
+    path(
+        "admin/settlement-calendars/",
+        AdminSettlementCalendarView.as_view(),
+        name="admin-settlement-calendar",
+    ),
+    path(
+        "admin/settlement-calendars/days/",
+        AdminSettlementCalendarDayAddView.as_view(),
+        name="admin-settlement-calendar-day-add",
+    ),
+    path(
+        "admin/settlement-calendars/days/remove/",
+        AdminSettlementCalendarDayRemoveView.as_view(),
+        name="admin-settlement-calendar-day-remove",
+    ),
+    path(
+        "admin/settlement-calendars/confirm/",
+        AdminSettlementCalendarConfirmView.as_view(),
+        name="admin-settlement-calendar-confirm",
     ),
     path(
         "admin/platform-features/",

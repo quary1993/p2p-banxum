@@ -22,6 +22,11 @@ from backend.apps.platform_core.api.serializers import (
     QaDevModeRestoreResponseSerializer,
     QaDevModeRevertRequestSerializer,
     QaDevModeStateSerializer,
+    SettlementCalendarConfirmRequestSerializer,
+    SettlementCalendarDayAddRequestSerializer,
+    SettlementCalendarDayRemoveRequestSerializer,
+    SettlementCalendarQuerySerializer,
+    SettlementCalendarYearSerializer,
     StoryImageSerializer,
     StoryImageUploadSerializer,
 )
@@ -54,6 +59,17 @@ from backend.apps.platform_core.services.qa_dev_mode import (
     serialize_qa_dev_mode_state,
 )
 from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_environment_guard
+from backend.apps.platform_core.services.settlement_calendar import (
+    AddSettlementHolidayCommand,
+    ConfirmSettlementCalendarYearCommand,
+    RemoveSettlementHolidayCommand,
+    SettlementCalendarAuthorizationError,
+    SettlementCalendarError,
+    add_settlement_holiday,
+    calendar_year_payload,
+    confirm_settlement_calendar_year,
+    remove_settlement_holiday,
+)
 from backend.apps.platform_core.services.story_images import (
     StoreStoryImageCommand,
     StoryImageError,
@@ -336,3 +352,110 @@ class AdminLoanStatusDaysView(APIView):
         except PlatformFeatureValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(LoanStatusDaysSerializer(payload).data)
+
+
+# --- 18.4 (F17): settlement calendars ----------------------------------------------------------
+
+
+def _calendar_error(exc: SettlementCalendarError) -> Response:
+    if isinstance(exc, SettlementCalendarAuthorizationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminSettlementCalendarView(APIView):
+    """One year of the CHF or EUR settlement calendar (closed days, preload and confirmation)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[SettlementCalendarQuerySerializer],
+        responses={200: SettlementCalendarYearSerializer},
+    )
+    def get(self, request):  # type: ignore[no-untyped-def]
+        if not is_admin_actor(request.user):
+            return Response(
+                {"detail": "Only an active admin can manage the settlement calendars."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        query = SettlementCalendarQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = calendar_year_payload(
+            query.validated_data["currency"], query.validated_data["year"]
+        )
+        return Response(SettlementCalendarYearSerializer(payload).data)
+
+
+class AdminSettlementCalendarDayAddView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SettlementCalendarDayAddRequestSerializer,
+        responses={200: SettlementCalendarYearSerializer},
+    )
+    def post(self, request):  # type: ignore[no-untyped-def]
+        serializer = SettlementCalendarDayAddRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            payload = add_settlement_holiday(
+                AddSettlementHolidayCommand(
+                    actor=request.user,
+                    currency=data["currency"],
+                    date=data["date"],
+                    name=data["name"],
+                )
+            )
+        except SettlementCalendarError as exc:
+            return _calendar_error(exc)
+        return Response(SettlementCalendarYearSerializer(payload).data)
+
+
+class AdminSettlementCalendarDayRemoveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SettlementCalendarDayRemoveRequestSerializer,
+        responses={200: SettlementCalendarYearSerializer},
+    )
+    def post(self, request):  # type: ignore[no-untyped-def]
+        serializer = SettlementCalendarDayRemoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            payload = remove_settlement_holiday(
+                RemoveSettlementHolidayCommand(
+                    actor=request.user,
+                    currency=data["currency"],
+                    date=data["date"],
+                    reason=data["reason"],
+                )
+            )
+        except SettlementCalendarError as exc:
+            return _calendar_error(exc)
+        return Response(SettlementCalendarYearSerializer(payload).data)
+
+
+class AdminSettlementCalendarConfirmView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SettlementCalendarConfirmRequestSerializer,
+        responses={200: SettlementCalendarYearSerializer},
+    )
+    def post(self, request):  # type: ignore[no-untyped-def]
+        serializer = SettlementCalendarConfirmRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            payload = confirm_settlement_calendar_year(
+                ConfirmSettlementCalendarYearCommand(
+                    actor=request.user,
+                    currency=data["currency"],
+                    year=data["year"],
+                    note=data.get("note", ""),
+                )
+            )
+        except SettlementCalendarError as exc:
+            return _calendar_error(exc)
+        return Response(SettlementCalendarYearSerializer(payload).data)

@@ -25,6 +25,8 @@ from backend.apps.platform_core.services.qa_guard import qa_environment_guard
 
 EMAIL_OUTBOX_DISPATCH_JOB = "email_outbox_dispatch"
 BALANCE_AGEING_SCAN_JOB = "balance_ageing_scan"
+# 18.4 (F17): preload this and next year's settlement calendars; alert while next year is open.
+SETTLEMENT_CALENDAR_CHECK_JOB = "settlement_calendar_check"
 LOAN_SERVICING_STATUS_SCAN_JOB = "loan_servicing_status_scan"
 PRIMARY_FUNDING_EXPIRY_SCAN_JOB = "primary_funding_expiry_scan"
 RECONCILIATION_BREAK_TASK_SYNC_JOB = "reconciliation_break_task_sync"
@@ -45,6 +47,8 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
     PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
     ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
+    # Before the balance scan: return dates use the calendars.
+    SETTLEMENT_CALENDAR_CHECK_JOB,
     BALANCE_AGEING_SCAN_JOB,
     LOAN_SERVICING_STATUS_SCAN_JOB,
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
@@ -378,6 +382,8 @@ def _balance_ageing_summary(
         "forced_withdrawal_request_count": len(result.forced_withdrawal_requests),
         "penalty_mode_transition_count": len(result.penalty_mode_transitions),
         "skipped_lot_ids": list(result.skipped_lot_ids),
+        "compliance_alerts": list(result.compliance_alerts),
+        "return_failure_notice_count": len(result.return_failure_notices),
         "forced_withdrawal_request_ids": [
             str(withdrawal_request.id) for withdrawal_request in result.forced_withdrawal_requests
         ],
@@ -558,6 +564,9 @@ def _execute_scheduled_job(
         return _monthly_investor_statements_summary(as_of=as_of)
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
+    if job_name == SETTLEMENT_CALENDAR_CHECK_JOB:
+        calendars: Any = import_module("backend.apps.platform_core.services.settlement_calendar")
+        return dict(calendars.check_settlement_calendars(actor=actor, as_of=as_of))
     if job_name == BALANCE_AGEING_SCAN_JOB:
         return _balance_ageing_summary(command, actor=actor, as_of=as_of)
     if job_name == LOAN_SERVICING_STATUS_SCAN_JOB:

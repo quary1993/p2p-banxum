@@ -732,11 +732,12 @@ def test_fx_lot_made_after_the_days_scan_gets_no_late_repeat_of_that_reminder(
     investor: Model,
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    # Day 53 of the deposit (value date 2026-01-01, day 0) is 2026-02-23.
+    # 18.4: the deposit (value date 2026-01-01) goes back on 2026-02-26; the 3-day notice is
+    # due on 2026-02-23.
     day_53 = datetime(2026, 2, 23, 9, 0, tzinfo=_received_at(date(2026, 2, 23)).tzinfo)
     run_balance_ageing_scan(RunBalanceAgeingScanCommand(actor=admin_user, as_of=day_53))
     assert DomainEvent.objects.filter(
-        idempotency_key=f"balance-lot:{deposit.balance_lot.id}:ageing-reminder-day:53"
+        idempotency_key=f"balance-lot:{deposit.balance_lot.id}:return-notice:3"
     ).exists()
     fx = execute_investor_fx_exchange_ledger(
         ExecuteInvestorFxExchangeLedgerCommand(

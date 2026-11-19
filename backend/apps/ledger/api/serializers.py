@@ -6,6 +6,8 @@ from typing import Any
 from rest_framework import serializers
 
 from backend.apps.ledger.models import (
+    BalanceReturnFailureReason,
+    BalanceReturnFailureStatus,
     BankOperation,
     BankOperationStatus,
     BankOperationType,
@@ -106,6 +108,9 @@ class InvestorBalanceLotSerializer(serializers.Serializer[Any]):
     withdrawn_amount_minor = serializers.IntegerField()
     penalized_amount_minor = serializers.IntegerField()
     lineage = serializers.JSONField()
+    return_after_days = serializers.IntegerField(
+        help_text="Q01: the holding day this money may stay until (56; 58 for older lots)."
+    )
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
 
@@ -503,6 +508,9 @@ class BalanceAgeingReminderDueSerializer(serializers.Serializer[Any]):
     amount_minor = serializers.IntegerField()
     day = serializers.IntegerField()
     withdrawal_deadline_at = serializers.DateTimeField()
+    kind = serializers.CharField(help_text="reminder, return_blocked or penalty_warning (day 60).")
+    return_date = serializers.DateField(allow_null=True)
+    days_before_return = serializers.IntegerField(allow_null=True)
 
 
 class BalanceAgeingForcedWithdrawalCandidateSerializer(serializers.Serializer[Any]):
@@ -550,6 +558,8 @@ class BalanceAgeingScanResponseSerializer(serializers.Serializer[Any]):
     penalty_mode_transitions = BalanceAgeingPenaltyModeTransitionSerializer(many=True)
     penalty_charges = BalancePenaltyChargeSerializer(many=True)
     skipped_lot_ids = serializers.ListField(child=serializers.CharField())
+    compliance_alerts = serializers.ListField(child=serializers.CharField())
+    return_failure_notices = serializers.ListField(child=serializers.CharField())
 
 
 class ReconciliationSnapshotCreateRequestSerializer(serializers.Serializer[Any]):
@@ -623,6 +633,8 @@ def serialize_balance_ageing_scan_result(result: BalanceAgeingScanResult) -> dic
         ],
         "penalty_charges": [_dataclass_payload(charge) for charge in result.penalty_charges],
         "skipped_lot_ids": result.skipped_lot_ids,
+        "compliance_alerts": result.compliance_alerts,
+        "return_failure_notices": result.return_failure_notices,
     }
     return dict(BalanceAgeingScanResponseSerializer(payload).data)
 
@@ -633,3 +645,96 @@ def serialize_reconciliation_snapshot(snapshot: ReconciliationSnapshot) -> dict[
 
 LAUNCH_BANK_OPERATION_TYPES = BankOperationType.choices
 LAUNCH_BANK_OPERATION_STATUSES = BankOperationStatus.choices
+
+
+# --- 18.4: failed returns and verification from a deposit -----------------------------------
+
+
+class WithdrawalReturnedRequestSerializer(serializers.Serializer[Any]):
+    returned_value_date = serializers.DateField()
+    booking_date = serializers.DateField(required=False, allow_null=True)
+    reason_code = serializers.ChoiceField(choices=BalanceReturnFailureReason.choices)
+    bank_reason_text = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    collection_account_identifier = serializers.CharField(
+        required=False, allow_blank=True, max_length=128
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    idempotency_key = serializers.CharField(max_length=120)
+
+
+class BalanceReturnFailureSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    withdrawal_request_id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency_id")
+    amount_minor = serializers.IntegerField()
+    is_forced = serializers.BooleanField()
+    reason_code = serializers.CharField()
+    reason_label = serializers.CharField(source="get_reason_code_display")
+    bank_reason_text = serializers.CharField()
+    returned_value_date = serializers.DateField()
+    failed_destination_iban = serializers.CharField()
+    failed_payout_instruction_id = serializers.UUIDField(allow_null=True)
+    lot_ids = serializers.ListField(child=serializers.CharField())
+    status = serializers.CharField()
+    recorded_by_admin_id = serializers.UUIDField()
+    recorded_at = serializers.DateTimeField()
+    last_notice_date = serializers.DateField(allow_null=True)
+    escalated_at = serializers.DateTimeField(allow_null=True)
+    escalation_reason = serializers.CharField()
+    resolved_at = serializers.DateTimeField(allow_null=True)
+    resolution = serializers.CharField()
+    resolution_note = serializers.CharField()
+    resend_withdrawal_request_id = serializers.UUIDField(allow_null=True)
+
+
+class BalanceReturnFailureListResponseSerializer(serializers.Serializer[Any]):
+    results = BalanceReturnFailureSerializer(many=True)
+
+
+class BalanceReturnFailureListQuerySerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(
+        choices=BalanceReturnFailureStatus.choices, required=False, allow_blank=True
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=500, default=100)
+
+
+class BalanceReturnFailureResendRequestSerializer(serializers.Serializer[Any]):
+    payout_instruction_id = serializers.UUIDField()
+    note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+
+class BalanceReturnFailureResolveRequestSerializer(serializers.Serializer[Any]):
+    note = serializers.CharField(max_length=2000)
+
+
+class BalanceReturnFailureResendResponseSerializer(serializers.Serializer[Any]):
+    withdrawal_request = InvestorWithdrawalRequestSerializer()
+
+
+class DepositAccountVerificationRequestSerializer(serializers.Serializer[Any]):
+    holder_matches_identity = serializers.BooleanField(
+        help_text="The holder of the incoming transfer matches the verified identity."
+    )
+    not_intermediary_account = serializers.BooleanField(
+        help_text="The transfer did not come through a collecting or intermediary account."
+    )
+    evidence_reference = serializers.CharField(max_length=255)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+
+class DepositVerificationCandidateSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    currency = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    value_date = serializers.DateField()
+    payer_name = serializers.CharField()
+    payer_iban = serializers.CharField()
+
+
+class DepositVerificationCandidateListSerializer(serializers.Serializer[Any]):
+    investor_user_id = serializers.UUIDField()
+    verified_identity_name = serializers.CharField()
+    results = DepositVerificationCandidateSerializer(many=True)

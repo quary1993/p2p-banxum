@@ -23,11 +23,10 @@ from backend.apps.admin_ops.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
-from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
-from backend.apps.platform_core.selectors.settings import balance_auto_return_after_days
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
     OutboxCommand,
@@ -600,6 +599,80 @@ def create_admin_task(command: CreateAdminTaskCommand) -> AdminTask:
         )
     )
     return task
+
+
+@transaction.atomic
+def ensure_related_admin_task(
+    *,
+    actor: Model,
+    task_type: str,
+    related_object_type: str,
+    related_object_id: str,
+    title: str,
+    priority: str = AdminTaskPriority.NORMAL,
+    notes: str = "",
+    due_at: datetime | None = None,
+) -> tuple[AdminTask, bool]:
+    """The single task for one object and one task type; created once (18.4).
+
+    Returns (task, created). An existing task, open or closed, is returned unchanged: callers
+    that need a new task for a new occurrence use a new related object id.
+    """
+    task_filter = {
+        "task_type": _task_type(task_type),
+        "related_object_type": related_object_type,
+        "related_object_id": related_object_id,
+    }
+    existing = AdminTask.objects.select_for_update().filter(**task_filter).first()
+    if existing is not None:
+        return existing, False
+    try:
+        with transaction.atomic():
+            task = create_admin_task(
+                CreateAdminTaskCommand(
+                    actor=actor,
+                    task_type=task_filter["task_type"],
+                    title=title[:255],
+                    priority=priority,
+                    due_at=due_at or now_utc(),
+                    notes=notes,
+                    related_object_type=related_object_type,
+                    related_object_id=related_object_id,
+                )
+            )
+    except IntegrityError:
+        return AdminTask.objects.get(**task_filter), False
+    return task, True
+
+
+@transaction.atomic
+def resolve_related_admin_task(
+    *,
+    actor: Model,
+    related_object_type: str,
+    related_object_id: str,
+    completion_note: str,
+    task_type: str | None = None,
+) -> list[AdminTask]:
+    """Resolve the open tasks of one object (18.4); closed tasks stay as they are."""
+    queryset = AdminTask.objects.select_for_update().filter(
+        related_object_type=related_object_type, related_object_id=related_object_id
+    )
+    if task_type is not None:
+        queryset = queryset.filter(task_type=_task_type(task_type))
+    resolved: list[AdminTask] = []
+    for task in queryset.exclude(status__in=TERMINAL_ADMIN_TASK_STATUSES):
+        resolved.append(
+            update_admin_task(
+                UpdateAdminTaskCommand(
+                    actor=actor,
+                    task_id=str(task.id),
+                    status=AdminTaskStatus.RESOLVED,
+                    completion_note=completion_note,
+                )
+            )
+        )
+    return resolved
 
 
 @transaction.atomic
@@ -1914,8 +1987,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
     )
     balance_lots_overdue_count = 0
     balance_lots_penalty_mode_count = 0
-    # Same rule as the ledger scan: money not invested goes back to the bank after day 58.
-    return_after_days = balance_auto_return_after_days()
+    # Same rule as the ledger scan (18.4): day 56 last day, return requested on the return date.
+    scheduler = BalanceScheduler()
     today = business_date(as_of)
     for lot in active_lots.only(
         "id",
@@ -1926,6 +1999,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "investment_deadline_at",
         "withdrawal_deadline_at",
         "source_type",
+        "return_after_days",
     ):
         lot_ref = cast(Any, lot)
         currency_code = _currency_code(lot)
@@ -1934,10 +2008,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         summary["available_balance_minor"] += amount
         status = str(lot_ref.status)
         if status == BALANCE_AVAILABLE_STATUS:
-            last_day = balance_last_day(
-                withdrawal_deadline_at=lot_ref.withdrawal_deadline_at,
-                return_after_days=return_after_days,
-            )
+            lot_schedule = scheduler.schedule(lot_ref)
+            last_day = lot_schedule.last_day
             if today > last_day:
                 summary["overdue_available_minor"] += amount
                 balance_lots_overdue_count += 1
@@ -1947,8 +2019,9 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                             kind="balance_lot_overdue",
                             item_id=str(lot.pk),
                             title=(
-                                f"Balance lot not invested after {return_after_days} days: "
-                                "due back to the investor's bank"
+                                "Balance lot not invested by day "
+                                f"{lot_schedule.return_after_days}: due back to the "
+                                "investor's bank"
                             ),
                             status=status,
                             due_at=getattr(lot, "withdrawal_deadline_at", None),
@@ -1965,7 +2038,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                                 "withdrawal_deadline_at": (
                                     lot_ref.withdrawal_deadline_at.isoformat()
                                 ),
-                                "return_date": (last_day + timedelta(days=1)).isoformat(),
+                                "return_date": lot_schedule.return_date.isoformat(),
                             },
                         )
                     )

@@ -10,6 +10,10 @@ from backend.apps.platform_core.models.qa import (
 )
 from backend.apps.platform_core.models.scheduled_jobs import ScheduledJobRun
 from backend.apps.platform_core.models.settings import PlatformSetting, PlatformSettingVersion
+from backend.apps.platform_core.models.settlement_calendar import (
+    SettlementCalendarYear,
+    SettlementHoliday,
+)
 from backend.apps.platform_core.models.story_images import StoryImage
 
 __all__ = [
@@ -23,6 +27,8 @@ __all__ = [
     "QaDevModeState",
     "QaDatasetReset",
     "ScheduledJobRun",
+    "SettlementCalendarYear",
+    "SettlementHoliday",
     "StoredFile",
     "StoryImage",
     "SwissBankMasterEntry",

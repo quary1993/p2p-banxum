@@ -28,7 +28,6 @@ from backend.apps.platform_core.domain.access import (
     is_superadmin_actor,
     user_can_access_financial_features,
 )
-from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
 from backend.apps.platform_core.domain.money import (
     csv_number_format,
@@ -49,11 +48,11 @@ from backend.apps.platform_core.domain.time import (
 )
 from backend.apps.platform_core.models import AuditEvent, Currency
 from backend.apps.platform_core.selectors.settings import (
-    balance_auto_return_after_days,
     loan_status_thresholds,
     platform_loan_status_thresholds,
 )
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.reporting.investor_statement import (
     StatementSection,
@@ -1113,7 +1112,7 @@ def _balance_ageing_dataset(
         lots=lots,
         as_of=end_dt,
     )
-    return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     rows: list[dict[str, Any]] = []
     for lot in lots:
         state = historical[str(lot.pk)]
@@ -1127,14 +1126,8 @@ def _balance_ageing_dataset(
             lot.withdrawal_deadline_at.astimezone(business_timezone()).date() - end_date
         ).days
         # Same days as the ageing scan: money not invested goes back to the bank after the
-        # last day (day 58 by default); there is no penalty (U33-DEC-04).
-        last_day_days_left = (
-            balance_last_day(
-                withdrawal_deadline_at=lot.withdrawal_deadline_at,
-                return_after_days=return_after_days,
-            )
-            - end_date
-        ).days
+        # last day (day 56, earlier for the calendar); there is no penalty (U33-DEC-04).
+        last_day_days_left = (scheduler.schedule(lot).last_day - end_date).days
         if state["status"] == "penalty_mode" or last_day_days_left < 0:
             bucket = "return_due_or_penalty_mode"
             action = "forced_return_or_usable_iban_required"

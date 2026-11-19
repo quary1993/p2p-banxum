@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from django.contrib.auth import get_user_model
 from django.db.models import Model
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -10,15 +11,24 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.ledger import return_failures
 from backend.apps.ledger.api.serializers import (
     AdminPayoutInstructionListQuerySerializer,
     AdminPayoutInstructionListResponseSerializer,
     AdminPayoutInstructionRowSerializer,
     BalanceAgeingScanRequestSerializer,
     BalanceAgeingScanResponseSerializer,
+    BalanceReturnFailureListQuerySerializer,
+    BalanceReturnFailureListResponseSerializer,
+    BalanceReturnFailureResendRequestSerializer,
+    BalanceReturnFailureResendResponseSerializer,
+    BalanceReturnFailureResolveRequestSerializer,
+    BalanceReturnFailureSerializer,
     BorrowerDisbursementFinalizeRequestSerializer,
     BorrowerDisbursementFinalizeResponseSerializer,
     CollectionAccountSerializer,
+    DepositAccountVerificationRequestSerializer,
+    DepositVerificationCandidateListSerializer,
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
     InvestorDefaultReturnAccountRequestSerializer,
@@ -40,6 +50,7 @@ from backend.apps.ledger.api.serializers import (
     LenderDepositDeclareResponseSerializer,
     ReconciliationSnapshotCreateRequestSerializer,
     ReconciliationSnapshotSerializer,
+    WithdrawalReturnedRequestSerializer,
     serialize_balance_ageing_scan_result,
     serialize_balance_lot,
     serialize_balance_summary,
@@ -719,5 +730,193 @@ class BalanceAgeingScanView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             serialize_balance_ageing_scan_result(result),
+            status=status.HTTP_200_OK,
+        )
+
+
+# --- 18.4: failed returns (Q02) and verification from a deposit (Q02.5) ----------------------
+
+
+def _ledger_error_response(exc: Exception) -> Response:
+    if isinstance(exc, LedgerAuthorizationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+    if isinstance(exc, LedgerConflictError):
+        return _conflict_response(exc)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminWithdrawalReturnedView(APIView):
+    """The bank sent a withdrawal or return back: record it once (the money is restored)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=WithdrawalReturnedRequestSerializer,
+        responses={200: BalanceReturnFailureSerializer},
+    )
+    def post(self, request: Request, withdrawal_request_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = WithdrawalReturnedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            failure = return_failures.record_returned_withdrawal(
+                return_failures.RecordReturnedWithdrawalCommand(
+                    actor=cast(Model, request.user),
+                    withdrawal_request_id=str(withdrawal_request_id),
+                    returned_value_date=data["returned_value_date"],
+                    booking_date=data.get("booking_date"),
+                    reason_code=data["reason_code"],
+                    bank_reason_text=data.get("bank_reason_text", ""),
+                    bank_reference=data.get("bank_reference", ""),
+                    evidence_reference=data.get("evidence_reference", ""),
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
+                    notes=data.get("notes", ""),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except LedgerValidationError as exc:
+            return _ledger_error_response(exc)
+        except LedgerAuthorizationError as exc:
+            return _ledger_error_response(exc)
+        return Response(BalanceReturnFailureSerializer(failure).data, status=status.HTTP_200_OK)
+
+
+class AdminReturnFailureListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[BalanceReturnFailureListQuerySerializer],
+        responses={200: BalanceReturnFailureListResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        query = BalanceReturnFailureListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        rows = return_failures.list_return_failures(
+            status=query.validated_data.get("status", ""),
+            limit=query.validated_data.get("limit", 100),
+        )
+        return Response(
+            {"results": BalanceReturnFailureSerializer(rows, many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminReturnFailureResendView(APIView):
+    """Send a failed return again, to a corrected or newly verified account only."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BalanceReturnFailureResendRequestSerializer,
+        responses={200: BalanceReturnFailureResendResponseSerializer},
+    )
+    def post(self, request: Request, failure_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BalanceReturnFailureResendRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            withdrawal_request = return_failures.resend_failed_return(
+                return_failures.ResendFailedReturnCommand(
+                    actor=cast(Model, request.user),
+                    failure_id=str(failure_id),
+                    payout_instruction_id=str(data["payout_instruction_id"]),
+                    note=data.get("note", ""),
+                )
+            )
+        except (LedgerValidationError, LedgerAuthorizationError) as exc:
+            return _ledger_error_response(exc)
+        return Response(
+            {"withdrawal_request": serialize_withdrawal_request(withdrawal_request)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminReturnFailureResolveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BalanceReturnFailureResolveRequestSerializer,
+        responses={200: BalanceReturnFailureSerializer},
+    )
+    def post(self, request: Request, failure_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BalanceReturnFailureResolveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            failure = return_failures.resolve_return_failure(
+                return_failures.ResolveReturnFailureCommand(
+                    actor=cast(Model, request.user),
+                    failure_id=str(failure_id),
+                    note=serializer.validated_data["note"],
+                )
+            )
+        except (LedgerValidationError, LedgerAuthorizationError) as exc:
+            return _ledger_error_response(exc)
+        return Response(BalanceReturnFailureSerializer(failure).data, status=status.HTTP_200_OK)
+
+
+class AdminDepositVerificationCandidatesView(APIView):
+    """Deposits of an investor whose paying account is not verified yet (Q02.5)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: DepositVerificationCandidateListSerializer})
+    def get(self, request: Request, investor_user_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        investor = get_user_model().objects.filter(id=investor_user_id).first()
+        if investor is None:
+            return Response({"detail": "Investor does not exist."}, status=404)
+        return Response(
+            DepositVerificationCandidateListSerializer(
+                {
+                    "investor_user_id": investor.pk,
+                    "verified_identity_name": str(getattr(investor, "full_name", "") or ""),
+                    "results": return_failures.deposit_verification_candidates(
+                        str(investor_user_id)
+                    ),
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminDepositAccountVerifyView(APIView):
+    """Verify the account that sent a deposit as a return account, with evidence (Q02.5)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=DepositAccountVerificationRequestSerializer,
+        responses={200: InvestorPayoutInstructionRegisterResponseSerializer},
+    )
+    def post(self, request: Request, bank_operation_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = DepositAccountVerificationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            instruction = return_failures.verify_payout_account_from_deposit(
+                return_failures.VerifyPayoutAccountFromDepositCommand(
+                    actor=cast(Model, request.user),
+                    deposit_bank_operation_id=str(bank_operation_id),
+                    holder_matches_identity=data["holder_matches_identity"],
+                    not_intermediary_account=data["not_intermediary_account"],
+                    evidence_reference=data["evidence_reference"],
+                    notes=data.get("notes", ""),
+                )
+            )
+        except (LedgerValidationError, LedgerAuthorizationError) as exc:
+            return _ledger_error_response(exc)
+        return Response(
+            {"payout_instruction": serialize_payout_instruction(instruction)},
             status=status.HTTP_200_OK,
         )

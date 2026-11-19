@@ -64,6 +64,8 @@ class BankOperationType(models.TextChoices):
         "Currency exchange external settlement",
     )
     ORIGINATOR_SETTLEMENT = "originator_settlement", "Loan Originator settlement"
+    # 18.4 (Q02): a withdrawal or return that the receiving bank sent back.
+    LENDER_WITHDRAWAL_RETURN = "lender_withdrawal_return", "Returned withdrawal"
 
 
 class BankOperationStatus(models.TextChoices):
@@ -100,6 +102,32 @@ class InvestorWithdrawalRequestStatus(models.TextChoices):
     REQUESTED = "requested", "Requested"
     FINALIZED = "finalized", "Finalized"
     CANCELLED = "cancelled", "Cancelled"
+    # 18.4 (Q02): sent, then sent back by the receiving bank; the money is on the balance again.
+    RETURNED = "returned", "Returned by the bank"
+
+
+class BalanceReturnFailureReason(models.TextChoices):
+    """The receiving bank's reason (Q02: the cause shown follows the bank's answer)."""
+
+    ACCOUNT_CLOSED = "account_closed", "Account closed"
+    ACCOUNT_UNKNOWN = "account_unknown", "Account number unknown"
+    NAME_MISMATCH = "name_mismatch", "Account holder name does not match"
+    ACCOUNT_BLOCKED = "account_blocked", "Account blocked or restricted"
+    BANK_RESTRICTION = "bank_restriction", "Restriction at the receiving bank"
+    TECHNICAL = "technical", "Technical error"
+    OTHER = "other", "Other reason"
+
+
+class BalanceReturnFailureStatus(models.TextChoices):
+    OPEN = "open", "Return failed"
+    RESOLVED = "resolved", "Resolved"
+
+
+class BalanceReturnFailureResolution(models.TextChoices):
+    SENT_AGAIN = "sent_again", "Sent again to a corrected or newly verified account"
+    NO_MONEY_LEFT = "no_money_left", "No money left to return (withdrawn by the investor)"
+    MONEY_AVAILABLE = "money_available", "Money available again (not due back)"
+    OTHER = "other", "Resolved by the team"
 
 
 class InvestorPayoutInstructionStatus(models.TextChoices):
@@ -284,6 +312,10 @@ class InvestorBalanceLot(TimestampedModel):
     withdrawn_amount_minor = models.BigIntegerField(default=0)
     penalized_amount_minor = models.BigIntegerField(default=0)
     lineage = models.JSONField(default=list, blank=True)
+    # Q01 (18.4): the holding day this money may stay until. New lots get the setting
+    # `balance.auto_return_after_days` (56: the return is requested on day 57, earlier for the
+    # calendar); lots from before the switch keep 58. FX proceeds keep their source's days.
+    return_after_days = models.PositiveSmallIntegerField(default=56)
 
     class Meta:
         ordering = ["received_at", "created_at", "id"]
@@ -444,6 +476,82 @@ class InvestorWithdrawalRequest(TimestampedModel):
             models.Index(fields=["finalized_at"]),
             models.Index(fields=["cancelled_at"]),
             models.Index(fields=["bank_reference"]),
+        ]
+
+
+class BalanceReturnFailure(TimestampedModel):
+    """18.4 (Q02): a withdrawal or forced return that the receiving bank sent back.
+
+    The returned amount is reconciled once (with the bank operation and journal below): it goes
+    back to the lots it came from, with their original age, so a forced return becomes "due back"
+    again without a new 56/60-day period and without a penalty. The platform never retries by
+    itself: the team sends again only to a corrected or newly verified account. The investor gets a
+    notice at once and every day while the failure is open; compliance takes the case after a few
+    days, or at once when the money is at day 57 or later.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    withdrawal_request = models.OneToOneField(
+        InvestorWithdrawalRequest,
+        on_delete=models.PROTECT,
+        related_name="return_failure",
+    )
+    investor_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="balance_return_failures",
+    )
+    amount_minor = models.BigIntegerField()
+    is_forced = models.BooleanField(default=False)
+    reason_code = models.CharField(max_length=32, choices=BalanceReturnFailureReason.choices)
+    bank_reason_text = models.TextField(blank=True)
+    returned_value_date = models.DateField()
+    return_bank_operation = models.ForeignKey(
+        BankOperation, on_delete=models.PROTECT, related_name="return_failures"
+    )
+    return_journal_entry = models.ForeignKey(
+        LedgerJournalEntry, on_delete=models.PROTECT, related_name="return_failures"
+    )
+    failed_payout_instruction_id = models.UUIDField(null=True, blank=True)
+    failed_destination_iban = models.CharField(max_length=128)
+    lot_ids = models.JSONField(default=list, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=BalanceReturnFailureStatus.choices,
+        default=BalanceReturnFailureStatus.OPEN,
+    )
+    recorded_by_admin_id = models.UUIDField()
+    recorded_at = models.DateTimeField()
+    last_notice_date = models.DateField(null=True, blank=True)
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    escalation_reason = models.CharField(max_length=255, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by_admin_id = models.UUIDField(null=True, blank=True)
+    resolution = models.CharField(
+        max_length=32, choices=BalanceReturnFailureResolution.choices, blank=True
+    )
+    resolution_note = models.TextField(blank=True)
+    resend_withdrawal_request = models.ForeignKey(
+        InvestorWithdrawalRequest,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="resent_from_failures",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-recorded_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount_minor__gt=0),
+                name="ledger_return_failure_amount_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["status", "recorded_at"]),
+            models.Index(fields=["investor_user_id", "currency", "status"]),
         ]
 
 

@@ -1053,10 +1053,11 @@ def test_reservation_skips_old_sources_for_long_windows_and_preserves_failed_att
         investment_deadline_at=_received_at(date(2026, 1, 31))
     )
     as_of = _received_at(date(2026, 2, 15))
-    # The older source's last day is 02-28 (day 58): a window ending 02-27 still fits.
+    # 18.4: the older source goes back on Thursday 02-26 (day 57 is a Friday and the debit
+    # must come by day 59), so its last day is 02-25: a window ending 02-24 still fits.
     short = plan_investment_balance_consumption(
         investor_user_id=str(investor.pk), currency="CHF", amount_minor=100_00,
-        loan_funding_deadline=date(2026, 2, 27), as_of=as_of,
+        loan_funding_deadline=date(2026, 2, 24), as_of=as_of,
     )
     assert short[0].lot_id == str(first.pk)
     command = ReserveInvestmentBalanceCommand(
@@ -1252,21 +1253,23 @@ def test_balance_ageing_scan_records_reminder_due(
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
 
+    # 18.4: the return date is 2026-02-26, so the first notice comes on 02-12 (14 days before).
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 1, 26)),
+            as_of=_received_at(date(2026, 2, 12)),
         )
     )
     rerun = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 1, 26)),
+            as_of=_received_at(date(2026, 2, 12)),
         )
     )
 
     assert result.reminders_due[0].lot_id == str(deposit.balance_lot.id)
-    assert result.reminders_due[0].day == 25
+    assert result.reminders_due[0].days_before_return == 14
+    assert result.reminders_due[0].day == 42
     assert rerun.reminders_due == []
     assert (
         DomainEvent.objects.filter(
@@ -1284,7 +1287,7 @@ def test_balance_ageing_scan_records_reminder_due(
     )
     reminder_email = OutboxMessage.objects.get(topic="email.balance_ageing_reminder")
     assert reminder_email.payload["user_id"] == str(investor.pk)
-    assert reminder_email.payload["metadata"]["day"] == 25
+    assert reminder_email.payload["metadata"]["days_before_return"] == 14
     assert (
         OutboxMessage.objects.filter(topic="email.balance_ageing_reminder").count()
         == 1
@@ -1292,7 +1295,7 @@ def test_balance_ageing_scan_records_reminder_due(
 
 
 @pytest.mark.django_db
-def test_balance_ageing_scan_catches_up_missed_reminder_days(
+def test_balance_ageing_scan_after_missed_days_sends_only_the_closest_notice(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -1311,21 +1314,21 @@ def test_balance_ageing_scan_catches_up_missed_reminder_days(
         )
     )
 
-    assert [reminder.day for reminder in result.reminders_due] == [25, 46, 53]
+    assert [reminder.days_before_return for reminder in result.reminders_due] == [3]
     assert rerun.reminders_due == []
     assert (
         DomainEvent.objects.filter(
             event_type="BalanceAgeingReminderDue",
             aggregate_id=str(deposit.balance_lot.id),
         ).count()
-        == 3
+        == 1
     )
     assert (
         AuditEvent.objects.filter(
             action="ledger.balance_ageing_reminder_due",
             target_id=str(deposit.balance_lot.id),
         ).count()
-        == 3
+        == 1
     )
 
 

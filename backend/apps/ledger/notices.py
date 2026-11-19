@@ -6,7 +6,7 @@ notice per business event.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date
 from typing import Any
 
 from django.conf import settings
@@ -18,15 +18,9 @@ from backend.apps.ledger.models import (
     InvestorPayoutInstructionStatus,
     InvestorWithdrawalRequest,
 )
-from backend.apps.platform_core.domain.funding import (
-    balance_last_day,
-    normalized_auto_return_after_days,
-)
 from backend.apps.platform_core.models import OutboxMessage
-from backend.apps.platform_core.selectors.settings import (
-    balance_auto_return_after_days,
-    platform_switch_enabled,
-)
+from backend.apps.platform_core.selectors.settings import platform_switch_enabled
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.investor_notices import (
     InvestorNotice,
     brand,
@@ -49,12 +43,9 @@ def notify_deposit_credited(
 ) -> None:
     currency = bank_operation.currency
     amount = notice_amount(bank_operation.amount_minor, currency)
-    return_after_days = balance_auto_return_after_days()
-    last_day = balance_last_day(
-        withdrawal_deadline_at=balance_lot.withdrawal_deadline_at,
-        return_after_days=return_after_days,
-    )
-    return_date = notice_date(last_day + timedelta(days=1))
+    schedule = BalanceScheduler().schedule(balance_lot)
+    last_day = schedule.last_day
+    return_date = notice_date(schedule.return_date)
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(bank_operation.linked_object_id),
@@ -66,8 +57,9 @@ def notify_deposit_credited(
                 f"We credited {amount} to your {brand()} balance. "
                 f"Value date: {notice_date(bank_operation.value_date)}.\n\n"
                 "You can invest this money or withdraw it. Money that is not invested goes "
-                f"back to your bank automatically after {return_after_days} days: it can stay "
-                f"until {notice_date(last_day)}, and we return what is left on {return_date}."
+                f"back to your bank: it can stay until {notice_date(last_day)} (day "
+                f"{schedule.holding_day(last_day)} after the value date), and we start the "
+                f"return of what is left on {return_date}."
             ),
             template_key="ledger.deposit_credited.v1",
             notice_label="Balance notice",
@@ -133,12 +125,23 @@ def notify_withdrawal_requested(request: InvestorWithdrawalRequest) -> None:
     )
 
 
+def _return_timing_date(request: InvestorWithdrawalRequest, key: str) -> str:
+    timing = dict(request.metadata or {}).get("return_timing")
+    value = timing.get(key) if isinstance(timing, dict) else None
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        return notice_date(date.fromisoformat(value[:10]))
+    except ValueError:
+        return ""
+
+
 def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
+    """Q01: confirmation when the return is requested (a second one follows the transfer)."""
     amount = notice_amount(request.amount_minor, request.currency)
     destination = masked_iban(request.destination_iban)
-    return_after_days = normalized_auto_return_after_days(
-        dict(request.metadata or {}).get("auto_return_after_days")
-    )
+    send_on = _return_timing_date(request, "order_day") or notice_date(request.requested_at)
+    resent = bool(dict(request.metadata or {}).get("resent_after_failure_id"))
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(request.investor_user_id),
@@ -147,21 +150,25 @@ def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
             subject=f"We are returning {amount} to your bank account",
             headline="Your money goes back to your bank",
             body_text=(
-                f"{amount} of your {brand()} balance was not invested within "
-                f"{return_after_days} days. Money that is not invested goes back to your bank "
-                "automatically, so we started a return to your verified bank account "
-                f"({destination}).\n\n"
-                f"You cannot {_invest_or_exchange()} this amount now. We tell you when the money "
-                "is sent."
+                (
+                    f"We are sending the {amount} that your bank returned again, now to your "
+                    f"verified bank account ({destination})."
+                    if resent
+                    else f"{amount} of your {brand()} balance was not invested in time. Money "
+                    "that is not invested goes back to your bank, so we started a return to "
+                    f"your verified bank account ({destination})."
+                )
+                + f"\n\nOur team sends the transfer by hand on {send_on}. You cannot "
+                f"{_invest_or_exchange()} this amount now. We tell you when the transfer is made."
             ),
-            template_key="ledger.forced_return_created.v1",
+            template_key="ledger.forced_return_created.v2",
             notice_label="Balance notice",
             status_label="Action taken",
             status_tone="warning",
             data_rows=(
                 ("Amount", amount),
                 ("To", destination),
-                ("Started on", notice_date(request.requested_at)),
+                ("Transfer sent on", send_on),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",
@@ -174,7 +181,7 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
     amount = notice_amount(request.amount_minor, request.currency)
     destination = masked_iban(request.destination_iban)
     value_date = request.bank_operation.value_date if request.bank_operation else None
-    what = "The return of your overdue balance" if request.is_forced else "Your withdrawal"
+    what = "The return of your money not invested" if request.is_forced else "Your withdrawal"
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(request.investor_user_id),
@@ -185,6 +192,12 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
             body_text=(
                 f"{what} is complete. We sent {amount} to your bank account ({destination})."
                 + (f" Value date: {notice_date(value_date)}." if value_date else "")
+                + (
+                    "\n\nThis confirms that we made the transfer. Your bank credits it on its "
+                    "own schedule."
+                    if request.is_forced
+                    else ""
+                )
             ),
             template_key="ledger.withdrawal_finalized.v1",
             notice_label="Balance notice",

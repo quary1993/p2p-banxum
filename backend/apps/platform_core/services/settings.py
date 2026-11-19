@@ -8,7 +8,11 @@ from django.db import transaction
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.funding import (
     BALANCE_AUTO_RETURN_AFTER_DAYS,
-    DEFAULT_BALANCE_REMINDER_DAYS,
+    DEFAULT_BANK_CUTOFF_TIME,
+    DEFAULT_BANK_PROCESSING_BUSINESS_DAYS,
+    DEFAULT_PAYOUT_MARGIN_BUSINESS_DAYS,
+    DEFAULT_RETURN_FAILURE_COMPLIANCE_AFTER_DAYS,
+    DEFAULT_RETURN_NOTICE_DAYS_BEFORE,
 )
 from backend.apps.platform_core.domain.loan_status import (
     DEFAULT_DEFAULT_THRESHOLD_DAYS,
@@ -180,18 +184,55 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Yahoo Finance chart symbols by enabled FX pair.",
     ),
     SettingDefinition(
-        "balance.reminder_days",
-        list(DEFAULT_BALANCE_REMINDER_DAYS),
+        "balance.return_notice_days_before",
+        list(DEFAULT_RETURN_NOTICE_DAYS_BEFORE),
         "json",
-        "Balance ageing reminder schedule (holding days). Days after "
-        "balance.auto_return_after_days are not sent: the money is returned then.",
+        "Q01: notices go out this many calendar days before the scheduled return date of "
+        "money not invested (14, 10 and 3). A confirmation follows when the return is "
+        "requested and after the transfer is made.",
     ),
     SettingDefinition(
         "balance.auto_return_after_days",
         BALANCE_AUTO_RETURN_AFTER_DAYS,
         "integer",
-        "Money still not invested goes back to the investor's verified bank account the "
-        "day after this holding day (1 to 60; the legal limit is 60 days).",
+        "Q01: holding day that new money may stay until (day 0 is the value date; 1 to 56). "
+        "The return is requested the next day, or earlier when that day is not a settlement "
+        "day or the bank's processing time needs it. Each lot keeps the days it got.",
+    ),
+    SettingDefinition(
+        "balance.return_failure_compliance_after_days",
+        DEFAULT_RETURN_FAILURE_COMPLIANCE_AFTER_DAYS,
+        "integer",
+        "Q02: compliance takes a failed return after this many calendar days (0 to 30), and "
+        "at once when the money is at day 57 or later.",
+    ),
+    SettingDefinition(
+        "bank.processing_business_days",
+        DEFAULT_BANK_PROCESSING_BUSINESS_DAYS,
+        "integer",
+        "D9: business days the bank needs to execute a transfer ordered before the cut-off "
+        "(0 to 10). Return dates move earlier so that the debit happens by day 59.",
+    ),
+    SettingDefinition(
+        "bank.cutoff_time",
+        DEFAULT_BANK_CUTOFF_TIME,
+        "string",
+        "D9: the bank's cut-off for same-day orders, HH:MM Europe/Zurich. Return transfers "
+        "are sent before it on the return date.",
+    ),
+    SettingDefinition(
+        "funding.payout_margin_business_days",
+        DEFAULT_PAYOUT_MARGIN_BUSINESS_DAYS,
+        "integer",
+        "F01: money can fund a direct loan only if the funding close plus this many business "
+        "days (signing and payment) is on or before day 56 of the money (0 to 10).",
+    ),
+    SettingDefinition(
+        "compliance.alert_email",
+        "",
+        "string",
+        "Mailbox for compliance alerts (failed returns, returns not made by day 59). Empty: "
+        "the operations alert address.",
     ),
     SettingDefinition(
         "balance.penalty_policy_display",

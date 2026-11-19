@@ -420,12 +420,13 @@ def test_balances_are_self_scoped_and_bucketed(
 
 
 @pytest.mark.django_db
-def test_day_58_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_59(
+def test_day_56_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_57(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    # Received 2026-01-14: last day (day 58) 03-13, return 03-14, legal limit 03-15.
+    # 18.4: received 2026-01-14 (day 0): return on day 57 (Thursday 03-12), last day 03-11,
+    # legal limit 03-15.
     _declare_deposit(
         admin_user=admin_user,
         investor=investor,
@@ -434,20 +435,28 @@ def test_day_58_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_5
         idempotency_key="portal-deadline-day",
     )
 
-    day_57 = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 12)))
-    last_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 13)))
-    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 14)))
+    early = get_investor_balances(actor=investor, as_of=_at(date(2026, 2, 1)))
+    day_55 = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 10)))
+    last_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 11)))
+    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 12)))
 
-    assert last_day["auto_return_after_days"] == 58
-    assert day_57["lots"][0]["bucket"] == "investable"
+    assert last_day["auto_return_after_days"] == 56
+    assert last_day["return_failures"] == []
+    # F01: a direct loan must pay out by day 56 (03-11) with 3 business days after the close;
+    # a close on Sunday 03-08 pays out on Wednesday 03-11, so Saturday 03-07 still fits.
+    assert early["lots"][0]["direct_funding_until"] == date(2026, 3, 7)
+    assert day_55["lots"][0]["bucket"] == "investable"
+    assert day_55["lots"][0]["direct_funding_until"] is None
     lot = last_day["lots"][0]
     assert (lot["bucket"], lot["days_until_last_day"]) == ("withdraw_only", 0)
-    assert (lot["last_day"], lot["return_date"]) == (date(2026, 3, 13), date(2026, 3, 14))
-    assert lot["days_until_withdrawal_deadline"] == 2
+    assert (lot["last_day"], lot["return_date"]) == (date(2026, 3, 11), date(2026, 3, 12))
+    assert (lot["return_after_days"], lot["return_date_adjusted"]) == (56, False)
+    assert lot["return_failed"] is False
+    assert lot["days_until_withdrawal_deadline"] == 4
     assert lot["requires_withdrawal"] is True
     chf = next(item for item in last_day["summaries"] if item["currency"] == "CHF")
     assert (chf["withdraw_only_minor"], chf["overdue_minor"]) == (1_000_00, 0)
-    assert chf["next_return_date"] == date(2026, 3, 14)
+    assert chf["next_return_date"] == date(2026, 3, 12)
     assert day_after["lots"][0]["bucket"] == "overdue"
     assert day_after["lots"][0]["days_until_last_day"] == -1
     # Money already due back is in overdue_minor; the next return date looks ahead only.

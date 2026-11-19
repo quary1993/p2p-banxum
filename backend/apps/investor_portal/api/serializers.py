@@ -26,7 +26,7 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
         )
     )
     withdraw_only_minor = serializers.IntegerField(
-        help_text="Balance on its last day (day 58 by default): it can only be withdrawn."
+        help_text="Balance on its last day (day 56): it can only be withdrawn."
     )
     overdue_minor = serializers.IntegerField(
         help_text=(
@@ -73,24 +73,41 @@ class BalanceLotSerializer(serializers.Serializer[Any]):
         help_text="Compatibility alias of withdrawal_deadline_at, not a fixed source-age cutoff."
     )
     withdrawal_deadline_at = serializers.DateTimeField(
-        help_text="60-day legal holding limit; penalty mode can start only after this day."
+        help_text="60-day legal holding limit (day 60 after the value date)."
     )
     days_until_investment_deadline = serializers.IntegerField()
     days_until_withdrawal_deadline = serializers.IntegerField()
+    return_after_days = serializers.IntegerField(
+        help_text="Q01: the holding day this money may stay until (56; 58 for older money)."
+    )
     last_day = serializers.DateField(
         help_text=(
-            "Last Europe/Zurich day the money may stay (holding day auto_return_after_days, "
-            "58 by default). On that day it can only be withdrawn."
+            "Last Europe/Zurich day the money may stay (day 56 after the value date, earlier "
+            "when the return date moves). On that day it can only be withdrawn."
         )
     )
     return_date = serializers.DateField(
         help_text=(
-            "Day the platform returns money still not invested to the investor's verified "
-            "bank account (the day after last_day)."
+            "Day the platform starts the return of money still not invested to the "
+            "investor's verified bank account: day 57, moved to an earlier settlement day "
+            "when the calendar or the bank's processing time needs it."
         )
+    )
+    return_date_adjusted = serializers.BooleanField(
+        help_text="True when the return date moved earlier than day 57."
     )
     days_until_last_day = serializers.IntegerField(
         help_text="Days until last_day: 0 on the last day, negative once the money is due back."
+    )
+    direct_funding_until = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "F01: the latest last subscription date of a direct loan this money can fund "
+            "(close + payout margin on or before day 56); null when none fits."
+        ),
+    )
+    return_failed = serializers.BooleanField(
+        help_text="Q02: this money came back from a failed return and waits for the team."
     )
     original_amount_minor = serializers.IntegerField()
     available_amount_minor = serializers.IntegerField()
@@ -136,10 +153,22 @@ class PendingWithdrawalSerializer(serializers.Serializer[Any]):
     requested_at = serializers.DateTimeField()
     is_forced = serializers.BooleanField(
         help_text=(
-            "Automatic return of money not invested within auto_return_after_days days, not "
-            "asked by the investor."
+            "Automatic return of money not invested in time (day 57), not asked by the "
+            "investor."
         )
     )
+
+
+class ReturnFailurePortalSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    currency = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    is_forced = serializers.BooleanField()
+    reason_code = serializers.CharField()
+    reason_text = serializers.CharField(help_text="The bank's reason, for the investor.")
+    destination_iban = serializers.CharField()
+    returned_value_date = serializers.DateField()
+    recorded_at = serializers.DateTimeField()
 
 
 class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
@@ -152,9 +181,12 @@ class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     )
     auto_return_after_days = serializers.IntegerField(
         help_text=(
-            "Money still not invested goes back to the investor's bank the day after this "
-            "holding day (58 by default; the legal limit is 60)."
+            "New money may stay until this holding day (56); the return is requested the "
+            "next day or earlier. The legal limit is 60."
         )
+    )
+    return_failures = ReturnFailurePortalSerializer(
+        many=True, help_text="Q02: failed returns waiting for the team, oldest first."
     )
 
 
