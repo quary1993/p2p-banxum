@@ -216,6 +216,26 @@ def _days_until(value: datetime, *, as_of: datetime) -> int:
     return (business_date(value) - business_date(as_of)).days
 
 
+def _reserved_minor_by_lot(investor_user_id: str) -> dict[str, int]:
+    """18.3: money of each lot reserved for primary investments still waiting for the closing.
+
+    A reservation takes the money out of the lot's available amount (it counts as invested in the
+    lot until the closing or the release); the design's "Reserved" column shows that part.
+    """
+    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
+    reserved: dict[str, int] = defaultdict(int)
+    for allocations in order_model.objects.filter(
+        investor_user_id=investor_user_id,
+        status__in=["balance_allocated", "partially_allocated"],
+    ).values_list("lot_allocations", flat=True):
+        for allocation in cast(list[dict[str, Any]], allocations or []):
+            lot_id = str(allocation.get("lot_id") or "")
+            amount = allocation.get("amount_minor")
+            if lot_id and type(amount) is int and amount > 0:
+                reserved[lot_id] += amount
+    return dict(reserved)
+
+
 def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[str, Any]:
     bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
     last_day = _lot_last_day(lot, return_after_days=return_after_days)
@@ -346,10 +366,14 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .order_by("withdrawal_deadline_at", "received_at", "created_at", "id")
     )
     return_after_days = balance_auto_return_after_days()
+    reserved_by_lot = _reserved_minor_by_lot(investor_user_id)
     visible_lots = [
-        _lot_payload(lot, as_of=as_of_value, return_after_days=return_after_days)
+        {
+            **_lot_payload(lot, as_of=as_of_value, return_after_days=return_after_days),
+            "reserved_amount_minor": reserved_by_lot.get(str(lot.pk), 0),
+        }
         for lot in lots
-        if int(lot.available_amount_minor) > 0
+        if int(lot.available_amount_minor) > 0 or reserved_by_lot.get(str(lot.pk), 0) > 0
     ]
     payout_instructions = [
         {
@@ -1655,6 +1679,51 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
             limit=limit_value,
         )
     }
+
+
+def get_investor_transactions(
+    *, actor: Model, filters: Any, offset: int = 0, limit: int = 25
+) -> dict[str, Any]:
+    """18.3: the Transactions page from the server (filters, pages, available after)."""
+    investor_user_id = _require_financial_access(actor)
+    transactions = import_module("backend.apps.investor_portal.transactions")
+    entries = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="portfolio",
+        entries=_investor_activity_entries(investor_user_id, None),
+        limit=100_000,
+    )
+    return cast(
+        dict[str, Any],
+        transactions.transaction_page(
+            investor_user_id=investor_user_id,
+            entries=entries,
+            filters=filters,
+            offset=offset,
+            limit=limit,
+        ),
+    )
+
+
+def export_investor_transactions_csv(*, actor: Model, filters: Any) -> str:
+    """18.3: the whole filtered history as CSV, in the investor's number format."""
+    investor_user_id = _require_financial_access(actor)
+    transactions = import_module("backend.apps.investor_portal.transactions")
+    entries = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="portfolio",
+        entries=_investor_activity_entries(investor_user_id, None),
+        limit=100_000,
+    )
+    return cast(
+        str,
+        transactions.transactions_csv(
+            investor_user_id=investor_user_id,
+            entries=entries,
+            filters=filters,
+            number_format=clean_number_format(getattr(actor, "number_format", None)),
+        ),
+    )
 
 
 def _investor_activity_entries(

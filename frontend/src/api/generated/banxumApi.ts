@@ -800,6 +800,7 @@ export interface BalanceAgeingScanResponse {
 
 export interface BalanceLot {
   id: string;
+  reserved_amount_minor?: number;
   currency: string;
   source_type: string;
   status: string;
@@ -6752,6 +6753,46 @@ export interface StoryImageUpload {
   file: string;
 }
 
+export interface TransactionEntry {
+  archived_at?: string;
+  id: string;
+  activity_type: string;
+  occurred_at: string;
+  direction: string;
+  title: string;
+  /** @nullable */
+  amount_minor: number | null;
+  currency: string;
+  status: string;
+  /** @nullable */
+  loan_id?: string | null;
+  loan_title: string;
+  metadata: unknown;
+  group: string;
+  /** @nullable */
+  available_after_minor: number | null;
+}
+
+export interface TransactionSummary {
+  currency: string;
+  deposited_minor: number;
+  invested_minor: number;
+  credited_minor: number;
+  withdrawn_minor: number;
+}
+
+export interface TransactionPage {
+  entries: TransactionEntry[];
+  total: number;
+  offset: number;
+  /** @nullable */
+  next_offset: number | null;
+  currencies: string[];
+  groups: string[];
+  years: number[];
+  summary: TransactionSummary[];
+}
+
 /**
  * U33-DEC-25: one signed-in browser. The place is a country code, never GPS.
  */
@@ -7446,6 +7487,134 @@ export type V1InvestorPortalSecondaryMarketRetrieveParams = {
  */
 limit?: number;
 };
+
+export type V1InvestorPortalTransactionsRetrieveParams = {
+/**
+ * @maxLength 3
+ */
+currency?: string;
+/**
+ * @nullable
+ */
+date_from?: string | null;
+/**
+ * @nullable
+ */
+date_to?: string | null;
+/**
+ * * `` -
+ * * `deposit` - deposit
+ * * `reservation` - reservation
+ * * `investment` - investment
+ * * `repayment` - repayment
+ * * `recovery` - recovery
+ * * `withdrawal` - withdrawal
+ * * `return` - return
+ * * `purchase` - purchase
+ * * `sale` - sale
+ * * `fee` - fee
+ * * `fx` - fx
+ * * `other` - other
+ * @minLength 1
+ */
+group?: V1InvestorPortalTransactionsRetrieveGroup;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+/**
+ * @maxLength 120
+ */
+q?: string;
+};
+
+export type V1InvestorPortalTransactionsRetrieveGroup = typeof V1InvestorPortalTransactionsRetrieveGroup[keyof typeof V1InvestorPortalTransactionsRetrieveGroup];
+
+
+export const V1InvestorPortalTransactionsRetrieveGroup = {
+  '': '',
+  deposit: 'deposit',
+  reservation: 'reservation',
+  investment: 'investment',
+  repayment: 'repayment',
+  recovery: 'recovery',
+  withdrawal: 'withdrawal',
+  return: 'return',
+  purchase: 'purchase',
+  sale: 'sale',
+  fee: 'fee',
+  fx: 'fx',
+  other: 'other',
+} as const;
+
+export type V1InvestorPortalTransactionsExportRetrieveParams = {
+/**
+ * @maxLength 3
+ */
+currency?: string;
+/**
+ * @nullable
+ */
+date_from?: string | null;
+/**
+ * @nullable
+ */
+date_to?: string | null;
+/**
+ * * `` -
+ * * `deposit` - deposit
+ * * `reservation` - reservation
+ * * `investment` - investment
+ * * `repayment` - repayment
+ * * `recovery` - recovery
+ * * `withdrawal` - withdrawal
+ * * `return` - return
+ * * `purchase` - purchase
+ * * `sale` - sale
+ * * `fee` - fee
+ * * `fx` - fx
+ * * `other` - other
+ * @minLength 1
+ */
+group?: V1InvestorPortalTransactionsExportRetrieveGroup;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+/**
+ * @maxLength 120
+ */
+q?: string;
+};
+
+export type V1InvestorPortalTransactionsExportRetrieveGroup = typeof V1InvestorPortalTransactionsExportRetrieveGroup[keyof typeof V1InvestorPortalTransactionsExportRetrieveGroup];
+
+
+export const V1InvestorPortalTransactionsExportRetrieveGroup = {
+  '': '',
+  deposit: 'deposit',
+  reservation: 'reservation',
+  investment: 'investment',
+  repayment: 'repayment',
+  recovery: 'recovery',
+  withdrawal: 'withdrawal',
+  return: 'return',
+  purchase: 'purchase',
+  sale: 'sale',
+  fee: 'fee',
+  fx: 'fx',
+  other: 'other',
+} as const;
 
 export type V1LedgerAdminInvestorBalanceSummaryRetrieveParams = {
 /**
@@ -16215,6 +16384,216 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1InvestorPortalSupportRequestsCreateMutationOptions(options), queryClient);
     }
+
+export const getV1InvestorPortalTransactionsRetrieveUrl = (params?: V1InvestorPortalTransactionsRetrieveParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/investor/portal/transactions/?${stringifiedParams}` : `/api/v1/investor/portal/transactions/`
+}
+
+/**
+ * 18.3: the Transactions page with server filters, pages and the available balance.
+ */
+export const v1InvestorPortalTransactionsRetrieve = async (params?: V1InvestorPortalTransactionsRetrieveParams, options?: Parameters<typeof httpClient>[1]): Promise<TransactionPage> => {
+
+  return httpClient<TransactionPage>(getV1InvestorPortalTransactionsRetrieveUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalTransactionsRetrieveQueryKey = (params?: V1InvestorPortalTransactionsRetrieveParams,) => {
+    return [
+    `/api/v1/investor/portal/transactions/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalTransactionsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError = unknown>(params?: V1InvestorPortalTransactionsRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalTransactionsRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>> = ({ signal }) => v1InvestorPortalTransactionsRetrieve(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalTransactionsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>>
+export type V1InvestorPortalTransactionsRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalTransactionsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError = unknown>(
+ params: undefined |  V1InvestorPortalTransactionsRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalTransactionsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalTransactionsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalTransactionsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalTransactionsRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1InvestorPortalTransactionsExportRetrieveUrl = (params?: V1InvestorPortalTransactionsExportRetrieveParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/investor/portal/transactions/export/?${stringifiedParams}` : `/api/v1/investor/portal/transactions/export/`
+}
+
+/**
+ * 18.3: the whole filtered history as CSV in the investor's number format.
+ */
+export const v1InvestorPortalTransactionsExportRetrieve = async (params?: V1InvestorPortalTransactionsExportRetrieveParams, options?: Parameters<typeof httpClient>[1]): Promise<string> => {
+
+  return httpClient<string>(getV1InvestorPortalTransactionsExportRetrieveUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalTransactionsExportRetrieveQueryKey = (params?: V1InvestorPortalTransactionsExportRetrieveParams,) => {
+    return [
+    `/api/v1/investor/portal/transactions/export/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalTransactionsExportRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError = unknown>(params?: V1InvestorPortalTransactionsExportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalTransactionsExportRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>> = ({ signal }) => v1InvestorPortalTransactionsExportRetrieve(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalTransactionsExportRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>>
+export type V1InvestorPortalTransactionsExportRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalTransactionsExportRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError = unknown>(
+ params: undefined |  V1InvestorPortalTransactionsExportRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalTransactionsExportRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsExportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalTransactionsExportRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsExportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalTransactionsExportRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalTransactionsExportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalTransactionsExportRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalTransactionsExportRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1InvestorSmartInvestRetrieveUrl = () => {
 
@@ -26591,7 +26970,7 @@ export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial<Extrac
 
 export const getV1InvestorPortalActivityRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorActivity, object>> = {}): InvestorActivity => ({entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), ...overrideResponse})
 
-export const getV1InvestorPortalBalancesRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorBalancePortal, object>> = {}): InvestorBalancePortal => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', summaries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_return_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), lots: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), bucket: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', investment_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', withdrawal_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', days_until_investment_deadline: faker.number.int(), days_until_withdrawal_deadline: faker.number.int(), last_day: faker.date.past().toISOString().slice(0, 10), return_date: faker.date.past().toISOString().slice(0, 10), days_until_last_day: faker.number.int(), original_amount_minor: faker.number.int(), available_amount_minor: faker.number.int(), invested_amount_minor: faker.number.int(), converted_amount_minor: faker.number.int(), withdrawn_amount_minor: faker.number.int(), penalized_amount_minor: faker.number.int(), requires_withdrawal: faker.datatype.boolean(), blocks_financial_actions: faker.datatype.boolean()})), payout_instructions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verification_status: faker.helpers.arrayElement(Object.values(VerificationStatusEnum)), is_default_return: faker.datatype.boolean(), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), pending_withdrawals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_forced: faker.datatype.boolean()})), auto_return_after_days: faker.number.int(), ...overrideResponse})
+export const getV1InvestorPortalBalancesRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorBalancePortal, object>> = {}): InvestorBalancePortal => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', summaries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_return_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), lots: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), reserved_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), bucket: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', investment_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', withdrawal_deadline_at: faker.date.past().toISOString().slice(0, 19) + 'Z', days_until_investment_deadline: faker.number.int(), days_until_withdrawal_deadline: faker.number.int(), last_day: faker.date.past().toISOString().slice(0, 10), return_date: faker.date.past().toISOString().slice(0, 10), days_until_last_day: faker.number.int(), original_amount_minor: faker.number.int(), available_amount_minor: faker.number.int(), invested_amount_minor: faker.number.int(), converted_amount_minor: faker.number.int(), withdrawn_amount_minor: faker.number.int(), penalized_amount_minor: faker.number.int(), requires_withdrawal: faker.datatype.boolean(), blocks_financial_actions: faker.datatype.boolean()})), payout_instructions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verification_status: faker.helpers.arrayElement(Object.values(VerificationStatusEnum)), is_default_return: faker.datatype.boolean(), verified_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), pending_withdrawals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_forced: faker.datatype.boolean()})), auto_return_after_days: faker.number.int(), ...overrideResponse})
 
 export const getV1InvestorPortalDashboardRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDashboard, object>> = {}): InvestorDashboard => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', investor_user_id: faker.string.uuid(), balances: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int(), penalty_charged_minor: faker.number.int(), lot_count: faker.number.int(), active_lot_count: faker.number.int(), next_investment_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_withdrawal_deadline_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), next_return_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null])})), portfolio_summary: {holding_count: faker.number.int(), active_holding_count: faker.number.int(), outstanding_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), original_principal_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), realized_interest_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()})), late_or_defaulted_exposure_by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int()}))}, exposure: {by_borrower: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_country: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_purpose: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_collateral_type: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_maturity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_loan_status: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()}))}, pending_actions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({type: faker.string.alpha({length: {min: 10, max: 20}}), severity: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), amount_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), count: faker.helpers.arrayElement([faker.number.int(), undefined]), message: faker.string.alpha({length: {min: 10, max: 20}})})), recent_activity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), ...overrideResponse})
 
@@ -26620,6 +26999,10 @@ export const getV1InvestorPortalPrimaryOrdersRetrieveResponseMock = (overrideRes
 export const getV1InvestorPortalSecondaryMarketRetrieveResponseMock = (overrideResponse: Partial<Extract<SecondaryMarketActivityPortal, object>> = {}): SecondaryMarketActivityPortal => ({listings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), paused_for_due_installment: faker.datatype.boolean(), risk_acknowledgement_required: faker.datatype.boolean(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), purchases_as_buyer: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), taker_fee_minor: faker.number.int(), buyer_total_cost_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), sales_as_seller: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), seller_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), listing_id: faker.string.uuid(), holding_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), cash_amount_minor: faker.number.int(), price_bps: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
 export const getV1InvestorPortalSupportRequestsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorSupportRequestReceipt, object>> = {}): InvestorSupportRequestReceipt => (faker.helpers.arrayElement([{reference: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', context_label: faker.string.alpha({length: {min: 10, max: 20}}), receipt_email: faker.internet.email(), ...overrideResponse}, {reference: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), received_at: faker.date.past().toISOString().slice(0, 19) + 'Z', context_label: faker.string.alpha({length: {min: 10, max: 20}}), receipt_email: faker.internet.email(), ...overrideResponse}]))
+
+export const getV1InvestorPortalTransactionsRetrieveResponseMock = (overrideResponse: Partial<Extract<TransactionPage, object>> = {}): TransactionPage => ({entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), activity_type: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', direction: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.uuid(), null]), undefined]), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, group: faker.string.alpha({length: {min: 10, max: 20}}), available_after_minor: faker.helpers.arrayElement([faker.number.int(), null])})), total: faker.number.int(), offset: faker.number.int(), next_offset: faker.helpers.arrayElement([faker.number.int(), null]), currencies: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), groups: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), years: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), summary: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), deposited_minor: faker.number.int(), invested_minor: faker.number.int(), credited_minor: faker.number.int(), withdrawn_minor: faker.number.int()})), ...overrideResponse})
+
+export const getV1InvestorPortalTransactionsExportRetrieveResponseMock = (): string => (faker.word.sample())
 
 export const getV1InvestorSmartInvestRetrieveResponseMock = (overrideResponse: Partial<Extract<SmartInvestResponse, object>> = {}): SmartInvestResponse => ({rule: faker.helpers.arrayElement([{id: faker.string.uuid(), is_active: faker.datatype.boolean(), state: faker.helpers.arrayElement(Object.values(SmartInvestRuleStateEnum)), revision: faker.number.int(), minimum_yield_bps: faker.helpers.arrayElement([faker.number.int(), null]), maximum_term_months: faker.helpers.arrayElement([faker.number.int(), null]), maximum_ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), preferred_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), originators: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), collateral: faker.helpers.arrayElements(Object.values(SmartInvestCollateralEnum)), currencies: faker.helpers.arrayElements(Object.values(SmartInvestCurrencyEnum)), countries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), activated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), deactivated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), notification_channels: {in_app: faker.datatype.boolean(), email: faker.datatype.boolean()}, match_count: faker.number.int(), open_opportunity_count: faker.number.int(), matches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), security_types: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_city: faker.string.alpha({length: {min: 10, max: 20}}), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int(), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined])})), coming_soon_matches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), security_types: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_city: faker.string.alpha({length: {min: 10, max: 20}}), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int(), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined])})), ...overrideResponse})
 
@@ -28030,6 +28413,31 @@ export const getV1InvestorPortalSupportRequestsCreateMockHandler = (overrideResp
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1InvestorPortalSupportRequestsCreateResponseMock(),
       { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalTransactionsRetrieveMockHandler = (overrideResponse?: TransactionPage | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<TransactionPage> | TransactionPage), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/transactions/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalTransactionsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalTransactionsExportRetrieveMockHandler = (overrideResponse?: string | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<string> | string), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/transactions/export/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+  const resolvedBody = overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalTransactionsExportRetrieveResponseMock();
+    const textBody = typeof resolvedBody === 'string' ? resolvedBody : JSON.stringify(resolvedBody ?? null);
+    return HttpResponse.text(textBody,
+      { status: 200, headers: { 'Content-Type': 'text/csv' }
       })
   }, options)
 }
@@ -29617,6 +30025,8 @@ export const getBanxumApiMock = () => [
   getV1InvestorPortalPrimaryOrdersRetrieveMockHandler(),
   getV1InvestorPortalSecondaryMarketRetrieveMockHandler(),
   getV1InvestorPortalSupportRequestsCreateMockHandler(),
+  getV1InvestorPortalTransactionsRetrieveMockHandler(),
+  getV1InvestorPortalTransactionsExportRetrieveMockHandler(),
   getV1InvestorSmartInvestRetrieveMockHandler(),
   getV1InvestorSmartInvestUpdateMockHandler(),
   getV1InvestorSmartInvestNotificationsCreateMockHandler(),

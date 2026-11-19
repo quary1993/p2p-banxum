@@ -109,9 +109,14 @@ export function accountNotices(balances: Pick<InvestorBalancePortal, "summaries"
 }
 
 /** Lots shown in Balance details: money still on the account, oldest first (the order lots are used). */
+/** 18.3: the part of a lot reserved for investments waiting for the closing (design "Reserved"). */
+export function lotReservedMinor(lot: BalanceLot) {
+  return lot.reserved_amount_minor ?? 0;
+}
+
 export function detailLots(lots: BalanceLot[]) {
   return lots
-    .filter((lot) => lot.available_amount_minor > 0 || lot.penalized_amount_minor > 0)
+    .filter((lot) => lot.available_amount_minor > 0 || lot.penalized_amount_minor > 0 || lotReservedMinor(lot) > 0)
     .sort((a, b) => a.received_at.localeCompare(b.received_at) || currencyRank(a.currency) - currencyRank(b.currency));
 }
 

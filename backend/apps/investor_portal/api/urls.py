@@ -18,6 +18,8 @@ from backend.apps.investor_portal.api.views import (
     InvestorPrimaryOrdersView,
     InvestorSecondaryMarketActivityView,
     InvestorSupportRequestView,
+    InvestorTransactionsExportView,
+    InvestorTransactionsView,
 )
 
 urlpatterns = [
@@ -56,6 +58,14 @@ urlpatterns = [
     ),
     path("portfolio/", InvestorPortfolioView.as_view(), name="investor-portal-portfolio"),
     path("activity/", InvestorActivityView.as_view(), name="investor-portal-activity"),
+    path(
+        "transactions/", InvestorTransactionsView.as_view(), name="investor-portal-transactions"
+    ),
+    path(
+        "transactions/export/",
+        InvestorTransactionsExportView.as_view(),
+        name="investor-portal-transactions-export",
+    ),
     path("primary-orders/", InvestorPrimaryOrdersView.as_view(), name="investor-portal-orders"),
     path(
         "secondary-market/",

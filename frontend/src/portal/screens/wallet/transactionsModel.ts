@@ -1,9 +1,9 @@
 // IP of Webby-Soft SRL.
-// The Transactions page's reading of GET /investor/portal/activity/: one row per entry with its type,
-// status, sign and description; the type groups of the filter; the period filter; the per-currency
-// summary of the rows in view; the CSV export. Only API values are used (no running balance: the
-// API does not give one, see docs/claude-design/TODO.md).
-import type { ActivityEntry } from "../../../api/generated/banxumApi";
+// The Transactions page's reading of the movements (GET /investor/portal/transactions/, 18.3): one row
+// per entry with its type, status, sign and description; the type groups of the filter; the period
+// filter. The server filters, pages, sums and exports; the review build does the same here from the
+// fixture activity (previewTransactionPage). The browser CSV helpers stay for the model tests.
+import type { ActivityEntry, TransactionEntry, TransactionPage } from "../../../api/generated/banxumApi";
 import { minorUnitDecimalsForCurrency, zurichDateKey, type NumberFormat } from "../../../investorPortal/format";
 
 export type TransactionGroup =
@@ -305,4 +305,40 @@ export function transactionsCsv(
     ].map((cell) => csvCell(cell, separator)).join(separator)
   );
   return [header.join(separator), ...lines].join("\r\n");
+}
+
+/** The page's filters as the server takes them (dates are Europe/Zurich days, "" = open). */
+export type TransactionQuery = { currency: string; group: TransactionGroup | ""; date_from: string; date_to: string; q: string };
+
+/**
+ * Review build only: the server's Transactions page computed from fixture activity. The available
+ * balance after each movement is unknown here (null), like for a movement the ledger cannot place.
+ */
+export function previewTransactionPage(entries: ActivityEntry[], query: TransactionQuery, offset: number, limit: number): TransactionPage {
+  const rows = entries.map(transactionRow).sort((a, b) => b.entry.occurred_at.localeCompare(a.entry.occurred_at));
+  const needle = query.q.trim().toLowerCase();
+  const matching = rows.filter((row) =>
+    (!query.group || row.group === query.group) &&
+    (!query.currency || row.entry.currency === query.currency) &&
+    inRange(row.dateKey, { from: query.date_from, to: query.date_to }) &&
+    (!needle || [row.entry.title, row.entry.loan_title, row.entry.id, row.group, row.label].join(" ").toLowerCase().includes(needle))
+  );
+  const page = matching.slice(offset, offset + limit).map((row): TransactionEntry => ({ ...row.entry, group: row.group, available_after_minor: null }));
+  const present = new Set(rows.map((row) => row.group));
+  return {
+    entries: page,
+    total: matching.length,
+    offset,
+    next_offset: offset + limit < matching.length ? offset + limit : null,
+    currencies: [...new Set(rows.map((row) => row.entry.currency).filter(Boolean))].sort((a, b) => (a === "EUR" ? -1 : b === "EUR" ? 1 : a.localeCompare(b))),
+    groups: TRANSACTION_GROUPS.filter((item) => present.has(item.value)).map((item) => item.value),
+    years: [...new Set(rows.map((row) => Number(row.dateKey.slice(0, 4))).filter(Boolean))].sort((a, b) => b - a),
+    summary: summarize(matching).map((item) => ({
+      currency: item.currency,
+      deposited_minor: item.deposited,
+      invested_minor: item.invested,
+      credited_minor: item.credited,
+      withdrawn_minor: item.withdrawn
+    }))
+  };
 }

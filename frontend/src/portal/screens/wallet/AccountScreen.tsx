@@ -26,6 +26,7 @@ import {
   nextReturn,
   orderedSummaries,
   pendingWithdrawalMinor,
+  lotReservedMinor,
   reservedMinor,
   reservedOrders,
   lotSourceLabel,
@@ -222,6 +223,7 @@ function BalanceDetails({
               <tr>
                 <th scope="col">{t("Received")}</th>
                 <th scope="col">{t("Available")}</th>
+                <th scope="col">{t("Reserved")}</th>
                 {showPenalty ? <th scope="col">{t("Penalty charged")}</th> : null}
                 <th scope="col">
                   {t("Return date")}{" "}
@@ -236,11 +238,14 @@ function BalanceDetails({
                   <tr key={lot.id}>
                     <td data-m82-label={t("Received")}>{formatDate(lot.received_at)}<span className="wl-lot-source">{t(lotSourceLabel(lot.source_type))}</span></td>
                     <td className={lot.available_amount_minor === 0 ? "p73-zero" : ""} data-m82-label={t("Available")}><small>{lot.currency}</small><strong>{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</strong></td>
+                    <td className={lotReservedMinor(lot) === 0 ? "p73-zero" : ""} data-m82-label={t("Reserved")}><small>{lot.currency}</small><span>{formatMoneyMinor(lotReservedMinor(lot), lot.currency)}</span></td>
                     {showPenalty ? (
                       <td className={lot.penalized_amount_minor === 0 ? "p73-zero" : ""} data-m82-label={t("Penalty charged")}><small>{lot.currency}</small><span>{formatMoneyMinor(lot.penalized_amount_minor, lot.currency)}</span></td>
                     ) : null}
                     <td data-m82-label={t("Return date")}>
-                      {lot.bucket === "overdue" ? t("Due since {date}", { date: formatDate(lot.return_date) }) : formatDate(lot.return_date)}
+                      {lot.available_amount_minor === 0 && lotReservedMinor(lot) > 0
+                        ? t("Reserved for investments")
+                        : lot.bucket === "overdue" ? t("Due since {date}", { date: formatDate(lot.return_date) }) : formatDate(lot.return_date)}
                       {status ? <StatusTag className="wl-lot-tag" tone={status.tone}>{t(status.label)}</StatusTag> : null}
                     </td>
                   </tr>

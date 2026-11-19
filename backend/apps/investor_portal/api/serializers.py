@@ -62,6 +62,8 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
 
 class BalanceLotSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
+    # 18.3: the part of this lot reserved for primary investments waiting for the closing.
+    reserved_amount_minor = serializers.IntegerField(default=0)
     currency = serializers.CharField()
     source_type = serializers.CharField()
     status = serializers.CharField()
@@ -482,6 +484,65 @@ class ActivityEntrySerializer(serializers.Serializer[Any]):
 
 class InvestorActivitySerializer(serializers.Serializer[Any]):
     entries = ActivityEntrySerializer(many=True)
+
+
+class TransactionQuerySerializer(serializers.Serializer[Any]):
+    """18.3: server filters of the Transactions page (dates are Europe/Zurich days)."""
+
+    currency = serializers.CharField(required=False, allow_blank=True, default="", max_length=3)
+    group = serializers.ChoiceField(
+        choices=[
+            "",
+            "deposit",
+            "reservation",
+            "investment",
+            "repayment",
+            "recovery",
+            "withdrawal",
+            "return",
+            "purchase",
+            "sale",
+            "fee",
+            "fx",
+            "other",
+        ],
+        required=False,
+        default="",
+    )
+    date_from = serializers.DateField(required=False, allow_null=True, default=None)
+    date_to = serializers.DateField(required=False, allow_null=True, default=None)
+    q = serializers.CharField(required=False, allow_blank=True, default="", max_length=120)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25)
+
+
+class TransactionEntrySerializer(ActivityEntrySerializer):
+    # The filter group the page shows.
+    group = serializers.CharField()
+    # The investor's available balance in this currency right after the movement.
+    available_after_minor = serializers.IntegerField(allow_null=True)
+
+
+class TransactionSummarySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    deposited_minor = serializers.IntegerField()
+    invested_minor = serializers.IntegerField()
+    credited_minor = serializers.IntegerField()
+    withdrawn_minor = serializers.IntegerField()
+
+
+class TransactionPageSerializer(serializers.Serializer[Any]):
+    entries = TransactionEntrySerializer(many=True)
+    # Movements that match the filters (all pages).
+    total = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    next_offset = serializers.IntegerField(allow_null=True)
+    # Currencies, groups and years the investor has movements in (for the filters).
+    currencies = serializers.ListField(child=serializers.CharField())
+    groups = serializers.ListField(child=serializers.CharField())
+    years = serializers.ListField(child=serializers.IntegerField())
+    # Totals of all movements that match the filters, per currency.
+    summary = TransactionSummarySerializer(many=True)
 
 
 class InvestorDashboardSerializer(serializers.Serializer[Any]):

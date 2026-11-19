@@ -4,6 +4,8 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.db.models import Model
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -30,6 +32,8 @@ from backend.apps.investor_portal.api.serializers import (
     PortfolioQuerySerializer,
     PrimaryOrdersPortalSerializer,
     SecondaryMarketActivityPortalSerializer,
+    TransactionPageSerializer,
+    TransactionQuerySerializer,
 )
 from backend.apps.investor_portal.services import (
     InvestorDocumentDownloadCommand,
@@ -38,6 +42,7 @@ from backend.apps.investor_portal.services import (
     InvestorPortalValidationError,
     SubmitInvestorSupportRequestCommand,
     download_investor_document,
+    export_investor_transactions_csv,
     get_deposit_instructions,
     get_fx_history,
     get_investor_activity,
@@ -47,6 +52,7 @@ from backend.apps.investor_portal.services import (
     get_investor_notifications,
     get_investor_portal_features,
     get_investor_portfolio,
+    get_investor_transactions,
     get_primary_orders,
     get_secondary_market_activity,
     mark_all_investor_notifications_read,
@@ -254,6 +260,67 @@ class InvestorActivityView(APIView):
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+def _transaction_filters(data: dict[str, Any]) -> Any:
+    from backend.apps.investor_portal.transactions import TransactionFilters
+
+    return TransactionFilters(
+        currency=str(data["currency"] or ""),
+        group=str(data["group"] or ""),
+        date_from=data["date_from"],
+        date_to=data["date_to"],
+        search=str(data["q"] or ""),
+    )
+
+
+class InvestorTransactionsView(APIView):
+    """18.3: the Transactions page with server filters, pages and the available balance."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[TransactionQuerySerializer], responses={200: TransactionPageSerializer}
+    )
+    def get(self, request: Request) -> Response:
+        serializer = TransactionQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_investor_transactions(
+                actor=actor,
+                filters=_transaction_filters(data),
+                offset=data["offset"],
+                limit=data["limit"],
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(TransactionPageSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class InvestorTransactionsExportView(APIView):
+    """18.3: the whole filtered history as CSV in the investor's number format."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[TransactionQuerySerializer],
+        responses={(200, "text/csv"): OpenApiTypes.STR},
+    )
+    def get(self, request: Request) -> HttpResponse | Response:
+        serializer = TransactionQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            content = export_investor_transactions_csv(
+                actor=actor, filters=_transaction_filters(serializer.validated_data)
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="banxum-transactions.csv"'
+        return response
 
 
 class InvestorPrimaryOrdersView(APIView):

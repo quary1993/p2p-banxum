@@ -1,6 +1,6 @@
 // IP of Webby-Soft SRL.
-// Real-API checks of the U33 wallet screens (Phase 17.1, slice S4): Transactions filters, detail,
-// summary and CSV export; Reports downloads and Create report with the outputs the platform
+// Real-API checks of the U33 wallet screens (Phase 17.1, slice S4; 18.3): Transactions server
+// filters, pages, available balance, detail, summary and CSV export; Reports downloads and Create report with the outputs the platform
 // generates; Documents tabs and downloads; Add funds when the deposit account is not set up.
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
@@ -195,36 +195,84 @@ function walletHandlers(downloads: Array<Record<string, unknown>> = []) {
   ];
 }
 
-test("Transactions filter by type, currency, search and period, and open a movement's details", async () => {
-  server.use(...walletHandlers());
+const GROUPS: Record<string, string> = { "rep-1": "repayment", "ord-1": "reservation", "dep-1": "deposit", "wd-1": "withdrawal" };
+const AVAILABLE: Record<string, number> = { "rep-1": 1_191_235, "ord-1": 0, "dep-1": 1_200_000, "wd-1": 50_000 };
+
+/** A small stand-in for the server's filters, pages and summary (18.3). */
+function transactionsHandler(seen: URLSearchParams[] = []) {
+  return http.get("*/api/v1/investor/portal/transactions/", ({ request }) => {
+    const params = new URL(request.url).searchParams;
+    seen.push(params);
+    const q = (params.get("q") ?? "").toLowerCase();
+    const matching = activity.entries.filter((entry) => {
+      const day = entry.occurred_at.slice(0, 10);
+      return (!params.get("group") || GROUPS[entry.id] === params.get("group")) &&
+        (!params.get("currency") || entry.currency === params.get("currency")) &&
+        (!params.get("date_from") || day >= String(params.get("date_from"))) &&
+        (!params.get("date_to") || day <= String(params.get("date_to"))) &&
+        (!q || `${entry.title} ${entry.loan_title} ${GROUPS[entry.id]}`.toLowerCase().includes(q));
+    });
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = Number(params.get("limit") ?? 25);
+    const sum = (currency: string, group: string) => matching.filter((e) => e.currency === currency && GROUPS[e.id] === group).reduce((total, e) => total + e.amount_minor, 0);
+    return HttpResponse.json({
+      entries: matching.slice(offset, offset + limit).map((entry) => ({ ...entry, group: GROUPS[entry.id], available_after_minor: AVAILABLE[entry.id] })),
+      total: matching.length,
+      offset,
+      next_offset: offset + limit < matching.length ? offset + limit : null,
+      currencies: ["EUR", "CHF"],
+      groups: ["deposit", "reservation", "repayment", "withdrawal"],
+      years: [2026, 2025],
+      summary: [...new Set(matching.map((e) => e.currency))].map((currency) => ({
+        currency,
+        deposited_minor: sum(currency, "deposit"),
+        invested_minor: 0,
+        credited_minor: sum(currency, "repayment"),
+        withdrawn_minor: sum(currency, "withdrawal")
+      }))
+    });
+  });
+}
+
+test("Transactions filter on the server by type, currency, search and period, and open a movement's details", async () => {
+  const seen: URLSearchParams[] = [];
+  server.use(...walletHandlers(), transactionsHandler(seen));
   renderLiveApp(App, "/transactions");
 
   const table = await screen.findByRole("table", {}, { timeout: 5000 });
   const main = screen.getByRole("main");
   expect(within(main).getByText("4 transactions")).toBeInTheDocument();
-  // No running balance column: the API gives no balance after each movement.
-  expect(within(table).queryByRole("columnheader", { name: /Available balance/ })).not.toBeInTheDocument();
+  // 18.3: the available balance after each movement, from the server.
+  expect(within(table).getByRole("columnheader", { name: /Available balance/ })).toBeInTheDocument();
   const repayment = within(table).getByRole("button", { name: /^Repayment · Helvetia Logistik AG/ });
   expect(repayment).toHaveTextContent("Credited to your balance");
   expect(repayment).toHaveTextContent("+ CHF 412,35");
+  expect(repayment).toHaveTextContent("CHF 11.912,35");
   expect(within(table).getByRole("button", { name: /^Reservation · Wine cellar expansion/ })).toHaveTextContent("Until closing");
   expect(within(table).getByRole("button", { name: /^Withdrawal · To CH56 •••• 8009/ })).toHaveTextContent("− CHF 500,00");
 
   fireEvent.change(within(main).getByLabelText("Transaction type"), { target: { value: "repayment" } });
-  expect(within(main).getByText("1 transaction")).toBeInTheDocument();
+  expect(await within(main).findByText("1 transaction")).toBeInTheDocument();
+  expect(seen.at(-1)?.get("group")).toBe("repayment");
   fireEvent.change(within(main).getByLabelText("Transaction type"), { target: { value: "" } });
+  expect(await within(main).findByText("4 transactions")).toBeInTheDocument();
 
   fireEvent.click(within(within(main).getByRole("group", { name: "Currency" })).getByRole("button", { name: "EUR" }));
-  expect(within(main).getByText("1 transaction")).toBeInTheDocument();
+  expect(await within(main).findByText("1 transaction")).toBeInTheDocument();
+  expect(seen.at(-1)?.get("currency")).toBe("EUR");
   fireEvent.click(within(within(main).getByRole("group", { name: "Currency" })).getByRole("button", { name: "All" }));
+  expect(await within(main).findByText("4 transactions")).toBeInTheDocument();
 
   fireEvent.change(within(main).getByLabelText("Search transactions"), { target: { value: "deposit" } });
-  expect(within(main).getByText("1 transaction")).toBeInTheDocument();
+  expect(await within(main).findByText("1 transaction", {}, { timeout: 3000 })).toBeInTheDocument();
+  expect(seen.at(-1)?.get("q")).toBe("deposit");
   fireEvent.change(within(main).getByLabelText("Search transactions"), { target: { value: "" } });
+  expect(await within(main).findByText("4 transactions", {}, { timeout: 3000 })).toBeInTheDocument();
 
   // Period: a year, then custom dates (from after to is refused, a valid range filters).
   fireEvent.change(within(main).getByLabelText("Period"), { target: { value: "y2025" } });
-  expect(within(main).getByText("1 transaction")).toBeInTheDocument();
+  expect(await within(main).findByText("1 transaction")).toBeInTheDocument();
+  expect([seen.at(-1)?.get("date_from"), seen.at(-1)?.get("date_to")]).toEqual(["2025-01-01", "2025-12-31"]);
   fireEvent.change(within(main).getByLabelText("Period"), { target: { value: "custom" } });
   fireEvent.change(within(main).getByLabelText("From"), { target: { value: "2026-11-30" } });
   fireEvent.change(within(main).getByLabelText("To"), { target: { value: "2026-11-01" } });
@@ -233,20 +281,30 @@ test("Transactions filter by type, currency, search and period, and open a movem
   fireEvent.change(within(main).getByLabelText("From"), { target: { value: "2026-11-01" } });
   fireEvent.change(within(main).getByLabelText("To"), { target: { value: "2026-11-30" } });
   fireEvent.click(within(main).getByRole("button", { name: "Apply" }));
-  expect(within(main).getByText("2 transactions")).toBeInTheDocument();
+  expect(await within(main).findByText("2 transactions")).toBeInTheDocument();
   fireEvent.change(within(main).getByLabelText("Period"), { target: { value: "all" } });
+  expect(await within(main).findByText("4 transactions")).toBeInTheDocument();
 
-  // Details of a repayment: principal and interest, credited to the balance.
+  // Details of a repayment: principal and interest, credited to the balance, the balance after it.
   fireEvent.click(within(main).getByRole("button", { name: /^Repayment · Helvetia Logistik AG/ }));
   const detail = screen.getByRole("dialog", { name: "Repayment" });
   expect(within(detail).getByText("CHF 354,10")).toBeInTheDocument();
   expect(within(detail).getByText("CHF 58,25")).toBeInTheDocument();
+  expect(within(detail).getByText("Available balance after").nextSibling).toHaveTextContent("CHF 11.912,35");
   expect(within(detail).getByText("Credited to your Banxum balance. You can invest it again or withdraw it.")).toBeInTheDocument();
   expect(within(detail).getByRole("link", { name: "View loan" })).toHaveAttribute("href", "/marketplace/11111111-1111-4111-8111-111111111111");
 }, 30_000);
 
-test("Transactions summarise the rows in view and export them as CSV in the investor's format", async () => {
-  server.use(...walletHandlers());
+test("Transactions show the server's summary, load more pages and save the server's CSV", async () => {
+  const exports: URLSearchParams[] = [];
+  server.use(
+    ...walletHandlers(),
+    transactionsHandler(),
+    http.get("*/api/v1/investor/portal/transactions/export/", ({ request }) => {
+      exports.push(new URL(request.url).searchParams);
+      return new HttpResponse("Date;Type\n2026-11-21 08:00;Repayment\n", { headers: { "Content-Type": "text/csv; charset=utf-8" } });
+    })
+  );
   renderLiveApp(App, "/transactions");
   await screen.findByRole("table", {}, { timeout: 5000 });
   const main = screen.getByRole("main");
@@ -260,9 +318,13 @@ test("Transactions summarise the rows in view and export them as CSV in the inve
   expect(within(chf).getByText("Deposited").nextSibling).toHaveTextContent("12.000,00");
   expect(within(chf).getByText("Repaid to Banxum account").nextSibling).toHaveTextContent("412,35");
   expect(within(chf).getByText("Withdrawn").nextSibling).toHaveTextContent("500,00");
+  expect(within(main).getByText("Showing 4 of 4")).toBeInTheDocument();
 
+  fireEvent.click(within(within(main).getByRole("group", { name: "Currency" })).getByRole("button", { name: "CHF" }));
+  expect(await within(main).findByText("3 transactions")).toBeInTheDocument();
   fireEvent.click(within(main).getByRole("button", { name: "Export CSV" }));
   await waitFor(() => expect(saved).toHaveLength(1));
+  expect(exports[0].get("currency")).toBe("CHF");
   expect(saved[0].name).toBe("banxum-transactions-2026-12-10.csv");
   // jsdom's Blob has no text(): read it like a browser file.
   const csv = await new Promise<string>((resolve) => {
@@ -270,10 +332,7 @@ test("Transactions summarise the rows in view and export them as CSV in the inve
     reader.onload = () => resolve(String(reader.result));
     reader.readAsText(saved[0].blob);
   });
-  const lines = csv.replace(/^\uFEFF/, "").split("\r\n");
-  expect(lines[0]).toBe("Date;Type;Status;Description;Currency;Amount;Reference");
-  expect(lines[1]).toContain(";Repayment;Credited to your balance;Helvetia Logistik AG;CHF;412,35;rep-1");
-  expect(lines).toHaveLength(5);
+  expect(csv.replace(/^\uFEFF/, "").split("\n")[0]).toBe("Date;Type");
 }, 30_000);
 
 test("Reports list today's statements and tax information and create reports the platform generates", async () => {

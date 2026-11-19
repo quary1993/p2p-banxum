@@ -1,40 +1,42 @@
 // IP of Webby-Soft SRL.
 /*
  * Transactions (design #/transactions: main.tr-page.r30-transactions): search, period (preset or
- * from/to), type and currency filters, rows with amount and status, a detail dialog, the Summary of
- * the rows in view and a CSV export built in the browser from the loaded list. Data: GET
- * /investor/portal/activity/ (the latest 250 movements, the API maximum). The design's "Available
- * balance" column is left out: the API gives no balance after each movement (TODO).
+ * from/to), type and currency filters, rows with amount, status and the available balance after the
+ * movement, a detail dialog, the Summary of the movements in view and the CSV of the whole filtered
+ * history. Data (18.3): GET /investor/portal/transactions/ filters, pages and sums on the server;
+ * GET /investor/portal/transactions/export/ builds the CSV in the investor's number format.
  * U33-DEC-02: repayments and recoveries are credited to the Banxum balance.
  */
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { useT } from "../../../i18n";
-import { useActivityData, usePortfolioData, usePrimaryOrdersData } from "../../../investorPortal/data";
-import { formatDate, formatDateTime, formatMoneyLabel, formatMoneyMinor, useNumberFormat } from "../../../investorPortal/format";
+import { usePortfolioData, usePrimaryOrdersData } from "../../../investorPortal/data";
+import { formatDate, formatDateTime, formatMoneyLabel, formatMoneyMinor } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { Dialog, EmptyState, NiIcon, PageHead, PortalLink } from "../../components";
 import { downloadTextFile } from "./parts/downloads";
 import { rich } from "./parts/rich";
+import { fetchTransactionsCsv, useTransactionsData } from "./transactionsData";
 import {
-  inRange,
   metadataNumber,
   metadataText,
   periodRange,
-  summarize,
   transactionRow,
-  transactionsCsv,
   TRANSACTION_GROUPS,
   type Period,
   type TransactionGroup,
+  type TransactionQuery,
   type TransactionRow
 } from "./transactionsModel";
 import "./wallet.css";
 import { clickOnSpace } from "../../components/keyboard";
 
-/** The API's maximum page of activity entries. */
-const ACTIVITY_LIMIT = 250;
 const PAGE_SIZE = 15;
+/** Wait for a pause in typing before the server searches. */
+const SEARCH_DELAY_MS = 250;
+
+/** A movement and the investor's available balance in its currency right after it (null: unknown). */
+type ScreenRow = TransactionRow & { availableAfter: number | null };
 
 type PeriodChoice = "all" | "30" | "90" | "custom" | `y${number}`;
 
@@ -54,7 +56,13 @@ function AmountCell({ row }: { row: TransactionRow }) {
   return <span className="bxm-muted">{label}</span>;
 }
 
-function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () => void }) {
+function AvailableCell({ row }: { row: ScreenRow }) {
+  const t = useT();
+  if (row.availableAfter === null || !row.entry.currency) return <span aria-label={t("Available balance unavailable")} className="bxm-muted">—</span>;
+  return <span>{formatMoneyLabel(row.entry.currency, row.availableAfter)}</span>;
+}
+
+function TransactionDetail({ row, onClose }: { row: ScreenRow; onClose: () => void }) {
   const t = useT();
   const entry = row.entry;
   const currency = entry.currency;
@@ -78,6 +86,7 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
     [t("Fee"), fee ? money(fee) : null],
     [t("To"), iban || null],
     [t("Status"), t(row.status)],
+    [t("Available balance after"), row.availableAfter !== null ? money(row.availableAfter) : null],
     [t("Reference"), entry.id]
   ];
   const note =
@@ -109,10 +118,8 @@ function TransactionDetail({ row, onClose }: { row: TransactionRow; onClose: () 
 
 export function TransactionsScreen() {
   const t = useT();
-  const { format } = useNumberFormat();
-  const activityQuery = useActivityData(ACTIVITY_LIMIT);
-  const entries = activityQuery.data?.entries;
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [group, setGroup] = useState<TransactionGroup | "">("");
   const [currency, setCurrency] = useState<"" | string>("");
   const [choice, setChoice] = useState<PeriodChoice>("all");
@@ -120,33 +127,32 @@ export function TransactionsScreen() {
   const [custom, setCustom] = useState({ from: "", to: "" });
   const [rangeError, setRangeError] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const [shown, setShown] = useState(PAGE_SIZE);
-  const [selected, setSelected] = useState<TransactionRow | null>(null);
+  const [selected, setSelected] = useState<ScreenRow | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(false);
 
-  // Most recent first (the API's order; kept when entries share a time).
-  const rows = useMemo(
-    () => (entries ?? []).map(transactionRow).sort((a, b) => b.entry.occurred_at.localeCompare(a.entry.occurred_at)),
-    [entries]
-  );
-  const years = useMemo(() => [...new Set(rows.map((row) => Number(row.dateKey.slice(0, 4))).filter(Boolean))].sort((a, b) => b - a), [rows]);
-  const currencies = useMemo(() => [...new Set(rows.map((row) => row.entry.currency).filter(Boolean))].sort((a, b) => (a === "EUR" ? -1 : b === "EUR" ? 1 : a.localeCompare(b))), [rows]);
-  const groups = TRANSACTION_GROUPS.filter((item) => rows.some((row) => row.group === item.value));
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(search), SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const period = choiceToPeriod(choice, custom);
   const range = periodRange(period, platformTodayKey());
-  const query = search.trim().toLowerCase();
-  const filtered = rows.filter((row) => {
-    if (group && row.group !== group) return false;
-    if (currency && row.entry.currency !== currency) return false;
-    if (!inRange(row.dateKey, range)) return false;
-    if (!query) return true;
-    const haystack = [t(row.label), t(row.status), t(row.description.text, row.description.vars), row.entry.title, row.entry.id, formatMoneyMinor(row.amountMinor, row.entry.currency || "CHF")]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  });
-  const visible = filtered.slice(0, shown);
-  const summary = summarize(filtered);
-  const resetPaging = () => setShown(PAGE_SIZE);
+  const query: TransactionQuery = { currency, group, date_from: range.from, date_to: range.to, q: searchQuery };
+  const transactionsQuery = useTransactionsData(query, PAGE_SIZE);
+  const pages = transactionsQuery.data?.pages;
+  const first = pages?.[0];
+  // Newest first, as the server sends them.
+  const rows = useMemo<ScreenRow[]>(
+    () => (pages ?? []).flatMap((page) => page.entries).map((entry) => ({ ...transactionRow(entry), availableAfter: entry.available_after_minor ?? null })),
+    [pages]
+  );
+  const total = first?.total ?? 0;
+  const years = first?.years ?? [];
+  const currencies = first?.currencies ?? [];
+  const groups = TRANSACTION_GROUPS.filter((item) => first?.groups.includes(item.value));
+  const summary = first?.summary ?? [];
+  const hasMovements = (first?.groups.length ?? 0) > 0;
 
   const applyRange = (event: FormEvent) => {
     event.preventDefault();
@@ -156,16 +162,23 @@ export function TransactionsScreen() {
     }
     setRangeError(false);
     setCustom(draft);
-    resetPaging();
   };
   const rangeLabel = period.kind === "custom"
     ? t("{from} to {to}", { from: formatDate(period.from), to: formatDate(period.to) })
     : t("All time");
-  const exportCsv = () => {
-    const csv = transactionsCsv(filtered, format, (text, vars) => t(text, vars), formatDateTime);
-    downloadTextFile(csv, `banxum-transactions-${platformTodayKey()}.csv`);
+  const exportCsv = async () => {
+    setExporting(true);
+    setExportError(false);
+    try {
+      const csv = await fetchTransactionsCsv(query);
+      downloadTextFile(csv, `banxum-transactions-${platformTodayKey()}.csv`);
+    } catch {
+      setExportError(true);
+    } finally {
+      setExporting(false);
+    }
   };
-  const openOnKey = (event: KeyboardEvent<HTMLTableRowElement>, row: TransactionRow) => {
+  const openOnKey = (event: KeyboardEvent<HTMLTableRowElement>, row: ScreenRow) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       setSelected(row);
@@ -175,8 +188,8 @@ export function TransactionsScreen() {
   const head = (
     <PageHead
       actions={
-        <button className="btn btn-outline-light" disabled={filtered.length === 0} onClick={exportCsv} type="button">
-          <NiIcon name="download" /><span>{t("Export CSV")}</span>
+        <button className="btn btn-outline-light" disabled={total === 0 || exporting} onClick={() => void exportCsv()} type="button">
+          <NiIcon name={exporting ? "loader" : "download"} /><span>{exporting ? t("Preparing CSV...") : t("Export CSV")}</span>
         </button>
       }
       // U33-DEC-02: repayments are credited to the Banxum account, not paid to the bank account.
@@ -185,13 +198,13 @@ export function TransactionsScreen() {
     />
   );
 
-  if (!entries) {
+  if (!first) {
     return (
       <main className="tr-page r30-transactions">
         {head}
-        {activityQuery.isError ? (
+        {transactionsQuery.isError ? (
           <EmptyState
-            actions={<button className="btn btn-outline-light" onClick={() => void activityQuery.refetch()} type="button">{t("Try again")}</button>}
+            actions={<button className="btn btn-outline-light" onClick={() => void transactionsQuery.refetch()} type="button">{t("Try again")}</button>}
             icon="alert-circle"
             title={t("We could not load your transactions")}
           >
@@ -205,8 +218,9 @@ export function TransactionsScreen() {
   }
 
   return (
-    <main className="tr-page r30-transactions">
+    <main aria-busy={transactionsQuery.isFetching} className="tr-page r30-transactions">
       {head}
+      {exportError ? <p className="wl-list-note" role="alert">{t("The CSV could not be prepared. Try again in a moment.")}</p> : null}
       <div className="tr-toolbar">
         <div className="tr-search">
           <NiIcon name="search" />
@@ -214,10 +228,7 @@ export function TransactionsScreen() {
             aria-label={t("Search transactions")}
             className="form-control"
             id="tr-search"
-            onChange={(event) => {
-              setSearch(event.target.value);
-              resetPaging();
-            }}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder={t("Search transactions")}
             type="search"
             value={search}
@@ -231,7 +242,6 @@ export function TransactionsScreen() {
             onChange={(event) => {
               setChoice(event.target.value as PeriodChoice);
               setRangeError(false);
-              resetPaging();
             }}
             value={choice}
           >
@@ -245,10 +255,7 @@ export function TransactionsScreen() {
         <select
           aria-label={t("Transaction type")}
           className="form-select tr-type"
-          onChange={(event) => {
-            setGroup(event.target.value as TransactionGroup | "");
-            resetPaging();
-          }}
+          onChange={(event) => setGroup(event.target.value as TransactionGroup | "")}
           value={group}
         >
           <option value="">{t("All types")}</option>
@@ -264,7 +271,6 @@ export function TransactionsScreen() {
               onClick={(event) => {
                 event.preventDefault();
                 setCurrency(value);
-                resetPaging();
               }}
               onKeyDown={clickOnSpace}
               role="button"
@@ -290,7 +296,7 @@ export function TransactionsScreen() {
         </form>
       ) : null}
       <div className="tr-meta">
-        <span>{rich(t("{count} · Most recent first"), { count: <strong>{filtered.length === 1 ? t("1 transaction") : t("{count} transactions", { count: filtered.length })}</strong> })}</span>
+        <span>{rich(t("{count} · Most recent first"), { count: <strong>{total === 1 ? t("1 transaction") : t("{count} transactions", { count: total })}</strong> })}</span>
         <button aria-controls="tr-totals" aria-expanded={summaryOpen} className="tr-link" onClick={() => setSummaryOpen((open) => !open)} type="button">
           {t("Summary")} <NiIcon name="chevron-down" />
         </button>
@@ -302,28 +308,34 @@ export function TransactionsScreen() {
             <section key={item.currency}>
               <h3>{item.currency} <span>{t("in this view")}</span></h3>
               <dl>
-                <div><dt>{t("Deposited")}</dt><dd>{formatMoneyMinor(item.deposited, item.currency)}</dd></div>
-                <div><dt>{t("Invested")}</dt><dd>{formatMoneyMinor(item.invested, item.currency)}</dd></div>
-                <div><dt>{t("Repaid to Banxum account")}</dt><dd>{formatMoneyMinor(item.credited, item.currency)}</dd></div>
-                <div><dt>{t("Withdrawn")}</dt><dd>{formatMoneyMinor(item.withdrawn, item.currency)}</dd></div>
+                <div><dt>{t("Deposited")}</dt><dd>{formatMoneyMinor(item.deposited_minor, item.currency)}</dd></div>
+                <div><dt>{t("Invested")}</dt><dd>{formatMoneyMinor(item.invested_minor, item.currency)}</dd></div>
+                <div><dt>{t("Repaid to Banxum account")}</dt><dd>{formatMoneyMinor(item.credited_minor, item.currency)}</dd></div>
+                <div><dt>{t("Withdrawn")}</dt><dd>{formatMoneyMinor(item.withdrawn_minor, item.currency)}</dd></div>
               </dl>
             </section>
           ))}
         </div>
       </div>
-      {filtered.length === 0 ? (
+      {total === 0 ? (
         <div className="bxm-empty">
           <NiIcon name="tranx" />
-          <p>{rows.length === 0 ? t("No transactions yet. Deposits, investments and repayments will appear here.") : t("No transactions for these filters.")}</p>
+          <p>{hasMovements ? t("No transactions for these filters.") : t("No transactions yet. Deposits, investments and repayments will appear here.")}</p>
         </div>
       ) : (
         <table className="tr-table r30-transactions-table r31m-transactions-table mobile-records m82-compact-records" data-mobile-table="true">
-          <colgroup><col style={{ width: "58%" }} /><col style={{ width: "18%" }} /><col style={{ width: "20%" }} /><col style={{ width: "4%" }} /></colgroup>
+          <colgroup><col style={{ width: "46%" }} /><col style={{ width: "15%" }} /><col style={{ width: "17%" }} /><col style={{ width: "18%" }} /><col style={{ width: "4%" }} /></colgroup>
           <thead>
-            <tr><th>{t("Transaction")}</th><th>{t("Date")}</th><th className="tr-right">{t("Amount")}</th><th><span className="visually-hidden">{t("Details")}</span></th></tr>
+            <tr>
+              <th>{t("Transaction")}</th>
+              <th>{t("Date")}</th>
+              <th className="tr-right">{t("Amount")}</th>
+              <th className="tr-right"><span title={t("Money you can use for new investments right after this movement. A reservation is deducted once, when you make it.")}>{t("Available balance")}</span></th>
+              <th><span className="visually-hidden">{t("Details")}</span></th>
+            </tr>
           </thead>
           <tbody>
-            {visible.map((row) => {
+            {rows.map((row) => {
               const description = t(row.description.text, row.description.vars);
               return (
                 <tr
@@ -349,6 +361,7 @@ export function TransactionsScreen() {
                   </td>
                   <td className="tr-date" data-mobile-label={t("Date")}>{formatDate(row.entry.occurred_at)}</td>
                   <td className="tr-right tr-amount" data-mobile-label={t("Amount")}><AmountCell row={row} /></td>
+                  <td className="tr-right r30-available" data-mobile-label={t("Available balance")}><AvailableCell row={row} /></td>
                   <td className="tr-arrow" data-mobile-label={t("Details")}><NiIcon name="chevron-right" /></td>
                 </tr>
               );
@@ -356,18 +369,15 @@ export function TransactionsScreen() {
           </tbody>
         </table>
       )}
-      {filtered.length > 0 ? (
+      {total > 0 ? (
         <div className="tr-table-footer">
-          <span>{t("Showing {shown} of {total}", { shown: visible.length, total: filtered.length })}</span>
-          {visible.length < filtered.length ? (
-            <button className="btn btn-outline-light btn-sm" onClick={() => setShown((count) => count + PAGE_SIZE)} type="button">
+          <span>{t("Showing {shown} of {total}", { shown: rows.length, total })}</span>
+          {transactionsQuery.hasNextPage ? (
+            <button className="btn btn-outline-light btn-sm" disabled={transactionsQuery.isFetchingNextPage} onClick={() => void transactionsQuery.fetchNextPage()} type="button">
               {t("Show more")} <NiIcon name="chevron-down" />
             </button>
           ) : null}
         </div>
-      ) : null}
-      {entries.length >= ACTIVITY_LIMIT ? (
-        <p className="wl-list-note">{t("This list shows your latest {count} movements. Older movements are in your account statements under Reports.", { count: ACTIVITY_LIMIT })}</p>
       ) : null}
       {selected ? <TransactionDetail onClose={() => setSelected(null)} row={selected} /> : null}
     </main>

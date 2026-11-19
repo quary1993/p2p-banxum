@@ -293,3 +293,97 @@ def test_transactions_show_reservation_release_and_closing_as_separate_entries(
     assert all(entry["loan_title"] == "Real estate bridge loan" for entry in entries)
     assert all(entry["metadata"]["order_id"] for entry in entries)
     assert "Internal" not in str(entries)
+
+
+def test_transactions_page_filters_pages_and_shows_the_available_balance_after_each_movement(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """18.3: server filters, pages, CSV and "Available after transaction" from the ledger."""
+    from importlib import import_module
+
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=30_000_00, idempotency_key="tx-dep")
+    order = _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=4_000_00, idempotency_prefix="tx-ord"
+    )
+    release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user, order_id=str(order.id), reason="Internal.", idempotency_key="tx-rel"
+        )
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    page = client.get("/api/v1/investor/portal/transactions/", {"limit": 2}).json()
+    assert page["total"] == 3
+    assert page["next_offset"] == 2
+    assert page["currencies"] == ["CHF"]
+    assert set(page["groups"]) == {"deposit", "reservation"}
+    newest_first = [(row["activity_type"], row["available_after_minor"]) for row in page["entries"]]
+    assert newest_first == [
+        ("primary_reservation_released", 30_000_00),
+        ("primary_reservation", 26_000_00),
+    ]
+    rest = client.get("/api/v1/investor/portal/transactions/", {"offset": 2}).json()
+    assert [(row["group"], row["available_after_minor"]) for row in rest["entries"]] == [
+        ("deposit", 30_000_00)
+    ]
+    deposits = client.get(
+        "/api/v1/investor/portal/transactions/", {"group": "deposit", "currency": "EUR"}
+    ).json()
+    assert deposits["total"] == 0
+    found = client.get("/api/v1/investor/portal/transactions/", {"q": "released"}).json()
+    assert [row["activity_type"] for row in found["entries"]] == ["primary_reservation_released"]
+
+    export = client.get("/api/v1/investor/portal/transactions/export/")
+    assert export.status_code == 200
+    assert export["Content-Type"].startswith("text/csv")
+    lines = export.content.decode().strip().split("\n")
+    assert lines[0] == (
+        "Date;Type;Description;Currency;Amount;Available balance;Principal;Interest;Status;"
+        "Reference"
+    )
+    assert len(lines) == 4
+    assert lines[-1].split(";")[1] == "Deposit"
+    assert lines[-1].split(";")[5] == "30000,00"
+    assert lines[1].split(";")[5] == "30000,00"
+    assert lines[2].split(";")[1:6:4] == ["Reservation", "26000,00"]
+    assert page["years"] == [rest["years"][0]]
+    # The summary covers every movement that matches, not only the page.
+    assert page["summary"] == [
+        {
+            "currency": "CHF",
+            "deposited_minor": 30_000_00,
+            "invested_minor": 0,
+            "credited_minor": 0,
+            "withdrawn_minor": 0,
+        }
+    ]
+    assert import_module("backend.apps.investor_portal.transactions").activity_group(
+        {"activity_type": "withdrawal_request", "metadata": {"is_forced": True}}
+    ) == "return"
+
+
+def test_balances_show_the_reserved_part_of_each_lot(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """18.3: the design's "Reserved" column; a fully reserved lot stays in the list."""
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=3_000_00, idempotency_key="rs-dep")
+    _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=3_000_00, idempotency_prefix="rs-ord"
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    lots = client.get("/api/v1/investor/portal/balances/").json()["lots"]
+    assert [(lot["available_amount_minor"], lot["reserved_amount_minor"]) for lot in lots] == [
+        (0, 3_000_00)
+    ]

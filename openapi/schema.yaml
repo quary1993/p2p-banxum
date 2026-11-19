@@ -3023,6 +3023,162 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorSupportRequestReceipt'
           description: ''
+  /api/v1/investor/portal/transactions/:
+    get:
+      operationId: v1_investor_portal_transactions_retrieve
+      description: '18.3: the Transactions page with server filters, pages and the
+        available balance.'
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          default: ''
+          maxLength: 3
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+          nullable: true
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+          nullable: true
+      - in: query
+        name: group
+        schema:
+          enum:
+          - ''
+          - deposit
+          - reservation
+          - investment
+          - repayment
+          - recovery
+          - withdrawal
+          - return
+          - purchase
+          - sale
+          - fee
+          - fx
+          - other
+          type: string
+          default: ''
+          minLength: 1
+        description: "* `` - \n* `deposit` - deposit\n* `reservation` - reservation\n\
+          * `investment` - investment\n* `repayment` - repayment\n* `recovery` - recovery\n\
+          * `withdrawal` - withdrawal\n* `return` - return\n* `purchase` - purchase\n\
+          * `sale` - sale\n* `fee` - fee\n* `fx` - fx\n* `other` - other"
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          default: ''
+          maxLength: 120
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPage'
+          description: ''
+  /api/v1/investor/portal/transactions/export/:
+    get:
+      operationId: v1_investor_portal_transactions_export_retrieve
+      description: '18.3: the whole filtered history as CSV in the investor''s number
+        format.'
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          default: ''
+          maxLength: 3
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+          nullable: true
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+          nullable: true
+      - in: query
+        name: group
+        schema:
+          enum:
+          - ''
+          - deposit
+          - reservation
+          - investment
+          - repayment
+          - recovery
+          - withdrawal
+          - return
+          - purchase
+          - sale
+          - fee
+          - fx
+          - other
+          type: string
+          default: ''
+          minLength: 1
+        description: "* `` - \n* `deposit` - deposit\n* `reservation` - reservation\n\
+          * `investment` - investment\n* `repayment` - repayment\n* `recovery` - recovery\n\
+          * `withdrawal` - withdrawal\n* `return` - return\n* `purchase` - purchase\n\
+          * `sale` - sale\n* `fee` - fee\n* `fx` - fx\n* `other` - other"
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          default: ''
+          maxLength: 120
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            text/csv:
+              schema:
+                type: string
+          description: ''
   /api/v1/investor/smart-invest/:
     get:
       operationId: v1_investor_smart_invest_retrieve
@@ -8023,6 +8179,9 @@ components:
         id:
           type: string
           format: uuid
+        reserved_amount_minor:
+          type: integer
+          default: 0
         currency:
           type: string
         source_type:
@@ -20496,6 +20655,113 @@ components:
         * `auto` - auto
         * `seed` - seed
         * `snapshot` - snapshot
+    TransactionEntry:
+      type: object
+      properties:
+        archived_at:
+          type: string
+          format: date-time
+        id:
+          type: string
+        activity_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        direction:
+          type: string
+        title:
+          type: string
+        amount_minor:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+        status:
+          type: string
+        loan_id:
+          type: string
+          format: uuid
+          nullable: true
+        loan_title:
+          type: string
+        metadata: {}
+        group:
+          type: string
+        available_after_minor:
+          type: integer
+          nullable: true
+      required:
+      - activity_type
+      - amount_minor
+      - available_after_minor
+      - currency
+      - direction
+      - group
+      - id
+      - loan_title
+      - metadata
+      - occurred_at
+      - status
+      - title
+    TransactionPage:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionEntry'
+        total:
+          type: integer
+        offset:
+          type: integer
+        next_offset:
+          type: integer
+          nullable: true
+        currencies:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        years:
+          type: array
+          items:
+            type: integer
+        summary:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionSummary'
+      required:
+      - currencies
+      - entries
+      - groups
+      - next_offset
+      - offset
+      - summary
+      - total
+      - years
+    TransactionSummary:
+      type: object
+      properties:
+        currency:
+          type: string
+        deposited_minor:
+          type: integer
+        invested_minor:
+          type: integer
+        credited_minor:
+          type: integer
+        withdrawn_minor:
+          type: integer
+      required:
+      - credited_minor
+      - currency
+      - deposited_minor
+      - invested_minor
+      - withdrawn_minor
     UserSession:
       type: object
       description: 'U33-DEC-25: one signed-in browser. The place is a country code,

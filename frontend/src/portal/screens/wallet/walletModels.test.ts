@@ -5,9 +5,9 @@
 import { expect, test } from "vitest";
 
 import type { ActivityEntry, BalanceLot, BalanceSummary, PrimaryOrderPortal } from "../../../api/generated/banxumApi";
-import { accountNotices, nextReturn, orderedSummaries, reservedMinor, reservedOrders } from "./accountModel";
+import { accountNotices, detailLots, nextReturn, orderedSummaries, reservedMinor, reservedOrders } from "./accountModel";
 import { documentTab, documentYears, periodLabel, reportSubtitle } from "./documentsModel";
-import { csvAmount, inRange, periodRange, summarize, transactionRow, transactionsCsv } from "./transactionsModel";
+import { csvAmount, inRange, periodRange, previewTransactionPage, summarize, transactionRow, transactionsCsv } from "./transactionsModel";
 
 function entry(values: Partial<ActivityEntry> & Pick<ActivityEntry, "activity_type">): ActivityEntry {
   return {
@@ -228,4 +228,28 @@ test("Q26: reservation, release with its reason and investment are separate Tran
   expect([invested.label, invested.group, invested.sign]).toEqual(["Investment", "investment", "out"]);
   const notInvested = transactionRow(entry({ activity_type: "primary_order_ended", direction: "internal", status: "closed_not_invested", metadata: { reason: "" } }));
   expect([notInvested.label, notInvested.status]).toEqual(["Investment order", "Not invested"]);
+});
+
+test("18.3: a fully reserved lot stays in the balance details with its reserved part", () => {
+  const lots = detailLots([
+    lot({ id: "free", currency: "CHF", available_amount_minor: 10_000 }),
+    lot({ id: "reserved", currency: "CHF", available_amount_minor: 0, reserved_amount_minor: 30_000 }),
+    lot({ id: "used", currency: "CHF", available_amount_minor: 0 })
+  ]);
+  expect(lots.map((item) => item.id)).toEqual(["free", "reserved"]);
+});
+
+test("18.3: the review build pages, filters and sums like the server", () => {
+  const entries = [
+    entry({ id: "d1", activity_type: "balance_deposit", occurred_at: "2026-05-01T08:00:00Z", amount_minor: 50_000 }),
+    entry({ id: "r1", activity_type: "repayment_distribution", occurred_at: "2026-05-02T08:00:00Z", amount_minor: 1_000, currency: "EUR" }),
+    entry({ id: "d2", activity_type: "balance_deposit", occurred_at: "2025-04-01T08:00:00Z", amount_minor: 20_000 })
+  ];
+  const all = { currency: "", group: "" as const, date_from: "", date_to: "", q: "" };
+  const first = previewTransactionPage(entries, all, 0, 2);
+  expect(first.entries.map((item) => [item.id, item.group, item.available_after_minor])).toEqual([["r1", "repayment", null], ["d1", "deposit", null]]);
+  expect([first.total, first.next_offset, first.years, first.currencies]).toEqual([3, 2, [2026, 2025], ["EUR", "CHF"]]);
+  expect(previewTransactionPage(entries, all, 2, 2).next_offset).toBeNull();
+  const chf2026 = previewTransactionPage(entries, { ...all, currency: "CHF", date_from: "2026-01-01", date_to: "2026-12-31" }, 0, 10);
+  expect(chf2026.summary).toEqual([{ currency: "CHF", deposited_minor: 50_000, invested_minor: 0, credited_minor: 0, withdrawn_minor: 0 }]);
 });
