@@ -380,6 +380,38 @@ export function holdingForLoan(holdings: Holding[] | undefined, loanId: string) 
   return (holdings ?? []).find((holding) => holding.loan.loan_id === loanId && holding.status !== "transferred");
 }
 
+// ---- 18.7: price of a Loan Originator offer (principal + accrued interest) ----------------------
+
+/**
+ * The accrued interest of the rights bought with `principalMinor` (Q09, F02), exactly like the
+ * server: round half up(interest x principal / opening principal x accrued units / period units
+ * x participation / 10000), in whole integers (BigInt). 0 when the offer has no accrued price.
+ */
+export function offerAccruedInterestMinor(loan: Pick<MarketplaceLoanDetail, "offer_price"> & { product_type?: string }, principalMinor: number) {
+  const price = offerPriceFacts(loan);
+  if (!price || principalMinor <= 0 || price.period_day_units <= 0 || price.next_installment_opening_principal_minor <= 0) return 0;
+  const numerator =
+    BigInt(price.next_installment_interest_minor) *
+    BigInt(Math.round(principalMinor)) *
+    BigInt(price.accrued_day_units) *
+    BigInt(price.investor_interest_participation_bps);
+  const denominator = BigInt(price.next_installment_opening_principal_minor) * BigInt(price.period_day_units) * 10000n;
+  return Number((2n * numerator + denominator) / (2n * denominator));
+}
+
+/** The 18.7 price facts of a Loan Originator offer, or null (Direct loans and par offers). */
+export function offerPriceFacts(loan: Pick<MarketplaceLoanDetail, "offer_price"> & { product_type?: string }) {
+  const price = loan.offer_price;
+  if (!price || price.pricing_rule !== "accrued_interest") return null;
+  if (loan.product_type !== undefined && loan.product_type !== "originator_claim") return null;
+  return price;
+}
+
+/** What the investor pays for `principalMinor`: the principal plus the accrued interest in the price. */
+export function offerPriceMinor(loan: Pick<MarketplaceLoanDetail, "offer_price"> & { product_type?: string }, principalMinor: number) {
+  return principalMinor + offerAccruedInterestMinor(loan, principalMinor);
+}
+
 // ---- The investor's share of the schedule -------------------------------------------------------
 
 export type ScheduleShareRow = {

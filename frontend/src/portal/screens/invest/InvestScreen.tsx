@@ -59,6 +59,8 @@ import {
   scheduleShare,
   sumAvailableMinor,
   usesImmediateClaimAssignment,
+  offerAccruedInterestMinor,
+  offerPriceFacts,
   usesOriginatorSubscription
 } from "./loanFacts";
 import { Acceptances, ConfirmDialog, ResultPage, ReviewAmount, ReviewFrame, SignActions } from "./parts/ReviewParts";
@@ -241,6 +243,9 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
   const submitting = orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending;
   const share = amountMinor > 0 ? scheduleShare(loan, amountMinor) : null;
   const places = placesInfo(loan);
+  // 18.7: the accrued interest in the price comes back with the next payment; it is not earnings.
+  const accruedMinor = offerAccruedInterestMinor(loan, amountMinor);
+  const offerPrice = offerPriceFacts(loan);
 
   const confirm = async () => {
     setError("");
@@ -380,6 +385,30 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                   : t("Swiss borrower: at most {count} investors. {left} left.", { count: places.maxInvestors, left: places.placesLeft === 1 ? t("1 place") : t("{count} places", { count: places.placesLeft }) })}
               </p>
             ) : null}
+            {offerPrice && amountMinor > 0 ? (
+              <section aria-label={t("Price of the claim")} className="r34-returns u33-offer-price">
+                <div className="ip-summary-line">
+                  <span>{t("Principal you buy")}</span>
+                  <strong>{formatMoneyLabel(loan.currency, amountMinor)}</strong>
+                </div>
+                <div className="ip-summary-line">
+                  <span>
+                    {t("Accrued interest in the price")}
+                    <InfoTip label={t("How the accrued interest is calculated")} title={t("Accrued interest in the price")}>
+                      {t("Your share of the interest of the running period, from {start} to the planned settlement day {settlement} ({convention}). It comes back to you with the next payment on {due}; it is not interest you earn.", { start: formatDate(offerPrice.accrual_start_date), settlement: formatDate(offerPrice.price_reference_date), convention: offerPrice.interest_convention_label, due: formatDate(offerPrice.next_due_date) })}
+                    </InfoTip>
+                  </span>
+                  <strong>{formatMoneyLabel(loan.currency, accruedMinor)}</strong>
+                </div>
+                <div className="ip-summary-line">
+                  <span>{t("Total to pay")}</span>
+                  <strong>{formatMoneyLabel(loan.currency, amountMinor + accruedMinor)}</strong>
+                </div>
+                <p className="u33-invest-places-note">
+                  {t("Interest: {investor} to investors, {originator} kept by the Loan Originator. The price is fixed for the planned settlement day {date}.", { investor: formatRateBps(offerPrice.investor_interest_participation_bps), originator: formatRateBps(10000 - offerPrice.investor_interest_participation_bps), date: formatDate(offerPrice.price_reference_date) })}
+                </p>
+              </section>
+            ) : null}
             <div id="iv-summary">
               <div className="ip-terms">
                 <div className="ip-term"><strong>{formatRateBps(loanYieldBps(loan))}</strong><span>{subscription ? t("Investor interest rate") : t("Annual interest rate")}</span></div>
@@ -395,7 +424,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                       </InfoTip>
                     </span>
                     <div className="fp2-interest-line">
-                      <strong>{formatMoneyLabel(loan.currency, share.interestMinor)}</strong>
+                      <strong>{formatMoneyLabel(loan.currency, Math.max(0, share.interestMinor - accruedMinor))}</strong>
                       <span className="fp2-duration">{t("Total over {count} months", { count: loan.term_months })}</span>
                     </div>
                   </div>

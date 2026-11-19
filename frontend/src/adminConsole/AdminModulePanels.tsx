@@ -89,6 +89,7 @@ import {
   useOriginatorClaimsAdminLoansPublish,
   useOriginatorClaimsAdminLoansRetrieve,
   useOriginatorClaimsAdminLoansSubscriptionCancel,
+  useOriginatorClaimsAdminLoansOfferFailed,
   useOriginatorClaimsAdminLoansSubscriptionResume,
   useOriginatorClaimsAdminLoansUpdate,
   useOriginatorClaimsAdminLoanRepaymentsCreate,
@@ -3408,6 +3409,11 @@ function OriginatorLoanCreateForm({
   const [couponBps, setCouponBps] = useState(detail ? String(detail.interest_rate_bps) : "");
   const [minimumInvestment, setMinimumInvestment] = useState(detail ? String(detail.minimum_investment_minor) : "100000");
   const [fundingDeadline, setFundingDeadline] = useState(detail?.funding_deadline ?? "");
+  // 18.7: new offers are priced as principal + accrued interest (no boundary installment).
+  const [pricingRule, setPricingRule] = useState<"accrued_interest" | "boundary_installment">(
+    detail?.pricing_rule === "boundary_installment" ? "boundary_installment" : "accrued_interest"
+  );
+  const [interestConvention, setInterestConvention] = useState(detail?.interest_convention || "act_365_fixed");
   const [entitlementStartDate, setEntitlementStartDate] = useState(detail?.entitlement_start_date ?? "");
   const [activationOutstandingPrincipal, setActivationOutstandingPrincipal] = useState(
     detail?.activation_outstanding_principal_minor == null
@@ -3476,8 +3482,9 @@ function OriginatorLoanCreateForm({
     setLocalError("");
     try {
       if (!csvContent || !sourceFilename) throw new Error("Select the complete schedule and historical-payments CSV.");
-      if (!fundingDeadline || !entitlementStartDate) {
-        throw new Error("Funding deadline and investor entitlement start date are required.");
+      const boundaryRule = pricingRule === "boundary_installment";
+      if (!fundingDeadline || (boundaryRule && !entitlementStartDate)) {
+        throw new Error(boundaryRule ? "Funding deadline and investor entitlement start date are required." : "Funding deadline is required.");
       }
       const parsedInterestParticipation = intValue(interestParticipationBps);
       const parsedPenaltyParticipation = intValue(penaltyParticipationBps);
@@ -3506,8 +3513,10 @@ function OriginatorLoanCreateForm({
         interest_rate_bps: intValue(couponBps),
         minimum_investment_minor: intValue(minimumInvestment),
         funding_deadline: fundingDeadline,
-        entitlement_start_date: entitlementStartDate,
-        activation_outstanding_principal_minor: intValue(activationOutstandingPrincipal),
+        pricing_rule: pricingRule,
+        interest_convention: (boundaryRule ? "" : interestConvention) as OriginatorLoanCreate["interest_convention"],
+        entitlement_start_date: boundaryRule ? entitlementStartDate : null,
+        activation_outstanding_principal_minor: boundaryRule ? intValue(activationOutstandingPrincipal) : null,
         investor_interest_participation_bps: parsedInterestParticipation,
         investor_penalty_participation_bps: parsedPenaltyParticipation,
         repayment_type: repaymentType,
@@ -3592,8 +3601,29 @@ function OriginatorLoanCreateForm({
         <TextInput integer label="Underlying borrower coupon bps" onChange={setCouponBps} required value={couponBps} />
         <MoneyMinorInput currency={currency} label="Minimum investment minor units" onChange={setMinimumInvestment} required value={minimumInvestment} />
         <TextInput hint="Last inclusive subscription date. Maximum 50 days including the opening date. Reserved sources must cover the remaining window. A full subscription closes earlier automatically." label="Funding deadline" onChange={setFundingDeadline} required type="date" value={fundingDeadline} />
-        <TextInput hint="Due date of the first installment after the funding round. Holdings activate at funding close, but this boundary installment belongs entirely to the Loan Originator." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
-        <MoneyMinorInput currency={currency} label="Expected outstanding principal after boundary payment" onChange={setActivationOutstandingPrincipal} required value={activationOutstandingPrincipal} />
+        <SelectInput
+          optionLabel={(value) => (value === "accrued_interest" ? "Principal + accrued interest (18.7)" : "Boundary installment (before 18.7)")}
+          hint="18.7: investors pay the principal at the planned settlement day (1 settlement day after the funding deadline) plus the accrued interest of the rights they buy, and receive the next payment. The boundary rule is kept only for offers prepared before 18.7."
+          label="Price rule"
+          onChange={(value) => setPricingRule(value as "accrued_interest" | "boundary_installment")}
+          options={["accrued_interest", "boundary_installment"]}
+          value={pricingRule}
+        />
+        {pricingRule === "accrued_interest" ? (
+          <SelectInput
+            optionLabel={(value) => DAY_COUNT_LABELS[value] ?? value}
+            hint="F03: the exact convention of the claim contract. Another convention is not supported yet."
+            label="Day-count convention of the claim"
+            onChange={setInterestConvention}
+            options={Object.keys(DAY_COUNT_LABELS)}
+            value={interestConvention}
+          />
+        ) : (
+          <>
+            <TextInput hint="Due date of the first installment after the funding round. Holdings activate at funding close, but this boundary installment belongs entirely to the Loan Originator." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
+            <MoneyMinorInput currency={currency} label="Expected outstanding principal after boundary payment" onChange={setActivationOutstandingPrincipal} required value={activationOutstandingPrincipal} />
+          </>
+        )}
         <TextInput integer hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 7,000 means investors receive 70% of their proportional contractual interest." label="Investor interest participation bps" onChange={setInterestParticipationBps} required type="number" value={interestParticipationBps} />
         <TextInput integer hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 5,000 means investors receive 50% of their proportional penalty." label="Investor penalty participation bps" onChange={setPenaltyParticipationBps} required type="number" value={penaltyParticipationBps} />
         <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
@@ -3818,7 +3848,7 @@ function OriginatorLoanManageModal({
 }) {
   const businessDate = useAdminBusinessDate();
   const [action, setAction] = useState<
-    "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "resume" | "repayment" | "note"
+    "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "resume" | "repayment" | "note" | "offer_failed" | "coming_soon"
   >("menu");
   const [resumeReason, setResumeReason] = useState("");
   const [asOfDate, setAsOfDate] = useState(businessDate);
@@ -3846,6 +3876,8 @@ function OriginatorLoanManageModal({
   const publishMutation = useOriginatorClaimsAdminLoansPublish({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const closeRoundMutation = useOriginatorClaimsAdminLoansFundingClose({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const cancellationMutation = useOriginatorClaimsAdminLoansSubscriptionCancel({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  // 18.7 (F04): the borrower paid on the claim during the offer; the offer fails.
+  const offerFailedMutation = useOriginatorClaimsAdminLoansOfferFailed({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const holdMutation = useOriginatorClaimsAdminLoansHold({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const resumeMutation = useOriginatorClaimsAdminLoansSubscriptionResume({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({
@@ -3937,8 +3969,9 @@ function OriginatorLoanManageModal({
     );
   }
 
-  const mutationError = publishMutation.error || closeRoundMutation.error || cancellationMutation.error || holdMutation.error || resumeMutation.error || repaymentMutation.error;
+  const mutationError = publishMutation.error || closeRoundMutation.error || cancellationMutation.error || offerFailedMutation.error || holdMutation.error || resumeMutation.error || repaymentMutation.error;
   const isParSubscription = detail?.distribution_model === "par_component_v2";
+  const accruedPrice = detail?.pricing_rule === "accrued_interest" ? detail.price : null;
   const failedClose = loan.status === "funding_close_failed";
   const held = Boolean(detail?.is_on_hold);
   // Paused by an admin, not an automatic close-failure hold.
@@ -3958,7 +3991,7 @@ function OriginatorLoanManageModal({
         <span>Outstanding <Money amountMinor={loan.current_outstanding_principal_minor} currency={loan.currency} /></span>
         <span>Originator owned <Money amountMinor={detail?.unsold_principal_minor ?? loan.unsold_principal_minor ?? 0} currency={loan.currency} /></span>
         {detail ? <><span>Required retained <Money amountMinor={detail.retained_principal_minor} currency={loan.currency} /></span><span>Available <Money amountMinor={detail.sellable_principal_minor} currency={loan.currency} /></span></> : null}
-        {isParSubscription && detail ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Entitlement after {formatDate(detail.entitlement_start_date)}</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : <span>Legacy yield {formatRateBps(loan.yield_bps)}</span>}
+        {isParSubscription && detail && accruedPrice ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Planned settlement {formatDate(accruedPrice.price_reference_date)}</span><span>Next due date {formatDate(accruedPrice.next_due_date)}</span><span>Price: principal + accrued interest ({accruedPrice.interest_convention_label})</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : isParSubscription && detail ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Entitlement after {formatDate(detail.entitlement_start_date)}</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : <span>Legacy yield {formatRateBps(loan.yield_bps)}</span>}
       </div>
       {action === "menu" && paused ? (
         <Banner tone="warn" title="Subscription is paused">
@@ -3973,17 +4006,20 @@ function OriginatorLoanManageModal({
       {action === "menu" ? (
         <div className="admin-action-choice-grid">
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("edit")} type="button"><strong>Edit draft and replace import</strong><span>Correct loan, private borrower, component participation, collateral, boundary terms, or CSV data by creating a new immutable draft revision.</span></button> : null}
+          {loan.opportunity_status === "draft" && isParSubscription ? <button onClick={() => setAction("coming_soon")} type="button"><strong>{loan.coming_soon_at ? "Coming soon: change or withdraw" : "Show as Coming soon"}</strong><span>Q17: investors see the offer with its planned opening date and can ask for an email at the real opening (publication). Nothing can be reserved before.</span></button> : null}
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("publish")} type="button"><strong>Publish funding round</strong><span>Revalidate the active originator, imported schedule, finite deadline, boundary installment and post-payment principal before accepting reservations.</span></button> : null}
           {loan.opportunity_status === "open" && isParSubscription && paused ? <button onClick={() => setAction("resume")} type="button"><strong>Resume subscription</strong><span>End the pause. Before the deadline the round is public again. After the deadline the daily job closes it at its published result.</span></button> : null}
           {loan.opportunity_status === "open" && isParSubscription && (paused ? deadlineReached : !held || failedClose) ? <button onClick={() => setAction("close_round")} type="button"><strong>{paused ? "Close paused round" : failedClose ? "Retry funding close" : "Close funding round"}</strong><span>{paused ? "End the pause and close the round now at the subscribed amount. Holdings activate and the funding escrow becomes payable to the LO." : failedClose ? "Retry the deterministic close after resolving the reported cause. Existing reservations have remained locked and unchanged." : "Close a fully subscribed round now, or a partially subscribed round after its deadline. Holdings activate and the funding escrow becomes payable to the LO."}</span></button> : null}
           {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && (!mandatoryClose || paused) ? <button onClick={() => setAction("cancel")} type="button"><strong>Cancel and refund reservations</strong><span>{paused ? "Release every reservation of this paused round to the investors. Original balance-lot dates are preserved." : "Withdraw a campaign before its deadline, or resolve an empty round. Original balance-lot dates are preserved; qualified expired or failed rounds must close automatically."}</span></button> : null}
           {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && !held ? <button onClick={() => setAction("hold")} type="button"><strong>Pause subscription</strong><span>Hide the opportunity and block close or activation while preserving every investor reservation for investigation.</span></button> : null}
           {loan.opportunity_status === "open" && detail && !isParSubscription ? <button onClick={() => setAction("hold")} type="button"><strong>Place legacy opportunity on hold</strong><span>Close new immediate claim sales while continuing to service claims already sold.</span></button> : null}
+          {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && accruedPrice ? <button onClick={() => setAction("offer_failed")} type="button"><strong>Borrower paid during the offer</strong><span>F04: any payment on the claim before the settlement makes the offer fail. Every participation is cancelled and the reserved money goes back to the investors. The offer never reopens.</span></button> : null}
           {["active", "late", "defaulted"].includes(loan.status) ? <button onClick={() => { repaymentMutation.reset(); setAction("repayment"); }} type="button"><strong>Record borrower repayment / schedule revision</strong><span>Upload the complete revised schedule and payment history. Distribute the banked cash using dated claim ownership.</span></button> : null}
           {LOAN_NOTE_STATUSES.includes(loan.status) ? <button onClick={() => setAction("note")} type="button"><strong>Publish loan note</strong><span>Add a public note on the loan page, email the current lenders, or both.</span></button> : null}
         </div>
       ) : null}
       {action === "note" ? <LoanNoteForm loan={loan} onDone={onChanged} /> : null}
+      {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
       {action === "resume" ? (
         <div className="admin-form-panel">
           <Banner tone="neutral" title="Resume the paused subscription">
@@ -3996,7 +4032,13 @@ function OriginatorLoanManageModal({
         </div>
       ) : null}
       {action === "edit" && detail ? <OriginatorLoanCreateForm detail={detail} loanId={loan.id} originators={originators} onCreated={() => { void detailQuery.refetch(); onChanged(); setAction("menu"); }} /> : null}
-      {action === "publish" ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Holdings activate automatically at funding close. No investor interest accrues during funding, and the boundary installment belongs entirely to the LO." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "offer_failed" ? (
+        <div className="admin-form-panel">
+          <OperationConfirmButton confirmLabel="The offer failed" description="Record that the borrower paid on the claim before the settlement (F04). All participations are cancelled, the reservations are released and the investors get an email. This cannot be undone." details={[{ label: "Loan", value: loan.title }, { label: "Reserved principal", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }]} onConfirm={() => { if (isFixturePreview) { setPreview("The offer would fail and every reservation would be released."); return; } offerFailedMutation.mutate({ loanId: loan.id, data: { cause: "payment" } }); }} title="Borrower paid during the offer" variant="danger">Review and record</OperationConfirmButton>
+        </div>
+      ) : null}
+      {action === "publish" && accruedPrice ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts reservations of the principal plus its accrued interest until the deadline. The price is fixed for the planned settlement day; investors receive the next payment. A due date or a borrower payment before the settlement makes the offer fail." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Planned settlement", value: formatDate(accruedPrice.price_reference_date) }, { label: "Next due date", value: formatDate(accruedPrice.next_due_date) }, { label: "Convention", value: accruedPrice.interest_convention_label }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "publish" && !accruedPrice ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Holdings activate automatically at funding close. No investor interest accrues during funding, and the boundary installment belongs entirely to the LO." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
       {action === "close_round" ? (
         <div className="admin-form-panel">
           {paused ? <Banner tone="warn" title="This round is paused">Closing it ends the pause and closes the round at the subscribed amount.</Banner> : null}
@@ -7581,6 +7623,15 @@ function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentSchedu
 
 // ---------------------------------------------------------------------------------------------
 // 18.6 interest engine: borrower payments, late payments, expenses and the Default declaration.
+
+// 18.7 (F03): the day-count conventions an imported claim may use.
+const DAY_COUNT_LABELS: Record<string, string> = {
+  act_365_fixed: "Actual/365 Fixed",
+  act_360: "Actual/360",
+  act_act_isda: "Actual/Actual ISDA",
+  thirty_360_bond_basis: "30/360 Bond Basis",
+  thirty_e_360: "30E/360"
+};
 
 function isEngineLoan(loan: Loan) {
   return loan.interest_convention === "act_365_fixed";

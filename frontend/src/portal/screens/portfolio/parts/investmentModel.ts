@@ -38,9 +38,14 @@ export function isCurrentHolding(holding: Pick<Holding, "status" | "current_prin
   return CURRENT_STATES.includes(holdingState(holding));
 }
 
-/** Contractual interest received, including interest recovered for a loan in default (not penalties). */
+/**
+ * Contractual interest received, including interest recovered for a loan in default (not penalties).
+ * 18.7: without the accrued interest paid in the price of a Loan Originator offer; it comes back with
+ * the first payment and is not interest earned.
+ */
 export function interestReceivedMinor(holding: Holding) {
-  return holding.received_interest_minor + holding.recovered_contractual_interest_minor + holding.recovered_default_interest_minor;
+  const bought = Math.min(holding.received_interest_minor, holding.bought_accrued_interest_minor ?? 0);
+  return holding.received_interest_minor - bought + holding.recovered_contractual_interest_minor + holding.recovered_default_interest_minor;
 }
 
 /** Principal paid back so far: scheduled repayments and recovered principal. */

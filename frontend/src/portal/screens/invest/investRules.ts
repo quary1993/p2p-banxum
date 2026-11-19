@@ -13,7 +13,7 @@ import { formatMoneyLabel, parseMoneyInputToMinorUnits } from "../../../investor
 import { investAmountLimitMessage, type InvestFunds } from "../../../investorPortal/investLimits";
 import { swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
 import type { DemoAccountState } from "../../../investorPortal/types";
-import { isReadonlyView, loanAvailableMinor, placesInfo } from "./loanFacts";
+import { isReadonlyView, loanAvailableMinor, offerPriceMinor, placesInfo } from "./loanFacts";
 
 /** Why the viewer cannot start an investment, or null (read-only view, frozen account, KYC pending). */
 export function investBlockedReason(demoState: DemoAccountState, frozen: FrozenAccount) {
@@ -44,10 +44,12 @@ export function checkInvestAmountMinor(amountMinor: number, loan: MarketplaceLoa
     return { ok: false, message: t("The minimum investment is {amount}.", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) }), amountMinor };
   }
   const capacityMinor = loanAvailableMinor(loan);
-  if (amountMinor > capacityMinor || amountMinor > funds.eligibleMinor) {
+  // 18.7: a Loan Originator offer reserves the principal plus the accrued interest in the price.
+  const payMinor = offerPriceMinor(loan, amountMinor);
+  if (amountMinor > capacityMinor || payMinor > funds.eligibleMinor) {
     // Money missing on the account (not money that is too old for this funding window): Add funds.
     if (amountMinor <= capacityMinor && funds.eligibleMinor >= funds.balanceMinor) {
-      const shortfallMinor = amountMinor - funds.eligibleMinor;
+      const shortfallMinor = payMinor - funds.eligibleMinor;
       return { ok: false, message: t("Add {amount} to invest this amount.", { amount: formatMoneyLabel(loan.currency, shortfallMinor) }), amountMinor, shortfallMinor };
     }
     const message = investAmountLimitMessage({ amountMinor, capacityMinor, currency: loan.currency, funds, money: (minor) => formatMoneyLabel(loan.currency, minor) });

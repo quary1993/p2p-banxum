@@ -1152,7 +1152,7 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     profit_last_year_minor: amount(315_000)
   },
   investor_summary:
-    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved at par and holdings activate automatically at funding close. The boundary installment belongs entirely to the LO.",
+    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved with the price (principal plus the accrued interest of the rights bought) and holdings activate automatically at funding close.",
   purpose_description:
     "Financing of production machinery. Garanta services the claim while investor ownership remains outstanding.",
   collateral_value_minor: amount(3_300_000),
