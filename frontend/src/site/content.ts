@@ -424,7 +424,7 @@ export const siteLegal: SiteLegalDoc[] = [
         <h2>Necessary cookies and storage</h2>
         <p>These are needed for the site and the platform to work and to keep your account safe. They are always on.</p>
         <ul>
-          <li><strong>sessionid</strong>: keeps you signed in. Ends when you sign out or after 2 weeks.</li>
+          <li><strong>sessionid</strong>: keeps you signed in. The session ends when you sign out, and at the latest 2 hours after you signed in.</li>
           <li><strong>csrftoken</strong>: protects forms against requests from other sites. 1 year.</li>
           <li><strong>banxum_device</strong>: recognises your browser so that we can show your signed-in devices and warn you about a sign-in from a new device. Stored on our side only as a hash. 2 years.</li>
           <li><strong>banxum_trusted</strong>: only when you choose "Trust this device" at sign-in; the second factor is then not asked on this device. 30 days.</li>
