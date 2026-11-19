@@ -4,8 +4,8 @@
  * their figures (claims funded, volume per currency, late claims), the open opportunities and the
  * earlier claims of one originator. Data: the public originators and projects APIs and the investor
  * marketplace. City, sector (the design's business line) and founding year come from the admin
- * (U33-DEC-23) and are left out when empty. The design's "About the originator" text has no public
- * data and is left out.
+ * (U33-DEC-23) and are left out when empty. The "About the originator" text (18.3) comes from the
+ * admin too and is left out when empty.
  */
 import type { PublicOriginator, PublicProject } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
@@ -130,6 +130,7 @@ function OriginatorProfile({ originator }: { originator: PublicOriginator }) {
         <div className="r75c-profile-grid">
           <section className="r75c-surface r75c-profile-about">
             <h2>{t("About the originator")}</h2>
+            {originator.about ? <p className="r75c-about-text">{originator.about}</p> : null}
             <dl>
               {originator.founded_year ? <div><dt>{t("Founded")}</dt><dd>{originator.founded_year}</dd></div> : null}
               <div><dt>{t("Partner since")}</dt><dd>{formatDate(originator.partner_since)}</dd></div>

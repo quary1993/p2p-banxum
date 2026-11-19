@@ -230,6 +230,7 @@ class PublicOriginatorSerializer(serializers.Serializer[Any]):
         help_text="Public claims of this originator that were funded.",
     )
     founded_year = serializers.IntegerField(allow_null=True)
+    about = serializers.CharField(allow_blank=True, required=False, default="")
     city = serializers.CharField(allow_blank=True)
     sector = serializers.CharField(allow_blank=True)
     volume = PublicOriginatorVolumeSerializer(
@@ -536,6 +537,9 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     credit_checks = MarketplaceCreditCheckSerializer(many=True, required=False)
     monitoring = MarketplaceMonitoringSerializer(required=False)
     reporting_plan = MarketplaceReportingPlanSerializer(required=False, allow_null=True)
+    # 18.3: the credit file's "Source of repayment" and "Updated" date.
+    repayment_source = serializers.CharField(required=False, allow_blank=True, default="")
+    credit_file_updated_at = serializers.DateTimeField(required=False, allow_null=True)
     recovery_stages = MarketplaceRecoveryStagesSerializer(required=False)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()

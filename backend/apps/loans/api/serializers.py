@@ -566,6 +566,8 @@ class LoanCreditChecksSerializer(serializers.Serializer[Any]):
     checks = LoanCreditCheckSerializer(many=True)
     monitoring_frequency = serializers.CharField(allow_blank=True)
     monitoring_focus = serializers.CharField(allow_blank=True)
+    # 18.3: the credit file's "Source of repayment".
+    repayment_source = serializers.CharField(allow_blank=True, required=False, default="")
     reporting_plan_status = serializers.CharField(allow_blank=True)
     reporting_milestones = LoanReportingMilestoneSerializer(many=True)
 
@@ -580,6 +582,10 @@ class LoanCreditCheckRequestSerializer(serializers.Serializer[Any]):
     status = serializers.ChoiceField(
         choices=["", "received", "reviewed"], required=False, allow_blank=True, default=""
     )
+
+
+class LoanRepaymentSourceRequestSerializer(serializers.Serializer[Any]):
+    text = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
 
 
 class LoanMonitoringRequestSerializer(serializers.Serializer[Any]):

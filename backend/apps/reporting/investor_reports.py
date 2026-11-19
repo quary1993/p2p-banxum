@@ -158,6 +158,8 @@ def _holding_status(holding: Any) -> str:
 
 def _interest_by_holding(investor_user_id: str, holding_ids: list[str]) -> dict[str, int]:
     totals: dict[str, int] = defaultdict(int)
+    if not investor_user_id or not holding_ids:
+        return {}
     for model in (
         _model("servicing", "InvestorRepaymentDistributionLine"),
         _model("originator_claims", "InvestorOriginatorRepaymentDistributionLine"),
@@ -181,9 +183,10 @@ def portfolio_dataset(
     """Every investment of the investor, as of the end of the period (today)."""
     investor_user_id = str(filters.get("participant_id") or "")
     currency = _currency_filter(filters)
+    # A personal report: without an investor (an admin export of every type) it has no rows.
     holdings = list(
         _model("holdings", "InvestorLoanHolding")
-        .objects.filter(investor_user_id=investor_user_id)
+        .objects.filter(investor_user_id=investor_user_id or None)
         .select_related("currency", "loan", "loan__borrower", "loan__originator_profile")
         .order_by("currency__code", "assignment_effective_at", "id")
     )
@@ -304,6 +307,9 @@ def _payments(
 ) -> list[_Payment]:
     """Payments credited to the investor in the period, by value date."""
     payments: list[_Payment] = []
+    if not investor_user_id:
+        # A personal report: without an investor (an admin export of every type) it has no rows.
+        return payments
     repayment_lines = (
         _model("servicing", "InvestorRepaymentDistributionLine")
         .objects.filter(

@@ -3952,7 +3952,12 @@ def test_originator_and_borrower_descriptive_fields_reach_the_marketplace(
         UpdateLoanOriginatorCommand(
             actor=admin_user,
             originator_id=str(profile.originator_id),
-            changes={"founded_year": 2009, "city": " Zurich ", "sector": "SME lending"},
+            changes={
+                "founded_year": 2009,
+                "city": " Zurich ",
+                "sector": "SME lending",
+                "about": " Leases equipment to Swiss small businesses. ",
+            },
         )
     )
     assert (originator.founded_year, originator.city, originator.sector) == (
@@ -3960,6 +3965,8 @@ def test_originator_and_borrower_descriptive_fields_reach_the_marketplace(
         "Zurich",
         "SME lending",
     )
+    # 18.3: the public "About the originator" text.
+    assert originator.about == "Leases equipment to Swiss small businesses."
     for bad_year in (1799, today.year + 1, "2009"):
         with pytest.raises(OriginatorClaimsValidationError):
             update_loan_originator(

@@ -4577,6 +4577,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/Loan'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/repayment-source/:
+    post:
+      operationId: v1_loans_admin_loans_repayment_source_create
+      description: '18.3: the credit file''s "Source of repayment" text.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanRepaymentSourceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanRepaymentSourceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanRepaymentSourceRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanCreditChecks'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/reporting-plan/:
     put:
       operationId: v1_loans_admin_loans_reporting_plan_update
@@ -13291,6 +13324,9 @@ components:
           type: string
         monitoring_focus:
           type: string
+        repayment_source:
+          type: string
+          default: ''
         reporting_plan_status:
           type: string
         reporting_milestones:
@@ -13493,6 +13529,8 @@ components:
           minimum: 0
           format: int64
           nullable: true
+        about:
+          type: string
         city:
           type: string
           maxLength: 128
@@ -13574,6 +13612,10 @@ components:
         founded_year:
           type: integer
           nullable: true
+        about:
+          type: string
+          default: ''
+          maxLength: 1200
         city:
           type: string
           default: ''
@@ -13923,6 +13965,13 @@ components:
       description: |-
         * `done` - Done
         * `next` - Next
+    LoanRepaymentSourceRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          default: ''
+          maxLength: 2000
     LoanReportingMilestone:
       type: object
       description: 'U33-DEC-20: one step of the reporting over the loan term (when,
@@ -14989,6 +15038,13 @@ components:
         reporting_plan:
           allOf:
           - $ref: '#/components/schemas/MarketplaceReportingPlan'
+          nullable: true
+        repayment_source:
+          type: string
+          default: ''
+        credit_file_updated_at:
+          type: string
+          format: date-time
           nullable: true
         recovery_stages:
           $ref: '#/components/schemas/MarketplaceRecoveryStages'
@@ -16895,6 +16951,9 @@ components:
         founded_year:
           type: integer
           nullable: true
+        about:
+          type: string
+          maxLength: 1200
         city:
           type: string
           maxLength: 128
@@ -18324,6 +18383,9 @@ components:
         founded_year:
           type: integer
           nullable: true
+        about:
+          type: string
+          default: ''
         city:
           type: string
         sector:

@@ -52,6 +52,7 @@ import {
   useV1LoansAdminLoansCreditChecksRetrieve,
   useV1LoansAdminLoansCreditChecksUpdate,
   useV1LoansAdminLoansMonitoringCreate,
+  useV1LoansAdminLoansRepaymentSourceCreate,
   getV1EntitiesAdminBorrowersDebtFacilitiesRetrieveQueryKey,
   getV1EntitiesAdminBorrowersDocumentsListQueryKey,
   getV1EntitiesAdminBorrowersFinancialYearsRetrieveQueryKey,
@@ -3275,6 +3276,7 @@ function LoanOriginatorForm({
   const [foundedYear, setFoundedYear] = useState(originator?.founded_year == null ? "" : String(originator.founded_year));
   const [city, setCity] = useState(originator?.city ?? "");
   const [sector, setSector] = useState(originator?.sector ?? "");
+  const [about, setAbout] = useState(originator?.about ?? "");
   const [contactInfo, setContactInfo] = useState(originator?.contact_info ?? "");
   const [accountName, setAccountName] = useState(originator?.settlement_account_name ?? "");
   const [iban, setIban] = useState(originator?.settlement_iban ?? "");
@@ -3301,6 +3303,7 @@ function LoanOriginatorForm({
       jurisdiction,
       registered_address: registeredAddress,
       founded_year: optionalMinorValue(foundedYear),
+      about,
       city,
       sector,
       contact_info: contactInfo,
@@ -3347,6 +3350,7 @@ function LoanOriginatorForm({
         <TextInput label="Offline KYB reference (optional)" onChange={setKybEvidence} value={kybEvidence} />
       </FieldGrid>
       <TextAreaInput label="Registered address" onChange={setRegisteredAddress} required value={registeredAddress} />
+      <TextAreaInput label="About the originator (investor-facing, up to 1200 characters)" onChange={setAbout} value={about} />
       <TextAreaInput label="Contact information" onChange={setContactInfo} value={contactInfo} />
       <TextAreaInput hint="Internal only." label="KYB / AML observations" onChange={setKybNotes} value={kybNotes} />
       <TextAreaInput hint="Internal only." label="Risk observations" onChange={setRiskNotes} value={riskNotes} />
@@ -7022,6 +7026,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const [frequency, setFrequency] = useState<string | null>(null);
   const [plan, setPlan] = useState<{ status: "" | "proposed" | "agreed"; milestones: Array<{ when: string; title: string; body: string }> } | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
+  const [repaymentSource, setRepaymentSource] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: getV1LoansAdminLoansCreditChecksRetrieveQueryKey(loan.id) });
@@ -7030,6 +7035,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const remove = useV1LoansAdminLoansCreditChecksDestroy({ mutation: { onSuccess: () => { setSuccess("Check removed."); refresh(); } } });
   const moveCheck = useV1LoansAdminLoansCreditChecksMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
   const monitoring = useV1LoansAdminLoansMonitoringCreate({ mutation: { onSuccess: () => { setSuccess("Monitoring saved."); refresh(); } } });
+  const sourceMutation = useV1LoansAdminLoansRepaymentSourceCreate({ mutation: { onSuccess: () => { setSuccess("Source of repayment saved."); setRepaymentSource(null); refresh(); } } });
   const savePlan = useV1LoansAdminLoansReportingPlanUpdate({ mutation: { onSuccess: () => { setSuccess("Reporting plan saved."); setPlan(null); refresh(); } } });
   const recordedPlan = { status: (query.data?.reporting_plan_status ?? "") as "" | "proposed" | "agreed", milestones: (query.data?.reporting_milestones ?? []).map((item) => ({ when: item.when, title: item.title, body: item.body ?? "" })) };
   const planDraft = plan ?? recordedPlan;
@@ -7037,6 +7043,7 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
   const checks: LoanCreditCheck[] = query.data?.checks ?? [];
   const frequencyText = frequency ?? query.data?.monitoring_frequency ?? "";
   const focusText = focus ?? query.data?.monitoring_focus ?? "";
+  const sourceText = repaymentSource ?? query.data?.repayment_source ?? "";
   const future = Boolean(draft?.checkedOn) && (draft?.checkedOn ?? "") > businessDate;
   const blocked = !draft || !draft.name.trim() || !draft.result.trim() || future || create.isPending || update.isPending;
 
@@ -7052,6 +7059,11 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
     const data = { status: planDraft.milestones.length ? planDraft.status : "", milestones: planDraft.milestones.map((item) => ({ when: item.when.trim(), title: item.title.trim(), body: item.body.trim() })) } as const;
     if (isFixturePreview) return setPreview(`The reporting plan (${data.milestones.length} steps) would be saved for ${loan.id}.`);
     savePlan.mutate({ loanId: loan.id, data });
+  }
+
+  function saveRepaymentSource() {
+    if (isFixturePreview) return setPreview(`The source of repayment would be saved for ${loan.id}.`);
+    sourceMutation.mutate({ loanId: loan.id, data: { text: sourceText.trim() } });
   }
 
   function saveMonitoring() {
@@ -7107,6 +7119,9 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
       <TextAreaInput hint="For example Quarterly, with the annual financial statements." label="How often" onChange={setFrequency} value={frequencyText} />
       <TextAreaInput hint="For example order intake and cash generation." label="What is followed" onChange={setFocus} value={focusText} />
       <Button disabled={monitoring.isPending} onClick={saveMonitoring}>Save monitoring</Button>
+      <h3>Source of repayment</h3>
+      <TextAreaInput hint="Investor-facing (credit file, Financials). Where the money to repay comes from, as facts." label="Source of repayment" onChange={setRepaymentSource} value={sourceText} />
+      <Button disabled={sourceMutation.isPending} onClick={saveRepaymentSource}>Save source of repayment</Button>
       <h3>Reporting over the loan term</h3>
       <p className="muted admin-manage-hint">
         What the borrower reports and when. A proposed plan tells investors that the requirements and dates are still to be

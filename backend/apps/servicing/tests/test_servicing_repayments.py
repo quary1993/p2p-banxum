@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -2882,14 +2882,13 @@ def test_investor_reports_are_generated_kept_announced_and_summarised(
     """18.3: the design's four reports, kept as issued, "Document ready", period summary."""
     import base64
     from datetime import datetime as _datetime
-    from datetime import timezone as _timezone
 
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
     record_borrower_repayment(_repayment_command(admin_user, loan))
     _approve_financial_access(investor_one)
     client = Client()
     client.force_login(cast(Any, investor_one))
-    as_of = _datetime(2026, 3, 15, 10, 0, tzinfo=_timezone.utc)
+    as_of = _datetime(2026, 3, 15, 10, 0, tzinfo=UTC)
     reports = import_module("backend.apps.reporting.investor_reports")
 
     tax = reports.create_investor_report(
@@ -2977,11 +2976,11 @@ def test_investor_reports_are_generated_kept_announced_and_summarised(
     assert [item["currency"] for item in summary["currencies"]] == ["EUR", "CHF"]
 
     monthly = reports.generate_monthly_statements(
-        as_of=_datetime(2026, 4, 1, 6, 0, tzinfo=_timezone.utc)
+        as_of=_datetime(2026, 4, 1, 6, 0, tzinfo=UTC)
     )
     assert monthly["month"] == "2026-03"
     again = reports.generate_monthly_statements(
-        as_of=_datetime(2026, 4, 2, 6, 0, tzinfo=_timezone.utc)
+        as_of=_datetime(2026, 4, 2, 6, 0, tzinfo=UTC)
     )
     assert again["statements_created"] == 0
     statements = [

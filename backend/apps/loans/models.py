@@ -195,6 +195,8 @@ class Loan(TimestampedModel):
     # U33-DEC-20: how the loan is followed, for the credit file's "Checks & updates".
     monitoring_frequency = models.TextField(blank=True, default="")
     monitoring_focus = models.TextField(blank=True, default="")
+    # 18.3: the credit file's "Source of repayment" (where the money to repay comes from).
+    repayment_source = models.TextField(blank=True, default="")
     # U33-DEC-20 "Reporting over the loan term": what the borrower reports and when
     # ([{"when", "title", "body"}]), as a proposed or an agreed plan; empty when none is recorded.
     reporting_plan_status = models.CharField(max_length=16, blank=True, default="")

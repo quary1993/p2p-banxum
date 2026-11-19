@@ -65,6 +65,14 @@ def test_checks_and_monitoring_reach_the_credit_file(admin_user: Model) -> None:
         content_type="application/json",
     )
     assert monitoring.status_code == 200, monitoring.content
+    # 18.3: the credit file's "Source of repayment".
+    source = client.post(
+        f"/api/v1/loans/admin/loans/{loan.pk}/repayment-source/",
+        data={"text": "  Cash flow from the five-year supply contract.  "},
+        content_type="application/json",
+    )
+    assert source.status_code == 200, source.content
+    assert source.json()["repayment_source"] == "Cash flow from the five-year supply contract."
     apps.get_model("entities", "BorrowerFinancialYear").objects.create(
         borrower=borrower,
         year=2025,
@@ -97,6 +105,9 @@ def test_checks_and_monitoring_reach_the_credit_file(admin_user: Model) -> None:
     )
     assert detail["debt_facilities"] == []
     assert detail["recovery_stages"] == {"stages": [], "next_step": None}
+    assert detail["repayment_source"] == "Cash flow from the five-year supply contract."
+    # The "Updated" date is the latest change of the loan, its checks or the borrower.
+    assert detail["credit_file_updated_at"] >= loan.updated_at
 
     removed = client.delete(f"{url}{recorded['id']}/")
     assert removed.status_code == 204

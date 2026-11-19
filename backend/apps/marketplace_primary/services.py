@@ -2484,6 +2484,10 @@ def full_marketplace_listing_payload(
             # U33-DEC-20: structured credit file (financial years, existing debt, checks).
             **import_module("backend.apps.entities.credit_file").investor_credit_file(borrower),
             **import_module("backend.apps.loans.credit_checks").investor_checks(loan_ref),
+            # 18.3: the credit file's "Updated" date.
+            "credit_file_updated_at": import_module(
+                "backend.apps.loans.credit_checks"
+            ).credit_file_updated_at(loan_ref, borrower),
             "recovery_stages": _recovery_stages_for(loan_ref),
             "default_penalty_interest_bps": int(loan_ref.default_penalty_interest_bps),
             "ltv_bps": loan_ref.ltv_bps,

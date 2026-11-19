@@ -70,6 +70,8 @@ class LoanOriginator(TimestampedModel):
     registered_address = models.TextField()
     # U33-DEC-23: shown on the Loan originators page when present; unknown stays empty.
     founded_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    # 18.3: the design's public "About the originator" text (what the company does).
+    about = models.TextField(blank=True)
     city = models.CharField(max_length=128, blank=True)
     sector = models.CharField(max_length=128, blank=True)
     contact_info = models.TextField(blank=True)

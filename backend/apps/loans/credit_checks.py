@@ -92,6 +92,7 @@ def list_credit_checks(*, actor: Model, loan_id: str) -> dict[str, Any]:
         "checks": [check_payload(row) for row in loan.credit_checks.all()],
         "monitoring_frequency": loan.monitoring_frequency,
         "monitoring_focus": loan.monitoring_focus,
+        "repayment_source": loan.repayment_source,
         "reporting_plan_status": loan.reporting_plan_status,
         "reporting_milestones": list(loan.reporting_milestones or []),
     }
@@ -188,6 +189,38 @@ def set_monitoring(*, actor: Model, loan_id: str, frequency: str, focus: str) ->
     return list_credit_checks(actor=actor, loan_id=loan_id)
 
 
+@transaction.atomic
+def set_repayment_source(*, actor: Model, loan_id: str, text: str) -> dict[str, Any]:
+    """18.3: the credit file's "Source of repayment" text investors read."""
+    _require_admin(actor)
+    loan = Loan.objects.select_for_update().filter(id=loan_id).first()
+    if loan is None:
+        raise CreditCheckValidationError("Loan does not exist.")
+    cleaned = text.strip()
+    if len(cleaned) > 2000:
+        raise CreditCheckValidationError(
+            "The source of repayment can have at most 2000 characters."
+        )
+    loan.repayment_source = cleaned
+    loan.updated_by_admin_id = actor.pk
+    loan.save(update_fields=["repayment_source", "updated_by_admin_id", "updated_at"])
+    _audit(actor, "loan.repayment_source_set", loan, {})
+    return list_credit_checks(actor=actor, loan_id=loan_id)
+
+
+def credit_file_updated_at(loan: Any, borrower: Any | None = None) -> Any:
+    """18.3: when the credit file last changed: the loan, its checks or the borrower record."""
+    moments = [loan.updated_at]
+    if borrower is not None and getattr(borrower, "updated_at", None):
+        moments.append(borrower.updated_at)
+    latest_check = (
+        loan.credit_checks.order_by("-updated_at").values_list("updated_at", flat=True).first()
+    )
+    if latest_check:
+        moments.append(latest_check)
+    return max(moments)
+
+
 def reporting_plan_payload(loan: Any) -> dict[str, Any] | None:
     milestones = loan.reporting_milestones if isinstance(loan.reporting_milestones, list) else []
     if not milestones or loan.reporting_plan_status not in REPORTING_PLAN_STATUSES:
@@ -204,6 +237,7 @@ def investor_checks(loan: Any) -> dict[str, Any]:
             "focus": loan.monitoring_focus,
         },
         "reporting_plan": reporting_plan_payload(loan),
+        "repayment_source": str(loan.repayment_source),
     }
 
 

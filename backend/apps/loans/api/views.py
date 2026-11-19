@@ -27,6 +27,7 @@ from backend.apps.loans.api.serializers import (
     LoanInstallmentSerializer,
     LoanListQuerySerializer,
     LoanMonitoringRequestSerializer,
+    LoanRepaymentSourceRequestSerializer,
     LoanReportingPlanRequestSerializer,
     LoanSecurityListSerializer,
     LoanSecurityMoveRequestSerializer,
@@ -672,6 +673,30 @@ class LoanReportingPlanView(APIView):
                 loan_id=str(loan_id),
                 status=serializer.validated_data["status"],
                 milestones=list(serializer.validated_data["milestones"]),
+            )
+        except loan_credit_checks.CreditCheckError as exc:
+            return _credit_check_error(exc)
+        return Response(payload)
+
+
+class LoanRepaymentSourceView(APIView):
+    """18.3: the credit file's "Source of repayment" text."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanRepaymentSourceRequestSerializer, responses={200: LoanCreditChecksSerializer}
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanRepaymentSourceRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = loan_credit_checks.set_repayment_source(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                text=serializer.validated_data["text"],
             )
         except loan_credit_checks.CreditCheckError as exc:
             return _credit_check_error(exc)

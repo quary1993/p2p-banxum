@@ -127,6 +127,7 @@ class CreateLoanOriginatorCommand:
     settlement_account_name: str
     settlement_iban: str
     founded_year: int | None = None
+    about: str = ""
     city: str = ""
     sector: str = ""
     kyb_evidence_reference: str = ""
@@ -331,6 +332,7 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
         "jurisdiction",
         "registered_address",
         "founded_year",
+        "about",
         "city",
         "sector",
         "contact_info",
@@ -844,6 +846,7 @@ def create_loan_originator(command: CreateLoanOriginatorCommand) -> LoanOriginat
         jurisdiction=_required(command.jurisdiction, "Jurisdiction"),
         registered_address=_required(command.registered_address, "Registered address"),
         founded_year=_founded_year(command.founded_year),
+        about=command.about.strip(),
         city=command.city.strip(),
         sector=command.sector.strip(),
         contact_info=command.contact_info.strip(),

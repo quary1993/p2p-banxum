@@ -738,6 +738,8 @@ def list_public_originators() -> list[dict[str, Any]]:
                 "partner_since": business_date(originator.created_at),
                 # U33-DEC-23: empty when the admin has not entered them.
                 "founded_year": originator.founded_year,
+                # 18.3: the public "About the originator" text, empty when not entered.
+                "about": str(originator.about),
                 "city": str(originator.city),
                 "sector": str(originator.sector),
                 "claims_funded": len(funded),

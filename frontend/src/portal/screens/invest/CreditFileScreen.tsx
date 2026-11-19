@@ -171,7 +171,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
           <h1>{t("Credit file")}</h1>
           <p className="heading-project">{loan.title}</p>
           <div className="head-meta">
-            {[company !== loan.title ? company : "", country, sector].filter(Boolean).flatMap((item, position) => [
+            {[company !== loan.title ? company : "", country, sector, loan.credit_file_updated_at ? t("Updated {date}", { date: formatDate(loan.credit_file_updated_at) }) : ""].filter(Boolean).flatMap((item, position) => [
               position > 0 ? <i aria-hidden="true" key={`sep-${item}`} /> : null,
               <span key={item}>{item}</span>
             ])}
@@ -290,6 +290,13 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
           {chapter === "financials" ? (
             <section aria-labelledby="heading-financials" className="case-chapter r100-chapter" id="financials">
               {heading("financials", t("Financials"))}
+              {/* 18.3: the design's "Source of repayment" (cf-text-fact). */}
+              {loan.repayment_source ? (
+                <div className="cf-text-fact section-row">
+                  <h3>{t("Source of repayment")}</h3>
+                  <p className="section-intro">{loan.repayment_source}</p>
+                </div>
+              ) : null}
               {financialYears.length > 0 ? (
                 <FinancialStatements company={company} currency={financialsCurrency} facilities={loan.debt_facilities ?? []} years={financialYears} />
               ) : financials.length > 0 ? (
