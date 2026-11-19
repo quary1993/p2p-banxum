@@ -1023,3 +1023,19 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.3 ("Status 2026-11-19"
 | Public site, D-10 | Anonymous asset name per security; footer links to the kept pages. |
 | D-11 | Kept functions in the U33 screens; the ZIP evidence package of offered statements kept. |
 
+### Implemented In Audit Step 3 (2026-11-19, Phase 18.4)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.4 ("Status 2026-11-19") and `plan/10_payments_ledger_custody.md` PAY-DEC-017.
+
+| Item | Implemented |
+| --- | --- |
+| F17 | CHF (SIX SIC) and EUR (TARGET) settlement calendars: rule preload per year, admin edits and yearly confirmation, operations alert from 1 November while next year is not confirmed. |
+| D9 | Settings: processing 1 business day, cut-off 12:00, payout margin 3 business days. |
+| Q01, U33-DEC-03 | Day 56 last day; return request on day 57, moved to the previous settlement day and earlier so that the debit is by day 59; notices 14/10/3 days before; confirmations at the request and after the transfer; lots from before the switch keep 58 days. |
+| Q01 (debit) | Compliance alert when money reaches day 59 without the transfer marked as made, or when a request comes too late. |
+| F01 | Direct loans: close + 3 business days by day 56 of each lot (reservations and the usable balance on the opportunity page and Review & sign). |
+| Q02, U33-DEC-04 | "Return failed": reconciled once to the original lots, no new period, no penalty, bank reason, daily notices, admin task, compliance after 5 days or at once from day 57, send again only to a corrected or newly verified account. |
+| Q02.5, U33-DEC-05 | Admin verification of a return account from the deposit, with the evidence. |
+
+Choices made in this step (for the audit): the debit is planned for day 59 at the latest (one day of margin before day 60); money of a lot keeps the days it got at creation, so a deposit recorded after the switch with an older value date gets 56 days (stricter, never later); a failed voluntary withdrawal whose money is not due back is closed at once (the money is simply available again).
+
