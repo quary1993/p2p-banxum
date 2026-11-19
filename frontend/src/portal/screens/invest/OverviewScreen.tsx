@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 
 import type { Holding, PortfolioHoldingInstallment } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
+import { useComplianceBlock } from "../../../investorPortal/complianceBlock";
 import {
   useBalancesData,
   useDashboardData,
@@ -83,6 +84,8 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
   const balancesQuery = useBalancesData();
   const portfolioQuery = usePortfolioData(false);
   const smartInvestQuery = useSmartInvestData();
+  // 18.10 (Q12): accounts without declarations are asked at sign-in (Overview), before investing.
+  const complianceBlock = useComplianceBlock();
   const [currencyPick, setCurrencyPick] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("all");
   const [cashflowOpen, setCashflowOpen] = useState(false);
@@ -180,6 +183,14 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
         title={name ? t("Welcome back, {name}", { name }) : t("Welcome back")}
       />
       <SavedReviews />
+      {complianceBlock?.reason === "declaration_missing" ? (
+        <div className="alert alert-info alert-icon u33-invest-kyc" role="status">
+          <NiIcon name="file-text" />
+          <strong>{t("Complete your declarations.")}</strong>{" "}
+          {t("We need a few answers (beneficial owner, source of funds, politically exposed person, expected volume) before your next investment.")}{" "}
+          <PortalLink className="alert-link" params={{ tab: "declarations" }} to="settings">{t("Open declarations")}</PortalLink>
+        </div>
+      ) : null}
       {demoState === "kyc_pending" ? (
         <div className="alert alert-warning alert-icon u33-invest-kyc" role="status">
           <NiIcon name="shield-check" />
