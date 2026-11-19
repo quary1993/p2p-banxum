@@ -1087,3 +1087,18 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.7 and 18.9 ("Status 20
 | E-03 | Sandbox notice: short text on the offer page, separate unchecked confirmation in Review & sign with the text version stored; placeholder text with an "approved" flag; production refuses sandbox publications while it is off. |
 
 Choices made in this step (for the audit): the accrued-interest rule is the default for new offers in the API and the admin console, and older offers keep the boundary-installment rule; the reference day is fixed when the offer is created and does not move with an early close or a late settlement; holdings still start at the close until 18.8 (settlement on the debit day); the sandbox mode is confirmed by the admin who publishes the first financing of a UID (the publish action is the confirmation); the SNB rate is entered by hand; the sandbox notice is asked for primary orders only; P of the dynamic minimum is 0 for Loan Originator offers (no subscription threshold); the 10/20 limits are lowered in tests only.
+
+### Implemented In Audit Step 7 (2026-11-20, Phases 18.10 and 18.11)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.10 and 18.11 ("Status 2026-11-20").
+
+| Item | Implemented |
+| --- | --- |
+| Q12, U33-DEC-27 | Declarations (person or company: beneficial owner, sources of funds, PEP, yearly volume band) as append-only versions; necessary reviews for the Q12 triggers; compliance closes them or asks for more information; new investments, reservations and resale purchases refused without a declaration, during a necessary review or after the re-verification date; re-verification notices 30 and 7 days before. |
+| Roles | Compliance and security verifier roles with deputies, granted by a superadmin. |
+| Q13, U33-DEC-38 | Required proofs per security type (Q13 working list); named verification by a security verifier; new verification after an essential change; publication refused until every kept security is verified. |
+| Q23 | The seven cases checked; new: the re-verification and review states on the Overview and in Declarations. |
+| Q24 | Kept public pages already in the U33 public style; no change. |
+
+Choices made in this step (for the audit): a review opened by an investor's answers creates no admin task (the Compliance panel lists the open reviews); later triggers join the open review instead of opening a second one; a superadmin grants roles but does not review or verify without a role; the proof documents must be documents linked to the security; the receivables "notice to the debtor" is not a fixed requirement; existing accounts are asked on the Overview (not a blocking screen at sign-in); the Didit identity re-check is not started by the re-verification date.
+

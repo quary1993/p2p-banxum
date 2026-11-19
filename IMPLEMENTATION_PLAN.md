@@ -2597,11 +2597,34 @@ Status 2026-11-19 (audit step 6, branch `u33-17-2`): done; the limits are at the
 
 Waits for: compliance texts and bands; legal list of proofs per type and jurisdiction.
 
+Status 2026-11-20 (audit step 7, branch `u33-17-2`): done; the limits are at the end of this list.
+
+- Declarations (`kyc_compliance` migration 0007; rules in `platform_core/domain/declarations.py`): person or company; beneficial owner (Yes, or No with the name); sources of funds (several; savings ask where they come from, "Other" asks for an explanation); PEP of the investor, a close family member or close associate (Yes / No / Not sure; Yes asks for person, relation, function and country); yearly volume band (under 10,000; 10,000-50,000; 50,000-250,000; over 250,000); company details (company, representative, authority, controlling persons). Each submission is a new version, append-only also in the database.
+- Reviews: PEP Yes or Not sure, another beneficial owner, source "Other" or a volume over 250,000 open one necessary review per investor (later triggers join it). Compliance closes it with an outcome, or asks for more information (email to the investor), and can open a review by hand. A review is not a refusal.
+- Blocking: without a declaration, while a necessary review is open, or after the re-verification date, new investments are refused (primary order and allocation, Loan Originator claim purchase and its batch path, resale purchase). Account, documents, existing investments and withdrawals stay available. Existing accounts are asked on the Overview after sign-in; the declaration is required before the next investment.
+- Re-verification: a date per investor set by compliance (internal risk, not a loan rating); notices 30 and 7 days before (daily job `reverification_notices`; after a missed run only the closest notice); compliance marks it done.
+- Roles (`accounts_auth` migration 0015): `staff_roles` on admin accounts: compliance, compliance deputy, security verifier, security verifier deputy; granted by a superadmin and audited. A superadmin is not a reviewer or verifier without the role.
+- Proof of securities (`loans` migration 0030; rules in `platform_core/domain/security_proofs.py`): the Q13 list per security type (setting `loans.security_required_proofs` can replace it); a security verifier links one document of the security per required proof and records the verification with name and date; an essential change (type, holder, value, valuation, scope, limit, documents) needs a new verification (history kept). Direct and Loan Originator publication are refused until every security that is not released has a current, complete verification.
+- Screens: Profile & Settings -> Declarations; Review & sign shows why an investment is paused; Overview notices (missing declarations, review in progress, re-verification date); admin Compliance (declaration reviews, investor file, re-verification date, staff roles); admin loan Securities (proof of securities).
+- API: `/api/v1/kyc/declarations/`, `/api/v1/kyc/admin/compliance/reviews/`, `.../reviews/<id>/decision/`, `.../investors/<id>/`, `.../investors/<id>/reverification/` and `.../complete/`, `/api/v1/kyc/admin/staff-roles/<user_id>/`, `/api/v1/loans/admin/loans/<id>/security-proofs/`, `/api/v1/loans/admin/securities/<id>/verification/`.
+- Limits: the texts, bands and currency of the declarations wait for compliance; the list of proofs waits for legal (per type and jurisdiction); a review opened by an investor's answers creates no admin task (the Compliance panel is the queue); the "notice to the third-party debtor" for receivables is not a fixed requirement (the law decides); the re-verification of identity (Didit) is not started automatically; the gates `COMPLIANCE_DECLARATIONS_REQUIRED` and `SECURITY_PROOFS_REQUIRED` are always on and switched off only in the tests of other features.
+
 #### 18.11 States without an HTML reference and kept public pages (Q23, Q24)
 
 - The seven cases: funding closed / payout pending; funding failed or cancelled; written-off claim; restricted, locked or closed account; re-verification in progress; security for accounts (password + factor + PIN); company investor and representative (team-managed).
 - Kept public pages in the U33 public style: All projects (open, funded, repaid, filters), Statistics (real data, CHF/EUR separate), Help (full list, with the How it works content), Guides (useful ones), newsletter pages.
 - Built with U33 components, desktop and phone, Light and Dark, with the same care as the designed screens; listed in the design TODO for the designer's later review.
+
+Status 2026-11-20 (audit step 7, branch `u33-17-2`): done. Check of the seven cases against the platform:
+
+- Funding closed, payout pending: the investment state "Funded" (My investments, investment page), separate from Repaying (built in S3).
+- Funding failed or cancelled: the released reservation is an entry in Transactions with its reason (Q26, 18.2); the money is back in the balance.
+- Written-off claim: the state "Written off", separate from Default and Repaid; recoveries stay recordable (built in S3 and 17.4).
+- Restricted, locked or closed account: the account screen with the reason and the remedy (built in S5).
+- Re-verification in progress: new in this step: the Overview shows the date set by compliance, then "overdue" (withdrawals stay possible); Profile & Settings -> Declarations shows the same; a compliance review in progress has its own notice. The identity re-check stays the existing Didit state "Re-verification required" on the verification screen.
+- Security for accounts: password, second factor, PIN or authenticator app (18.5).
+- Company investor and representative: registration says that companies are onboarded by the team; the Declarations form has the company version.
+- Kept public pages: All projects (open, funded, repaid, with filters), Statistics (real data, CHF and EUR separate), Help (with the How it works content), Guides and the newsletter pages are in the U33 public style (S6, 18.2, 18.3); no change in this step.
 
 #### 18.12 Privacy, cookies and security review (Q24.4, A02, D5)
 

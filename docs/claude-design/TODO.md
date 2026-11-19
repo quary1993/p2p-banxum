@@ -928,3 +928,10 @@ Before launch, Claude Design should produce or implement:
 - Current behavior: built with the existing U33 rows, alerts and check boxes (Q23); the sandbox notice is a bordered group above the acceptances with the placeholder text until the legal text is approved; the 10/20 places use the design's places line with new texts. Admin tools use the admin console style.
 - Suggested improvement: a designed price breakdown for originator offers and a designed sandbox notice block (the legal text can be long).
 - Priority: nice-to-have.
+
+## 2026-11-20: Audit Step 7 (18.10, 18.11) Declarations, Compliance States And Proof Of Securities
+
+- Screen or component: Profile & Settings -> Declarations (form, current version, review in progress, re-verification date); Overview notices (complete your declarations, compliance review in progress, re-verification due or overdue); Review & sign notice when an investment is paused; admin Compliance (declaration reviews, investor file, re-verification date, staff roles); admin loan Securities (proof of securities).
+- Current behavior: built with the existing U33 panels, rows, alerts and form controls (Q23); the Declarations tab follows the Security tab layout; the Overview notices reuse the design's verification alert. Admin tools use the admin console style.
+- Suggested improvement: a designed Declarations form (step-by-step on the phone) and designed compliance states for the Overview.
+- Priority: nice-to-have.
