@@ -6,9 +6,10 @@
  * change is the logo in the disc, which is the white lockup file instead of an inline data URI.
  * The wide diagram shows on desktop and tablet, the tall one on phones (site.css).
  */
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, type ReactNode } from "react";
 
-import { Eyebrow, PageHead, RiskLine, SiteLink } from "../components";
+import { Eyebrow, RiskLine } from "../components";
+import { useSiteNav } from "../context";
 
 // ---------------------------------------------------------------------------------------------
 // Marketplace diagram: the marketplace as an Ink disc with the white logo, Ink lines for the
@@ -368,24 +369,14 @@ function MoneyStep({ index, title, children }: { index: string; title: string; c
   );
 }
 
-export function HowItWorks() {
+/**
+ * Q24 (2026-11-13): the How it works page is retired; its unique content (the four steps, what you
+ * own, the marketplace diagram and the rest) now shows in Help under "How it works", and the home
+ * page keeps the short version. /how-it-works leads to that part of Help.
+ */
+export function HowItWorksSections() {
   return (
     <>
-      <PageHead
-        actions={
-          <>
-            <SiteLink className="btn btn-lg btn-primary" href="/register">
-              Open account
-            </SiteLink>
-            <SiteLink className="btn btn-lg btn-site-outline" href="/projects">
-              See open projects
-            </SiteLink>
-          </>
-        }
-        eyebrow="How it works"
-        lead="You lend to companies by buying shares of their loans. Here is each step, what you own and where your money is."
-        title="From your first transfer to the last repayment"
-      />
       <section className="site-section">
         <div className="site-wrap">
           <div className="site-section-head is-single">
@@ -499,4 +490,13 @@ export function HowItWorks() {
       </section>
     </>
   );
+}
+
+/** The retired /how-it-works address: Help, at its How it works part. */
+export function HowItWorksMoved() {
+  const { navigate } = useSiteNav();
+  useEffect(() => {
+    navigate("/help#how-it-works", { replace: true });
+  }, [navigate]);
+  return null;
 }

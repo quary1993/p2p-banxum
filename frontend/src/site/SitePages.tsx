@@ -23,7 +23,7 @@ import { SiteSkin } from "./SiteSkin";
 import { Guide } from "./pages/Guide";
 import { Guides } from "./pages/Guides";
 import { Help } from "./pages/Help";
-import { HowItWorks } from "./pages/HowItWorks";
+import { HowItWorksMoved } from "./pages/HowItWorks";
 import { NewsletterConfirm } from "./pages/NewsletterConfirm";
 import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe";
 import { AlertStop } from "./pages/AlertStop";
@@ -58,7 +58,8 @@ const SITE_ROUTES: SiteRoute[] = [
   { pattern: "/", page: Home, title: null, u33: { bundle: "home", footerDivider: true } },
   { pattern: "/projects", page: Projects, title: "Projects" },
   { pattern: "/projects/:id", page: Project, title: "Project", u33: { bundle: "project" } },
-  { pattern: "/how-it-works", page: HowItWorks, title: "How it works" },
+  // Q24: retired; the content is in Help (the address leads there).
+  { pattern: "/how-it-works", page: HowItWorksMoved, title: "Help" },
   { pattern: "/statistics", page: Statistics, title: "Statistics" },
   { pattern: "/companies", page: Companies, title: "For borrowers", u33: { bundle: "business", mainClassName: "business-content" } },
   { pattern: "/originators", page: Originators, title: "For loan originators", u33: { bundle: "business", mainClassName: "business-content" } },

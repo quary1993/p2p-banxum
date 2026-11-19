@@ -223,8 +223,13 @@ test("site routing: U33 pages, backend legal templates, unknown addresses", () =
   expect(screen.getByRole("heading", { level: 1, name: HOME_HEADING })).toBeInTheDocument();
   unknown.unmount();
 
+  // Q24: How it works is retired; its address leads to its content in Help.
   renderApp("/how-it-works");
-  expect(screen.getByRole("heading", { level: 1, name: "From your first transfer to the last repayment" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/help");
+  expect(window.location.hash).toBe("#how-it-works");
+  expect(screen.getByRole("heading", { level: 1, name: "Questions and answers" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "From your first transfer to the last repayment" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "How you invest" })).toBeInTheDocument();
   fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Statistics" }));
   expect(window.location.pathname).toBe("/statistics");
   expect(screen.getByRole("heading", { level: 1, name: "Every loan, including the ones that went wrong" })).toBeInTheDocument();

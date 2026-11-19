@@ -26,7 +26,7 @@ const CTA_SCROLL_Y = 520;
 /** Header navigation (data-nav in the design): active on the path and the pages below it. */
 const MAIN_NAV = [
   { href: "/projects", label: "Projects" },
-  { href: "/how-it-works", label: "How it works" },
+  { href: "/help#how-it-works", label: "How it works" },
   { href: "/companies", label: "For companies" },
   { href: "/about", label: "About" },
   { href: "/help", label: "Help" }
@@ -34,7 +34,7 @@ const MAIN_NAV = [
 
 const MENU_NAV = [
   { href: "/projects", label: "Projects" },
-  { href: "/how-it-works", label: "How it works" },
+  { href: "/help#how-it-works", label: "How it works" },
   { href: "/companies", label: "For companies" },
   { href: "/originators", label: "For loan originators" },
   { href: "/about", label: "About" },
@@ -70,6 +70,9 @@ export function SiteShell({ children }: { children: ReactNode }) {
       // Instant: the design CSS makes scrolling smooth, which is wrong for a new page.
       window.scrollTo({ top: 0, behavior: "instant" });
       if (lastPath.current !== null) mainRef.current?.focus({ preventScroll: true });
+      // An address with a #part (for example /help#how-it-works) goes to that part.
+      const hash = decodeURIComponent(window.location.hash.slice(1));
+      if (hash) window.requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ block: "start" }));
     }
     lastPath.current = path;
   }, [path, search]);
@@ -428,7 +431,7 @@ function SiteFooter({ onCookieSettings }: { onCookieSettings: () => void }) {
                 <SiteLink href="/projects">Projects</SiteLink>
               </li>
               <li>
-                <SiteLink href="/how-it-works">How it works</SiteLink>
+                <SiteLink href="/help#how-it-works">How it works</SiteLink>
               </li>
               <li>
                 <SiteLink href="/statistics">Statistics</SiteLink>

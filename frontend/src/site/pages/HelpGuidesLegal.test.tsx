@@ -99,25 +99,23 @@ test("help ?q= searches on arrival and ?topic= marks and scrolls to the topic", 
 test("guides list every guide and article, an article links to the others", () => {
   const list = renderSite("/guides");
   const cards = document.querySelectorAll("a.site-article-card");
-  expect(cards).toHaveLength(5);
-  expect(screen.getByRole("link", { name: /Our first year in figures/ })).toHaveAttribute("href", "/guides/first-year");
+  // Q24.2: "Our first year in figures" is removed from the launch version.
+  expect(cards).toHaveLength(4);
+  expect(screen.queryByRole("link", { name: /Our first year in figures/ })).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "New projects and guides by email" })).toBeInTheDocument();
   expect(screen.getByLabelText("Email address")).toHaveAttribute("id", "site-sub-guides");
   list.unmount();
 
-  renderSite("/guides/first-year");
-  expect(screen.getByRole("heading", { level: 1, name: "Our first year in figures" })).toBeInTheDocument();
-  expect(document.title).toBe("Our first year in figures · Banxum");
-  // Owner decision 2026-10-15: the article is shown exactly as the design, callout included.
-  expect(screen.getByText("Sample article of the prototype: the figures are the sample data of the statistics page.")).toBeInTheDocument();
-  expect(screen.getByText("15 Jan 2026", { selector: ".site-page-head span" })).toBeInTheDocument();
+  const firstYear = renderSite("/guides/first-year");
+  expect(screen.getByRole("heading", { level: 1, name: "This page does not exist" })).toBeInTheDocument();
+  firstYear.unmount();
+
+  renderSite("/guides/late-payments");
   const ready = screen.getByRole("heading", { name: "Ready to look at the projects?" }).parentElement as HTMLElement;
   expect(within(ready).getByRole("link", { name: "See open projects" })).toHaveAttribute("href", "/projects");
   expect(within(ready).getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
   const others = screen.getByRole("heading", { name: "Other guides" }).closest("section") as HTMLElement;
   expect(others.querySelectorAll("a.site-article-card")).toHaveLength(3);
-  fireEvent.click(screen.getByRole("link", { name: "statistics page" }));
-  expect(window.location.pathname).toBe("/statistics");
 });
 
 test("an unknown guide or legal page shows the 404", () => {

@@ -306,20 +306,6 @@ export const siteGuides: SiteGuide[] = [
         <p>The loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
         <h2>Recovery</h2>
         <p>What is recovered, after real external costs (lawyers, courts, enforcement), is shared in proportion to each share and credited to your Banxum balance. Banxum takes no recovery fee, and the investment page shows the gross amount, the costs and the net. Recovery can take months or years and may not cover the full amount.</p>`
-  },
-  {
-    id: "first-year",
-    kind: "News",
-    date: "2026-01-15",
-    icon: "ni-growth",
-    title: "Our first year in figures",
-    summary: "Loans funded, repayments made, one late payment and what we learned. The same figures are on the statistics page, updated every month.",
-    body: `<p>We publish the same figures every month on the <a href="#/statistics">statistics page</a>: loans funded, repaid, late and in default, per currency. Here are the main points of our first year.</p>
-        <h2>What went well</h2>
-        <p>Loans in Switzerland, Romania and Italy, from new loans and from three loan originators. Repayments were paid to investors' bank accounts on the business day after the borrowers paid.</p>
-        <h2>What we watch</h2>
-        <p>One late payment in the hospitality sector, paid after a reminder. We added the payment history of each borrower to the project page.</p>
-        <div class="site-callout">Sample article of the prototype: the figures are the sample data of the statistics page.</div>`
   }
 ];
 
@@ -360,7 +346,7 @@ export const siteLegal: SiteLegalDoc[] = [
       "Scope and parties",
       "Opening and closing an account",
       "Identification and anti-money-laundering duties",
-      "The Banxum wallet: payments in, reservations, the 50-day return",
+      "The Banxum wallet: payments in, reservations and the return of money not invested",
       "Interest: daily calculation (actual/365) and payment dates",
       "Investing: reservation, funding period, assignment",
       "Repayments and collection by Garanta",
