@@ -57,6 +57,7 @@ dependencies = [
     { name = "djangorestframework" },
     { name = "drf-spectacular" },
     { name = "gunicorn" },
+    { name = "maxminddb" },
     { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -89,6 +90,7 @@ requires-dist = [
     { name = "djangorestframework", specifier = ">=3.17.2,<3.18" },
     { name = "drf-spectacular", specifier = ">=0.28,<0.29" },
     { name = "gunicorn", specifier = ">=23,<24" },
+    { name = "maxminddb", specifier = ">=2.6,<3" },
     { name = "pillow", specifier = ">=12.3,<13" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pydantic", specifier = ">=2.11,<3" },
@@ -561,6 +563,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz", hash = "sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49", size = 82454, upload-time = "2026-05-07T12:08:28.36Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", size = 91687, upload-time = "2026-05-07T12:08:27.182Z" },
+]
+
+[[package]]
+name = "maxminddb"
+version = "2.8.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/9c/5af549744e7a1e986bddd119c0bbca7f7fa7fb72590b554cb860a0c3acb1/maxminddb-2.8.2.tar.gz", hash = "sha256:26a8e536228d8cc28c5b8f574a571a2704befce3b368ceca593a76d56b6590f9", size = 194388, upload-time = "2025-07-25T20:32:05.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/45/ff56248fbaaca9383d18d73aee60a544f0282d71e54af0bf0dea4128fda5/maxminddb-2.8.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:bcfb9bc5e31875dd6c1e2de9d748ce403ca5d5d4bc6167973bb0b1bd294bf8d7", size = 52615, upload-time = "2025-07-25T20:30:23.369Z" },
+    { url = "https://files.pythonhosted.org/packages/79/44/2703121c2dbba7d03c37294dd407cca2e31dc4542543b93808dd26fd144b/maxminddb-2.8.2-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:e12bec7f672af46e2177e7c1cd5d330eb969f0dc42f672e250b3d5d72e61778d", size = 35394, upload-time = "2025-07-25T20:30:24.55Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/25/99e999e630b1a44936c5261827cc94def5eec82ae57a667a76d641b93925/maxminddb-2.8.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b23103a754ff1e795d6e107ae23bf9b3360bce9e9bff08c58e388dc2f3fd85ad", size = 35177, upload-time = "2025-07-25T20:30:26.105Z" },
+    { url = "https://files.pythonhosted.org/packages/41/21/05c8f50c1b4138516f2bde2810d32c97b84c6d0aefe7e1a1b41635241041/maxminddb-2.8.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1c4a10cb799ed3449d063883df962b76b55fdfe0756dfa82eed9765d95e8fd6e", size = 96062, upload-time = "2025-07-25T20:30:27.33Z" },
+    { url = "https://files.pythonhosted.org/packages/66/7a/ba7995d1f6b405c057e6f4bd5751fe667535b0ba84f65ee6eb1493bccb80/maxminddb-2.8.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6315977c0512cb7d982bc2eb869355a168f12ef6d2bd5a4f2c93148bc3c03fdc", size = 94208, upload-time = "2025-07-25T20:30:28.932Z" },
+    { url = "https://files.pythonhosted.org/packages/99/6f/11cc4b0f1d7f98965ef3304bd9bf2c587f5e84b99aeac27891f5661565cb/maxminddb-2.8.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:9b24594f04d03855687b8166ee2c7b788f1e1836b4c5fef2e55fc19327f507ac", size = 93448, upload-time = "2025-07-25T20:30:30.438Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/d5/31664be079b71b30895875d6781ae08f871d67de04e518c64422271a8b25/maxminddb-2.8.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:b07b72d9297179c74344aaecad48c88dfdea4422e16721b5955015800d865da2", size = 92240, upload-time = "2025-07-25T20:30:31.658Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/19/a5931bb077ccb7e719b8a602fb3ffcd577cdd4954cae3d2b9201272cd462/maxminddb-2.8.2-cp312-cp312-win32.whl", hash = "sha256:51d9717354ee7aa02d52c15115fec2d29bb33f31d6c9f5a8a5aaa2c25dc66e63", size = 34751, upload-time = "2025-07-25T20:30:32.883Z" },
+    { url = "https://files.pythonhosted.org/packages/63/50/25720ed19f2d62440b94a1333656cccf6c3c1ce2527ed9abf7b35e2557e1/maxminddb-2.8.2-cp312-cp312-win_amd64.whl", hash = "sha256:18132ccd77ad68863b9022451655cbe1e8fc3c973bafcad66a252eff2732a5c1", size = 36782, upload-time = "2025-07-25T20:30:34.378Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/30/1c3121365114678d8df4c02fd416d7520c86b1e37708cc7134ccc3c06e78/maxminddb-2.8.2-cp312-cp312-win_arm64.whl", hash = "sha256:59934eb00274f8b7860927f470a2b9b049842f91e2524a24ade99e16755320f2", size = 33040, upload-time = "2025-07-25T20:30:35.474Z" },
 ]
 
 [[package]]

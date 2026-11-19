@@ -4414,6 +4414,22 @@ def _validate_purchase_acceptance(
     return acceptance
 
 
+def _purchase_operation_details(command: PurchaseOriginatorClaimCommand) -> dict[str, object]:
+    """18.5: the investment the email code must have been requested for (loan and amount)."""
+    quote = (
+        OriginatorClaimQuote.objects.select_related("loan_profile")
+        .filter(id=_required(command.quote_id, "Quote"), investor_user_id=command.actor.pk)
+        .first()
+    )
+    if quote is None:
+        raise OriginatorClaimsValidationError("Originator claim quote was not found.")
+    return {
+        "amount_minor": int(quote.requested_cash_minor),
+        "currency": str(quote.currency_id),
+        "loan_id": str(quote.loan_profile.loan_id),
+    }
+
+
 def purchase_originator_claim(
     command: PurchaseOriginatorClaimCommand,
 ) -> OriginatorClaimPurchase:
@@ -4441,6 +4457,7 @@ def purchase_originator_claim(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation=_purchase_operation_details(command),
             )
         )
     except SensitiveActionPinError:

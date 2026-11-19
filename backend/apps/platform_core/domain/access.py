@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.apps import apps
+from django.utils import timezone
 
 from backend.apps.platform_core.domain.actors import ActorRef
 
@@ -81,10 +82,23 @@ def user_has_sensitive_action_pin(user: Any) -> bool:
     return bool(pin_model.objects.filter(user_id=getattr(user, "pk", None)).exists())
 
 
+def user_has_second_factor(user: Any) -> bool:
+    """18.5: a verified phone (SMS factor) or an active authenticator app."""
+    if getattr(user, "phone_verified_at", None) is not None:
+        return True
+    if getattr(user, "pk", None) is None:
+        return False
+    return bool(
+        apps.get_model("accounts_auth", "AuthenticatorApp")
+        .objects.filter(user_id=user.pk, confirmed_at__isnull=False, disabled_at__isnull=True)
+        .exists()
+    )
+
+
 def user_can_access_financial_features(user: Any) -> bool:
     if not is_lender_actor(user):
         return False
-    if getattr(user, "phone_verified_at", None) is None:
+    if not user_has_second_factor(user):
         return False
     if account_type_of(user) == "legal_entity_lender_representative":
         return True
@@ -98,3 +112,20 @@ def actor_ref_for_user(user: Any) -> ActorRef:
     if account_type == "admin":
         return ActorRef("admin", str(getattr(user, "pk", getattr(user, "id", ""))))
     return ActorRef("investor", str(getattr(user, "pk", getattr(user, "id", ""))))
+
+
+def security_restriction_until(user: Any) -> Any | None:
+    """18.5: the end of the 72-hour pause after an assisted account recovery, or None.
+
+    During the pause the investor cannot add a bank account or change the default return
+    account; withdrawals to verified accounts and mandatory returns continue.
+    """
+    if getattr(user, "pk", None) is None:
+        return None
+    restriction = (
+        apps.get_model("accounts_auth", "SecurityRestriction")
+        .objects.filter(user_id=user.pk, ends_at__gt=timezone.now())
+        .order_by("-ends_at")
+        .first()
+    )
+    return restriction.ends_at if restriction is not None else None

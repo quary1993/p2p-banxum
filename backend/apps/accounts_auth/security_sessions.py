@@ -28,6 +28,7 @@ from django.db import transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
+from backend.apps.accounts_auth import geoip
 from backend.apps.accounts_auth.models import (
     SessionEndReason,
     SignInEvent,
@@ -182,6 +183,10 @@ def record_sign_in(
     device_token: str = "",
 ) -> SignInEvent:
     label, kind = describe_user_agent(user_agent)
+    # Q06: the local IP database gives the approximate city (and the country when the proxy
+    # header does not).
+    city, geo_country = geoip.lookup(ip_address)
+    country_code = country_code or geo_country
     digest = device_hash(device_token)
     new_device = False
     if result == SignInResult.SIGNED_IN:
@@ -200,6 +205,7 @@ def record_sign_in(
         device_kind=kind,
         device_hash=digest,
         country_code=country_code,
+        city=city,
         ip_hash=ip_hash(ip_address),
         new_device=new_device,
         occurred_at=wall_clock(),
@@ -213,8 +219,9 @@ def _enqueue_new_device_alert(*, user: User, event: SignInEvent) -> None:
     brand = str(getattr(settings, "PLATFORM_BRAND_NAME", "") or "BANXUM")
     when = to_business_time(event.occurred_at).strftime("%d.%m.%Y %H:%M")
     rows = [["Device", event.device_label], ["Time", f"{when} (Swiss time)"]]
-    if event.country_code:
-        rows.append(["Approximate place", event.country_code])
+    place = geoip.place_label(event.city, event.country_code)
+    if place:
+        rows.append(["Approximate place", place])
     enqueue_outbox_message(
         OutboxCommand(
             idempotency_key=f"security:new-sign-in:{event.id}",
@@ -252,7 +259,7 @@ def start_tracked_session(request: HttpRequest, user: User, *, method: str) -> U
         UserSession.objects.filter(id=previous_id, user=user, ended_at__isnull=True).update(
             ended_at=now, end_reason=SessionEndReason.REPLACED
         )
-    record_sign_in(
+    event = record_sign_in(
         user=user,
         method=method,
         result=SignInResult.SIGNED_IN,
@@ -267,7 +274,8 @@ def start_tracked_session(request: HttpRequest, user: User, *, method: str) -> U
         method=method,
         device_label=label,
         device_kind=kind,
-        country_code=country,
+        country_code=event.country_code,
+        city=event.city,
         ip_hash=ip_hash(_request_ip(request)),
         last_activity_at=now,
     )
@@ -325,6 +333,8 @@ def _session_payload(record: UserSession, *, current_id: str) -> dict[str, Any]:
         "device_label": record.device_label or "Unknown device",
         "device_kind": record.device_kind,
         "country_code": record.country_code,
+        "city": record.city,
+        "place": geoip.place_label(record.city, record.country_code),
         "method": record.method,
         "started_at": record.created_at,
         "last_activity_at": record.last_activity_at or record.created_at,
@@ -357,6 +367,8 @@ def list_sign_in_history(user: User) -> list[dict[str, Any]]:
             "device_label": event.device_label or "Unknown device",
             "device_kind": event.device_kind,
             "country_code": event.country_code,
+            "city": event.city,
+            "place": geoip.place_label(event.city, event.country_code),
             "method": event.method,
             "result": event.result,
         }

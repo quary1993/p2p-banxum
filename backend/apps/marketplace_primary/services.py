@@ -980,6 +980,11 @@ def allocate_primary_order_from_balance(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": int(order.requested_amount_minor),
+                    "currency": str(order.currency_id),
+                    "loan_id": str(order.loan_id),
+                },
             )
         )
     except SensitiveActionPinError:

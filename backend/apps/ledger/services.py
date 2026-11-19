@@ -41,6 +41,7 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
     is_lender_actor,
+    security_restriction_until,
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.funding import (
@@ -2044,6 +2045,18 @@ def _ensure_default_return_account(*, investor_user_id: str, currency: Currency)
     )
 
 
+def _refuse_during_security_pause(actor: Model, what: str) -> None:
+    """18.5: 72 hours after an assisted recovery, no new bank account and no new default
+    return account (checked before the email code is used)."""
+    until = security_restriction_until(actor)
+    if until is not None:
+        raise LedgerValidationError(
+            f"For your security you cannot {what} until "
+            f"{to_business_time(until).strftime('%d %b %Y, %H:%M')} (Zurich time), 72 hours "
+            "after your account was recovered. Withdrawals to your verified accounts still work."
+        )
+
+
 def set_investor_default_return_account(
     command: SetInvestorDefaultReturnAccountCommand,
 ) -> InvestorPayoutInstruction:
@@ -2053,6 +2066,7 @@ def set_investor_default_return_account(
     """
     if not is_lender_actor(command.actor):
         raise LedgerAuthorizationError("Only an active lender can choose a return account.")
+    _refuse_during_security_pause(command.actor, "change the default return account")
     try:
         verify_sensitive_action_code(
             SensitiveActionVerificationCommand(
@@ -2063,6 +2077,7 @@ def set_investor_default_return_account(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"instruction_id": command.instruction_id},
             )
         )
     except SensitiveActionPinError:
@@ -2523,6 +2538,7 @@ def register_investor_self_service_payout_instruction(
 ) -> InvestorPayoutInstruction:
     if not is_lender_actor(command.actor):
         raise LedgerAuthorizationError("Only an active lender can register a payout instruction.")
+    _refuse_during_security_pause(command.actor, "add a bank account")
     try:
         verify_sensitive_action_code(
             SensitiveActionVerificationCommand(
@@ -2533,6 +2549,7 @@ def register_investor_self_service_payout_instruction(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"currency": command.currency, "iban": command.destination_iban},
             )
         )
     except SensitiveActionPinError:
@@ -3259,6 +3276,11 @@ def request_investor_withdrawal(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": command.amount_minor,
+                    "currency": command.currency,
+                    "iban": command.destination_iban,
+                },
             )
         )
     except SensitiveActionPinError:

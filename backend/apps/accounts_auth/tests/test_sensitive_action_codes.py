@@ -30,6 +30,42 @@ from backend.apps.accounts_auth.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, OutboxMessage
 
+# 18.5: the operation each code is requested for (these tests check single use, attempts
+# and expiry; the binding itself is tested in test_operation_binding_18_5.py).
+OPERATIONS: dict[str, dict[str, object]] = {
+    SensitiveAction.WITHDRAWAL: {
+        "amount_minor": 500_00,
+        "currency": "CHF",
+        "iban": "CH5604835012345678009",
+    },
+    SensitiveAction.BANK_ACCOUNT_CHANGE: {"currency": "CHF", "iban": "CH5604835012345678009"},
+    SensitiveAction.FX: {
+        "amount_minor": 1_000_00,
+        "source_currency": "CHF",
+        "target_currency": "EUR",
+    },
+    SensitiveAction.PRIMARY_INVESTMENT: {
+        "amount_minor": 1_000_00,
+        "currency": "CHF",
+        "loan_id": "7b1d4c1e-0000-4000-8000-000000000001",
+    },
+    SensitiveAction.SECONDARY_MARKET_PURCHASE: {
+        "amount_minor": 1_000_00,
+        "currency": "CHF",
+        "listing_id": "7b1d4c1e-0000-4000-8000-000000000002",
+    },
+}
+
+
+def _stored_fingerprint(code_id: object) -> str:
+    """The fingerprint the code was issued with ("" for an unknown code)."""
+    value = (
+        SensitiveActionCode.objects.filter(id=str(code_id))
+        .values_list("operation_fingerprint", flat=True)
+        .first()
+    )
+    return str(value or "")
+
 
 class _FakeSendGridResponse:
     status = 202
@@ -66,7 +102,9 @@ def investor() -> User:
 @pytest.mark.django_db
 def test_sensitive_action_code_is_single_use_and_emits_email_outbox(investor: User) -> None:
     result = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.FX)
+        SensitiveActionCodeCommand(
+            user=investor, action=SensitiveAction.FX, operation=OPERATIONS[SensitiveAction.FX]
+        )
     )
 
     assert result.raw_code.isdigit()
@@ -85,6 +123,7 @@ def test_sensitive_action_code_is_single_use_and_emits_email_outbox(investor: Us
     consumed = consume_sensitive_action_code(
         SensitiveActionCodeConsumeCommand(
             code_id=str(result.code_record.id),
+            expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
             raw_code=result.raw_code,
         )
     )
@@ -99,6 +138,7 @@ def test_sensitive_action_code_is_single_use_and_emits_email_outbox(investor: Us
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(result.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
                 raw_code=result.raw_code,
             )
         )
@@ -120,6 +160,7 @@ def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
         SensitiveActionCodeCommand(
             user=investor,
             action=SensitiveAction.PRIMARY_INVESTMENT,
+            operation=OPERATIONS[SensitiveAction.PRIMARY_INVESTMENT],
             max_attempts=2,
         )
     )
@@ -130,6 +171,7 @@ def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(result.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
                 raw_code=wrong_code,
             )
         )
@@ -142,6 +184,7 @@ def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(result.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
                 raw_code=other_wrong_code,
             )
         )
@@ -149,6 +192,7 @@ def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(result.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
                 raw_code=result.raw_code,
             )
         )
@@ -162,7 +206,10 @@ def test_requested_sensitive_action_code_locks_after_three_wrong_attempts(
     client.force_login(investor)
     response = client.post(
         "/api/v1/auth/sensitive-action-code/request/",
-        data={"action": SensitiveAction.WITHDRAWAL},
+        data={
+            "action": SensitiveAction.WITHDRAWAL,
+            "operation": OPERATIONS[SensitiveAction.WITHDRAWAL],
+        },
         content_type="application/json",
     )
     assert response.status_code == 202
@@ -174,6 +221,7 @@ def test_requested_sensitive_action_code_locks_after_three_wrong_attempts(
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(code_record.id)),
                 raw_code=value,
                 expected_user=investor,
                 expected_action=SensitiveAction.WITHDRAWAL,
@@ -198,7 +246,9 @@ def test_requested_sensitive_action_code_locks_after_three_wrong_attempts(
 @override_settings(AUTH_SENSITIVE_CODE_MAX_ATTEMPTS=5)
 def test_sensitive_action_code_attempt_limit_follows_setting(investor: User) -> None:
     result = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.FX)
+        SensitiveActionCodeCommand(
+            user=investor, action=SensitiveAction.FX, operation=OPERATIONS[SensitiveAction.FX]
+        )
     )
 
     assert result.code_record.max_attempts == 5
@@ -210,6 +260,7 @@ def test_expired_sensitive_action_code_is_rejected(investor: User) -> None:
         SensitiveActionCodeCommand(
             user=investor,
             action=SensitiveAction.SECONDARY_MARKET_PURCHASE,
+            operation=OPERATIONS[SensitiveAction.SECONDARY_MARKET_PURCHASE],
             ttl=timedelta(seconds=-1),
         )
     )
@@ -218,6 +269,7 @@ def test_expired_sensitive_action_code_is_rejected(investor: User) -> None:
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(result.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(result.code_record.id)),
                 raw_code=result.raw_code,
             )
         )
@@ -226,12 +278,20 @@ def test_expired_sensitive_action_code_is_rejected(investor: User) -> None:
 @pytest.mark.django_db
 def test_sensitive_action_code_issue_enforces_cooldown(investor: User) -> None:
     issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.WITHDRAWAL,
+            operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+        )
     )
 
     with pytest.raises(SensitiveActionCodeThrottleError):
         issue_sensitive_action_code(
-            SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+            SensitiveActionCodeCommand(
+                user=investor,
+                action=SensitiveAction.WITHDRAWAL,
+                operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+            )
         )
 
 
@@ -248,7 +308,11 @@ def test_cooldown_is_measured_in_real_time_when_the_qa_clock_is_ahead(
     ahead = timezone.now() + timedelta(days=30)
     monkeypatch.setattr(time_module, "_qa_dev_mode_time_override", lambda: ahead)
     first = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.WITHDRAWAL,
+            operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+        )
     )
     first.code_record.refresh_from_db()
     assert first.code_record.created_at > timezone.now() + timedelta(days=29)
@@ -258,13 +322,21 @@ def test_cooldown_is_measured_in_real_time_when_the_qa_clock_is_ahead(
     )
 
     second = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.WITHDRAWAL,
+            operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+        )
     )
 
     assert second.code_record.pk != first.code_record.pk
     with pytest.raises(SensitiveActionCodeThrottleError):
         issue_sensitive_action_code(
-            SensitiveActionCodeCommand(user=investor, action=SensitiveAction.WITHDRAWAL)
+            SensitiveActionCodeCommand(
+                user=investor,
+                action=SensitiveAction.WITHDRAWAL,
+                operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+            )
         )
 
 
@@ -275,10 +347,18 @@ def test_sensitive_action_code_reissue_supersedes_prior_active_code(
 ) -> None:
     settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = 0
     first = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.BANK_ACCOUNT_CHANGE)
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.BANK_ACCOUNT_CHANGE,
+            operation=OPERATIONS[SensitiveAction.BANK_ACCOUNT_CHANGE],
+        )
     )
     second = issue_sensitive_action_code(
-        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.BANK_ACCOUNT_CHANGE)
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.BANK_ACCOUNT_CHANGE,
+            operation=OPERATIONS[SensitiveAction.BANK_ACCOUNT_CHANGE],
+        )
     )
 
     first.code_record.refresh_from_db()
@@ -288,6 +368,7 @@ def test_sensitive_action_code_reissue_supersedes_prior_active_code(
         consume_sensitive_action_code(
             SensitiveActionCodeConsumeCommand(
                 code_id=str(first.code_record.id),
+                expected_operation_fingerprint=_stored_fingerprint(str(first.code_record.id)),
                 raw_code=first.raw_code,
             )
         )
@@ -295,6 +376,7 @@ def test_sensitive_action_code_reissue_supersedes_prior_active_code(
     consumed = consume_sensitive_action_code(
         SensitiveActionCodeConsumeCommand(
             code_id=str(second.code_record.id),
+            expected_operation_fingerprint=_stored_fingerprint(str(second.code_record.id)),
             raw_code=second.raw_code,
         )
     )
@@ -310,7 +392,7 @@ def test_sensitive_action_code_request_api_issues_investor_money_code(
 
     response = client.post(
         "/api/v1/auth/sensitive-action-code/request/",
-        data={"action": SensitiveAction.FX},
+        data={"action": SensitiveAction.FX, "operation": OPERATIONS[SensitiveAction.FX]},
         content_type="application/json",
     )
 
@@ -353,7 +435,10 @@ def test_sensitive_action_code_request_api_dispatches_via_mocked_sendgrid(
 
     response = client.post(
         "/api/v1/auth/sensitive-action-code/request/",
-        data={"action": SensitiveAction.WITHDRAWAL},
+        data={
+            "action": SensitiveAction.WITHDRAWAL,
+            "operation": OPERATIONS[SensitiveAction.WITHDRAWAL],
+        },
         content_type="application/json",
     )
     dispatch_result = _communications_services().dispatch_due_email_outbox_messages()
@@ -397,12 +482,18 @@ def test_sensitive_action_code_request_api_enforces_issue_cooldown(
 
     first = client.post(
         "/api/v1/auth/sensitive-action-code/request/",
-        data={"action": SensitiveAction.WITHDRAWAL},
+        data={
+            "action": SensitiveAction.WITHDRAWAL,
+            "operation": OPERATIONS[SensitiveAction.WITHDRAWAL],
+        },
         content_type="application/json",
     )
     second = client.post(
         "/api/v1/auth/sensitive-action-code/request/",
-        data={"action": SensitiveAction.WITHDRAWAL},
+        data={
+            "action": SensitiveAction.WITHDRAWAL,
+            "operation": OPERATIONS[SensitiveAction.WITHDRAWAL],
+        },
         content_type="application/json",
     )
 

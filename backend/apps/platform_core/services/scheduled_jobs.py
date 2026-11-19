@@ -38,12 +38,16 @@ NEWSLETTER_NEW_PROJECTS_JOB = "newsletter_new_projects"
 PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
 # U33-DEC-25: the sign-in history and ended device sessions are deleted after the period.
 ACCOUNT_SECURITY_RETENTION_JOB = "account_security_retention"
+# 18.5: the single-use link of an approved assisted recovery, once its 24-hour wait is over.
+# Runs at every invocation (real time, like sessions), not once a day.
+ASSISTED_RECOVERY_LINKS_JOB = "assisted_recovery_links"
 # U33-DEC-18: the 7, 3 and 1 day closing reminders of saved opportunities.
 SAVED_OPPORTUNITY_REMINDERS_JOB = "saved_opportunity_reminders"
 # 18.3: last month's account statement of each investor with money movements (idempotent).
 MONTHLY_INVESTOR_STATEMENTS_JOB = "monthly_investor_statements"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
+    ASSISTED_RECOVERY_LINKS_JOB,
     EMAIL_OUTBOX_DISPATCH_JOB,
     PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
     ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
@@ -64,6 +68,7 @@ ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 # Jobs that change no financial or admin state run as the system, without the admin actor.
 SYSTEM_JOB_NAMES = frozenset(
     {
+        ASSISTED_RECOVERY_LINKS_JOB,
         EMAIL_OUTBOX_DISPATCH_JOB,
         NEWSLETTER_NEW_PROJECTS_JOB,
         PUBLIC_SITE_RETENTION_JOB,
@@ -73,7 +78,10 @@ SYSTEM_JOB_NAMES = frozenset(
     }
 )
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
-DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
+DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {
+    EMAIL_OUTBOX_DISPATCH_JOB,
+    ASSISTED_RECOVERY_LINKS_JOB,
+}
 
 
 class ScheduledJobError(RuntimeError):
@@ -558,6 +566,9 @@ def _execute_scheduled_job(
         return _public_site_retention_summary(as_of=as_of)
     if job_name == ACCOUNT_SECURITY_RETENTION_JOB:
         return _account_security_retention_summary(as_of=as_of)
+    if job_name == ASSISTED_RECOVERY_LINKS_JOB:
+        two_factor: Any = import_module("backend.apps.accounts_auth.two_factor")
+        return {"links_sent": len(two_factor.send_due_recovery_links())}
     if job_name == SAVED_OPPORTUNITY_REMINDERS_JOB:
         return _saved_opportunity_reminders_summary(as_of=as_of)
     if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:

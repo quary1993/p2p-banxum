@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Any, TypedDict
@@ -8,6 +8,14 @@ from typing import Any, TypedDict
 # The PIN every test investor gets from these helpers (ACC-DEC-009). Not weak.
 TEST_SENSITIVE_ACTION_PIN = "482916"
 _TEST_PIN_HASH: dict[str, str] = {}
+# 18.5: a test code issued without operation details takes the details of its first check.
+TEST_BOUND_AT_USE_SUMMARY = "test: bound at first use"
+TEST_BOUND_AT_USE_CODE = "731942"
+
+
+def _digest(value: str) -> str:
+    crypto: Any = import_module("backend.apps.accounts_auth.crypto")
+    return str(crypto.digest_secret(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,17 +58,38 @@ def give_test_pin(user: Any, pin: str = TEST_SENSITIVE_ACTION_PIN) -> str:
     return pin
 
 
-def issue_sensitive_action_test_code(user: Any, action: str) -> SensitiveActionTestCode:
-    """An email code for the action; the user also gets the test PIN if it has none."""
+def issue_sensitive_action_test_code(
+    user: Any, action: str, operation: Mapping[str, object] | None = None
+) -> SensitiveActionTestCode:
+    """An email code for the action (bound to ``operation``, 18.5); the user also gets the
+    test PIN if it has none."""
 
     accounts_models: Any = import_module("backend.apps.accounts_auth.models")
     accounts_services: Any = import_module("backend.apps.accounts_auth.services")
 
     pin = give_test_pin(user)
+    binding: Any = import_module("backend.apps.platform_core.domain.operation_binding")
+    if operation is None and binding.is_bound_action(action):
+        # Bound at use (see backend/conftest.py): the code takes the operation details of the
+        # first module that checks it. Tests of the binding itself pass ``operation``.
+        record = accounts_models.SensitiveActionCode.objects.create(
+            user=user,
+            action=accounts_models.SensitiveAction(action),
+            code_digest=_digest(TEST_BOUND_AT_USE_CODE),
+            encrypted_code="",
+            expires_at=import_module("django.utils.timezone").now()
+            + import_module("datetime").timedelta(minutes=10),
+            max_attempts=3,
+            operation_summary=TEST_BOUND_AT_USE_SUMMARY,
+        )
+        return SensitiveActionTestCode(
+            code_id=str(record.id), raw_code=TEST_BOUND_AT_USE_CODE, pin=pin
+        )
     result = accounts_services.issue_sensitive_action_code(
         accounts_services.SensitiveActionCodeCommand(
             user=user,
             action=accounts_models.SensitiveAction(action),
+            operation=operation,
         )
     )
     return SensitiveActionTestCode(
@@ -76,6 +105,7 @@ def assert_pin_guards_sensitive_action(
     action: str,
     *,
     success_status: int,
+    operation: Mapping[str, object] | None = None,
 ) -> Any:
     """Run the PIN checks of one sensitive endpoint (ACC-DEC-009) and return the success.
 
@@ -86,7 +116,7 @@ def assert_pin_guards_sensitive_action(
 
     accounts_models: Any = import_module("backend.apps.accounts_auth.models")
     accounts_models.SensitiveActionPin.objects.filter(user_id=user.pk).delete()
-    code = issue_sensitive_action_test_code(user, action)
+    code = issue_sensitive_action_test_code(user, action, operation)
     accounts_models.SensitiveActionPin.objects.filter(user_id=user.pk).delete()
     fields = {
         "sensitive_action_code_id": code.code_id,
@@ -115,10 +145,12 @@ def assert_pin_guards_sensitive_action(
     return success
 
 
-def sensitive_action_test_payload(user: Any, action: str) -> SensitiveActionCodePayload:
-    """The request fields of a sensitive action: email code and PIN."""
+def sensitive_action_test_payload(
+    user: Any, action: str, operation: Mapping[str, object] | None = None
+) -> SensitiveActionCodePayload:
+    """The request fields of a sensitive action: email code (bound to ``operation``) and PIN."""
 
-    code = issue_sensitive_action_test_code(user, action)
+    code = issue_sensitive_action_test_code(user, action, operation)
     return {
         "sensitive_action_code_id": code.code_id,
         "sensitive_action_code": code.raw_code,

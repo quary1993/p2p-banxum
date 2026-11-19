@@ -24,9 +24,12 @@ from backend.apps.accounts_auth.security_sessions import (
 )
 from backend.apps.accounts_auth.services import (
     ChangeAccountAccessCommand,
-    MagicLinkRequestCommand,
     change_account_access,
-    issue_magic_link,
+)
+from backend.apps.accounts_auth.tests.signin_helpers import (
+    TEST_PASSWORD,
+    ready_investor,
+    sign_in,
 )
 from backend.apps.platform_core.models import OutboxMessage
 
@@ -43,25 +46,21 @@ WINDOWS_FIREFOX = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/201
 
 @pytest.fixture
 def investor(db: None) -> User:
-    return User.objects.create_user(
-        email="devices@example.test",
-        full_name="Device Investor",
-        account_type=AccountType.NATURAL_PERSON_LENDER,
-        status=AccountStatus.ACTIVE,
+    return ready_investor(
+        User.objects.create_user(
+            email="devices@example.test",
+            full_name="Device Investor",
+            account_type=AccountType.NATURAL_PERSON_LENDER,
+            status=AccountStatus.ACTIVE,
+        )
     )
 
 
 def _sign_in(user: User, user_agent: str, client: Client | None = None, **headers: Any) -> Client:
-    """A sign-in from a browser: a new one by default, or the given one (same device cookie)."""
+    """A sign-in from a browser (password + SMS code): a new browser by default, or the given
+    one (same device cookie)."""
     client = client or Client(HTTP_USER_AGENT=user_agent)
-    link = issue_magic_link(MagicLinkRequestCommand(email=user.email))
-    response = client.post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": link.raw_token},
-        content_type="application/json",
-        **headers,
-    )
-    assert response.status_code == 200, response.content
+    sign_in(client, user, **headers)
     return client
 
 
@@ -81,7 +80,7 @@ def test_sign_in_records_the_session_and_the_history(investor: User) -> None:
     assert len(sessions) == 1
     assert sessions[0]["device_label"] == "Chrome on macOS"
     assert sessions[0]["country_code"] == "CH"
-    assert sessions[0]["method"] == "email_link"
+    assert sessions[0]["method"] == "password_sms"
     assert sessions[0]["current"] is True
 
     history = client.get("/api/v1/auth/sign-in-history/").json()
@@ -90,7 +89,7 @@ def test_sign_in_records_the_session_and_the_history(investor: User) -> None:
     assert (event["device_label"], event["country_code"], event["method"], event["result"]) == (
         "Chrome on macOS",
         "CH",
-        "email_link",
+        "password_sms",
         "signed_in",
     )
 
@@ -162,7 +161,6 @@ def test_a_refused_sign_in_of_a_blocked_account_is_in_its_history(investor: User
         status=AccountStatus.ACTIVE,
         is_staff=True,
     )
-    link = issue_magic_link(MagicLinkRequestCommand(email=investor.email))
     change_account_access(
         ChangeAccountAccessCommand(
             actor=admin,
@@ -173,11 +171,12 @@ def test_a_refused_sign_in_of_a_blocked_account_is_in_its_history(investor: User
         )
     )
     response = Client(HTTP_USER_AGENT=WINDOWS_FIREFOX).post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": link.raw_token},
+        "/api/v1/auth/login/",
+        data={"email": investor.email, "password": TEST_PASSWORD},
         content_type="application/json",
     )
     assert response.status_code == 403
+    assert response.json()["code"] == "account_restricted"
     event = SignInEvent.objects.get(user=investor)
     assert (event.result, event.device_label) == ("blocked", "Firefox on Windows")
     assert not UserSession.objects.filter(user=investor).exists()

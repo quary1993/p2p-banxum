@@ -7,8 +7,9 @@ stored only as a Django password hash. Five wrong PINs in a row lock it for 30 m
 - First PIN at registration (pending KYC, phone verified): no email code.
 - First PIN of any other account: an email code for ``pin_setup``.
 - Change: current PIN, an email code for ``pin_change`` and the new PIN twice.
-- Forgot PIN: an email code for ``pin_reset``, an SMS code to the verified phone and
-  the new PIN twice. It clears the lock.
+- Forgot PIN (18.5): the account password, an SMS code to the verified phone and the new
+  PIN twice. It clears the lock.
+- D-1: an account with an authenticator app has no PIN; the app code replaces it.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from backend.apps.accounts_auth.crypto import digest_secret, encrypt_delivery_secret
+from backend.apps.accounts_auth.factors import FACTOR_APP, factor_kind
 from backend.apps.accounts_auth.models import (
     AccountStatus,
     AccountType,
@@ -141,6 +143,20 @@ class PinResetUnavailableError(PinError):
     http_status = 409
 
 
+class PinNotUsedError(PinError):
+    """D-1: an account with an authenticator app has no PIN (the app code replaces it)."""
+
+    code = "pin_not_used"
+    http_status = 409
+
+
+class PinResetPasswordError(PinError):
+    """18.5: the forgotten-PIN reset starts with the account password."""
+
+    code = "password_invalid"
+    http_status = 400
+
+
 class PhoneCodeInvalidError(InvalidOrExpiredCodeError):
     """The SMS code of a PIN reset is wrong, expired or replaced."""
 
@@ -182,6 +198,10 @@ def _can_have_pin(user: User) -> bool:
 def _require_pin_account(user: Any) -> User:
     if not isinstance(user, User) or not _can_have_pin(user):
         raise PinNotAvailableError("This account cannot use a PIN.")
+    if factor_kind(user) == FACTOR_APP:
+        raise PinNotUsedError(
+            "Your account uses an authenticator app. You type its code instead of a PIN."
+        )
     return user
 
 
@@ -212,6 +232,8 @@ class PinStatus:
     setup_requires_email_code: bool
     reset_available: bool
     phone_last_digits: str
+    # 18.5 / D-1: "app" (authenticator code replaces the PIN), "sms" or "" (no factor yet).
+    second_factor: str = ""
 
 
 def _max_attempts() -> int:
@@ -254,8 +276,9 @@ def pin_status_for_user(user: User) -> PinStatus:
         attempts_left=0 if locked_until is not None else max(max_attempts - failed, 0),
         max_attempts=max_attempts,
         setup_requires_email_code=not registration_pin_allowed(user),
-        reset_available=bool(_phone_last_digits(user)),
+        reset_available=bool(_phone_last_digits(user)) and factor_kind(user) != FACTOR_APP,
         phone_last_digits=_phone_last_digits(user),
+        second_factor=factor_kind(user),
     )
 
 
@@ -471,6 +494,8 @@ def _use_email_code(
 @dataclass(frozen=True, slots=True)
 class StartPinResetCommand:
     user: Any
+    # 18.5: forgotten PIN = account password + SMS code (no email code).
+    password: str = field(repr=False, default="")
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -487,11 +512,19 @@ def _phone_provider() -> str:
     return str(settings.PHONE_VERIFICATION_PROVIDER).strip().lower()
 
 
-@transaction.atomic
 def start_pin_reset(command: StartPinResetCommand) -> StartPinResetResult:
-    """Send the SMS code of a forgotten-PIN reset to the verified phone number."""
+    """Check the password, then send the SMS code of a forgotten-PIN reset to the verified
+    phone number. A wrong password is audited (outside the SMS transaction)."""
 
     user = _require_pin_account(command.user)
+    if not user.has_usable_password() or not user.check_password(command.password):
+        _audit(user, "auth.pin_reset_failed", {"reason": "wrong_password"})
+        raise PinResetPasswordError("The password is wrong.")
+    return _send_pin_reset_sms(user, command)
+
+
+@transaction.atomic
+def _send_pin_reset_sms(user: User, command: StartPinResetCommand) -> StartPinResetResult:
     if not _phone_last_digits(user):
         raise PinResetUnavailableError(
             "We cannot send an SMS code because your account has no verified phone number. "
@@ -755,18 +788,13 @@ class ConfirmPinResetCommand:
     phone_code: str = field(repr=False)
     new_pin: str = field(repr=False)
     new_pin_confirmation: str = field(repr=False)
-    sensitive_action_code_id: str = ""
-    sensitive_action_code: str = field(repr=False, default="")
     ip_address: str | None = None
     user_agent: str = ""
 
 
 def confirm_pin_reset(command: ConfirmPinResetCommand) -> SensitiveActionPin:
-    """Email code and SMS code prove the owner; the new PIN replaces the old one.
-
-    The email code is checked first without being used up, so a wrong SMS code does
-    not cost the email code. Both are used only when both are right.
-    """
+    """18.5: the password (checked at the start) and the SMS code prove the owner; the new
+    PIN replaces the old one and clears the lock."""
 
     user = _require_pin_account(command.user)
     if not _phone_last_digits(user):
@@ -775,27 +803,10 @@ def confirm_pin_reset(command: ConfirmPinResetCommand) -> SensitiveActionPin:
             f"Contact support at {_support_email()}."
         )
     _validate_new_pin(command.new_pin, command.new_pin_confirmation)
-    _use_email_code(
-        user,
-        action=SensitiveAction.PIN_RESET,
-        code_id=command.sensitive_action_code_id,
-        raw_code=command.sensitive_action_code,
-        ip_address=command.ip_address,
-        user_agent=command.user_agent,
-        consume=False,
-    )
     _verify_reset_sms(
         user,
         challenge_id=command.phone_challenge_id,
         raw_code=command.phone_code,
-        ip_address=command.ip_address,
-        user_agent=command.user_agent,
-    )
-    _use_email_code(
-        user,
-        action=SensitiveAction.PIN_RESET,
-        code_id=command.sensitive_action_code_id,
-        raw_code=command.sensitive_action_code,
         ip_address=command.ip_address,
         user_agent=command.user_agent,
     )

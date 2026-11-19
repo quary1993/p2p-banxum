@@ -32,6 +32,8 @@ from backend.apps.accounts_auth.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
 
+# 18.5: a password that meets the policy (not real data).
+REGISTRATION_TEST_PASSWORD = "quiet-harbour-lantern-47"
 AGREEMENT_CHECKBOX_LABEL = (
     "I have read, understood and accept the General Terms and Conditions / "
     "User Agreement, including its integral annexes"
@@ -80,6 +82,7 @@ def test_register_natural_person_lender_records_terms_and_events(settings: Any) 
     user = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="Investor@Example.COM",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Ada Investor",
             phone_number="+41790000000",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -93,7 +96,9 @@ def test_register_natural_person_lender_records_terms_and_events(settings: Any) 
     assert user.email == "investor@example.com"
     assert user.account_type == AccountType.NATURAL_PERSON_LENDER
     assert user.status == AccountStatus.PENDING_KYC
-    assert user.has_usable_password() is False
+    assert user.has_usable_password() is True
+    assert user.check_password(REGISTRATION_TEST_PASSWORD)
+    assert user.password_changed_at is not None
     assert user.marketing_consent is True
     assert RegistrationTermsAcceptance.objects.filter(
         user=user,
@@ -117,6 +122,7 @@ def test_register_natural_person_lender_accepts_current_registration_document(
     user = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="doc-investor@example.test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Doc Investor",
             phone_number="+41790000000",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -150,6 +156,7 @@ def test_registration_records_separate_server_versioned_risk_disclosure(settings
     user = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="risk-evidence@example.test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Risk Evidence Investor",
             phone_number="+41790000011",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -185,6 +192,7 @@ def test_registration_requires_risk_disclosure_when_published(settings: Any) -> 
         register_natural_person_lender(
             RegisterNaturalPersonCommand(
                 email="missing-risk@example.test",
+                password=REGISTRATION_TEST_PASSWORD,
                 full_name="Missing Risk Investor",
                 phone_number="+41790000012",
                 terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -206,6 +214,7 @@ def test_register_requires_document_terms_when_registration_template_is_publishe
         register_natural_person_lender(
             RegisterNaturalPersonCommand(
                 email="missing-doc@example.test",
+                password=REGISTRATION_TEST_PASSWORD,
                 full_name="Missing Doc Investor",
                 phone_number="+41790000000",
                 terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -222,6 +231,7 @@ def _registration_body(
 ) -> dict[str, Any]:
     return {
         "email": email,
+        "password": extra.pop("password", REGISTRATION_TEST_PASSWORD),
         "full_name": extra.pop("full_name", "Client Investor"),
         "phone_number": phone_number,
         "terms_version": settings.REGISTRATION_TERMS_VERSION,
@@ -246,6 +256,7 @@ def test_repeated_registration_never_changes_an_unfinished_account(settings: Any
     first = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="investor@example.test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Ada Investor",
             phone_number="+41790000000",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -267,6 +278,7 @@ def test_repeated_registration_never_changes_an_unfinished_account(settings: Any
     repeated = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="Investor@Example.Test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Attacker Chosen",
             phone_number="+88216000000",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -295,6 +307,7 @@ def test_repeated_registration_of_a_finished_account_is_not_an_error(settings: A
     user = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="investor@example.test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Ada Investor",
             phone_number="+41790000000",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -307,6 +320,7 @@ def test_repeated_registration_of_a_finished_account_is_not_an_error(settings: A
     repeated = register_natural_person_lender(
         RegisterNaturalPersonCommand(
             email="investor@example.test",
+            password=REGISTRATION_TEST_PASSWORD,
             full_name="Someone Else",
             phone_number="+41790000001",
             terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -430,22 +444,31 @@ def test_registration_api_emails_the_owner_instead_of_answering(
         client, _registration_body(settings, "admin@example.test", "+41790000001"), "198.51.100.21"
     )
 
-    link = OutboxMessage.objects.get(
-        topic="email.magic_link_requested", payload__user_id=str(active.id)
+    # 18.5: an account with a second factor signs in with its password: the notice has no
+    # link and says so.
+    notice = OutboxMessage.objects.get(
+        topic="email.account_exists_notice", payload__user_id=str(active.id)
     )
-    assert link.payload["purpose"] == "existing_account"
-    assert OutboxMessage.objects.filter(
-        topic="email.account_exists_notice", payload__user_id=str(admin.id)
-    ).count() == 1
+    assert "sign in with your email address and password" in notice.payload["body_text"]
+    assert not EmailLoginToken.objects.filter(user=active).exists()
+    assert (
+        OutboxMessage.objects.filter(
+            topic="email.account_exists_notice", payload__user_id=str(admin.id)
+        ).count()
+        == 1
+    )
     assert not EmailLoginToken.objects.filter(user=admin).exists()
 
     # The notice without a link is sent at most once an hour per account.
     _post_registration(
         client, _registration_body(settings, "admin@example.test", "+41790000001"), "198.51.100.22"
     )
-    assert OutboxMessage.objects.filter(
-        topic="email.account_exists_notice", payload__user_id=str(admin.id)
-    ).count() == 1
+    assert (
+        OutboxMessage.objects.filter(
+            topic="email.account_exists_notice", payload__user_id=str(admin.id)
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.django_db
@@ -520,9 +543,12 @@ def test_repeated_registrations_do_not_flood_the_owner_inbox(
     tokens = EmailLoginToken.objects.filter(user=user)
     assert tokens.count() == 1
     assert tokens.get().superseded_at is None
-    assert AuditEvent.objects.filter(
-        action="auth.magic_link_request_suppressed", target_id=str(user.id)
-    ).count() == 4
+    assert (
+        AuditEvent.objects.filter(
+            action="auth.magic_link_request_suppressed", target_id=str(user.id)
+        ).count()
+        == 4
+    )
 
 
 @pytest.mark.django_db
@@ -540,11 +566,14 @@ def test_signed_in_owner_can_correct_an_unverified_phone_number(
         phone_number="+41790000009",
     )
     issued = issue_magic_link(MagicLinkRequestCommand(email=user.email))
-    assert client.post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": issued.raw_token},
-        content_type="application/json",
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/auth/register/confirm-email/",
+            data={"token": issued.raw_token},
+            content_type="application/json",
+        ).status_code
+        == 200
+    )
 
     response = client.post(
         "/api/v1/auth/phone/request/",
@@ -604,6 +633,7 @@ def test_registration_rejects_client_forged_terms_hash(settings: Any) -> None:
         register_natural_person_lender(
             RegisterNaturalPersonCommand(
                 email="investor@example.test",
+                password=REGISTRATION_TEST_PASSWORD,
                 full_name="Ada Investor",
                 phone_number="+41790000000",
                 terms_version=settings.REGISTRATION_TERMS_VERSION,
@@ -621,6 +651,7 @@ def test_registration_api_throttles_repeated_ip_requests(
         "/api/v1/auth/register/natural-person/",
         data={
             "email": "client-1@example.test",
+            "password": REGISTRATION_TEST_PASSWORD,
             "full_name": "Client Investor",
             "phone_number": "+41790000001",
             "terms_version": settings.REGISTRATION_TERMS_VERSION,
@@ -632,6 +663,7 @@ def test_registration_api_throttles_repeated_ip_requests(
         "/api/v1/auth/register/natural-person/",
         data={
             "email": "client-2@example.test",
+            "password": REGISTRATION_TEST_PASSWORD,
             "full_name": "Client Investor",
             "phone_number": "+41790000002",
             "terms_version": settings.REGISTRATION_TERMS_VERSION,

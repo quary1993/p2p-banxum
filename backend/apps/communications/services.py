@@ -925,13 +925,27 @@ def _render_sensitive_action_code_email(
     platform = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
     subject = f"Your {platform} confirmation code"
+    # 18.5: a code of an operation confirms only that operation (stored on the code record).
+    summary = str(getattr(code_record, "operation_summary", "") or "").strip()
+    summary_text = (
+        f"It confirms only this operation: {summary}.\n"
+        "If these details are not what you asked for, do not use the code.\n"
+        if summary
+        else ""
+    )
     body_text = (
         f"Your {platform} confirmation code is:\n\n"
         f"{raw_code}\n\n"
         f"It expires at {_email_time(code_record.expires_at)} and is valid for: "
         f"{_action_label(action)}.\n"
+        f"{summary_text}"
         "If you did not request this code, contact support and do not share it.\n\n"
         f"{platform} is operated by {operator}."
+    )
+    data_rows: tuple[tuple[str, str], ...] = (
+        ("Action", _action_label(action)),
+        *((("Operation", summary),) if summary else ()),
+        ("Expires", _email_time(code_record.expires_at)),
     )
     return RenderedEmail(
         recipient_email=recipient,
@@ -946,13 +960,18 @@ def _render_sensitive_action_code_email(
                 headline="Confirm this account action",
                 paragraphs=(
                     f"Use this code to confirm your {platform} action.",
+                    *(
+                        (
+                            f"It confirms only this operation: {summary}. If these details are "
+                            "not what you asked for, do not use the code.",
+                        )
+                        if summary
+                        else ()
+                    ),
                     "Never share this code. If you did not request it, contact support and do not continue.",
                 ),
                 highlight=("Your confirmation code", raw_code),
-                data_rows=(
-                    ("Action", _action_label(action)),
-                    ("Expires", _email_time(code_record.expires_at)),
-                ),
+                data_rows=data_rows,
                 buttons=(EmailButton("Open BANXUM", _base_url()),),
                 fine_print=f"{platform} is operated by {operator}.",
             )
@@ -1154,8 +1173,31 @@ def _localized_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return localized
 
 
+def _resolve_secret_link(payload: dict[str, Any], *, redact: bool) -> str:
+    """18.5: a single-use security link whose token is read from the auth record at send time
+    and never stored: the payload has only ``action_url_template`` with ``{secret}``."""
+    template = str(payload.get("action_url_template", "") or "")
+    secret_type = str(payload.get("delivery_secret_type", "") or "")
+    auth = _auth_services_module()
+    if not template or secret_type not in auth.SECURITY_LINK_SECRET_TYPES:
+        return ""
+    if redact:
+        return template.replace("{secret}", REDACTED_SECRET)
+    secret = auth.delivery_secret_for_security_link(
+        secret_type, str(payload.get("delivery_secret_ref", ""))
+    )
+    return template.replace("{secret}", urllib.parse.quote(secret, safe=""))
+
+
 def _render_payload_email(message: OutboxMessage, *, redact: bool = False) -> RenderedEmail:
     payload = _localized_payload(dict(message.payload or {}))
+    secret_link = _resolve_secret_link(payload, redact=redact)
+    if secret_link:
+        payload["action_url"] = secret_link
+        payload["body_text"] = (
+            f"{str(payload.get('body_text', '')).strip()}\n\n"
+            f"{payload.get('action_label') or 'Open the link'}: {secret_link}"
+        )
     from backend.apps.communications.alert_stop import stop_link_from_payload
 
     # Q14: alert emails carry a one-click "Stop these alerts" link (redacted in stored copies).

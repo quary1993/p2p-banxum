@@ -36,7 +36,9 @@ from backend.apps.accounts_auth.pin_services import (
     PinLockedError,
     PinMismatchError,
     PinNotAvailableError,
+    PinNotUsedError,
     PinPhoneVerificationRequiredError,
+    PinResetPasswordError,
     PinResetUnavailableError,
     PinUnchangedError,
     PinWeakError,
@@ -59,6 +61,8 @@ from backend.apps.accounts_auth.services import (
     confirm_phone_verification,
     issue_sensitive_action_code,
 )
+from backend.apps.accounts_auth.tests.signin_helpers import app_code, give_authenticator
+from backend.apps.accounts_auth.two_factor import complete_admin_sign_in, start_admin_sign_in
 from backend.apps.platform_core.models import AuditEvent, OutboxMessage
 from backend.apps.platform_core.services.sensitive_actions import (
     SensitiveActionPinError,
@@ -69,6 +73,7 @@ from backend.apps.platform_core.services.sensitive_actions import (
 
 PIN = "482916"
 NEW_PIN = "730519"
+TEST_PASSWORD = "quiet-harbour-lantern-47"
 
 
 def _user(
@@ -80,6 +85,7 @@ def _user(
 ) -> User:
     return User.objects.create_user(
         email=email,
+        password=TEST_PASSWORD,
         full_name="Pin Investor",
         account_type=account_type,
         status=status,
@@ -88,8 +94,18 @@ def _user(
     )
 
 
+# 18.5: an operation code is requested for the operation it confirms.
+WITHDRAWAL_OPERATION = {"amount_minor": 500_00, "currency": "CHF", "iban": "CH5604835012345678009"}
+
+
 def _code(user: User, action: SensitiveAction) -> tuple[str, str]:
-    result = issue_sensitive_action_code(SensitiveActionCodeCommand(user=user, action=action))
+    result = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(
+            user=user,
+            action=action,
+            operation=WITHDRAWAL_OPERATION if action == SensitiveAction.WITHDRAWAL else None,
+        )
+    )
     return str(result.code_record.id), result.raw_code
 
 
@@ -115,6 +131,7 @@ def _verify(user: User, *, pin: str, code_id: str, raw_code: str) -> None:
             code_id=code_id,
             raw_code=raw_code,
             pin=pin,
+            operation=WITHDRAWAL_OPERATION,
         )
     )
 
@@ -481,18 +498,18 @@ def test_change_pin_with_a_wrong_email_code_keeps_the_old_pin() -> None:
 # ---- Forgot PIN ----------------------------------------------------------------------------
 
 
-def _start_reset(user: User) -> tuple[str, str]:
-    result = start_pin_reset(StartPinResetCommand(user=user))
+def _start_reset(user: User, password: str = TEST_PASSWORD) -> tuple[str, str]:
+    result = start_pin_reset(StartPinResetCommand(user=user, password=password))
     return str(result.challenge.id), result.raw_code
 
 
 @pytest.mark.django_db
-def test_forgot_pin_with_email_and_sms_codes_sets_a_new_pin_and_clears_the_lock() -> None:
+def test_forgot_pin_with_the_password_and_an_sms_code_sets_a_new_pin_and_clears_the_lock() -> None:
+    """18.5: forgotten PIN = account password + SMS code (no email code)."""
     user = _with_pin(_user())
     SensitiveActionPin.objects.filter(user=user).update(
         locked_until=timezone.now() + timedelta(minutes=20)
     )
-    code_id, raw_code = _code(user, SensitiveAction.PIN_RESET)
     challenge_id, sms_code = _start_reset(user)
     challenge = PhoneVerificationChallenge.objects.get(id=challenge_id)
     assert challenge.purpose == PhoneVerificationPurpose.PIN_RESET
@@ -508,8 +525,6 @@ def test_forgot_pin_with_email_and_sms_codes_sets_a_new_pin_and_clears_the_lock(
             phone_code=sms_code,
             new_pin=NEW_PIN,
             new_pin_confirmation=NEW_PIN,
-            sensitive_action_code_id=code_id,
-            sensitive_action_code=raw_code,
         )
     )
 
@@ -517,7 +532,6 @@ def test_forgot_pin_with_email_and_sms_codes_sets_a_new_pin_and_clears_the_lock(
     assert check_password(NEW_PIN, record.pin_hash)
     assert record.locked_until is None
     assert record.failed_attempts == 0
-    assert SensitiveActionCode.objects.get(id=code_id).consumed_at is not None
     assert (
         PhoneVerificationChallenge.objects.get(id=challenge_id).status
         == PhoneVerificationStatus.VERIFIED
@@ -529,9 +543,21 @@ def test_forgot_pin_with_email_and_sms_codes_sets_a_new_pin_and_clears_the_lock(
 
 
 @pytest.mark.django_db
-def test_forgot_pin_with_a_wrong_sms_code_keeps_the_email_code_usable() -> None:
+def test_forgot_pin_with_a_wrong_password_sends_no_sms() -> None:
     user = _with_pin(_user())
-    code_id, raw_code = _code(user, SensitiveAction.PIN_RESET)
+
+    with pytest.raises(PinResetPasswordError):
+        _start_reset(user, password="not-the-password-1")
+
+    assert not PhoneVerificationChallenge.objects.filter(user=user).exists()
+    assert AuditEvent.objects.filter(
+        action="auth.pin_reset_failed", target_id=str(user.id)
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_forgot_pin_with_a_wrong_sms_code_counts_an_attempt_and_keeps_the_pin() -> None:
+    user = _with_pin(_user())
     challenge_id, sms_code = _start_reset(user)
     wrong_sms = "000000" if sms_code != "000000" else "111111"
 
@@ -543,15 +569,11 @@ def test_forgot_pin_with_a_wrong_sms_code_keeps_the_email_code_usable() -> None:
                 phone_code=wrong_sms,
                 new_pin=NEW_PIN,
                 new_pin_confirmation=NEW_PIN,
-                sensitive_action_code_id=code_id,
-                sensitive_action_code=raw_code,
             )
         )
 
-    code = SensitiveActionCode.objects.get(id=code_id)
-    assert code.consumed_at is None
-    assert code.attempts == 0
     assert PhoneVerificationChallenge.objects.get(id=challenge_id).attempts == 1
+    assert check_password(PIN, _record(user).pin_hash)
     confirm_pin_reset(
         ConfirmPinResetCommand(
             user=user,
@@ -559,37 +581,24 @@ def test_forgot_pin_with_a_wrong_sms_code_keeps_the_email_code_usable() -> None:
             phone_code=sms_code,
             new_pin=NEW_PIN,
             new_pin_confirmation=NEW_PIN,
-            sensitive_action_code_id=code_id,
-            sensitive_action_code=raw_code,
         )
     )
     assert check_password(NEW_PIN, _record(user).pin_hash)
 
 
 @pytest.mark.django_db
-def test_forgot_pin_with_a_wrong_email_code_does_not_touch_the_sms_code() -> None:
-    user = _with_pin(_user())
-    code_id, raw_code = _code(user, SensitiveAction.PIN_RESET)
-    challenge_id, sms_code = _start_reset(user)
+def test_an_authenticator_account_has_no_pin_to_reset() -> None:
+    """D-1: the app code replaces the PIN; set, change and reset are refused."""
+    user = _user()
+    give_authenticator(user)
 
-    with pytest.raises(InvalidOrExpiredCodeError):
-        confirm_pin_reset(
-            ConfirmPinResetCommand(
-                user=user,
-                phone_challenge_id=challenge_id,
-                phone_code=sms_code,
-                new_pin=NEW_PIN,
-                new_pin_confirmation=NEW_PIN,
-                sensitive_action_code_id=code_id,
-                sensitive_action_code="000000" if raw_code != "000000" else "111111",
-            )
-        )
-
-    assert SensitiveActionCode.objects.get(id=code_id).attempts == 1
-    challenge = PhoneVerificationChallenge.objects.get(id=challenge_id)
-    assert challenge.attempts == 0
-    assert challenge.status == PhoneVerificationStatus.PENDING
-    assert check_password(PIN, _record(user).pin_hash)
+    with pytest.raises(PinNotUsedError):
+        _start_reset(user)
+    with pytest.raises(PinNotUsedError):
+        set_first_pin(SetPinCommand(user=user, new_pin=PIN, new_pin_confirmation=PIN))
+    status = pin_status_for_user(user)
+    assert status.second_factor == "app"
+    assert status.reset_available is False
 
 
 @pytest.mark.django_db
@@ -597,7 +606,7 @@ def test_forgot_pin_needs_a_verified_phone() -> None:
     user = _user(phone_verified=False)
 
     with pytest.raises(PinResetUnavailableError):
-        start_pin_reset(StartPinResetCommand(user=user))
+        start_pin_reset(StartPinResetCommand(user=user, password=TEST_PASSWORD))
     assert pin_status_for_user(user).reset_available is False
 
 
@@ -627,8 +636,7 @@ def test_forgot_pin_uses_twilio_verify_for_the_sms_code(monkeypatch: pytest.Monk
         return PhoneVerificationCheckResult(approved=code == "135792", provider_status="approved")
 
     monkeypatch.setattr("backend.apps.accounts_auth.pin_services.check_twilio_verify", fake_check)
-    code_id, raw_code = _code(user, SensitiveAction.PIN_RESET)
-    result = start_pin_reset(StartPinResetCommand(user=user))
+    result = start_pin_reset(StartPinResetCommand(user=user, password=TEST_PASSWORD))
     assert result.raw_code == ""
     assert result.challenge.provider_reference == "VE-1"
 
@@ -639,8 +647,6 @@ def test_forgot_pin_uses_twilio_verify_for_the_sms_code(monkeypatch: pytest.Monk
             phone_code="135792",
             new_pin=NEW_PIN,
             new_pin_confirmation=NEW_PIN,
-            sensitive_action_code_id=code_id,
-            sensitive_action_code=raw_code,
         )
     )
 
@@ -702,6 +708,7 @@ def test_me_and_status_tell_the_portal_whether_a_pin_exists_and_whether_it_is_lo
         "setup_requires_email_code": True,
         "reset_available": True,
         "phone_last_digits": "42",
+        "second_factor": "sms",
     }
 
     _with_pin(user)
@@ -804,9 +811,11 @@ def test_change_pin_api_reports_the_pin_errors_with_their_codes() -> None:
 def test_forgot_pin_api_flow() -> None:
     user = _with_pin(_user())
     client = _client(user)
-    code_id, raw_code = _code(user, SensitiveAction.PIN_RESET)
 
-    started = _post(client, "/api/v1/auth/pin/reset/start/")
+    wrong_password = _post(client, "/api/v1/auth/pin/reset/start/", {"password": "nope-nope-123"})
+    assert wrong_password.status_code == 400
+    assert wrong_password.json()["code"] == "password_invalid"
+    started = _post(client, "/api/v1/auth/pin/reset/start/", {"password": TEST_PASSWORD})
     assert started.status_code == 202
     assert started.json()["phone_last_digits"] == "42"
     challenge = PhoneVerificationChallenge.objects.get(id=started.json()["phone_challenge_id"])
@@ -817,8 +826,6 @@ def test_forgot_pin_api_flow() -> None:
         client,
         "/api/v1/auth/pin/reset/confirm/",
         {
-            "sensitive_action_code_id": code_id,
-            "sensitive_action_code": raw_code,
             "phone_challenge_id": str(challenge.id),
             "phone_code": "000000" if sms_code != "000000" else "111111",
             "new_pin": NEW_PIN,
@@ -831,8 +838,6 @@ def test_forgot_pin_api_flow() -> None:
         client,
         "/api/v1/auth/pin/reset/confirm/",
         {
-            "sensitive_action_code_id": code_id,
-            "sensitive_action_code": raw_code,
             "phone_challenge_id": str(challenge.id),
             "phone_code": sms_code,
             "new_pin": NEW_PIN,
@@ -848,9 +853,10 @@ def test_forgot_pin_api_flow() -> None:
 def test_forgot_pin_sms_is_throttled_like_the_registration_sms() -> None:
     user = _with_pin(_user())
     client = _client(user)
+    body = {"password": TEST_PASSWORD}
 
-    assert _post(client, "/api/v1/auth/pin/reset/start/").status_code == 202
-    assert _post(client, "/api/v1/auth/pin/reset/start/").status_code == 429
+    assert _post(client, "/api/v1/auth/pin/reset/start/", body).status_code == 202
+    assert _post(client, "/api/v1/auth/pin/reset/start/", body).status_code == 429
 
 
 @pytest.mark.django_db
@@ -887,14 +893,6 @@ def test_the_pin_never_appears_in_responses_or_audit_metadata() -> None:
 
 @pytest.mark.django_db
 def test_admin_login_has_no_pin() -> None:
-    from backend.apps.accounts_auth.services import (
-        AdminLoginConfirmCommand,
-        AdminLoginStartCommand,
-        confirm_admin_login,
-        delivery_secret_for_sensitive_action_code,
-        start_admin_login,
-    )
-
     admin = User.objects.create_user(
         email="admin-no-pin@example.test",
         password="Correct-Horse-Battery-42",
@@ -903,16 +901,10 @@ def test_admin_login_has_no_pin() -> None:
         status=AccountStatus.ACTIVE,
         is_staff=True,
     )
-    started = start_admin_login(
-        AdminLoginStartCommand(email=admin.email, password="Correct-Horse-Battery-42")
-    )
+    give_authenticator(admin)
+    started = start_admin_sign_in(email=admin.email, password="Correct-Horse-Battery-42")
 
-    user = confirm_admin_login(
-        AdminLoginConfirmCommand(
-            code_id=str(started.code_record.id),
-            raw_code=delivery_secret_for_sensitive_action_code(started.code_record),
-        )
-    )
+    user = complete_admin_sign_in(challenge_id=started.challenge_id, code=app_code(admin))
 
     assert user == admin
     assert not SensitiveActionPin.objects.exists()

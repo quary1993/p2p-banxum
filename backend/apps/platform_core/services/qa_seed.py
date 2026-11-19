@@ -221,6 +221,11 @@ def _seed(*, actor: Any) -> dict[str, Any]:
             auth.SensitiveActionCodeCommand(
                 user=investor,
                 action="primary_investment",
+                operation={
+                    "amount_minor": amount,
+                    "currency": str(created.currency_id),
+                    "loan_id": str(loan.pk),
+                },
             )
         )
         primary.allocate_primary_order_from_balance(

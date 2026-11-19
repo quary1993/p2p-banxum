@@ -213,7 +213,15 @@ def test_dispatch_sensitive_action_code_email_archives_code(
 ) -> None:
     auth_services = _auth_services()
     result = auth_services.issue_sensitive_action_code(
-        auth_services.SensitiveActionCodeCommand(user=investor, action="fx")
+        auth_services.SensitiveActionCodeCommand(
+            user=investor,
+            action="fx",
+            operation={
+                "amount_minor": 1_000_00,
+                "source_currency": "CHF",
+                "target_currency": "EUR",
+            },
+        )
     )
     outbox = OutboxMessage.objects.get(topic="email.sensitive_action_code_requested")
 
@@ -230,6 +238,9 @@ def test_dispatch_sensitive_action_code_email_archives_code(
     assert "[redacted]" in delivery.body_html
     assert "Action needed" in delivery.body_html
     assert "fx" in delivery.metadata["action"]
+    # 18.5: the email names the one operation the code confirms.
+    assert "Currency exchange of 1,000.00 CHF to EUR" in delivery.body_text
+    assert "Currency exchange of 1,000.00 CHF to EUR" in delivery.body_html
 
 
 @pytest.mark.django_db
@@ -247,7 +258,11 @@ def test_sensitive_action_email_dispatch_uses_sendgrid_payload_without_tracking(
 ) -> None:
     auth_services = _auth_services()
     result = auth_services.issue_sensitive_action_code(
-        auth_services.SensitiveActionCodeCommand(user=investor, action="withdrawal")
+        auth_services.SensitiveActionCodeCommand(
+            user=investor,
+            action="withdrawal",
+            operation={"amount_minor": 500_00, "currency": "CHF", "iban": "CH5604835012345678009"},
+        )
     )
     captured: dict[str, Any] = {}
 
@@ -301,7 +316,11 @@ def test_sensitive_action_email_dispatch_uses_twilio_email_payload(
 ) -> None:
     auth_services = _auth_services()
     result = auth_services.issue_sensitive_action_code(
-        auth_services.SensitiveActionCodeCommand(user=investor, action="withdrawal")
+        auth_services.SensitiveActionCodeCommand(
+            user=investor,
+            action="withdrawal",
+            operation={"amount_minor": 500_00, "currency": "CHF", "iban": "CH5604835012345678009"},
+        )
     )
     captured: dict[str, Any] = {}
 

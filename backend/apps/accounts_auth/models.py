@@ -102,6 +102,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     phone_number = models.CharField(max_length=32, blank=True)
     phone_verified_at = models.DateTimeField(null=True, blank=True)
+    # 18.5: shown in Security ("Last changed"); set at registration and on every change/reset.
+    password_changed_at = models.DateTimeField(null=True, blank=True)
     marketing_consent = models.BooleanField(default=False)
     # U33-DEC-32: "european" (1.234,56, the default) or "swiss" (1'234.56), for the interface,
     # notifications, emails and new personal reports.
@@ -181,6 +183,10 @@ class EmailLoginToken(TimestampedModel):
     requested_user_agent = models.TextField(blank=True)
     consumed_ip = models.GenericIPAddressField(null=True, blank=True)
     consumed_user_agent = models.TextField(blank=True)
+    # 18.5 (U33-DEC-01): no sign-in by email link. A link now only confirms the email of a
+    # new account ("registration") and continues its registration in the browser, while the
+    # account has no second factor yet; "login" and "existing_account" are older purposes.
+    purpose = models.CharField(max_length=32, default="registration")
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -207,6 +213,9 @@ class PhoneVerificationPurpose(models.TextChoices):
     PHONE_VERIFICATION = "phone_verification", "Phone verification"
     # Second factor of a forgotten-PIN reset, sent to the already verified number.
     PIN_RESET = "pin_reset", "PIN reset"
+    # 18.5: the SMS second factor of a sign-in, a password reset or a security change.
+    SIGN_IN = "sign_in", "Sign-in"
+    SECURITY = "security", "Security confirmation"
 
 
 class PhoneVerificationChallenge(TimestampedModel):
@@ -282,6 +291,11 @@ class SensitiveActionCode(TimestampedModel):
     requested_user_agent = models.TextField(blank=True)
     consumed_ip = models.GenericIPAddressField(null=True, blank=True)
     consumed_user_agent = models.TextField(blank=True)
+    # 18.5: the operation the code was asked for (amount, currency, destination...), as a
+    # keyed fingerprint; the operation that uses the code must have the same one. Empty for a
+    # code asked without details (sign-in and other non-financial uses).
+    operation_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    operation_summary = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -357,12 +371,21 @@ class AccountAccessEvent(AppendOnlyModel, TimestampedModel):
 class SignInMethod(models.TextChoices):
     EMAIL_LINK = "email_link", "Email link"
     ADMIN_PASSWORD_CODE = "admin_password_code", "Password and email code"
+    # 18.5 (U33-DEC-01, D-2): password and one second factor.
+    PASSWORD_SMS = "password_sms", "Password and SMS code"
+    PASSWORD_APP = "password_app", "Password and authenticator app"
+    PASSWORD_RECOVERY_CODE = "password_recovery_code", "Password and recovery code"
+    PASSWORD_TRUSTED_DEVICE = "password_trusted_device", "Password on a trusted device"
+    PASSWORD_ONLY = "password_only", "Password (second factor not set up yet)"
+    ADMIN_PASSWORD_APP = "admin_password_app", "Password and authenticator app (admin)"
+    REGISTRATION_LINK = "registration_link", "Registration email link"
 
 
 class SignInResult(models.TextChoices):
     SIGNED_IN = "signed_in", "Signed in"
     BLOCKED = "blocked", "Account blocked"
     FAILED = "failed", "Wrong password"
+    FAILED_FACTOR = "failed_factor", "Wrong second-factor code"
 
 
 class SessionEndReason(models.TextChoices):
@@ -370,6 +393,8 @@ class SessionEndReason(models.TextChoices):
     REVOKED = "revoked", "Signed out from another device"
     REVOKED_OTHERS = "revoked_others", "Signed out with all other devices"
     REPLACED = "replaced", "Replaced by a new sign-in"
+    # 18.5: a password or second-factor reset, or an assisted recovery, ends the other sessions.
+    SECURITY_RESET = "security_reset", "Signed out after a security change"
 
 
 class UserSession(TimestampedModel):
@@ -386,6 +411,8 @@ class UserSession(TimestampedModel):
     device_label = models.CharField(max_length=120, blank=True)
     device_kind = models.CharField(max_length=16, blank=True)
     country_code = models.CharField(max_length=2, blank=True)
+    # Q06: approximate city from the local IP database (never GPS); empty when unknown.
+    city = models.CharField(max_length=120, blank=True, default="")
     ip_hash = models.CharField(max_length=64, blank=True)
     last_activity_at = PlatformDateTimeField(null=True, blank=True)
     ended_at = PlatformDateTimeField(null=True, blank=True)
@@ -412,6 +439,7 @@ class SignInEvent(TimestampedModel):
     device_label = models.CharField(max_length=120, blank=True)
     device_kind = models.CharField(max_length=16, blank=True)
     country_code = models.CharField(max_length=2, blank=True)
+    city = models.CharField(max_length=120, blank=True, default="")
     ip_hash = models.CharField(max_length=64, blank=True)
     # Keyed hash of the browser's random device cookie (audit G-03): tells two devices with
     # the same browser and system apart. Empty for sign-ins recorded before the cookie.
@@ -426,3 +454,187 @@ class SignInEvent(TimestampedModel):
             models.Index(fields=["occurred_at"]),
             models.Index(fields=["user", "device_hash"]),
         ]
+
+
+# --- 18.5: second factors, recovery and trusted devices (U33-DEC-01, Q05, D-1, D-2) ---------
+
+
+class AuthenticatorApp(TimestampedModel):
+    """An authenticator app (TOTP, RFC 6238) of an account.
+
+    For an investor it is the sign-in second factor and replaces the PIN in operations (D-1);
+    for an admin it is the only second factor. One active app per account; a new app replaces
+    the old one. The secret is stored encrypted; ``last_used_step`` stops a code being used
+    twice.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="authenticator_apps")
+    encrypted_secret = models.TextField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    disabled_at = models.DateTimeField(null=True, blank=True)
+    disabled_reason = models.CharField(max_length=64, blank=True)
+    last_used_step = models.BigIntegerField(default=0)
+    # Same lock as the PIN (AUTH_PIN_MAX_ATTEMPTS wrong codes -> AUTH_PIN_LOCK_SECONDS), for
+    # sign-in and operation codes together; a right code resets the count.
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=Q(confirmed_at__isnull=False, disabled_at__isnull=True),
+                name="accounts_auth_one_active_authenticator",
+            )
+        ]
+
+
+class RecoveryCode(TimestampedModel):
+    """One of the 10 single-use recovery codes (stored as a keyed hash only)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="recovery_codes")
+    batch_id = models.UUIDField()
+    code_digest = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+    replaced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["user", "used_at", "replaced_at"])]
+
+
+class TrustedDevice(TimestampedModel):
+    """A browser where the investor chose not to type the second factor for 30 days.
+
+    Bound to its own random HTTP-only cookie (stored as a keyed hash); the password is still
+    asked, and PIN or app confirmations of operations stay. Separate from the new-device alerts
+    of the ``banxum_device`` cookie.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trusted_devices")
+    token_digest = models.CharField(max_length=64, unique=True)
+    device_label = models.CharField(max_length=120, blank=True)
+    expires_at = models.DateTimeField()
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_reason = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "revoked_at", "expires_at"])]
+
+
+class LoginChallenge(TimestampedModel):
+    """A sign-in (or a reset) waiting for the second factor after the first step."""
+
+    class Purpose(models.TextChoices):
+        SIGN_IN = "sign_in", "Sign in"
+        ADMIN_SIGN_IN = "admin_sign_in", "Admin sign in"
+        PASSWORD_RESET = "password_reset", "Password reset"
+        PIN_RESET = "pin_reset", "PIN reset"
+        SECURITY_CHANGE = "security_change", "Security change"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="login_challenges")
+    purpose = models.CharField(max_length=32, choices=Purpose.choices)
+    method = models.CharField(max_length=16)
+    phone_challenge_id = models.UUIDField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_user_agent = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "purpose", "completed_at"])]
+
+
+class PasswordResetToken(TimestampedModel):
+    """A single-use email link to set a new password; the second factor is still needed."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="password_reset_tokens")
+    token_digest = models.CharField(max_length=64, unique=True)
+    # Encrypted for the email provider only; stored email copies show "[redacted]" (A-49).
+    encrypted_token = models.TextField(blank=True)
+    purpose = models.CharField(max_length=32, default="password_reset")
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "used_at", "expires_at"])]
+
+
+class AssistedRecoveryStatus(models.TextChoices):
+    REQUESTED = "requested", "Requested"
+    IDENTITY_CONFIRMED = "identity_confirmed", "Identity confirmed"
+    APPROVED = "approved", "Approved; waiting 24 hours"
+    LINK_SENT = "link_sent", "Recovery link sent"
+    COMPLETED = "completed", "Completed"
+    CANCELLED = "cancelled", "Cancelled"
+    DISPUTED = "disputed", "Stopped: the investor said it was not them"
+
+
+class AssistedRecoveryCase(TimestampedModel):
+    """A lost second factor without recovery codes (Q05, D4): support-led, two people.
+
+    Support opens the case; a new Didit check is compared with the stored identity and
+    recorded; another authorized person approves; unfinished authorizations and sessions end
+    and the old factor is disabled; the investor gets a notice with a "This was not me" link and
+    24 hours to stop it; then a single-use link lets the investor set a password and a new
+    factor. At most 3 requests per account in 7 days.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="assisted_recoveries")
+    status = models.CharField(
+        max_length=32,
+        choices=AssistedRecoveryStatus.choices,
+        default=AssistedRecoveryStatus.REQUESTED,
+    )
+    requested_by_admin_id = models.UUIDField()
+    request_note = models.TextField(blank=True)
+    identity_confirmed_by_admin_id = models.UUIDField(null=True, blank=True)
+    identity_confirmed_at = models.DateTimeField(null=True, blank=True)
+    identity_evidence = models.TextField(blank=True)
+    approved_by_admin_id = models.UUIDField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    dispute_token_digest = models.CharField(max_length=64, blank=True)
+    encrypted_dispute_token = models.TextField(blank=True)
+    wait_until = models.DateTimeField(null=True, blank=True)
+    link_sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "created_at"]), models.Index(fields=["status"])]
+
+
+class SecurityRestriction(TimestampedModel):
+    """72 hours after a completed recovery: no new bank account, no new default return account.
+
+    Withdrawals to verified accounts and mandatory returns stay possible.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="security_restrictions")
+    reason = models.CharField(max_length=64)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-ends_at", "-id"]
+        indexes = [models.Index(fields=["user", "ends_at"])]

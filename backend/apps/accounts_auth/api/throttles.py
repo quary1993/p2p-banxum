@@ -99,21 +99,6 @@ class AuthThrottle(BaseThrottle):
         return self._wait
 
 
-class MagicLinkRequestThrottle(AuthThrottle):
-    scope = "magic_link_request"
-    cooldown_rules = (CooldownRule("cooldown", settings.AUTH_MAGIC_LINK_COOLDOWN_SECONDS),)
-    window_rules = (
-        WindowRule("hour", 60 * 60, settings.AUTH_MAGIC_LINK_HOURLY_LIMIT),
-        WindowRule("day", 24 * 60 * 60, settings.AUTH_MAGIC_LINK_DAILY_LIMIT),
-    )
-
-    def get_identifiers(self, request: Request) -> tuple[str, ...]:
-        identifiers = list(super().get_identifiers(request))
-        if _request_email(request):
-            identifiers.append(email_ip_identifier(request))
-        return tuple(identifiers)
-
-
 class NaturalPersonRegistrationThrottle(AuthThrottle):
     scope = "natural_person_registration"
     cooldown_rules = (CooldownRule("cooldown", settings.AUTH_REGISTRATION_COOLDOWN_SECONDS),)
@@ -191,10 +176,63 @@ class PinThrottle(AuthThrottle):
         return tuple(identifiers)
 
 
-class PinResetStartThrottle(PhoneVerificationRequestThrottle):
-    """The forgotten-PIN SMS follows the limits of the registration SMS."""
+class SignInThrottle(AuthThrottle):
+    """18.5 investor sign-in (password step), per IP and per (email, IP)."""
 
-    scope = "pin_reset_start"
+    scope = "sign_in"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_SIGN_IN_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_SIGN_IN_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if _request_email(request):
+            identifiers.append(email_ip_identifier(request))
+        return tuple(identifiers)
+
+
+class SignInVerifyThrottle(AuthThrottle):
+    """Second-factor steps (sign-in, password reset, admin sign-in), per IP."""
+
+    scope = "sign_in_verify"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_SIGN_IN_VERIFY_DAILY_LIMIT),
+    )
+
+
+class PasswordResetRequestThrottle(AuthThrottle):
+    """Forgot password emails, per IP and per (email, IP)."""
+
+    scope = "password_reset_request"
+    cooldown_rules = (CooldownRule("cooldown", settings.AUTH_PASSWORD_RESET_COOLDOWN_SECONDS),)
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_PASSWORD_RESET_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_PASSWORD_RESET_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if _request_email(request):
+            identifiers.append(email_ip_identifier(request))
+        return tuple(identifiers)
+
+
+class SecurityChangeThrottle(AuthThrottle):
+    """Security tab steps of a signed-in account, per IP and per account."""
+
+    scope = "security_change"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_SECURITY_CHANGE_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_SECURITY_CHANGE_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if isinstance(request.user, User):
+            identifiers.append(f"user:{request.user.id}")
+        return tuple(identifiers)
 
 
 class FailureBackoff:
@@ -262,4 +300,13 @@ def admin_login_failure_backoff() -> FailureBackoff:
         free_failures=settings.AUTH_ADMIN_LOGIN_FREE_FAILURES,
         base_seconds=settings.AUTH_ADMIN_LOGIN_BACKOFF_BASE_SECONDS,
         max_seconds=settings.AUTH_ADMIN_LOGIN_BACKOFF_MAX_SECONDS,
+    )
+
+
+def sign_in_failure_backoff() -> FailureBackoff:
+    return FailureBackoff(
+        scope="sign_in_password",
+        free_failures=settings.AUTH_SIGN_IN_FREE_FAILURES,
+        base_seconds=settings.AUTH_SIGN_IN_BACKOFF_BASE_SECONDS,
+        max_seconds=settings.AUTH_SIGN_IN_BACKOFF_MAX_SECONDS,
     )

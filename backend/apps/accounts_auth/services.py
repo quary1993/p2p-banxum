@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import timedelta
 from importlib import import_module
 from typing import Any, cast
@@ -22,12 +24,15 @@ from backend.apps.accounts_auth.crypto import (
     digest_secret,
     encrypt_delivery_secret,
 )
+from backend.apps.accounts_auth.factors import factor_kind
 from backend.apps.accounts_auth.models import (
     AccountAccessEvent,
     AccountAccessReason,
     AccountStatus,
     AccountType,
+    AssistedRecoveryCase,
     EmailLoginToken,
+    PasswordResetToken,
     PhoneVerificationChallenge,
     PhoneVerificationPurpose,
     PhoneVerificationStatus,
@@ -38,6 +43,7 @@ from backend.apps.accounts_auth.models import (
     SignInResult,
     User,
 )
+from backend.apps.accounts_auth.passwords import PasswordPolicyError, validate_new_password
 from backend.apps.accounts_auth.phone_numbers import (
     InvalidPhoneNumberError,
     normalize_e164_phone_number,
@@ -48,6 +54,7 @@ from backend.apps.accounts_auth.phone_providers import (
     start_twilio_verify,
 )
 from backend.apps.accounts_auth.security_sessions import record_sign_in
+from backend.apps.platform_core.domain import operation_binding
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     has_admin_role,
@@ -93,6 +100,14 @@ class AccountLoginBlockedError(InvalidOrExpiredTokenError):
 
 class InvalidOrExpiredCodeError(AccountsAuthError):
     pass
+
+
+class OperationDetailsError(AccountsAuthError):
+    """18.5: a code request for an operation without valid operation details."""
+
+
+class OperationMismatchError(InvalidOrExpiredCodeError):
+    """18.5: the code is right but was sent for other operation details (it is now spent)."""
 
 
 class TooManyCodeAttemptsError(AccountsAuthError):
@@ -158,6 +173,8 @@ LOCAL_PHONE_VERIFICATION_PROVIDERS = {"mock", "local"}
 MAGIC_LINK_PURPOSE_LOGIN = "login"
 MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT = "existing_account"
 MAGIC_LINK_PURPOSES = frozenset({MAGIC_LINK_PURPOSE_LOGIN, MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT})
+# 18.5: the purpose stored on a link that continues a registration.
+REGISTRATION_LINK_PURPOSE = "registration"
 REGISTRATION_OUTCOME_CREATED = "created"
 REGISTRATION_OUTCOME_INCOMPLETE = "incomplete_existing"
 REGISTRATION_OUTCOME_EXISTING = "existing"
@@ -391,6 +408,8 @@ class RegisterNaturalPersonCommand:
     ip_address: str | None = None
     user_agent: str = ""
     marketing_consent: bool = False
+    # 18.5: the account password, chosen at registration (password policy in passwords.py).
+    password: str = dataclass_field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,6 +452,9 @@ class SensitiveActionCodeCommand:
     ttl: timedelta = timedelta(minutes=10)
     # None uses settings.AUTH_SENSITIVE_CODE_MAX_ATTEMPTS (default 3).
     max_attempts: int | None = None
+    # 18.5: the details of the operation (platform_core.domain.operation_binding). Required
+    # for the operation actions; the code then confirms only this operation.
+    operation: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,6 +474,9 @@ class SensitiveActionCodeConsumeCommand:
     # False only checks the code (a wrong code still counts as an attempt) and leaves it
     # usable, for a flow that must check a second factor before using the code up.
     consume: bool = True
+    # 18.5: the fingerprint of the operation being confirmed, built by the module that runs it.
+    # Required for the operation actions; a right code for other details is spent and refused.
+    expected_operation_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -484,19 +509,6 @@ class PhoneVerificationConfirmCommand:
 class AdminLoginStartCommand:
     email: str
     password: str
-    ip_address: str | None = None
-    user_agent: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class AdminLoginStartResult:
-    code_record: SensitiveActionCode
-
-
-@dataclass(frozen=True, slots=True)
-class AdminLoginConfirmCommand:
-    code_id: str
-    raw_code: str
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -579,6 +591,12 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         raise InvalidRegistrationDataError(str(exc)) from exc
     terms_version, terms_hash = _registration_terms_evidence_values(command)
     current_risk_template = _validate_registration_risk_disclosure(command)
+    # Checked for every request (also for an existing address), so the answer does not
+    # reveal which addresses have an account.
+    try:
+        validate_new_password(command.password, email=email)
+    except PasswordPolicyError as exc:
+        raise InvalidRegistrationDataError(str(exc)) from exc
 
     user = User.objects.select_for_update().filter(email=email).first()
     if user is not None:
@@ -587,6 +605,8 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         with transaction.atomic():
             user = User.objects.create_user(
                 email=email,
+                password=command.password,
+                password_changed_at=timezone.now(),
                 full_name=command.full_name.strip(),
                 account_type=AccountType.NATURAL_PERSON_LENDER,
                 status=AccountStatus.PENDING_KYC,
@@ -659,7 +679,14 @@ def send_registration_follow_up_email(
 
     user = result.user
     try:
-        if (
+        if result.outcome == REGISTRATION_OUTCOME_EXISTING or factor_kind(user):
+            # 18.5: an account with a second factor signs in with its password only; the
+            # email says so and carries no link.
+            if user.is_active and user.status in LOGIN_BLOCKED_NOTICE_STATUSES:
+                _enqueue_login_blocked_notice(user)
+            else:
+                _enqueue_existing_account_notice(user)
+        elif (
             user.is_active
             and user.account_type in MAGIC_LINK_ACCOUNT_TYPES
             and (user.can_login or user.status in LOGIN_BLOCKED_NOTICE_STATUSES)
@@ -669,11 +696,7 @@ def send_registration_follow_up_email(
                     email=user.email,
                     ip_address=ip_address,
                     user_agent=user_agent,
-                    purpose=(
-                        MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT
-                        if result.outcome == REGISTRATION_OUTCOME_EXISTING
-                        else MAGIC_LINK_PURPOSE_LOGIN
-                    ),
+                    purpose=MAGIC_LINK_PURPOSE_LOGIN,
                 )
             )
         else:
@@ -874,6 +897,8 @@ def _enqueue_existing_account_notice(user: User) -> None:
                     f"We received a request to open a new {brand} account with this email "
                     "address. An account with this address already exists, so we did not "
                     "open a new one.\n\n"
+                    "To use your account, sign in with your email address and password. If "
+                    'you forgot the password, use "Forgot password" on the sign-in page.\n\n'
                     "If you did not make this request, you can ignore this email.\n\n"
                     f"For help, contact support at {_support_email()}."
                 ),
@@ -958,7 +983,9 @@ def _issue_magic_link_for_user(
         user is None
         or not user.can_login
         or user.account_type not in MAGIC_LINK_ACCOUNT_TYPES
+        or factor_kind(user)
     ):
+        # 18.5: the email link only continues a registration (no second factor yet).
         raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
 
     # Serialize link issuance per account.
@@ -1000,6 +1027,7 @@ def _issue_magic_link_for_user(
         expires_at=now + command.ttl,
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
+        purpose=REGISTRATION_LINK_PURPOSE,
     )
     outbox_message = enqueue_outbox_message(
         OutboxCommand(
@@ -1057,6 +1085,18 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                 },
             )
             failure = InvalidOrExpiredTokenError("Login link is invalid or expired.")
+        elif token.purpose != REGISTRATION_LINK_PURPOSE or factor_kind(token.user):
+            # 18.5: a link signs in only to continue a registration; an account with a
+            # second factor signs in with its password and the factor.
+            _audit_auth_failure(
+                action="auth.magic_link_failed",
+                user_id=str(token.user_id),
+                actor=actor_for_user(token.user),
+                metadata={"reason": "second_factor_active"},
+            )
+            failure = InvalidOrExpiredTokenError(
+                "This link no longer signs you in. Sign in with your email address and password."
+            )
         elif not token.user.can_login or token.user.account_type not in MAGIC_LINK_ACCOUNT_TYPES:
             _audit_auth_failure(
                 action="auth.magic_link_failed",
@@ -1126,6 +1166,18 @@ def issue_sensitive_action_code(
     )
     if max_attempts <= 0:
         raise AccountsAuthError("max_attempts must be positive.")
+    fingerprint = ""
+    summary = ""
+    if operation_binding.is_bound_action(command.action):
+        if not command.operation:
+            raise OperationDetailsError("Send the details of the operation with the code request.")
+        try:
+            fingerprint = operation_binding.operation_fingerprint(command.action, command.operation)
+            summary = operation_binding.operation_summary(command.action, command.operation)
+        except operation_binding.OperationBindingError as exc:
+            raise OperationDetailsError(str(exc)) from exc
+    elif command.operation:
+        raise OperationDetailsError("This code is not for an operation.")
 
     now = timezone.now()
     cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
@@ -1166,6 +1218,8 @@ def issue_sensitive_action_code(
         max_attempts=max_attempts,
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
+        operation_fingerprint=fingerprint,
+        operation_summary=summary[:255],
     )
     outbox_message = enqueue_outbox_message(
         OutboxCommand(
@@ -1189,7 +1243,7 @@ def issue_sensitive_action_code(
             action="auth.sensitive_action_code_requested",
             target_type="User",
             target_id=str(command.user.id),
-            metadata={"action": command.action},
+            metadata={"action": command.action, "operation_summary": summary},
         )
     )
     return SensitiveActionCodeIssueResult(code_record=code_record, raw_code=raw_code)
@@ -1442,9 +1496,7 @@ def confirm_phone_verification(
                         user_id=str(challenge.user_id),
                         metadata={"reason": "too_many_attempts", "provider": provider},
                     )
-                    failure = TooManyCodeAttemptsError(
-                        "Phone verification attempt limit exceeded."
-                    )
+                    failure = TooManyCodeAttemptsError("Phone verification attempt limit exceeded.")
                 else:
                     challenge.save(update_fields=["attempts", "provider_reference", "updated_at"])
                     _audit_auth_failure(
@@ -1521,10 +1573,7 @@ def consume_sensitive_action_code(
                 metadata={"reason": "invalid_expired_or_superseded"},
             )
             failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
-        elif (
-            command.expected_user is not None
-            and code_record.user_id != command.expected_user.id
-        ):
+        elif command.expected_user is not None and code_record.user_id != command.expected_user.id:
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(command.expected_user.id),
@@ -1532,10 +1581,7 @@ def consume_sensitive_action_code(
                 metadata={"reason": "user_mismatch"},
             )
             failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
-        elif (
-            command.expected_action is not None
-            and code_record.action != command.expected_action
-        ):
+        elif command.expected_action is not None and code_record.action != command.expected_action:
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(code_record.user_id),
@@ -1569,9 +1615,7 @@ def consume_sensitive_action_code(
                     actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "too_many_attempts"},
                 )
-                failure = TooManyCodeAttemptsError(
-                    "Sensitive-action code attempt limit exceeded."
-                )
+                failure = TooManyCodeAttemptsError("Sensitive-action code attempt limit exceeded.")
             else:
                 _audit_auth_failure(
                     action="auth.sensitive_action_code_failed",
@@ -1579,9 +1623,28 @@ def consume_sensitive_action_code(
                     actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "invalid_code"},
                 )
-                failure = InvalidOrExpiredCodeError(
-                    "Sensitive-action code is invalid or expired."
-                )
+                failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
+        elif operation_binding.is_bound_action(code_record.action) and not (
+            command.expected_operation_fingerprint
+            and code_record.operation_fingerprint
+            and secrets.compare_digest(
+                code_record.operation_fingerprint, command.expected_operation_fingerprint
+            )
+        ):
+            # The right code for other operation details: spend it, so it cannot be tried again.
+            code_record.attempts += 1
+            code_record.superseded_at = now
+            code_record.save(update_fields=["attempts", "superseded_at", "updated_at"])
+            _audit_auth_failure(
+                action="auth.sensitive_action_code_failed",
+                user_id=str(code_record.user_id),
+                actor=actor_for_user(code_record.user),
+                metadata={"action": code_record.action, "reason": "operation_mismatch"},
+            )
+            failure = OperationMismatchError(
+                "This email code was sent for other operation details. Ask for a new code "
+                "and check the details in the email."
+            )
         elif failure is None and command.consume:
             code_record.attempts += 1
             code_record.consumed_at = now
@@ -1668,9 +1731,7 @@ def bootstrap_env_superadmin() -> BootstrapEnvSuperadminResult:
 
     disabled_ids = []
     for old_user in (
-        User.objects.select_for_update()
-        .filter(is_env_managed_superadmin=True)
-        .exclude(email=email)
+        User.objects.select_for_update().filter(is_env_managed_superadmin=True).exclude(email=email)
     ):
         old_user.is_active = False
         old_user.status = AccountStatus.LOCKED
@@ -1920,7 +1981,9 @@ def _spend_password_hash_time(password: str) -> None:
     make_password(password)
 
 
-def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
+def check_admin_credentials(command: AdminLoginStartCommand) -> User:
+    """18.5: the first admin sign-in step (password). The second is the authenticator app
+    (accounts_auth.two_factor). Wrong data gets one generic error."""
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
     if user is not None and is_admin_actor(user) and user.has_usable_password():
@@ -1932,12 +1995,12 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
         # U33-DEC-25: a wrong password of a known admin account is in its sign-in history.
         record_sign_in(
             user=user,
-            method=SignInMethod.ADMIN_PASSWORD_CODE,
+            method=SignInMethod.ADMIN_PASSWORD_APP,
             result=SignInResult.FAILED,
             user_agent=command.user_agent,
             ip_address=command.ip_address or "",
         )
-    if user is None or not password_ok:
+    if user is None or not password_ok or not user.can_login:
         _audit_auth_failure(
             action="auth.admin_login_failed",
             user_id=str(user.id) if user is not None else "",
@@ -1945,56 +2008,29 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
             metadata={"reason": "invalid_credentials_or_account"},
         )
         raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
-
-    with transaction.atomic():
-        code_result = issue_sensitive_action_code(
-            SensitiveActionCodeCommand(
-                user=user,
-                action=SensitiveAction.ADMIN_LOGIN,
-                ip_address=command.ip_address,
-                user_agent=command.user_agent,
-            )
-        )
-        record_audit_event(
-            AuditCommand(
-                actor=actor_for_user(user),
-                action="auth.admin_login_password_accepted",
-                target_type="User",
-                target_id=str(user.id),
-            )
-        )
-    return AdminLoginStartResult(code_record=code_result.code_record)
-
-
-def confirm_admin_login(command: AdminLoginConfirmCommand) -> User:
-    code_record = consume_sensitive_action_code(
-        SensitiveActionCodeConsumeCommand(
-            code_id=command.code_id,
-            raw_code=command.raw_code,
-            expected_action=SensitiveAction.ADMIN_LOGIN,
-            ip_address=command.ip_address,
-            user_agent=command.user_agent,
-        )
-    )
-    user = code_record.user
-    if not is_admin_actor(user):
-        _audit_auth_failure(
-            action="auth.admin_login_failed",
-            user_id=str(user.id),
-            actor=actor_for_user(user),
-            metadata={"reason": "account_cannot_login"},
-        )
-        raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
-
     record_audit_event(
         AuditCommand(
             actor=actor_for_user(user),
-            action="auth.admin_login_completed",
+            action="auth.admin_login_password_accepted",
             target_type="User",
             target_id=str(user.id),
         )
     )
     return user
+
+
+def issue_admin_enrollment_code(
+    user: User, *, ip_address: str | None, user_agent: str
+) -> SensitiveActionCode:
+    """The email code an admin needs once, to set up the authenticator app."""
+    return issue_sensitive_action_code(
+        SensitiveActionCodeCommand(
+            user=user,
+            action=SensitiveAction.ADMIN_LOGIN,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+    ).code_record
 
 
 def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:
@@ -2003,6 +2039,22 @@ def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:
 
 def delivery_secret_for_sensitive_action_code(code_record: SensitiveActionCode) -> str:
     return decrypt_delivery_secret(code_record.encrypted_code)
+
+
+SECURITY_LINK_SECRET_TYPES = frozenset(
+    {"password_reset_link", "assisted_recovery_link", "assisted_recovery_dispute_link"}
+)
+
+
+def delivery_secret_for_security_link(secret_type: str, ref: str) -> str:
+    """18.5: the single-use token of a security email link, for the email provider only."""
+    if secret_type in {"password_reset_link", "assisted_recovery_link"}:
+        token = PasswordResetToken.objects.get(id=ref)
+        return decrypt_delivery_secret(token.encrypted_token)
+    if secret_type == "assisted_recovery_dispute_link":
+        case = AssistedRecoveryCase.objects.get(id=ref)
+        return decrypt_delivery_secret(case.encrypted_dispute_token)
+    raise AccountsAuthError("Unknown security link.")
 
 
 def delivery_secret_for_phone_verification(challenge: PhoneVerificationChallenge) -> str:

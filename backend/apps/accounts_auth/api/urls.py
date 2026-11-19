@@ -9,20 +9,43 @@ from backend.apps.accounts_auth.api.pin_views import (
     PinSetView,
     PinStatusView,
 )
+from backend.apps.accounts_auth.api.security_views import (
+    AdminAssistedRecoveryApproveView,
+    AdminAssistedRecoveryIdentityView,
+    AdminAssistedRecoveryListView,
+    AdminAuthenticatorResetView,
+    AdminSignInConfirmView,
+    AdminSignInEnrollView,
+    AdminSignInStartView,
+    AssistedRecoveryCompleteView,
+    AssistedRecoveryDisputeView,
+    AuthenticatorConfirmView,
+    AuthenticatorStartView,
+    PasswordChangeView,
+    PasswordForgotView,
+    PasswordResetCompleteView,
+    PasswordResetStartView,
+    RecoveryCodesView,
+    SecurityConfirmResendSmsView,
+    SecurityConfirmStartView,
+    SecurityConfirmVerifyView,
+    SecurityOverviewView,
+    SignInResendSmsView,
+    SignInVerifyView,
+    SignInView,
+    TrustedDeviceRevokeView,
+)
 from backend.apps.accounts_auth.api.views import (
     AccountAccessChangeView,
-    AdminLoginConfirmView,
-    AdminLoginStartView,
     AdminUserCreateView,
     CurrentUserView,
     DisplayPreferencesView,
     LogoutView,
-    MagicLinkConsumeView,
-    MagicLinkRequestView,
     MarketingConsentView,
     NaturalPersonRegistrationView,
     PhoneVerificationConfirmView,
     PhoneVerificationRequestView,
+    RegistrationEmailConfirmView,
     SensitiveActionCodeRequestView,
     SignInHistoryView,
     UserSessionRevokeView,
@@ -32,11 +55,94 @@ from backend.apps.accounts_auth.api.views import (
 
 urlpatterns = [
     path("register/natural-person/", NaturalPersonRegistrationView.as_view(), name="auth-register"),
-    path("magic-link/request/", MagicLinkRequestView.as_view(), name="auth-magic-link-request"),
-    path("magic-link/consume/", MagicLinkConsumeView.as_view(), name="auth-magic-link-consume"),
-    path("admin/login/start/", AdminLoginStartView.as_view(), name="auth-admin-login-start"),
-    path("admin/login/confirm/", AdminLoginConfirmView.as_view(), name="auth-admin-login-confirm"),
+    path(
+        "register/confirm-email/",
+        RegistrationEmailConfirmView.as_view(),
+        name="auth-register-confirm-email",
+    ),
+    # 18.5 investor sign-in: password, then the app or SMS code (or a recovery code).
+    path("login/", SignInView.as_view(), name="auth-login"),
+    path("login/verify/", SignInVerifyView.as_view(), name="auth-login-verify"),
+    path("login/resend-sms/", SignInResendSmsView.as_view(), name="auth-login-resend-sms"),
+    path("password/forgot/", PasswordForgotView.as_view(), name="auth-password-forgot"),
+    path(
+        "password/reset/start/", PasswordResetStartView.as_view(), name="auth-password-reset-start"
+    ),
+    path(
+        "password/reset/complete/",
+        PasswordResetCompleteView.as_view(),
+        name="auth-password-reset-complete",
+    ),
+    path(
+        "account-recovery/not-me/",
+        AssistedRecoveryDisputeView.as_view(),
+        name="auth-account-recovery-dispute",
+    ),
+    path(
+        "account-recovery/complete/",
+        AssistedRecoveryCompleteView.as_view(),
+        name="auth-account-recovery-complete",
+    ),
+    path("security/", SecurityOverviewView.as_view(), name="auth-security"),
+    path(
+        "security/confirm/start/",
+        SecurityConfirmStartView.as_view(),
+        name="auth-security-confirm-start",
+    ),
+    path(
+        "security/confirm/verify/",
+        SecurityConfirmVerifyView.as_view(),
+        name="auth-security-confirm-verify",
+    ),
+    path(
+        "security/confirm/resend-sms/",
+        SecurityConfirmResendSmsView.as_view(),
+        name="auth-security-confirm-resend-sms",
+    ),
+    path("security/password/", PasswordChangeView.as_view(), name="auth-security-password"),
+    path(
+        "security/authenticator/start/",
+        AuthenticatorStartView.as_view(),
+        name="auth-security-authenticator-start",
+    ),
+    path(
+        "security/authenticator/confirm/",
+        AuthenticatorConfirmView.as_view(),
+        name="auth-security-authenticator-confirm",
+    ),
+    path(
+        "security/recovery-codes/", RecoveryCodesView.as_view(), name="auth-security-recovery-codes"
+    ),
+    path(
+        "security/trusted-devices/<uuid:device_id>/revoke/",
+        TrustedDeviceRevokeView.as_view(),
+        name="auth-security-trusted-device-revoke",
+    ),
+    # Admins: password + authenticator app (the first sign-in also needs an email code).
+    path("admin/login/start/", AdminSignInStartView.as_view(), name="auth-admin-login-start"),
+    path("admin/login/confirm/", AdminSignInConfirmView.as_view(), name="auth-admin-login-confirm"),
+    path("admin/login/enroll/", AdminSignInEnrollView.as_view(), name="auth-admin-login-enroll"),
     path("admin/users/", AdminUserCreateView.as_view(), name="auth-admin-user-create"),
+    path(
+        "admin/users/<uuid:user_id>/authenticator/reset/",
+        AdminAuthenticatorResetView.as_view(),
+        name="auth-admin-user-authenticator-reset",
+    ),
+    path(
+        "admin/account-recoveries/",
+        AdminAssistedRecoveryListView.as_view(),
+        name="auth-admin-account-recoveries",
+    ),
+    path(
+        "admin/account-recoveries/<uuid:case_id>/confirm-identity/",
+        AdminAssistedRecoveryIdentityView.as_view(),
+        name="auth-admin-account-recovery-identity",
+    ),
+    path(
+        "admin/account-recoveries/<uuid:case_id>/approve/",
+        AdminAssistedRecoveryApproveView.as_view(),
+        name="auth-admin-account-recovery-approve",
+    ),
     path(
         "admin/users/<uuid:user_id>/access/",
         AccountAccessChangeView.as_view(),

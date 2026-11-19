@@ -16,12 +16,13 @@ from backend.apps.accounts_auth.api.serializers import (
     PinChangeRequestSerializer,
     PinErrorResponseSerializer,
     PinResetConfirmRequestSerializer,
+    PinResetStartRequestSerializer,
     PinResetStartResponseSerializer,
     PinSetRequestSerializer,
     PinStatusResponseSerializer,
     serialize_pin_status,
 )
-from backend.apps.accounts_auth.api.throttles import PinResetStartThrottle, PinThrottle
+from backend.apps.accounts_auth.api.throttles import PinThrottle
 from backend.apps.accounts_auth.models import User
 from backend.apps.accounts_auth.pin_services import (
     ChangePinCommand,
@@ -175,21 +176,26 @@ class PinChangeView(APIView):
 
 
 class PinResetStartView(APIView):
-    """Forgot PIN, step 1: an SMS code to the verified phone (the email code is requested
-    through /auth/sensitive-action-code/request/ with ``pin_reset``)."""
+    """Forgot PIN, step 1 (18.5): the account password, then an SMS code to the verified
+    phone."""
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [PinResetStartThrottle]
+    # Hourly and daily limits; the SMS cooldown is in the service (a mistyped password does
+    # not start it).
+    throttle_classes = [PinThrottle]
 
     @extend_schema(
-        request=None,
+        request=PinResetStartRequestSerializer,
         responses={202: PinResetStartResponseSerializer, **PIN_ERROR_RESPONSES},
     )
     def post(self, request: Request) -> Response:
+        serializer = PinResetStartRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
             result = start_pin_reset(
                 StartPinResetCommand(
                     user=_pin_user(request),
+                    password=str(serializer.validated_data["password"]),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )
@@ -207,7 +213,7 @@ class PinResetStartView(APIView):
 
 
 class PinResetConfirmView(APIView):
-    """Forgot PIN, step 2: email code, SMS code and the new PIN twice; clears the lock."""
+    """Forgot PIN, step 2: the SMS code and the new PIN twice; clears the lock."""
 
     permission_classes = [IsAuthenticated]
     throttle_classes = [PinThrottle]
@@ -229,8 +235,6 @@ class PinResetConfirmView(APIView):
                     phone_code=data["phone_code"],
                     new_pin=data["new_pin"],
                     new_pin_confirmation=data["new_pin_confirmation"],
-                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
-                    sensitive_action_code=data["sensitive_action_code"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                 )

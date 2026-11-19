@@ -1,4 +1,4 @@
-"""Login abuse controls: lockout, enumeration, timing, link reuse and login CSRF.
+"""Sign-in abuse controls: lockout, enumeration, timing, link reuse and login CSRF.
 
 Audit 2026-10-09: A-47 (third parties could lock a named investor or admin out),
 A-57 (admin email timing), SECCODE-15 / SECURITY-04 (older links stayed valid, login
@@ -16,7 +16,7 @@ from django.core.cache import cache
 from django.test import Client
 
 from backend.apps.accounts_auth.api.throttles import AdminLoginStartThrottle
-from backend.apps.accounts_auth.models import AccountStatus, AccountType, EmailLoginToken, User
+from backend.apps.accounts_auth.models import AccountStatus, AccountType, User
 from backend.apps.accounts_auth.services import (
     AdminLoginInvalidCredentialsError,
     AdminLoginStartCommand,
@@ -26,11 +26,12 @@ from backend.apps.accounts_auth.services import (
     MagicLinkSuppressedError,
     _magic_link_backoff_seconds,
     _magic_link_send_history_key,
+    check_admin_credentials,
     consume_magic_link,
-    delivery_secret_for_magic_link,
     issue_magic_link,
-    start_admin_login,
 )
+from backend.apps.accounts_auth.tests.signin_helpers import TEST_PASSWORD, ready_investor
+from backend.apps.accounts_auth.two_factor import TwoFactorError, start_sign_in
 
 ADMIN_PASSWORD = "Correct-Horse-Battery-42"
 
@@ -57,10 +58,10 @@ def admin_user() -> User:
     )
 
 
-def _request_link(client: Client, email: str, ip: str) -> Any:
+def _sign_in(client: Client, email: str, password: str, ip: str) -> Any:
     return client.post(
-        "/api/v1/auth/magic-link/request/",
-        data={"email": email},
+        "/api/v1/auth/login/",
+        data={"email": email, "password": password},
         content_type="application/json",
         REMOTE_ADDR=ip,
     )
@@ -76,50 +77,42 @@ def _admin_start(client: Client, email: str, password: str, ip: str, **extra: An
     )
 
 
-def _latest_link(user: User) -> str:
-    token = EmailLoginToken.objects.filter(user=user).order_by("-expires_at").first()
-    assert token is not None
-    return delivery_secret_for_magic_link(token)
-
-
 @pytest.mark.django_db
-def test_requests_from_other_ips_cannot_lock_an_investor_out(
+def test_failed_passwords_from_other_ips_do_not_lock_an_investor_out(
     client: Client,
     investor: User,
 ) -> None:
-    # Before the fix every request counted in one per-email bucket: 5 requests from
-    # anywhere gave the owner 429 for up to an hour.
-    for index in range(8):
-        assert _request_link(client, investor.email, f"203.0.113.{index + 1}").status_code == 202
+    """18.5: wrong passwords count per (email, IP), so third parties cannot block the owner."""
+    ready_investor(investor)
+    for index in range(12):
+        response = _sign_in(client, investor.email, "wrong-password-1", f"203.0.113.{index + 1}")
+        assert response.status_code == 400
 
-    own_request = _request_link(client, investor.email, "198.51.100.77")
+    own = _sign_in(client, investor.email, TEST_PASSWORD, "198.51.100.77")
 
-    assert own_request.status_code == 202
-    # The newest link in the owner's inbox signs them in.
-    response = client.post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": _latest_link(investor)},
-        content_type="application/json",
-        REMOTE_ADDR="198.51.100.77",
-    )
-    assert response.status_code == 200
+    assert own.status_code == 200
+    assert own.json()["status"] == "factor_required"
 
 
 @pytest.mark.django_db
-def test_one_ip_is_still_limited_for_one_address(client: Client, investor: User) -> None:
-    assert _request_link(client, investor.email, "203.0.113.5").status_code == 202
-    assert _request_link(client, investor.email, "203.0.113.5").status_code == 429
-
-
-@pytest.mark.django_db
-def test_a_flood_of_requests_sends_one_email_while_the_last_link_is_unused(
+def test_failed_investor_passwords_back_off_per_email_and_ip(
     client: Client,
     investor: User,
+    settings: Any,
 ) -> None:
-    for index in range(6):
-        _request_link(client, investor.email, f"203.0.113.{index + 20}")
+    ready_investor(investor)
+    settings.AUTH_SIGN_IN_FREE_FAILURES = 3
+    settings.AUTH_SIGN_IN_BACKOFF_BASE_SECONDS = 30
 
-    assert EmailLoginToken.objects.filter(user=investor).count() == 1
+    for _ in range(4):
+        wrong = _sign_in(client, investor.email, "wrong-password-1", "203.0.113.9")
+        assert wrong.status_code == 400
+
+    blocked = _sign_in(client, investor.email, TEST_PASSWORD, "203.0.113.9")
+    assert blocked.status_code == 429
+    assert blocked.json()["code"] == "sign_in_throttled"
+    assert 0 < blocked.json()["retry_after_seconds"] <= 31
+    assert _sign_in(client, investor.email, TEST_PASSWORD, "198.51.100.9").status_code == 200
 
 
 @pytest.mark.django_db
@@ -223,8 +216,39 @@ def test_admin_login_runs_the_password_hasher_for_every_email(
     }[target]
 
     with pytest.raises(AdminLoginInvalidCredentialsError):
-        start_admin_login(AdminLoginStartCommand(email=email, password="wrong-password"))
+        check_admin_credentials(AdminLoginStartCommand(email=email, password="wrong-password"))
 
+    assert len(calls) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("target", ["unknown", "investor", "admin"])
+def test_investor_sign_in_runs_the_password_hasher_for_every_email(
+    target: str,
+    investor: User,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """18.5: same work for unknown, investor and admin emails (no timing enumeration)."""
+    ready_investor(investor)
+    calls: list[str] = []
+    original_encode = PBKDF2PasswordHasher.encode
+
+    def counting_encode(self: PBKDF2PasswordHasher, *args: Any, **kwargs: Any) -> str:
+        calls.append("encode")
+        return original_encode(self, *args, **kwargs)
+
+    monkeypatch.setattr(PBKDF2PasswordHasher, "encode", counting_encode)
+    email = {
+        "unknown": "nobody@example.test",
+        "investor": investor.email,
+        "admin": admin_user.email,
+    }[target]
+
+    with pytest.raises(TwoFactorError) as error:
+        start_sign_in(email=email, password="wrong-password-1")
+
+    assert error.value.code == "invalid_credentials"
     assert len(calls) == 1
 
 
@@ -233,16 +257,22 @@ def test_login_endpoints_refuse_cross_site_posts(client: Client, investor: User)
     issued = issue_magic_link(MagicLinkRequestCommand(email=investor.email))
 
     cross_site = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": issued.raw_token},
         content_type="application/json",
         HTTP_ORIGIN="https://evil.example",
     )
     null_origin = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": issued.raw_token},
         content_type="application/json",
         HTTP_ORIGIN="null",
+    )
+    investor_cross_site = client.post(
+        "/api/v1/auth/login/",
+        data={"email": "x@example.test", "password": "x"},
+        content_type="application/json",
+        HTTP_SEC_FETCH_SITE="cross-site",
     )
     fetch_metadata = client.post(
         "/api/v1/auth/admin/login/start/",
@@ -254,12 +284,13 @@ def test_login_endpoints_refuse_cross_site_posts(client: Client, investor: User)
     assert cross_site.status_code == 403
     assert null_origin.status_code == 403
     assert fetch_metadata.status_code == 403
+    assert investor_cross_site.status_code == 403
     assert "sessionid" not in cross_site.cookies
     issued.login_token.refresh_from_db()
     assert issued.login_token.used_at is None
 
     same_site = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": issued.raw_token},
         content_type="application/json",
         HTTP_ORIGIN="http://testserver",

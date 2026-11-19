@@ -174,6 +174,15 @@ AUTH_SESSION_MAX_AGE_SECONDS = env.int("AUTH_SESSION_MAX_AGE_SECONDS", default=2
 # U33-DEC-25: the request header a trusted edge proxy sets with the visitor's country (two
 # letters, for example "CF-IPCountry"). Empty: no approximate location is recorded or shown.
 SIGN_IN_COUNTRY_HEADER = env("SIGN_IN_COUNTRY_HEADER", default="")
+# Q06 (18.5): a local IP-to-city database (DB-IP Lite City or MaxMind GeoLite2 City, MMDB file,
+# downloaded by operations; never in the repository). Empty or missing file: country only.
+GEOIP_CITY_DB_PATH = env("GEOIP_CITY_DB_PATH", default="")
+# 18.5 (D1): refuse passwords found in known breaches (Have I Been Pwned range API, k-anonymity).
+AUTH_PASSWORD_BREACH_CHECK_ENABLED = env.bool(
+    "AUTH_PASSWORD_BREACH_CHECK_ENABLED", default=not IS_LOCAL
+)
+# 18.5 (Q05): a trusted browser skips the second factor at sign-in for this many days.
+AUTH_TRUSTED_DEVICE_DAYS = env.int("AUTH_TRUSTED_DEVICE_DAYS", default=30)
 # TLS ends at the edge proxy (Caddy); Django sees the scheme in X-Forwarded-Proto.
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not IS_LOCAL)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if IS_LOCAL else 31536000)
@@ -285,6 +294,20 @@ AUTH_ADMIN_LOGIN_CONFIRM_DAILY_LIMIT = env.int(
     "AUTH_ADMIN_LOGIN_CONFIRM_DAILY_LIMIT",
     default=100,
 )
+# 18.5 investor sign-in (password + second factor): request limits per IP and per (email, IP),
+# and the same doubling wait as admins after repeated wrong passwords.
+AUTH_SIGN_IN_HOURLY_LIMIT = env.int("AUTH_SIGN_IN_HOURLY_LIMIT", default=30)
+AUTH_SIGN_IN_DAILY_LIMIT = env.int("AUTH_SIGN_IN_DAILY_LIMIT", default=200)
+AUTH_SIGN_IN_FREE_FAILURES = env.int("AUTH_SIGN_IN_FREE_FAILURES", default=5)
+AUTH_SIGN_IN_BACKOFF_BASE_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_BASE_SECONDS", default=15)
+AUTH_SIGN_IN_BACKOFF_MAX_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_MAX_SECONDS", default=900)
+AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT", default=30)
+AUTH_SIGN_IN_VERIFY_DAILY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_DAILY_LIMIT", default=200)
+AUTH_PASSWORD_RESET_COOLDOWN_SECONDS = env.int("AUTH_PASSWORD_RESET_COOLDOWN_SECONDS", default=60)
+AUTH_PASSWORD_RESET_HOURLY_LIMIT = env.int("AUTH_PASSWORD_RESET_HOURLY_LIMIT", default=5)
+AUTH_PASSWORD_RESET_DAILY_LIMIT = env.int("AUTH_PASSWORD_RESET_DAILY_LIMIT", default=20)
+AUTH_SECURITY_CHANGE_HOURLY_LIMIT = env.int("AUTH_SECURITY_CHANGE_HOURLY_LIMIT", default=20)
+AUTH_SECURITY_CHANGE_DAILY_LIMIT = env.int("AUTH_SECURITY_CHANGE_DAILY_LIMIT", default=60)
 GARANTA_SUPERADMIN_EMAIL = env("GARANTA_SUPERADMIN_EMAIL", default="")
 GARANTA_SUPERADMIN_PASSWORD_HASH = env("GARANTA_SUPERADMIN_PASSWORD_HASH", default="")
 GARANTA_SUPERADMIN_FULL_NAME = env("GARANTA_SUPERADMIN_FULL_NAME", default="Env Superadmin")

@@ -1852,6 +1852,7 @@ def create_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"holding_id": command.holding_id, "price_bps": command.price_bps},
             )
         )
     except SensitiveActionPinError:
@@ -2091,6 +2092,7 @@ def edit_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"listing_id": command.listing_id, "price_bps": command.price_bps},
             )
         )
     except SensitiveActionPinError:
@@ -2904,6 +2906,11 @@ def purchase_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": command.expected_buyer_total_cost_minor,
+                    "currency": str(listing.currency_id),
+                    "listing_id": str(listing.id),
+                },
             )
         )
     except SensitiveActionPinError:

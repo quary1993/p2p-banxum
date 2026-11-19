@@ -858,7 +858,12 @@ def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | N
 # Receipts of emails the investor triggered for themselves (sign-in links, investor and admin
 # confirmation codes) are not notices: the notification centre never lists or counts them.
 SELF_TRIGGERED_EMAIL_TOPICS = frozenset(
-    {"email.magic_link_requested", "email.sensitive_action_code_requested"}
+    {
+        "email.magic_link_requested",
+        "email.sensitive_action_code_requested",
+        # 18.5: the forgotten-password link the investor asked for.
+        "email.password_reset",
+    }
 )
 NOTIFICATION_UNREAD_WINDOW = 250
 

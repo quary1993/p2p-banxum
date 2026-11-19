@@ -16,15 +16,11 @@ from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
 from backend.apps.accounts_auth.api.serializers import (
     AccountAccessChangeRequestSerializer,
     AccountAccessChangeResponseSerializer,
-    AdminLoginConfirmRequestSerializer,
-    AdminLoginStartRequestSerializer,
-    AdminLoginStartResponseSerializer,
     AdminUserCreateRequestSerializer,
     AuthenticatedUserResponseSerializer,
     CurrentUserResponseSerializer,
     DisplayPreferencesUpdateRequestSerializer,
     MagicLinkConsumeSerializer,
-    MagicLinkRequestSerializer,
     MarketingConsentUpdateRequestSerializer,
     NaturalPersonRegistrationRequestSerializer,
     NaturalPersonRegistrationResponseSerializer,
@@ -41,14 +37,9 @@ from backend.apps.accounts_auth.api.serializers import (
     serialize_user,
 )
 from backend.apps.accounts_auth.api.throttles import (
-    AdminLoginConfirmThrottle,
-    AdminLoginStartThrottle,
-    MagicLinkRequestThrottle,
     NaturalPersonRegistrationThrottle,
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
-    admin_login_failure_backoff,
-    email_ip_identifier,
 )
 from backend.apps.accounts_auth.models import (
     AccountAccessReason,
@@ -72,9 +63,6 @@ from backend.apps.accounts_auth.services import (
     AccountLoginBlockedError,
     AccountsAuthError,
     AdminAuthorizationError,
-    AdminLoginConfirmCommand,
-    AdminLoginInvalidCredentialsError,
-    AdminLoginStartCommand,
     ChangeAccountAccessCommand,
     CreateAdminUserCommand,
     DuplicateEmailError,
@@ -84,7 +72,7 @@ from backend.apps.accounts_auth.services import (
     InvalidRegistrationDataError,
     InvalidTermsAcceptanceError,
     MagicLinkConsumeCommand,
-    MagicLinkRequestCommand,
+    OperationDetailsError,
     PhoneAlreadyVerifiedError,
     PhoneVerificationConfirmCommand,
     PhoneVerificationProviderError,
@@ -97,16 +85,13 @@ from backend.apps.accounts_auth.services import (
     UpdateDisplayPreferencesCommand,
     UpdateMarketingConsentCommand,
     change_account_access,
-    confirm_admin_login,
     confirm_phone_verification,
     consume_magic_link,
     create_admin_user,
-    issue_magic_link,
     issue_sensitive_action_code,
     register_natural_person_lender,
     request_phone_verification,
     send_registration_follow_up_email,
-    start_admin_login,
     update_display_preferences,
     update_marketing_consent,
 )
@@ -154,14 +139,15 @@ class NaturalPersonRegistrationView(APIView):
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                     marketing_consent=data["marketing_consent"],
+                    password=str(data["password"]),
                 )
             )
         except (InvalidTermsAcceptanceError, InvalidRegistrationDataError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # The first sign-in link goes out with the registration, so the client needs no
-        # second request. An address that already has an account gets the same answer
-        # and an email that says so; nothing stored changes (audit A-50 / A-57).
+        # The link that confirms the email address goes out with the registration, so the
+        # client needs no second request. An address that already has an account gets the
+        # same answer and an email that says so; nothing stored changes (audit A-50 / A-57).
         send_registration_follow_up_email(
             result,
             ip_address=client_ip(request),
@@ -173,30 +159,10 @@ class NaturalPersonRegistrationView(APIView):
         )
 
 
-class MagicLinkRequestView(APIView):
-    authentication_classes: list[type] = []
-    permission_classes = [SameSiteRequestOnly]
-    throttle_classes = [MagicLinkRequestThrottle]
+class RegistrationEmailConfirmView(APIView):
+    """18.5: the link sent at registration confirms the email address and signs in, only
+    while the account has no second factor yet (to set one up)."""
 
-    @extend_schema(request=MagicLinkRequestSerializer, responses={202: None})
-    def post(self, request: Request) -> Response:
-        serializer = MagicLinkRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        try:
-            issue_magic_link(
-                MagicLinkRequestCommand(
-                    email=data["email"],
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except InvalidOrExpiredTokenError:
-            pass
-        return Response(status=status.HTTP_202_ACCEPTED)
-
-
-class MagicLinkConsumeView(APIView):
     authentication_classes: list[type] = []
     permission_classes = [SameSiteRequestOnly]
 
@@ -225,94 +191,7 @@ class MagicLinkConsumeView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         start_authenticated_session(  # noqa: SLF001
-            request._request, user, method=SignInMethod.EMAIL_LINK
-        )
-        return Response({"user": serialize_user(user)})
-
-
-class AdminLoginStartView(APIView):
-    authentication_classes: list[type] = []
-    permission_classes = [SameSiteRequestOnly]
-    throttle_classes = [AdminLoginStartThrottle]
-
-    @extend_schema(
-        request=AdminLoginStartRequestSerializer,
-        responses={202: AdminLoginStartResponseSerializer},
-    )
-    def post(self, request: Request) -> Response:
-        serializer = AdminLoginStartRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        # Wrong passwords slow down only this (email, IP) pair (audit A-47).
-        backoff = admin_login_failure_backoff()
-        backoff_key = email_ip_identifier(request, str(data["email"]))
-        wait = backoff.retry_after(backoff_key)
-        if wait is not None:
-            return Response(
-                {
-                    "detail": f"Too many failed attempts. Try again in {wait} seconds.",
-                    "retry_after_seconds": wait,
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-                headers={"Retry-After": str(wait)},
-            )
-        try:
-            result = start_admin_login(
-                AdminLoginStartCommand(
-                    email=data["email"],
-                    password=data["password"],
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except AdminLoginInvalidCredentialsError as exc:
-            backoff.record_failure(backoff_key)
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except InvalidOrExpiredCodeError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except SensitiveActionCodeThrottleError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        backoff.reset(backoff_key)
-
-        return Response(
-            {
-                "code_id": str(result.code_record.id),
-                "status": "code_sent",
-                "expires_at": result.code_record.expires_at.isoformat(),
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-
-class AdminLoginConfirmView(APIView):
-    authentication_classes: list[type] = []
-    permission_classes = [SameSiteRequestOnly]
-    throttle_classes = [AdminLoginConfirmThrottle]
-
-    @extend_schema(
-        request=AdminLoginConfirmRequestSerializer,
-        responses={200: AuthenticatedUserResponseSerializer},
-    )
-    def post(self, request: Request) -> Response:
-        serializer = AdminLoginConfirmRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        try:
-            user = confirm_admin_login(
-                AdminLoginConfirmCommand(
-                    code_id=str(data["code_id"]),
-                    raw_code=data["code"],
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except (AdminLoginInvalidCredentialsError, InvalidOrExpiredCodeError) as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except TooManyCodeAttemptsError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-        start_authenticated_session(  # noqa: SLF001
-            request._request, user, method=SignInMethod.ADMIN_PASSWORD_CODE
+            request._request, user, method=SignInMethod.REGISTRATION_LINK
         )
         return Response({"user": serialize_user(user)})
 
@@ -335,10 +214,16 @@ class SensitiveActionCodeRequestView(APIView):
                     action=SensitiveAction(data["action"]),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
+                    operation=dict(data.get("operation") or {}) or None,
                 )
             )
         except SensitiveActionCodeThrottleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except OperationDetailsError as exc:
+            return Response(
+                {"detail": str(exc), "code": "operation_details_invalid"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except InvalidOrExpiredCodeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -348,6 +233,7 @@ class SensitiveActionCodeRequestView(APIView):
                 "action": result.code_record.action,
                 "status": "code_sent",
                 "expires_at": result.code_record.expires_at.isoformat(),
+                "operation_summary": result.code_record.operation_summary,
             },
             status=status.HTTP_202_ACCEPTED,
         )

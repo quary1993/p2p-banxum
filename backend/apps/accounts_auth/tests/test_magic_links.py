@@ -1,3 +1,5 @@
+"""IP of Webby-Soft SRL. The registration email link (18.5: it only continues a registration)."""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -14,6 +16,7 @@ from backend.apps.accounts_auth.services import (
     delivery_secret_for_magic_link,
     issue_magic_link,
 )
+from backend.apps.accounts_auth.tests.signin_helpers import give_sms_factor
 from backend.apps.platform_core.models import AuditEvent, OutboxMessage
 
 
@@ -87,34 +90,27 @@ def test_admin_account_cannot_receive_magic_link() -> None:
 
 
 @pytest.mark.django_db
-def test_magic_link_request_api_does_not_reveal_account_existence(client: Client) -> None:
+def test_the_public_email_link_request_is_gone(client: Client) -> None:
+    """18.5: investors sign in with a password and a second factor; no link on request."""
     response = client.post(
         "/api/v1/auth/magic-link/request/",
         data={"email": "missing@example.test"},
         content_type="application/json",
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 404
 
 
 @pytest.mark.django_db
-def test_magic_link_request_api_throttles_repeated_email_requests(
-    client: Client,
-    investor: User,
-) -> None:
-    first = client.post(
-        "/api/v1/auth/magic-link/request/",
-        data={"email": investor.email},
-        content_type="application/json",
-    )
-    second = client.post(
-        "/api/v1/auth/magic-link/request/",
-        data={"email": investor.email},
-        content_type="application/json",
-    )
+def test_a_link_never_signs_in_an_account_with_a_second_factor(investor: User) -> None:
+    result = issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+    give_sms_factor(investor)
 
-    assert first.status_code == 202
-    assert second.status_code == 429
+    with pytest.raises(InvalidOrExpiredTokenError, match="no longer signs you in"):
+        consume_magic_link(MagicLinkConsumeCommand(raw_token=result.raw_token))
+    # And no new link is sent to it.
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email=investor.email))
 
 
 @pytest.mark.django_db
@@ -122,7 +118,7 @@ def test_magic_link_consume_api_logs_in_session(client: Client, investor: User) 
     result = issue_magic_link(MagicLinkRequestCommand(email=investor.email))
 
     response = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": result.raw_token},
         content_type="application/json",
     )
@@ -151,7 +147,7 @@ def test_expired_magic_link_consume_api_returns_recoverable_client_error(
     )
 
     response = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": result.raw_token},
         content_type="application/json",
     )
