@@ -133,6 +133,19 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     )
     term_months = serializers.IntegerField(help_text="Loan period in months.")
     repayment_type = serializers.CharField(help_text="RepaymentType value.")
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text=(
+            "Months between two due dates (interest engine, 18.6): monthly, quarterly, "
+            "half_yearly or annual."
+        ),
+    )
+    interest_only_months = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text="First months with interest only (interest_only_then_amortizing), else 0.",
+    )
     collateral_type = serializers.CharField(help_text="CollateralType value.")
     collateral_description = serializers.CharField(allow_blank=True)
     security_public_name = serializers.CharField(

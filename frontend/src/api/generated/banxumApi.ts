@@ -2088,6 +2088,99 @@ export interface DocumentTemplateVersionPublishRequest {
   note?: string;
 }
 
+export interface EngineCancelDefaultRequest {
+  reason: string;
+}
+
+export interface EngineDeclaration {
+  id: string;
+  declared_on: string;
+  days_late: number;
+  note: string;
+  whole_principal_minor: number;
+  whole_interest_minor: number;
+  frozen_penalty_minor: number;
+  /** @nullable */
+  cancelled_at: string | null;
+  cancel_reason: string;
+}
+
+export interface EngineDeclareDefaultRequest {
+  note?: string;
+}
+
+export interface EngineExpense {
+  id: string;
+  amount_minor: number;
+  currency: string;
+  value_date: string;
+  note: string;
+  evidence_reference: string;
+  document_id: string;
+  owed_minor: number;
+  penalty_owed_minor: number;
+  created_at: string;
+}
+
+export interface EngineExpenseRequest {
+  /** @minimum 1 */
+  amount_minor: number;
+  value_date: string;
+  note: string;
+  evidence_reference?: string;
+  document_id?: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface EngineInstallmentPenalty {
+  installment_number: number;
+  due_date: string;
+  owed_minor: number;
+  penalty_owed_minor: number;
+}
+
+export interface EnginePaymentPreviewInstallment {
+  installment_number: number;
+  due_date: string;
+  penalty_minor: number;
+  interest_minor: number;
+  principal_minor: number;
+}
+
+export interface EngineScheduleRow {
+  installment_number: number;
+  due_date: string;
+  principal_minor: number;
+  interest_minor: number;
+  total_minor: number;
+}
+
+export interface EnginePaymentPreview {
+  loan_id: string;
+  currency: string;
+  amount_minor: number;
+  value_date: string;
+  expenses_minor: number;
+  penalty_minor: number;
+  interest_minor: number;
+  principal_minor: number;
+  prepayment_minor: number;
+  accrued_interest_days: number;
+  schedule_changes: boolean;
+  penalty_to_investors_minor: number;
+  to_garanta_minor: number;
+  fully_repaid: boolean;
+  installments: EnginePaymentPreviewInstallment[];
+  new_schedule: EngineScheduleRow[];
+}
+
+export interface EnginePaymentPreviewRequest {
+  /** @minimum 1 */
+  amount_minor: number;
+  value_date: string;
+}
+
 export interface ExposureBucket {
   key: string;
   name: string;
@@ -2556,6 +2649,18 @@ export interface Holding {
   latest_public_note?: LatestPublicNote | null;
   open_secondary_listing: HoldingOpenSecondaryListing | null;
 }
+
+/**
+ * * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
+ * * `legacy_monthly` - Earlier schedule (before 18.6)
+ */
+export type InterestConventionEnum = typeof InterestConventionEnum[keyof typeof InterestConventionEnum];
+
+
+export const InterestConventionEnum = {
+  act_365_fixed: 'act_365_fixed',
+  legacy_monthly: 'legacy_monthly',
+} as const;
 
 export interface InvestorActivity {
   entries: ActivityEntry[];
@@ -3447,6 +3552,16 @@ export interface Loan {
   readonly effective_default_threshold_days: number;
   /** @nullable */
   contract_terminated_on: string | null;
+  interest_convention: string;
+  payment_frequency: string;
+  grace_business_days: number;
+  /** @pattern ^-?\d{0,3}(?:\.\d{0,4})?$ */
+  penalty_daily_rate_percent: string;
+  penalty_investor_share_bps: number;
+  /** @nullable */
+  payout_date: string | null;
+  /** @nullable */
+  default_declared_on: string | null;
   /** @nullable */
   coming_soon_at: string | null;
   /** @nullable */
@@ -3521,6 +3636,8 @@ export const PurposeEnum = {
  * * `amortizing_principal_interest` - Amortizing principal and interest
  * * `interest_only_then_bullet` - Interest-only then bullet
  * * `interest_only_then_amortizing` - Interest-only then amortizing
+ * * `full_at_maturity` - Full payment at maturity
+ * * `custom_schedule` - Custom schedule
  */
 export type RepaymentTypeEnum = typeof RepaymentTypeEnum[keyof typeof RepaymentTypeEnum];
 
@@ -3531,6 +3648,8 @@ export const RepaymentTypeEnum = {
   amortizing_principal_interest: 'amortizing_principal_interest',
   interest_only_then_bullet: 'interest_only_then_bullet',
   interest_only_then_amortizing: 'interest_only_then_amortizing',
+  full_at_maturity: 'full_at_maturity',
+  custom_schedule: 'custom_schedule',
 } as const;
 
 /**
@@ -3588,8 +3707,24 @@ export interface ManualScheduleRowRequest {
   /** @minimum 0 */
   principal_minor: number;
   /** @minimum 0 */
-  interest_minor: number;
+  interest_minor?: number;
 }
+
+/**
+ * * `monthly` - Monthly
+ * * `quarterly` - Quarterly
+ * * `half_yearly` - Half-yearly
+ * * `annual` - Annual
+ */
+export type PaymentFrequencyEnum = typeof PaymentFrequencyEnum[keyof typeof PaymentFrequencyEnum];
+
+
+export const PaymentFrequencyEnum = {
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  half_yearly: 'half_yearly',
+  annual: 'annual',
+} as const;
 
 export interface LoanCreateRequest {
   borrower_id: string;
@@ -3629,6 +3764,20 @@ export interface LoanCreateRequest {
   minimum_subscription_bps?: number;
   manual_schedule_rows?: ManualScheduleRowRequest[];
   note?: string;
+  interest_convention?: InterestConventionEnum;
+  payment_frequency?: PaymentFrequencyEnum;
+  /**
+     * @minimum 0
+     * @maximum 30
+     */
+  grace_business_days?: number;
+  /** @pattern ^-?\d{0,3}(?:\.\d{0,4})?$ */
+  penalty_daily_rate_percent?: string;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  penalty_investor_share_bps?: number;
 }
 
 /**
@@ -3757,6 +3906,10 @@ export interface LoanInstallment {
   /** @nullable */
   payment_date: string | null;
   admin_overridden: boolean;
+  /** @nullable */
+  original_due_date?: string | null;
+  /** @nullable */
+  interest_start?: string | null;
 }
 
 export interface LoanMonitoringRequest {
@@ -4237,6 +4390,32 @@ export interface LoanSecurityRequest {
   valuation_fx_rate?: string | null;
   /** @nullable */
   valuation_fx_rate_date?: string | null;
+}
+
+export interface LoanServicingPosition {
+  loan_id: string;
+  interest_engine: boolean;
+  currency: string;
+  status: string;
+  days_late: number;
+  default_possible: boolean;
+  late_days: number;
+  default_days: number;
+  declarations: EngineDeclaration[];
+  expenses: EngineExpense[];
+  /** @nullable */
+  oldest_unpaid_due_date?: string | null;
+  as_of?: string;
+  principal_owed_minor?: number;
+  due_now_minor?: number;
+  penalty_owed_minor?: number;
+  expenses_owed_minor?: number;
+  penalty_daily_rate_percent?: string;
+  penalty_investor_share_bps?: number;
+  grace_business_days?: number;
+  payment_frequency?: string;
+  expenses_allowed?: boolean;
+  installment_penalties?: EngineInstallmentPenalty[];
 }
 
 export interface LoanServicingStatusChange {
@@ -5539,6 +5718,19 @@ export interface PatchedLoanUpdateRequest {
   manual_schedule_rows?: ManualScheduleRowRequest[];
   investor_message?: string;
   note?: string;
+  payment_frequency?: PaymentFrequencyEnum;
+  /**
+     * @minimum 0
+     * @maximum 30
+     */
+  grace_business_days?: number;
+  /** @pattern ^-?\d{0,3}(?:\.\d{0,4})?$ */
+  penalty_daily_rate_percent?: string;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  penalty_investor_share_bps?: number;
 }
 
 export interface PatchedMarketingConsentUpdateRequest {
@@ -6123,6 +6315,10 @@ export interface PublicProject {
   term_months: number;
   /** RepaymentType value. */
   repayment_type: string;
+  /** Months between two due dates (interest engine, 18.6): monthly, quarterly, half_yearly or annual. */
+  payment_frequency?: string;
+  /** First months with interest only (interest_only_then_amortizing), else 0. */
+  interest_only_months?: number;
   /** CollateralType value. */
   collateral_type: string;
   collateral_description: string;
@@ -8460,6 +8656,8 @@ q?: string;
  * * `amortizing_principal_interest` - Amortizing principal and interest
  * * `interest_only_then_bullet` - Interest-only then bullet
  * * `interest_only_then_amortizing` - Interest-only then amortizing
+ * * `full_at_maturity` - Full payment at maturity
+ * * `custom_schedule` - Custom schedule
  * @minLength 1
  */
 repayment_type?: V1LoansAdminLoansListRepaymentType;
@@ -8531,6 +8729,8 @@ export const V1LoansAdminLoansListRepaymentType = {
   amortizing_principal_interest: 'amortizing_principal_interest',
   interest_only_then_bullet: 'interest_only_then_bullet',
   interest_only_then_amortizing: 'interest_only_then_amortizing',
+  full_at_maturity: 'full_at_maturity',
+  custom_schedule: 'custom_schedule',
 } as const;
 
 export type V1LoansAdminLoansListRiskRating = typeof V1LoansAdminLoansListRiskRating[keyof typeof V1LoansAdminLoansListRiskRating];
@@ -29673,6 +29873,417 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1ServicingAdminLoansContractTerminationCreateMutationOptions(options), queryClient);
     }
 
+export const getV1ServicingAdminLoansDefaultDeclarationCreateUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/default-declaration/`
+}
+
+/**
+ * 18.6: declare Default (maturity) once the oldest unpaid installment reached the Default
+ * days. Never automatic.
+ */
+export const v1ServicingAdminLoansDefaultDeclarationCreate = async (loanId: string,
+    engineDeclareDefaultRequest?: EngineDeclareDefaultRequest, options?: Parameters<typeof httpClient>[1]): Promise<LoanServicingPosition> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<LoanServicingPosition>(getV1ServicingAdminLoansDefaultDeclarationCreateUrl(loanId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(engineDeclareDefaultRequest)
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansDefaultDeclarationCreateMutationKey = () => ['v1ServicingAdminLoansDefaultDeclarationCreate'] as const;
+
+export const getV1ServicingAdminLoansDefaultDeclarationCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1ServicingAdminLoansDefaultDeclarationCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>, V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1ServicingAdminLoansDefaultDeclarationCreate(loanId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminLoansDefaultDeclarationCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>>
+    export type V1ServicingAdminLoansDefaultDeclarationCreateMutationBody = EngineDeclareDefaultRequest | undefined
+    export type V1ServicingAdminLoansDefaultDeclarationCreateMutationError = unknown
+    export type V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables = {loanId: string;data?: EngineDeclareDefaultRequest}
+
+    export const useV1ServicingAdminLoansDefaultDeclarationCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCreate>>,
+        TError,
+        V1ServicingAdminLoansDefaultDeclarationCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1ServicingAdminLoansDefaultDeclarationCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1ServicingAdminLoansDefaultDeclarationCancelCreateUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/default-declaration/cancel/`
+}
+
+/**
+ * 18.6: a super admin cancels a Default declared by mistake, with a written reason.
+ */
+export const v1ServicingAdminLoansDefaultDeclarationCancelCreate = async (loanId: string,
+    engineCancelDefaultRequest: EngineCancelDefaultRequest, options?: Parameters<typeof httpClient>[1]): Promise<LoanServicingPosition> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<LoanServicingPosition>(getV1ServicingAdminLoansDefaultDeclarationCancelCreateUrl(loanId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(engineCancelDefaultRequest)
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansDefaultDeclarationCancelCreateMutationKey = () => ['v1ServicingAdminLoansDefaultDeclarationCancelCreate'] as const;
+
+export const getV1ServicingAdminLoansDefaultDeclarationCancelCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1ServicingAdminLoansDefaultDeclarationCancelCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>, V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1ServicingAdminLoansDefaultDeclarationCancelCreate(loanId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>>
+    export type V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationBody = EngineCancelDefaultRequest
+    export type V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationError = unknown
+    export type V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables = {loanId: string;data: EngineCancelDefaultRequest}
+
+    export const useV1ServicingAdminLoansDefaultDeclarationCancelCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>, TError,V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminLoansDefaultDeclarationCancelCreate>>,
+        TError,
+        V1ServicingAdminLoansDefaultDeclarationCancelCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1ServicingAdminLoansDefaultDeclarationCancelCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1ServicingAdminLoansExpensesListUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/expenses/`
+}
+
+/**
+ * 18.6: the recovery expenses of a loan (GET) or record one (POST).
+ */
+export const v1ServicingAdminLoansExpensesList = async (loanId: string, options?: Parameters<typeof httpClient>[1]): Promise<EngineExpense[]> => {
+
+  return httpClient<EngineExpense[]>(getV1ServicingAdminLoansExpensesListUrl(loanId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansExpensesListQueryKey = (loanId: string,) => {
+    return [
+    `/api/v1/servicing/admin/loans/${loanId}/expenses/`
+    ] as const;
+    }
+
+
+export const getV1ServicingAdminLoansExpensesListQueryOptions = <TData = Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1ServicingAdminLoansExpensesListQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>> = ({ signal }) => v1ServicingAdminLoansExpensesList(loanId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: loanId !== null && loanId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1ServicingAdminLoansExpensesListQueryResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>>
+export type V1ServicingAdminLoansExpensesListQueryError = unknown
+
+
+export function useV1ServicingAdminLoansExpensesList<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminLoansExpensesList<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminLoansExpensesList<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1ServicingAdminLoansExpensesList<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1ServicingAdminLoansExpensesListQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1ServicingAdminLoansExpensesCreateUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/expenses/`
+}
+
+/**
+ * 18.6: the recovery expenses of a loan (GET) or record one (POST).
+ */
+export const v1ServicingAdminLoansExpensesCreate = async (loanId: string,
+    engineExpenseRequest: EngineExpenseRequest, options?: Parameters<typeof httpClient>[1]): Promise<EngineExpense> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<EngineExpense>(getV1ServicingAdminLoansExpensesCreateUrl(loanId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(engineExpenseRequest)
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansExpensesCreateMutationKey = () => ['v1ServicingAdminLoansExpensesCreate'] as const;
+
+export const getV1ServicingAdminLoansExpensesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>, TError,V1ServicingAdminLoansExpensesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>, TError,V1ServicingAdminLoansExpensesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1ServicingAdminLoansExpensesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>, V1ServicingAdminLoansExpensesCreateMutationVariables> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1ServicingAdminLoansExpensesCreate(loanId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminLoansExpensesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>>
+    export type V1ServicingAdminLoansExpensesCreateMutationBody = EngineExpenseRequest
+    export type V1ServicingAdminLoansExpensesCreateMutationError = unknown
+    export type V1ServicingAdminLoansExpensesCreateMutationVariables = {loanId: string;data: EngineExpenseRequest}
+
+    export const useV1ServicingAdminLoansExpensesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>, TError,V1ServicingAdminLoansExpensesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminLoansExpensesCreate>>,
+        TError,
+        V1ServicingAdminLoansExpensesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1ServicingAdminLoansExpensesCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1ServicingAdminLoansPaymentPreviewCreateUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/payment-preview/`
+}
+
+/**
+ * 18.6: how a payment would be used (expenses, penalties, interest, principal, prepayment).
+ */
+export const v1ServicingAdminLoansPaymentPreviewCreate = async (loanId: string,
+    enginePaymentPreviewRequest: EnginePaymentPreviewRequest, options?: Parameters<typeof httpClient>[1]): Promise<EnginePaymentPreview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<EnginePaymentPreview>(getV1ServicingAdminLoansPaymentPreviewCreateUrl(loanId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(enginePaymentPreviewRequest)
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansPaymentPreviewCreateMutationKey = () => ['v1ServicingAdminLoansPaymentPreviewCreate'] as const;
+
+export const getV1ServicingAdminLoansPaymentPreviewCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>, TError,V1ServicingAdminLoansPaymentPreviewCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>, TError,V1ServicingAdminLoansPaymentPreviewCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1ServicingAdminLoansPaymentPreviewCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>, V1ServicingAdminLoansPaymentPreviewCreateMutationVariables> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1ServicingAdminLoansPaymentPreviewCreate(loanId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminLoansPaymentPreviewCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>>
+    export type V1ServicingAdminLoansPaymentPreviewCreateMutationBody = EnginePaymentPreviewRequest
+    export type V1ServicingAdminLoansPaymentPreviewCreateMutationError = unknown
+    export type V1ServicingAdminLoansPaymentPreviewCreateMutationVariables = {loanId: string;data: EnginePaymentPreviewRequest}
+
+    export const useV1ServicingAdminLoansPaymentPreviewCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>, TError,V1ServicingAdminLoansPaymentPreviewCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminLoansPaymentPreviewCreate>>,
+        TError,
+        V1ServicingAdminLoansPaymentPreviewCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1ServicingAdminLoansPaymentPreviewCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1ServicingAdminLoansRecoveryStagesRetrieveUrl = (loanId: string,) => {
 
 
@@ -29928,6 +30539,104 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getV1ServicingAdminLoansRecoveryStagesRemoveCreateMutationOptions(options), queryClient);
     }
+
+export const getV1ServicingAdminLoansServicingPositionRetrieveUrl = (loanId: string,) => {
+
+
+
+
+  return `/api/v1/servicing/admin/loans/${loanId}/servicing-position/`
+}
+
+/**
+ * 18.6: status (Pending / Due / Late / Default), amounts owed, expenses and declarations.
+ */
+export const v1ServicingAdminLoansServicingPositionRetrieve = async (loanId: string, options?: Parameters<typeof httpClient>[1]): Promise<LoanServicingPosition> => {
+
+  return httpClient<LoanServicingPosition>(getV1ServicingAdminLoansServicingPositionRetrieveUrl(loanId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1ServicingAdminLoansServicingPositionRetrieveQueryKey = (loanId: string,) => {
+    return [
+    `/api/v1/servicing/admin/loans/${loanId}/servicing-position/`
+    ] as const;
+    }
+
+
+export const getV1ServicingAdminLoansServicingPositionRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1ServicingAdminLoansServicingPositionRetrieveQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>> = ({ signal }) => v1ServicingAdminLoansServicingPositionRetrieve(loanId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: loanId !== null && loanId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1ServicingAdminLoansServicingPositionRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>>
+export type V1ServicingAdminLoansServicingPositionRetrieveQueryError = unknown
+
+
+export function useV1ServicingAdminLoansServicingPositionRetrieve<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminLoansServicingPositionRetrieve<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminLoansServicingPositionRetrieve<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1ServicingAdminLoansServicingPositionRetrieve<TData = Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminLoansServicingPositionRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1ServicingAdminLoansServicingPositionRetrieveQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getV1ServicingAdminLoansStatusThresholdsCreateUrl = (loanId: string,) => {
 
@@ -30922,17 +31631,17 @@ export const getV1LedgerPayoutInstructionsDefaultCreateResponseMock = (overrideR
 
 export const getV1LedgerWithdrawalRequestsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorWithdrawalRequestCreateResponse, object>> = {}): InvestorWithdrawalRequestCreateResponse => ({withdrawal_request: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_user_id: faker.string.uuid(), requested_at: faker.date.past().toISOString().slice(0, 19) + 'Z', request_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), is_forced: faker.datatype.boolean(), lot_allocations: {}, bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalization_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancellation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, balance_summary: {investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int(), investable_minor: faker.number.int(), withdraw_only_minor: faker.number.int(), overdue_minor: faker.number.int(), frozen_minor: faker.number.int(), penalty_mode_minor: faker.number.int()}, ...overrideResponse})
 
-export const getV1LoansAdminLoansListResponseMock = (): Loan[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getV1LoansAdminLoansListResponseMock = (): Loan[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
-export const getV1LoansAdminLoansCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1LoansAdminLoansRetrieveResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansRetrieveResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1LoansAdminLoansPartialUpdateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansPartialUpdateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1LoansAdminLoansComingSoonCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansComingSoonCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1LoansAdminLoansComingSoonDestroyResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansComingSoonDestroyResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getV1LoansAdminLoansCreditChecksRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanCreditChecks, object>> = {}): LoanCreditChecks => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}})})), monitoring_frequency: faker.string.alpha({length: {min: 10, max: 20}}), monitoring_focus: faker.string.alpha({length: {min: 10, max: 20}}), repayment_source: faker.string.alpha({length: {min: 10, max: 20}}), reporting_plan_status: faker.string.alpha({length: {min: 10, max: 20}}), reporting_milestones: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({when: faker.string.alpha({length: {min: 10, max: 80}}), title: faker.string.alpha({length: {min: 10, max: 120}}), body: faker.string.alpha({length: {min: 10, max: 500}})})), ...overrideResponse})
 
@@ -30950,13 +31659,13 @@ export const getV1LoansAdminLoansMonitoringCreateResponseMock = (overrideRespons
 
 export const getV1LoansAdminLoansOriginalScheduleListResponseMock = (): OriginalLoanScheduleRow[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int(), paid_before_publication: faker.datatype.boolean()})))
 
-export const getV1LoansAdminLoansPublishCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1LoansAdminLoansPublishCreateResponseMock = (overrideResponse: Partial<Extract<Loan, object>> = {}): Loan => ({id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), yield_bps: faker.number.int(), opportunity_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), originator_schedule_revision: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), is_refinancing: faker.datatype.boolean(), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), principal_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), loan_start_date: faker.date.past().toISOString().slice(0, 10), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), first_payment_date: faker.date.past().toISOString().slice(0, 10), pre_publication_paid_installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.number.int())), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int(), lender_payment_fee_minor: faker.number.int(), default_penalty_interest_bps: faker.number.int(), recovery_fee_bps: faker.number.int(), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), interest_convention: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), grace_business_days: faker.number.int(), penalty_daily_rate_percent: faker.helpers.fromRegExp("^-?\\d{0,3}(?:\\.\\d{0,4})?$"), penalty_investor_share_bps: faker.number.int(), payout_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), default_declared_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), coming_soon_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), planned_opening_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), security_overview: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({security_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})})), opening_alert_count: faker.number.int(), minimum_subscription_bps: faker.number.int(), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int(), total_scheduled_principal_minor: faker.number.int(), total_scheduled_interest_minor: faker.number.int(), committed_principal_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getV1LoansAdminLoansRepaymentSourceCreateResponseMock = (overrideResponse: Partial<Extract<LoanCreditChecks, object>> = {}): LoanCreditChecks => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}})})), monitoring_frequency: faker.string.alpha({length: {min: 10, max: 20}}), monitoring_focus: faker.string.alpha({length: {min: 10, max: 20}}), repayment_source: faker.string.alpha({length: {min: 10, max: 20}}), reporting_plan_status: faker.string.alpha({length: {min: 10, max: 20}}), reporting_milestones: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({when: faker.string.alpha({length: {min: 10, max: 80}}), title: faker.string.alpha({length: {min: 10, max: 120}}), body: faker.string.alpha({length: {min: 10, max: 500}})})), ...overrideResponse})
 
 export const getV1LoansAdminLoansReportingPlanUpdateResponseMock = (overrideResponse: Partial<Extract<LoanCreditChecks, object>> = {}): LoanCreditChecks => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}}), source: faker.string.alpha({length: {min: 10, max: 20}}), checked_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}})})), monitoring_frequency: faker.string.alpha({length: {min: 10, max: 20}}), monitoring_focus: faker.string.alpha({length: {min: 10, max: 20}}), repayment_source: faker.string.alpha({length: {min: 10, max: 20}}), reporting_plan_status: faker.string.alpha({length: {min: 10, max: 20}}), reporting_milestones: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({when: faker.string.alpha({length: {min: 10, max: 80}}), title: faker.string.alpha({length: {min: 10, max: 120}}), body: faker.string.alpha({length: {min: 10, max: 500}})})), ...overrideResponse})
 
-export const getV1LoansAdminLoansScheduleListResponseMock = (): LoanInstallment[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), schedule_version: faker.number.int(), installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), paid_principal_minor: faker.number.int(), paid_interest_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), outstanding_interest_minor: faker.number.int(), outstanding_total_minor: faker.number.int(), is_paid: faker.datatype.boolean(), days_past_due: faker.number.int(), status: faker.string.alpha({length: {min: 10, max: 20}}), row_type: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), admin_overridden: faker.datatype.boolean()})))
+export const getV1LoansAdminLoansScheduleListResponseMock = (): LoanInstallment[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), schedule_version: faker.number.int(), installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), paid_principal_minor: faker.number.int(), paid_interest_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), outstanding_interest_minor: faker.number.int(), outstanding_total_minor: faker.number.int(), is_paid: faker.datatype.boolean(), days_past_due: faker.number.int(), status: faker.string.alpha({length: {min: 10, max: 20}}), row_type: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), admin_overridden: faker.datatype.boolean(), original_due_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), interest_start: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined])})))
 
 export const getV1LoansAdminLoansSecuritiesRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanSecurityList, object>> = {}): LoanSecurityList => ({securities: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), position: faker.number.int(), security_type: faker.string.alpha({length: {min: 10, max: 20}}), is_guarantee: faker.datatype.boolean(), description: faker.string.alpha({length: {min: 10, max: 20}}), public_name: faker.string.alpha({length: {min: 10, max: 20}}), holder_name: faker.string.alpha({length: {min: 10, max: 20}}), rank: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), value_minor: faker.helpers.arrayElement([faker.number.int(), null]), valuation_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), valuation_source: faker.string.alpha({length: {min: 10, max: 20}}), appraiser: faker.string.alpha({length: {min: 10, max: 20}}), prior_ranking_debt_minor: faker.helpers.arrayElement([faker.number.int(), null]), insurance: faker.string.alpha({length: {min: 10, max: 20}}), undertaking_scope: faker.string.alpha({length: {min: 10, max: 20}}), undertaking_limit_minor: faker.helpers.arrayElement([faker.number.int(), null]), is_main: faker.datatype.boolean(), counts_in_ltv: faker.datatype.boolean(), valuation_currency: faker.string.alpha({length: {min: 10, max: 20}}), valuation_amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), valuation_fx_rate: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), valuation_fx_rate_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), documents: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})}))})), borrower_documents: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), display_name: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
@@ -31012,9 +31721,9 @@ export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (o
 
 export const getV1MarketplacePrimaryPublicOriginatorsListResponseMock = (): PublicOriginator[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}}), partner_since: faker.date.past().toISOString().slice(0, 10), claims_funded: faker.number.int(), founded_year: faker.helpers.arrayElement([faker.number.int(), null]), about: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), sector: faker.string.alpha({length: {min: 10, max: 20}}), volume: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int()})), late_claims: faker.number.int()})))
 
-export const getV1MarketplacePrimaryPublicProjectsListResponseMock = (): PublicProject[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), security_public_name: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,])})))
+export const getV1MarketplacePrimaryPublicProjectsListResponseMock = (): PublicProject[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), security_public_name: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,])})))
 
-export const getV1MarketplacePrimaryPublicProjectsRetrieveResponseMock = (overrideResponse: Partial<Extract<PublicProject, object>> = {}): PublicProject => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), security_public_name: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,]), ...overrideResponse})
+export const getV1MarketplacePrimaryPublicProjectsRetrieveResponseMock = (overrideResponse: Partial<Extract<PublicProject, object>> = {}): PublicProject => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), product_type: faker.helpers.arrayElement(Object.values(ProductTypeEnum)), is_refinancing: faker.datatype.boolean(), public_status: faker.helpers.arrayElement(Object.values(PublicStatusEnum)), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), minimum_investment_minor: faker.helpers.arrayElement([faker.number.int(), null]), investors_count: faker.number.int(), max_investors: faker.helpers.arrayElement([faker.number.int(), null]), places_left: faker.helpers.arrayElement([faker.number.int(), null]), interest_rate_bps: faker.number.int(), term_months: faker.number.int(), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), payment_frequency: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int(), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), security_public_name: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), borrower_country: faker.string.alpha({length: {min: 10, max: 20}}), borrower_sector: faker.string.alpha({length: {min: 10, max: 20}}), borrower_year_founded: faker.helpers.arrayElement([faker.number.int(), null]), originator: faker.helpers.arrayElement([{id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), country: faker.string.alpha({length: {min: 10, max: 20}})},null,]), published_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), funded_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), planned_opening_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), record: faker.helpers.arrayElement([{installments_total: faker.number.int(), installments_paid: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_principal_minor: faker.number.int(), days_past_due: faker.number.int(), defaulted_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), public_note: faker.string.alpha({length: {min: 10, max: 20}})},null,]), ...overrideResponse})
 
 export const getV1MarketplacePrimaryPublicStatisticsRetrieveResponseMock = (overrideResponse: Partial<Extract<PublicStatistics, object>> = {}): PublicStatistics => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', loans_funded: faker.number.int(), loans_repaid: faker.number.int(), loans_late: faker.number.int(), loans_defaulted: faker.number.int(), average_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), originators_count: faker.number.int(), countries_count: faker.number.int(), by_currency: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), loans: faker.number.int(), lent_minor: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_paid_minor: faker.number.int(), outstanding_minor: faker.number.int(), defaulted_minor: faker.number.int()})), ...overrideResponse})
 
@@ -31106,11 +31815,23 @@ export const getV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreateResponseMo
 
 export const getV1ServicingAdminLoansContractTerminationCreateResponseMock = (overrideResponse: Partial<Extract<LoanStatusStages, object>> = {}): LoanStatusStages => ({loan_id: faker.string.uuid(), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), threshold_source: faker.string.alpha({length: {min: 10, max: 20}}), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), ...overrideResponse})
 
+export const getV1ServicingAdminLoansDefaultDeclarationCreateResponseMock = (overrideResponse: Partial<Extract<LoanServicingPosition, object>> = {}): LoanServicingPosition => ({loan_id: faker.string.uuid(), interest_engine: faker.datatype.boolean(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), days_late: faker.number.int(), default_possible: faker.datatype.boolean(), late_days: faker.number.int(), default_days: faker.number.int(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), declared_on: faker.date.past().toISOString().slice(0, 10), days_late: faker.number.int(), note: faker.string.alpha({length: {min: 10, max: 20}}), whole_principal_minor: faker.number.int(), whole_interest_minor: faker.number.int(), frozen_penalty_minor: faker.number.int(), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancel_reason: faker.string.alpha({length: {min: 10, max: 20}})})), expenses: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), document_id: faker.string.alpha({length: {min: 10, max: 20}}), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), oldest_unpaid_due_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), as_of: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), undefined]), principal_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), due_now_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), expenses_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_daily_rate_percent: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), penalty_investor_share_bps: faker.helpers.arrayElement([faker.number.int(), undefined]), grace_business_days: faker.helpers.arrayElement([faker.number.int(), undefined]), payment_frequency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), expenses_allowed: faker.helpers.arrayElement([faker.datatype.boolean(), undefined]), installment_penalties: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int()})), undefined]), ...overrideResponse})
+
+export const getV1ServicingAdminLoansDefaultDeclarationCancelCreateResponseMock = (overrideResponse: Partial<Extract<LoanServicingPosition, object>> = {}): LoanServicingPosition => ({loan_id: faker.string.uuid(), interest_engine: faker.datatype.boolean(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), days_late: faker.number.int(), default_possible: faker.datatype.boolean(), late_days: faker.number.int(), default_days: faker.number.int(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), declared_on: faker.date.past().toISOString().slice(0, 10), days_late: faker.number.int(), note: faker.string.alpha({length: {min: 10, max: 20}}), whole_principal_minor: faker.number.int(), whole_interest_minor: faker.number.int(), frozen_penalty_minor: faker.number.int(), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancel_reason: faker.string.alpha({length: {min: 10, max: 20}})})), expenses: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), document_id: faker.string.alpha({length: {min: 10, max: 20}}), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), oldest_unpaid_due_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), as_of: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), undefined]), principal_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), due_now_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), expenses_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_daily_rate_percent: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), penalty_investor_share_bps: faker.helpers.arrayElement([faker.number.int(), undefined]), grace_business_days: faker.helpers.arrayElement([faker.number.int(), undefined]), payment_frequency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), expenses_allowed: faker.helpers.arrayElement([faker.datatype.boolean(), undefined]), installment_penalties: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int()})), undefined]), ...overrideResponse})
+
+export const getV1ServicingAdminLoansExpensesListResponseMock = (): EngineExpense[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), document_id: faker.string.alpha({length: {min: 10, max: 20}}), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getV1ServicingAdminLoansExpensesCreateResponseMock = (overrideResponse: Partial<Extract<EngineExpense, object>> = {}): EngineExpense => ({id: faker.string.uuid(), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), document_id: faker.string.alpha({length: {min: 10, max: 20}}), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getV1ServicingAdminLoansPaymentPreviewCreateResponseMock = (overrideResponse: Partial<Extract<EnginePaymentPreview, object>> = {}): EnginePaymentPreview => ({loan_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), value_date: faker.date.past().toISOString().slice(0, 10), expenses_minor: faker.number.int(), penalty_minor: faker.number.int(), interest_minor: faker.number.int(), principal_minor: faker.number.int(), prepayment_minor: faker.number.int(), accrued_interest_days: faker.number.int(), schedule_changes: faker.datatype.boolean(), penalty_to_investors_minor: faker.number.int(), to_garanta_minor: faker.number.int(), fully_repaid: faker.datatype.boolean(), installments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.string.alpha({length: {min: 10, max: 20}}), penalty_minor: faker.number.int(), interest_minor: faker.number.int(), principal_minor: faker.number.int()})), new_schedule: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int()})), ...overrideResponse})
+
 export const getV1ServicingAdminLoansRecoveryStagesRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanRecoveryStageList, object>> = {}): LoanRecoveryStageList => ({stages: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), status: faker.helpers.arrayElement(Object.values(LoanRecoveryStageStatusEnum)), title: faker.string.alpha({length: {min: 10, max: 20}}), standard_key: faker.string.alpha({length: {min: 10, max: 20}}), recovery_result: faker.string.alpha({length: {min: 10, max: 20}}), occurred_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investor_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', recorded_by_email: faker.string.alpha({length: {min: 10, max: 20}}), removed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), removed_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_email: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
 export const getV1ServicingAdminLoansRecoveryStagesCreateResponseMock = (overrideResponse: Partial<Extract<LoanRecoveryStage, object>> = {}): LoanRecoveryStage => ({id: faker.string.uuid(), status: faker.helpers.arrayElement(Object.values(LoanRecoveryStageStatusEnum)), title: faker.string.alpha({length: {min: 10, max: 20}}), standard_key: faker.string.alpha({length: {min: 10, max: 20}}), recovery_result: faker.string.alpha({length: {min: 10, max: 20}}), occurred_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investor_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', recorded_by_email: faker.string.alpha({length: {min: 10, max: 20}}), removed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), removed_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_email: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1ServicingAdminLoansRecoveryStagesRemoveCreateResponseMock = (overrideResponse: Partial<Extract<LoanRecoveryStage, object>> = {}): LoanRecoveryStage => ({id: faker.string.uuid(), status: faker.helpers.arrayElement(Object.values(LoanRecoveryStageStatusEnum)), title: faker.string.alpha({length: {min: 10, max: 20}}), standard_key: faker.string.alpha({length: {min: 10, max: 20}}), recovery_result: faker.string.alpha({length: {min: 10, max: 20}}), occurred_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investor_note: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', recorded_by_email: faker.string.alpha({length: {min: 10, max: 20}}), removed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), removed_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_email: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1ServicingAdminLoansServicingPositionRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanServicingPosition, object>> = {}): LoanServicingPosition => ({loan_id: faker.string.uuid(), interest_engine: faker.datatype.boolean(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), days_late: faker.number.int(), default_possible: faker.datatype.boolean(), late_days: faker.number.int(), default_days: faker.number.int(), declarations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), declared_on: faker.date.past().toISOString().slice(0, 10), days_late: faker.number.int(), note: faker.string.alpha({length: {min: 10, max: 20}}), whole_principal_minor: faker.number.int(), whole_interest_minor: faker.number.int(), frozen_penalty_minor: faker.number.int(), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancel_reason: faker.string.alpha({length: {min: 10, max: 20}})})), expenses: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), document_id: faker.string.alpha({length: {min: 10, max: 20}}), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), oldest_unpaid_due_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), as_of: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), undefined]), principal_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), due_now_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), expenses_owed_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), penalty_daily_rate_percent: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), penalty_investor_share_bps: faker.helpers.arrayElement([faker.number.int(), undefined]), grace_business_days: faker.helpers.arrayElement([faker.number.int(), undefined]), payment_frequency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), expenses_allowed: faker.helpers.arrayElement([faker.datatype.boolean(), undefined]), installment_penalties: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), owed_minor: faker.number.int(), penalty_owed_minor: faker.number.int()})), undefined]), ...overrideResponse})
 
 export const getV1ServicingAdminLoansStatusThresholdsCreateResponseMock = (overrideResponse: Partial<Extract<LoanStatusStages, object>> = {}): LoanStatusStages => ({loan_id: faker.string.uuid(), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), late_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), default_threshold_days: faker.helpers.arrayElement([faker.number.int(), null]), effective_late_threshold_days: faker.number.int(), effective_default_threshold_days: faker.number.int(), threshold_source: faker.string.alpha({length: {min: 10, max: 20}}), contract_terminated_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), ...overrideResponse})
 
@@ -34114,6 +34835,66 @@ export const getV1ServicingAdminLoansContractTerminationCreateMockHandler = (ove
   }, options)
 }
 
+export const getV1ServicingAdminLoansDefaultDeclarationCreateMockHandler = (overrideResponse?: LoanServicingPosition | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanServicingPosition> | LoanServicingPosition), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/loans/:loanId/default-declaration/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansDefaultDeclarationCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminLoansDefaultDeclarationCancelCreateMockHandler = (overrideResponse?: LoanServicingPosition | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanServicingPosition> | LoanServicingPosition), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/loans/:loanId/default-declaration/cancel/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansDefaultDeclarationCancelCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminLoansExpensesListMockHandler = (overrideResponse?: EngineExpense[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<EngineExpense[]> | EngineExpense[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/servicing/admin/loans/:loanId/expenses/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansExpensesListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminLoansExpensesCreateMockHandler = (overrideResponse?: EngineExpense | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<EngineExpense> | EngineExpense), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/loans/:loanId/expenses/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansExpensesCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminLoansPaymentPreviewCreateMockHandler = (overrideResponse?: EnginePaymentPreview | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<EnginePaymentPreview> | EnginePaymentPreview), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/loans/:loanId/payment-preview/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansPaymentPreviewCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getV1ServicingAdminLoansRecoveryStagesRetrieveMockHandler = (overrideResponse?: LoanRecoveryStageList | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanRecoveryStageList> | LoanRecoveryStageList), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/servicing/admin/loans/:loanId/recovery-stages/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
@@ -34145,6 +34926,18 @@ export const getV1ServicingAdminLoansRecoveryStagesRemoveCreateMockHandler = (ov
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1ServicingAdminLoansRecoveryStagesRemoveCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminLoansServicingPositionRetrieveMockHandler = (overrideResponse?: LoanServicingPosition | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanServicingPosition> | LoanServicingPosition), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/servicing/admin/loans/:loanId/servicing-position/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminLoansServicingPositionRetrieveResponseMock(),
       { status: 200
       })
   }, options)
@@ -34500,9 +35293,15 @@ export const getBanxumApiMock = () => [
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreateMockHandler(),
   getV1ServicingAdminLoansContractTerminationCreateMockHandler(),
+  getV1ServicingAdminLoansDefaultDeclarationCreateMockHandler(),
+  getV1ServicingAdminLoansDefaultDeclarationCancelCreateMockHandler(),
+  getV1ServicingAdminLoansExpensesListMockHandler(),
+  getV1ServicingAdminLoansExpensesCreateMockHandler(),
+  getV1ServicingAdminLoansPaymentPreviewCreateMockHandler(),
   getV1ServicingAdminLoansRecoveryStagesRetrieveMockHandler(),
   getV1ServicingAdminLoansRecoveryStagesCreateMockHandler(),
   getV1ServicingAdminLoansRecoveryStagesRemoveCreateMockHandler(),
+  getV1ServicingAdminLoansServicingPositionRetrieveMockHandler(),
   getV1ServicingAdminLoansStatusThresholdsCreateMockHandler(),
   getV1ServicingAdminRecoveriesCreateMockHandler(),
   getV1ServicingAdminRiskNotesListMockHandler(),

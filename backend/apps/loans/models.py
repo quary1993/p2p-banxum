@@ -101,6 +101,25 @@ class RepaymentType(models.TextChoices):
         "interest_only_then_amortizing",
         "Interest-only then amortizing",
     )
+    # 18.6 (Q08): all principal and interest at the end; custom schedules by import.
+    FULL_AT_MATURITY = "full_at_maturity", "Full payment at maturity"
+    CUSTOM_SCHEDULE = "custom_schedule", "Custom schedule"
+
+
+class PaymentFrequency(models.TextChoices):
+    """18.6 (Q08): the four frequencies of new direct loans."""
+
+    MONTHLY = "monthly", "Monthly"
+    QUARTERLY = "quarterly", "Quarterly"
+    HALF_YEARLY = "half_yearly", "Half-yearly"
+    ANNUAL = "annual", "Annual"
+
+
+class InterestConvention(models.TextChoices):
+    """18.6: Actual/365 Fixed engine for new direct loans; earlier loans keep their schedule."""
+
+    ACT_365_FIXED = "act_365_fixed", "Actual/365 Fixed (18.6 engine)"
+    LEGACY_MONTHLY = "legacy_monthly", "Earlier schedule (before 18.6)"
 
 
 class LoanEventType(models.TextChoices):
@@ -123,6 +142,12 @@ class LoanEventType(models.TextChoices):
     CONTRACT_TERMINATED = "contract_terminated", "Contract terminated"
     COMING_SOON_ANNOUNCED = "coming_soon_announced", "Coming soon announced"
     COMING_SOON_WITHDRAWN = "coming_soon_withdrawn", "Coming soon withdrawn"
+    # 18.6: the schedule recalculated from the real payout day; the admin's Default declaration
+    # (and its correction by a super admin); recovery expenses.
+    SCHEDULE_CONFIRMED = "schedule_confirmed", "Schedule confirmed at payout"
+    DEFAULT_DECLARED = "default_declared", "Default declared"
+    DEFAULT_CANCELLED = "default_cancelled", "Default declaration cancelled"
+    EXPENSE_RECORDED = "expense_recorded", "Recovery expense recorded"
 
 
 class Loan(TimestampedModel):
@@ -190,6 +215,24 @@ class Loan(TimestampedModel):
     default_threshold_days = models.PositiveSmallIntegerField(null=True, blank=True)
     # U33-DEC-09: the contract termination date, recorded by an admin (never automatic).
     contract_terminated_on = models.DateField(null=True, blank=True)
+    # 18.6 interest engine (new direct loans): convention, frequency, grace in business days, the
+    # daily penalty X (% per day) and the investors' share of it (the rest is Garanta's), the real
+    # payout day (the schedule is confirmed from it) and the admin's Default declaration.
+    interest_convention = models.CharField(
+        max_length=32,
+        choices=InterestConvention.choices,
+        default=InterestConvention.LEGACY_MONTHLY,
+    )
+    payment_frequency = models.CharField(
+        max_length=16, choices=PaymentFrequency.choices, default=PaymentFrequency.MONTHLY
+    )
+    grace_business_days = models.PositiveSmallIntegerField(default=0)
+    penalty_daily_rate_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal("0")
+    )
+    penalty_investor_share_bps = models.PositiveSmallIntegerField(default=10_000)
+    payout_date = models.DateField(null=True, blank=True)
+    default_declared_on = models.DateField(null=True, blank=True)
     # U33-DEC-17: a draft shown as "Coming soon" with its planned opening date. Nothing can be
     # invested or reserved until the admin publishes it; publishing sends the opening alerts.
     # U33-DEC-20: how the loan is followed, for the credit file's "Checks & updates".
@@ -232,6 +275,14 @@ class Loan(TimestampedModel):
             models.CheckConstraint(
                 condition=models.Q(skin_in_the_game_bps__lt=10_000),
                 name="loan_skin_in_the_game_bps_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(penalty_investor_share_bps__lte=10_000)
+                    & models.Q(penalty_daily_rate_percent__gte=0)
+                    & models.Q(grace_business_days__lte=30)
+                ),
+                name="loan_penalty_and_grace_valid",
             ),
             models.CheckConstraint(
                 condition=models.Q(minimum_subscription_bps__lte=10_000),

@@ -5448,6 +5448,8 @@ paths:
           - amortizing_principal_interest
           - interest_only_then_bullet
           - interest_only_then_amortizing
+          - full_at_maturity
+          - custom_schedule
           type: string
           minLength: 1
         description: |-
@@ -5456,6 +5458,8 @@ paths:
           * `amortizing_principal_interest` - Amortizing principal and interest
           * `interest_only_then_bullet` - Interest-only then bullet
           * `interest_only_then_amortizing` - Interest-only then amortizing
+          * `full_at_maturity` - Full payment at maturity
+          * `custom_schedule` - Custom schedule
       - in: query
         name: risk_rating
         schema:
@@ -7970,6 +7974,168 @@ paths:
               schema:
                 $ref: '#/components/schemas/LoanStatusStages'
           description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/default-declaration/:
+    post:
+      operationId: v1_servicing_admin_loans_default_declaration_create
+      description: |-
+        18.6: declare Default (maturity) once the oldest unpaid installment reached the Default
+        days. Never automatic.
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngineDeclareDefaultRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EngineDeclareDefaultRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EngineDeclareDefaultRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanServicingPosition'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/default-declaration/cancel/:
+    post:
+      operationId: v1_servicing_admin_loans_default_declaration_cancel_create
+      description: '18.6: a super admin cancels a Default declared by mistake, with
+        a written reason.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngineCancelDefaultRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EngineCancelDefaultRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EngineCancelDefaultRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanServicingPosition'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/expenses/:
+    get:
+      operationId: v1_servicing_admin_loans_expenses_list
+      description: '18.6: the recovery expenses of a loan (GET) or record one (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EngineExpense'
+          description: ''
+    post:
+      operationId: v1_servicing_admin_loans_expenses_create
+      description: '18.6: the recovery expenses of a loan (GET) or record one (POST).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngineExpenseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EngineExpenseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EngineExpenseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineExpense'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/payment-preview/:
+    post:
+      operationId: v1_servicing_admin_loans_payment_preview_create
+      description: '18.6: how a payment would be used (expenses, penalties, interest,
+        principal, prepayment).'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnginePaymentPreviewRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EnginePaymentPreviewRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EnginePaymentPreviewRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnginePaymentPreview'
+          description: ''
   /api/v1/servicing/admin/loans/{loan_id}/recovery-stages/:
     get:
       operationId: v1_servicing_admin_loans_recovery_stages_retrieve
@@ -8066,6 +8232,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoanRecoveryStage'
+          description: ''
+  /api/v1/servicing/admin/loans/{loan_id}/servicing-position/:
+    get:
+      operationId: v1_servicing_admin_loans_servicing_position_retrieve
+      description: '18.6: status (Pending / Due / Late / Default), amounts owed, expenses
+        and declarations.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanServicingPosition'
           description: ''
   /api/v1/servicing/admin/loans/{loan_id}/status-thresholds/:
     post:
@@ -12045,6 +12234,242 @@ components:
         metadata: {}
         note:
           type: string
+    EngineCancelDefaultRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+      required:
+      - reason
+    EngineDeclaration:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        declared_on:
+          type: string
+          format: date
+        days_late:
+          type: integer
+        note:
+          type: string
+        whole_principal_minor:
+          type: integer
+        whole_interest_minor:
+          type: integer
+        frozen_penalty_minor:
+          type: integer
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_reason:
+          type: string
+      required:
+      - cancel_reason
+      - cancelled_at
+      - days_late
+      - declared_on
+      - frozen_penalty_minor
+      - id
+      - note
+      - whole_interest_minor
+      - whole_principal_minor
+    EngineDeclareDefaultRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          default: ''
+    EngineExpense:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        value_date:
+          type: string
+          format: date
+        note:
+          type: string
+        evidence_reference:
+          type: string
+        document_id:
+          type: string
+        owed_minor:
+          type: integer
+        penalty_owed_minor:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - created_at
+      - currency
+      - document_id
+      - evidence_reference
+      - id
+      - note
+      - owed_minor
+      - penalty_owed_minor
+      - value_date
+    EngineExpenseRequest:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          minimum: 1
+        value_date:
+          type: string
+          format: date
+        note:
+          type: string
+        evidence_reference:
+          type: string
+          default: ''
+        document_id:
+          type: string
+          default: ''
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - amount_minor
+      - idempotency_key
+      - note
+      - value_date
+    EngineInstallmentPenalty:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        owed_minor:
+          type: integer
+        penalty_owed_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - owed_minor
+      - penalty_owed_minor
+    EnginePaymentPreview:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        value_date:
+          type: string
+          format: date
+        expenses_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        prepayment_minor:
+          type: integer
+        accrued_interest_days:
+          type: integer
+        schedule_changes:
+          type: boolean
+        penalty_to_investors_minor:
+          type: integer
+        to_garanta_minor:
+          type: integer
+        fully_repaid:
+          type: boolean
+        installments:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnginePaymentPreviewInstallment'
+        new_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineScheduleRow'
+      required:
+      - accrued_interest_days
+      - amount_minor
+      - currency
+      - expenses_minor
+      - fully_repaid
+      - installments
+      - interest_minor
+      - loan_id
+      - new_schedule
+      - penalty_minor
+      - penalty_to_investors_minor
+      - prepayment_minor
+      - principal_minor
+      - schedule_changes
+      - to_garanta_minor
+      - value_date
+    EnginePaymentPreviewInstallment:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+        penalty_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        principal_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - penalty_minor
+      - principal_minor
+    EnginePaymentPreviewRequest:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          minimum: 1
+        value_date:
+          type: string
+          format: date
+      required:
+      - amount_minor
+      - value_date
+    EngineScheduleRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - principal_minor
+      - total_minor
     ExposureBucket:
       type: object
       properties:
@@ -12959,6 +13384,14 @@ components:
       - investor_note
       - occurred_on
       - title
+    InterestConventionEnum:
+      enum:
+      - act_365_fixed
+      - legacy_monthly
+      type: string
+      description: |-
+        * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
+        * `legacy_monthly` - Earlier schedule (before 18.6)
     InvestorActivity:
       type: object
       properties:
@@ -14881,6 +15314,26 @@ components:
           type: string
           format: date
           nullable: true
+        interest_convention:
+          type: string
+        payment_frequency:
+          type: string
+        grace_business_days:
+          type: integer
+        penalty_daily_rate_percent:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,4})?$
+        penalty_investor_share_bps:
+          type: integer
+        payout_date:
+          type: string
+          format: date
+          nullable: true
+        default_declared_on:
+          type: string
+          format: date
+          nullable: true
         coming_soon_at:
           type: string
           format: date-time
@@ -14948,13 +15401,16 @@ components:
       - created_by_admin_id
       - currency
       - current_outstanding_principal_minor
+      - default_declared_on
       - default_penalty_interest_bps
       - default_threshold_days
       - effective_default_threshold_days
       - effective_late_threshold_days
       - first_payment_date
       - funding_deadline
+      - grace_business_days
       - id
+      - interest_convention
       - interest_only_months
       - interest_rate_bps
       - investor_summary
@@ -14977,6 +15433,10 @@ components:
       - originator_id
       - originator_name
       - originator_schedule_revision
+      - payment_frequency
+      - payout_date
+      - penalty_daily_rate_percent
+      - penalty_investor_share_bps
       - planned_opening_date
       - pre_publication_paid_installments
       - principal_minor
@@ -15109,6 +15569,29 @@ components:
             $ref: '#/components/schemas/ManualScheduleRowRequest'
         note:
           type: string
+        interest_convention:
+          allOf:
+          - $ref: '#/components/schemas/InterestConventionEnum'
+          default: act_365_fixed
+        payment_frequency:
+          allOf:
+          - $ref: '#/components/schemas/PaymentFrequencyEnum'
+          default: monthly
+        grace_business_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+          default: 0
+        penalty_daily_rate_percent:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,4})?$
+          default: '0.0000'
+        penalty_investor_share_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          default: 10000
       required:
       - borrower_id
       - collateral_value_minor
@@ -15338,6 +15821,14 @@ components:
           nullable: true
         admin_overridden:
           type: boolean
+        original_due_date:
+          type: string
+          format: date
+          nullable: true
+        interest_start:
+          type: string
+          format: date
+          nullable: true
       required:
       - admin_overridden
       - days_past_due
@@ -16195,6 +16686,74 @@ components:
       type: string
       description: "* `` - \n* `in_place` - in_place\n* `pending` - pending\n* `released`\
         \ - released"
+    LoanServicingPosition:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        interest_engine:
+          type: boolean
+        currency:
+          type: string
+        status:
+          type: string
+        days_late:
+          type: integer
+        default_possible:
+          type: boolean
+        late_days:
+          type: integer
+        default_days:
+          type: integer
+        declarations:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineDeclaration'
+        expenses:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineExpense'
+        oldest_unpaid_due_date:
+          type: string
+          format: date
+          nullable: true
+        as_of:
+          type: string
+          format: date
+        principal_owed_minor:
+          type: integer
+        due_now_minor:
+          type: integer
+        penalty_owed_minor:
+          type: integer
+        expenses_owed_minor:
+          type: integer
+        penalty_daily_rate_percent:
+          type: string
+        penalty_investor_share_bps:
+          type: integer
+        grace_business_days:
+          type: integer
+        payment_frequency:
+          type: string
+        expenses_allowed:
+          type: boolean
+        installment_penalties:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineInstallmentPenalty'
+      required:
+      - currency
+      - days_late
+      - declarations
+      - default_days
+      - default_possible
+      - expenses
+      - interest_engine
+      - late_days
+      - loan_id
+      - status
     LoanServicingStatusChange:
       type: object
       properties:
@@ -16514,9 +17073,9 @@ components:
         interest_minor:
           type: integer
           minimum: 0
+          default: 0
       required:
       - due_date
-      - interest_minor
       - principal_minor
     MarketplaceBorrowerDocumentDownload:
       type: object
@@ -19019,6 +19578,20 @@ components:
           type: string
         note:
           type: string
+        payment_frequency:
+          $ref: '#/components/schemas/PaymentFrequencyEnum'
+        grace_business_days:
+          type: integer
+          maximum: 30
+          minimum: 0
+        penalty_daily_rate_percent:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,4})?$
+        penalty_investor_share_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
     PatchedMarketingConsentUpdateRequest:
       type: object
       properties:
@@ -19105,6 +19678,18 @@ components:
           maximum: 9999
           minimum: 0
           default: 0
+    PaymentFrequencyEnum:
+      enum:
+      - monthly
+      - quarterly
+      - half_yearly
+      - annual
+      type: string
+      description: |-
+        * `monthly` - Monthly
+        * `quarterly` - Quarterly
+        * `half_yearly` - Half-yearly
+        * `annual` - Annual
     PayoutInstruction:
       type: object
       properties:
@@ -20472,6 +21057,16 @@ components:
         repayment_type:
           type: string
           description: RepaymentType value.
+        payment_frequency:
+          type: string
+          default: monthly
+          description: 'Months between two due dates (interest engine, 18.6): monthly,
+            quarterly, half_yearly or annual.'
+        interest_only_months:
+          type: integer
+          default: 0
+          description: First months with interest only (interest_only_then_amortizing),
+            else 0.
         collateral_type:
           type: string
           description: CollateralType value.
@@ -21063,6 +21658,8 @@ components:
       - amortizing_principal_interest
       - interest_only_then_bullet
       - interest_only_then_amortizing
+      - full_at_maturity
+      - custom_schedule
       type: string
       description: |-
         * `equal_installments` - Equal installments
@@ -21070,6 +21667,8 @@ components:
         * `amortizing_principal_interest` - Amortizing principal and interest
         * `interest_only_then_bullet` - Interest-only then bullet
         * `interest_only_then_amortizing` - Interest-only then amortizing
+        * `full_at_maturity` - Full payment at maturity
+        * `custom_schedule` - Custom schedule
     ReportGenerateRequest:
       type: object
       properties:

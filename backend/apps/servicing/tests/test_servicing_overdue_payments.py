@@ -143,8 +143,9 @@ def test_small_payment_on_late_loan_pays_overdue_items_and_keeps_loan_late(
     # The days-past-due clock keeps running from the original due date.
     _scan(admin_user, loan, date(2026, 3, 10))
     assert cast(Any, loan).status == "late"
+    # 18.6: on day 16 Default can be declared, but the loan stays Late until the admin decides.
     _scan(admin_user, loan, date(2026, 3, 16))
-    assert cast(Any, loan).status == "defaulted"
+    assert cast(Any, loan).status == "late"
 
 
 @pytest.mark.django_db

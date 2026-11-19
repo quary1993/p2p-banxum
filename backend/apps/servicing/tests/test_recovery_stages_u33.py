@@ -15,7 +15,7 @@ from backend.apps.servicing.tests.test_loan_status_thresholds import (
     _approve_financial_access,
     _day,
     _freeze_today,
-    _scan,
+    _scan_and_declare,
 )
 from backend.apps.servicing.tests.test_servicing_repayments import (
     _funded_loan_with_holdings,
@@ -77,7 +77,7 @@ def test_admin_records_real_stages_and_the_next_step_investors_see_them(
     assert refused.status_code == 400
     assert "late, in default or written off" in refused.json()["detail"]
 
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
     reminder = _record(
         client,
         loan,
@@ -160,7 +160,7 @@ def test_dates_follow_what_really_happened(
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
     _today(monkeypatch, _day(70))
     client = _admin(admin_user)
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
 
     no_date = _record(client, loan, status="done", title="Formal notice")
     future = _record(
@@ -194,7 +194,7 @@ def test_standard_stage_names_and_the_result_of_recovery_closed(
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
     _today(monkeypatch, _day(70))
     client = _admin(admin_user)
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
     day = _day(65).isoformat()
 
     standard = _record(client, loan, status="done", standard_key="formal_notice", occurred_on=day)

@@ -98,14 +98,17 @@ _LIST_CRITERIA = (
     "countries",
     "repayment",
 )
-# 18.3: today's repayment types in the design's groups (U33-DEC-11). A loan with one payment
-# pays principal and interest at maturity, whatever its type. 18.6 adds the final types.
+# 18.3 / 18.6: the repayment types in the design's groups (U33-DEC-11, Q08). A loan with one
+# payment pays principal and interest at maturity, whatever its type. A custom schedule is a
+# periodic repayment (its principal is spread over its rows).
 _INTEREST_ONLY_TYPES = {"bullet_periodic_interest", "interest_only_then_bullet"}
 _PRINCIPAL_AND_INTEREST_TYPES = {
     "equal_installments",
     "amortizing_principal_interest",
     "interest_only_then_amortizing",
+    "custom_schedule",
 }
+_AT_MATURITY_TYPES = {"full_at_maturity", "bullet", "bullet_at_maturity"}
 
 
 def opportunity_repayment_option(opportunity: dict[str, Any]) -> str | None:
@@ -117,7 +120,7 @@ def opportunity_repayment_option(opportunity: dict[str, Any]) -> str | None:
         return str(SmartInvestRepaymentOption.INTEREST_ONLY)
     if repayment_type in _PRINCIPAL_AND_INTEREST_TYPES:
         return str(SmartInvestRepaymentOption.PRINCIPAL_AND_INTEREST)
-    if repayment_type in {"bullet", "bullet_at_maturity"}:
+    if repayment_type in _AT_MATURITY_TYPES:
         return str(SmartInvestRepaymentOption.AT_MATURITY)
     return None
 # Smart Invest states (U33-DEC-19). A rule without an effective criterion is not set up.

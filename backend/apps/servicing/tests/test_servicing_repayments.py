@@ -51,6 +51,7 @@ from backend.apps.servicing.services import (
     record_loan_write_off,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 
 # Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
 pytestmark = pytest.mark.usefixtures("legacy_status_days")
@@ -1381,6 +1382,7 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
 
+    # 18.6: on day 16 the scan leaves the loan Late (Default is never automatic) ...
     result = scan_loan_servicing_statuses(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
@@ -1389,11 +1391,18 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
         )
     )
     loan.refresh_from_db()
-
-    assert cast(Any, loan).status == "defaulted"
+    assert cast(Any, loan).status == "late"
     assert len(result.changes) == 1
-    assert result.changes[0].new_status == "defaulted"
+    assert result.changes[0].new_status == "late"
     assert result.changes[0].days_past_due == 16
+    # ... and the admin's declaration makes it Default.
+    scan_and_declare(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
+        )
+    )
+    loan.refresh_from_db()
+    assert cast(Any, loan).status == "defaulted"
     with pytest.raises(ServicingValidationError, match="recovery workflow"):
         record_borrower_repayment(
             _repayment_command(
@@ -1453,22 +1462,23 @@ def test_default_transition_opens_one_loan_risk_review_task_and_operations_alert
         content_type="application/json",
     )
     assert response.status_code == 200
-    assert response.json()["changes"][0]["new_status"] == "defaulted"
+    # 18.6: the loan stays Late; the task asks the admin to decide on Default.
+    assert response.json()["changes"] == []
 
     task = risk_tasks.get()
     assert task.status == "open"
     assert task.priority == "high"
-    assert task.title == "Loan defaulted: Servicing Loan"
+    assert task.title == "Default can be declared: Servicing Loan"
     assert task.due_at is not None
     assert "Days past due: 16" in task.notes
     assert "Overdue installment outstanding: CHF 3'300.00" in task.notes
     assert "Missed installment due date: 2026-02-28" in task.notes
-    assert "Record a recovery payment" in task.notes
+    assert "Declare Default" in task.notes
     assert task.events.filter(event_type="created").count() == 1
 
     alert = default_alerts.get()
     assert alert.payload["email"] == settings.OPERATIONS_ALERT_EMAIL
-    assert alert.payload["subject"].endswith("loan defaulted: Servicing Loan")
+    assert alert.payload["subject"].endswith("Default can be declared: Servicing Loan")
     assert alert.payload["metadata"]["admin_task_id"] == str(task.id)
     assert alert.payload["metadata"]["days_past_due"] == 16
 
@@ -1807,7 +1817,7 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
 ) -> None:
     _approve_financial_access(investor_one)
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -1943,7 +1953,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2144,7 +2154,7 @@ def test_recovery_payment_requires_defaulted_loan_and_never_pays_principal_first
             )
         )
 
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2188,7 +2198,7 @@ def test_recovery_payment_admin_api(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2250,7 +2260,7 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2434,7 +2444,7 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2575,7 +2585,7 @@ def test_write_off_requires_defaulted_loan_and_positive_total(
             )
         )
 
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2602,7 +2612,7 @@ def test_write_off_admin_api_records_loss_recognition(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2690,7 +2700,7 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
             idempotency_key="servicing-append-risk-note",
         )
     )
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2759,7 +2769,7 @@ def test_recovery_records_have_app_and_db_guards(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),

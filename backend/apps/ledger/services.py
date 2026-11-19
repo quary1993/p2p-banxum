@@ -395,6 +395,8 @@ class InvestorBalanceCreditLineCommand:
     holding_id: str = ""
     installment_id: str = ""
     metadata: dict[str, Any] | None = None
+    # 18.6: the investor's part of penalty X.
+    penalty_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,6 +432,11 @@ class DeclareBorrowerRepaymentDistributionCommand:
     evidence_reference: str = ""
     admin_notes: str = ""
     idempotency_key: str = ""
+    # 18.6 engine loans: recovery expenses repaid and Garanta's part of penalty X (credited to
+    # Garanta), cents kept back for the investors (F13 B) and earlier cents now paid out.
+    garanta_minor: int = 0
+    fractions_withheld_minor: int = 0
+    fractions_released_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -947,6 +954,13 @@ def _activate_loan_after_disbursement(
     loan_ref.status = "active"
     loan_ref.updated_by_admin_id = actor.pk
     loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    # 18.6 (F10): the schedule of a new direct loan is calculated again from the real payout day
+    # (the disbursement's value date); earlier loans keep theirs.
+    import_module("backend.apps.loans.services").confirm_engine_schedule_at_payout(
+        loan_id=str(loan_ref.id),
+        payout_date=bank_operation.value_date,
+        actor=actor,
+    )
     loan_event_model = apps.get_model("loans", "LoanEvent")
     loan_event_model.objects.create(
         loan=loan,
@@ -1460,9 +1474,21 @@ def _borrower_repayment_distribution_fingerprint(
                     "holding_id": str(line.holding_id),
                     "installment_id": str(line.installment_id),
                     "metadata": line.metadata or {},
+                    **({"penalty_minor": line.penalty_minor} if line.penalty_minor else {}),
                 }
                 for line in command.distribution_lines
             ],
+            **(
+                {
+                    "garanta_minor": command.garanta_minor,
+                    "fractions_withheld_minor": command.fractions_withheld_minor,
+                    "fractions_released_minor": command.fractions_released_minor,
+                }
+                if command.garanta_minor
+                or command.fractions_withheld_minor
+                or command.fractions_released_minor
+                else {}
+            ),
         }
     )
 
@@ -4000,9 +4026,15 @@ def _validated_balance_credit_lines(
             currency_code,
             "Distribution line fee",
         )
-        if principal_minor + interest_minor - fee_minor != amount_minor:
+        penalty_minor = _validate_nonnegative_money(
+            line.penalty_minor,
+            currency_code,
+            "Distribution line penalty",
+        )
+        if principal_minor + interest_minor + penalty_minor - fee_minor != amount_minor:
             raise LedgerValidationError(
-                "Distribution line amount must equal principal plus interest minus fee."
+                "Distribution line amount must equal principal plus interest plus penalty "
+                "minus fee."
             )
         validated.append(
             InvestorBalanceCreditLineCommand(
@@ -4010,6 +4042,7 @@ def _validated_balance_credit_lines(
                 amount_minor=amount_minor,
                 principal_minor=principal_minor,
                 interest_minor=interest_minor,
+                penalty_minor=penalty_minor,
                 fee_minor=fee_minor,
                 holding_id=str(line.holding_id),
                 installment_id=str(line.installment_id),
@@ -4105,7 +4138,19 @@ def declare_borrower_repayment_distribution(
         command.distribution_lines,
         currency_code=currency.code,
     )
-    if sum(line.amount_minor for line in distribution_lines) != amount_minor:
+    for label, value in (
+        ("Garanta part", command.garanta_minor),
+        ("Fractions kept back", command.fractions_withheld_minor),
+        ("Fractions paid out", command.fractions_released_minor),
+    ):
+        _validate_nonnegative_money(value, currency.code, label)
+    if (
+        sum(line.amount_minor for line in distribution_lines)
+        + command.garanta_minor
+        + command.fractions_withheld_minor
+        - command.fractions_released_minor
+        != amount_minor
+    ):
         raise LedgerValidationError(
             "Distribution line amounts must sum to the borrower repayment amount."
         )
@@ -4128,6 +4173,9 @@ def declare_borrower_repayment_distribution(
             payment_reference=command.payment_reference,
             evidence_reference=command.evidence_reference,
             admin_notes=command.admin_notes,
+            garanta_minor=command.garanta_minor,
+            fractions_withheld_minor=command.fractions_withheld_minor,
+            fractions_released_minor=command.fractions_released_minor,
             idempotency_key=idempotency_key,
         ),
         currency_code=currency.code,
@@ -4215,6 +4263,43 @@ def declare_borrower_repayment_distribution(
                 memo="Borrower repayment distribution credited to investor balance",
             )
         )
+    if command.garanta_minor:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.GARANTA_RECOVERY_RECEIVABLE,
+                    currency=currency,
+                    name=f"{currency.code} Garanta recovery expenses and penalty share",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=command.garanta_minor,
+                memo="Recovery expenses and Garanta's part of penalty X repaid by the borrower",
+            )
+        )
+    if command.fractions_withheld_minor or command.fractions_released_minor:
+        fractions_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.UNDISTRIBUTED_FRACTIONS,
+            currency=currency,
+            name=f"{currency.code} undistributed investor cent fractions",
+        )
+        if command.fractions_withheld_minor:
+            postings.append(
+                PostingCommand(
+                    account=fractions_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=command.fractions_withheld_minor,
+                    memo="Cent fractions kept for the investors (paid out at the final payment)",
+                )
+            )
+        if command.fractions_released_minor:
+            postings.append(
+                PostingCommand(
+                    account=fractions_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=command.fractions_released_minor,
+                    memo="Carried cent fractions paid to the investors",
+                )
+            )
     received_at = _received_at_from_value_date(command.value_date)
     journal_entry = post_journal_entry(
         PostJournalEntryCommand(
@@ -4241,6 +4326,10 @@ def declare_borrower_repayment_distribution(
                 "client_money_flow_minor": amount_minor,
                 "principal_minor": sum(line.principal_minor for line in distribution_lines),
                 "interest_minor": sum(line.interest_minor for line in distribution_lines),
+                "penalty_minor": sum(line.penalty_minor for line in distribution_lines),
+                "garanta_minor": command.garanta_minor,
+                "fractions_withheld_minor": command.fractions_withheld_minor,
+                "fractions_released_minor": command.fractions_released_minor,
             },
             metadata={
                 "bank_operation_type": BankOperationType.BORROWER_REPAYMENT,

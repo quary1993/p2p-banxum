@@ -30,8 +30,8 @@ from backend.apps.servicing.services import (
     ServicingValidationError,
     record_borrower_repayment,
     record_loan_recovery_payment,
-    scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F401
     _funded_loan_with_holdings,
     _repayment_command,
@@ -203,7 +203,7 @@ def _recovery(admin: Model, loan: Model, key: str, **changes: Any) -> Any:
 
 
 def _defaulted(admin: Model, loan: Model) -> None:
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
         )

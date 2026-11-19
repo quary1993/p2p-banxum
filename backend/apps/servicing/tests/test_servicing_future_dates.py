@@ -20,6 +20,7 @@ from backend.apps.servicing.services import (
     record_loan_recovery_payment,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (
     _funded_loan_with_holdings,
     _repayment_command,
@@ -168,7 +169,7 @@ def test_regular_and_advance_repayments_refuse_future_value_and_booking_dates(
 def test_recovery_refuses_a_future_value_date(loan_setup: tuple[Model, Model]) -> None:
     admin, loan = loan_setup
     with freeze_time("2026-03-20T11:00:00Z"):
-        scan_loan_servicing_statuses(
+        scan_and_declare(
             ScanLoanServicingStatusesCommand(
                 actor=admin,
                 as_of_date=date(2026, 3, 16),

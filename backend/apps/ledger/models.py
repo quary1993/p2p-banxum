@@ -36,6 +36,13 @@ class LedgerAccountType(models.TextChoices):
         "originator_servicing_payable",
         "Loan Originator servicing payable",
     )
+    # 18.6 (F13 B): cents not yet paid to investors (fractions carried per investor).
+    UNDISTRIBUTED_FRACTIONS = "undistributed_fractions", "Undistributed investor cent fractions"
+    # 18.6: recovery expenses repaid by the borrower and Garanta's part of penalty X.
+    GARANTA_RECOVERY_RECEIVABLE = (
+        "garanta_recovery_receivable",
+        "Garanta recovery expenses and penalty share",
+    )
 
 
 class LedgerPostingSide(models.TextChoices):

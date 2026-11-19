@@ -5,8 +5,10 @@ installment and the business date of the check (the due date itself is day 0):
 
 - day 0 to the day before the late threshold: the payment is "Due" (the loan stays
   ``active``; the real number of overdue days is still shown);
-- from the late threshold (default day 15): the loan is ``late``;
-- from the default threshold (default day 60): the loan is ``defaulted``.
+- from the late threshold (default day 15): the loan is ``late``, also beyond the default
+  threshold;
+- from the default threshold (default day 60) the admin **may** declare Default (18.6, Vlad
+  2026-11-17): it is never automatic; the loan is ``defaulted`` only after the declaration.
 
 The platform values are the settings ``servicing.late_threshold_days`` and
 ``servicing.default_threshold_days``. A loan can carry its contract's own pair. Default
@@ -50,9 +52,12 @@ def platform_thresholds(late_days: object, default_days: object) -> LoanStatusTh
 
 
 def servicing_status_for_days_past_due(days_past_due: int, thresholds: LoanStatusThresholds) -> str:
-    """``active`` (on schedule or due), ``late`` or ``defaulted``."""
-    if days_past_due >= thresholds.default_days:
-        return "defaulted"
+    """``active`` (on schedule, pending or due) or ``late``; never ``defaulted`` (18.6)."""
     if days_past_due >= thresholds.late_days:
         return "late"
     return "active"
+
+
+def default_can_be_declared(days_past_due: int, thresholds: LoanStatusThresholds) -> bool:
+    """18.6: the oldest unpaid installment is late by at least the Default days."""
+    return days_past_due >= thresholds.default_days

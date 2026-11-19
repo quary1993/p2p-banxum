@@ -1404,6 +1404,9 @@ def test_secondary_market_buyer_detail_exposes_loan_schedules_without_seller_dat
                 "row_type": "scheduled_installment",
                 "label": "Installment 1",
                 "payment_date": None,
+                # 18.6: the unadjusted due date and the interest start (engine schedules only).
+                "original_due_date": None,
+                "interest_start": None,
             }
         ]
     assert payload["investment_schedule"] == [

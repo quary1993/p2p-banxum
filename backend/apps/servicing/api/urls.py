@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from django.urls import path
 
+from backend.apps.servicing.api.engine_views import (
+    EnginePaymentPreviewView,
+    LoanDefaultCancellationView,
+    LoanDefaultDeclarationView,
+    LoanExpenseListCreateView,
+    LoanServicingPositionView,
+)
 from backend.apps.servicing.api.views import (
     BorrowerRepaymentAdvancePreviewView,
     BorrowerRepaymentRecordView,
@@ -71,5 +78,31 @@ urlpatterns = [
         "admin/recoveries/",
         LoanRecoveryPaymentRecordView.as_view(),
         name="servicing-recovery-record",
+    ),
+    # 18.6 interest engine
+    path(
+        "admin/loans/<uuid:loan_id>/servicing-position/",
+        LoanServicingPositionView.as_view(),
+        name="servicing-loan-position",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/payment-preview/",
+        EnginePaymentPreviewView.as_view(),
+        name="servicing-loan-payment-preview",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/expenses/",
+        LoanExpenseListCreateView.as_view(),
+        name="servicing-loan-expenses",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/default-declaration/",
+        LoanDefaultDeclarationView.as_view(),
+        name="servicing-loan-default-declaration",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/default-declaration/cancel/",
+        LoanDefaultCancellationView.as_view(),
+        name="servicing-loan-default-cancellation",
     ),
 ]

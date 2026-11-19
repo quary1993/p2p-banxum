@@ -3552,6 +3552,18 @@ def _originator_days_past_due(
     return max(0, (as_of_date - first_outstanding.due_date).days)
 
 
+def originator_loan_days_past_due(loan_id: str, *, as_of_date: date) -> int:
+    """18.6: days the oldest unpaid imported installment is late (for the Default declaration)."""
+    profile = (
+        OriginatorLoanProfile.objects.select_related("current_import")
+        .filter(loan_id=loan_id)
+        .first()
+    )
+    if profile is None:
+        return 0
+    return _originator_days_past_due(profile, as_of_date=as_of_date)
+
+
 def originator_portfolio_schedule_payload(
     profile: OriginatorLoanProfile,
     *,
@@ -6104,6 +6116,7 @@ def _open_originator_loan_default_review_task(
     profile: OriginatorLoanProfile,
     as_of_date: date,
     days_past_due: int,
+    default_possible: bool = False,
 ) -> None:
     loan_import = profile.current_import
     first_outstanding = (
@@ -6125,6 +6138,7 @@ def _open_originator_loan_default_review_task(
             days_past_due=days_past_due,
             outstanding_minor=int(first_outstanding.total_minor) if first_outstanding else 0,
             triggering_due_date=first_outstanding.due_date if first_outstanding else None,
+            default_possible=default_possible,
         )
     )
 
@@ -6212,6 +6226,17 @@ def _scan_originator_profile_lifecycle(
                 new_status=new_loan_status,
                 as_of_date=as_of_date,
                 days_past_due=days_past_due,
+            )
+        # 18.6: Default is never automatic; from the Default days the admin is asked to decide.
+        default_days = loan_status_thresholds(loan).default_days
+        if str(loan.status) == "late" and days_past_due >= default_days:
+            _open_originator_loan_default_review_task(
+                actor=actor,
+                loan=loan,
+                profile=profile,
+                as_of_date=as_of_date,
+                days_past_due=days_past_due,
+                default_possible=True,
             )
 
     # Subscription opportunities leave the marketplace at their funding close and

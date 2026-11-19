@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from importlib import import_module
 from typing import Any, cast
 
@@ -23,6 +24,7 @@ from backend.apps.loans.domain.schedules import (
 )
 from backend.apps.loans.models import (
     CollateralType,
+    InterestConvention,
     Loan,
     LoanEvent,
     LoanEventType,
@@ -30,9 +32,11 @@ from backend.apps.loans.models import (
     LoanProductType,
     LoanPurpose,
     LoanStatus,
+    PaymentFrequency,
     RepaymentType,
     RiskRating,
 )
+from backend.apps.platform_core.domain import interest_engine
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.funding import (
     DEFAULT_FUNDING_PERIOD_DAYS,
@@ -45,6 +49,7 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.settlement_calendar import settlement_calendar
 
 
 class LoansError(ValueError):
@@ -67,6 +72,9 @@ MAX_FUNDING_DEADLINE_DAYS = MAX_FUNDING_PERIOD_DAYS - 1
 MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS = MAX_FUNDING_DEADLINE_DAYS
 DEFAULT_FUNDING_DEADLINE_DAYS = DEFAULT_FUNDING_PERIOD_DAYS - 1
 MAX_RATE_BPS = 100_000
+# 18.6: grace in business days per project (input default 0) and the daily penalty X (% per day).
+MAX_GRACE_BUSINESS_DAYS = 30
+MAX_PENALTY_DAILY_RATE_PERCENT = Decimal("1")
 MAX_FEE_BPS = 10_000
 
 
@@ -111,6 +119,13 @@ class CreateLoanCommand:
     minimum_subscription_bps: int = 5_000
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     note: str = ""
+    # 18.6: the Python default keeps the earlier schedule (tests, seeds); the admin API creates
+    # every new direct loan with the Actual/365 Fixed engine.
+    interest_convention: str = InterestConvention.LEGACY_MONTHLY
+    payment_frequency: str = PaymentFrequency.MONTHLY
+    grace_business_days: int = 0
+    penalty_daily_rate_percent: Decimal = Decimal("0")
+    penalty_investor_share_bps: int = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +163,10 @@ class UpdateLoanCommand:
     investor_message: str = ""
     note: str = ""
     funding_close_adjustment: bool = False
+    payment_frequency: str | None = None
+    grace_business_days: int | None = None
+    penalty_daily_rate_percent: Decimal | None = None
+    penalty_investor_share_bps: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +310,32 @@ def _validate_interest_only_months_for_repayment(
     if interest_only_months <= 0 or interest_only_months >= term_months:
         raise LoanValidationError(f"{label} must be between 1 and term_months - 1.")
     return interest_only_months
+
+
+def _validate_penalty_rate(value: object) -> Decimal:
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise LoanValidationError("Penalty X must be a percentage per day.") from exc
+    if not rate.is_finite() or rate < 0 or rate > MAX_PENALTY_DAILY_RATE_PERCENT:
+        raise LoanValidationError("Penalty X must be between 0% and 1% per day.")
+    if rate != rate.quantize(Decimal("0.0001")):
+        raise LoanValidationError("Penalty X can have at most 4 decimals.")
+    return rate
+
+
+def _validate_penalty_share(value: int) -> int:
+    if type(value) is not int or not 0 <= value <= 10_000:
+        raise LoanValidationError("The investors' share of penalty X must be between 0% and 100%.")
+    return value
+
+
+def _validate_frequency(value: str) -> str:
+    return str(_text_choice(PaymentFrequency, value, "payment frequency"))
+
+
+def _validate_convention(value: str) -> str:
+    return str(_text_choice(InterestConvention, value, "interest convention"))
 
 
 def _validate_rate_bps(value: int, label: str, *, allow_zero: bool = False) -> int:
@@ -500,6 +545,8 @@ def generate_schedule_for_terms(
             raise LoanValidationError(str(exc)) from exc
 
     repayment = _repayment_type(repayment_type)
+    if repayment in {RepaymentType.FULL_AT_MATURITY, RepaymentType.CUSTOM_SCHEDULE}:
+        raise LoanValidationError("This repayment type needs the Actual/365 Fixed engine.")
     effective_interest_only_months = _validate_interest_only_months_for_repayment(
         repayment_type=repayment,
         interest_only_months=interest_only_months,
@@ -556,6 +603,205 @@ def generate_schedule_for_terms(
         )
     except ScheduleGenerationError as exc:
         raise LoanValidationError(str(exc)) from exc
+
+
+def engine_kind_for_repayment_type(repayment_type: str) -> str:
+    try:
+        return interest_engine.REPAYMENT_TYPE_KINDS[repayment_type]
+    except KeyError as exc:
+        raise LoanValidationError(
+            "This repayment type is closed for new loans: choose equal installments, interest "
+            "with the principal at the end, full payment at maturity or a custom schedule."
+        ) from exc
+
+
+def generate_engine_schedule(
+    *,
+    principal_minor: int,
+    currency: str,
+    term_months: int,
+    annual_interest_bps: int,
+    repayment_type: str,
+    payout_date: date,
+    frequency: str,
+    interest_only_months: int,
+    grace_business_days: int,
+    manual_schedule_rows: list[ManualScheduleRowCommand] | None = None,
+) -> list[ScheduleInstallmentDraft]:
+    """18.6: the schedule of a new direct loan (Actual/365 Fixed, frequency, calendar, grace).
+
+    Before funding it is an estimate from the planned payout day; at the payout it is calculated
+    again from the real day (``confirm_engine_schedule_at_payout``).
+    """
+    kind = engine_kind_for_repayment_type(repayment_type)
+    if frequency not in interest_engine.FREQUENCY_MONTHS:
+        raise LoanValidationError("Choose a payment frequency.")
+    grace_ok = type(grace_business_days) is int and (
+        0 <= grace_business_days <= MAX_GRACE_BUSINESS_DAYS
+    )
+    if not grace_ok:
+        raise LoanValidationError(
+            f"Grace must be between 0 and {MAX_GRACE_BUSINESS_DAYS} business days."
+        )
+    step = interest_engine.FREQUENCY_MONTHS[frequency]
+    interest_only_periods = 0
+    if repayment_type == RepaymentType.INTEREST_ONLY_THEN_AMORTIZING:
+        if interest_only_months <= 0 or interest_only_months % step:
+            raise LoanValidationError(
+                "Interest-only months must be a whole number of payment periods."
+            )
+        interest_only_periods = interest_only_months // step
+    custom_rows: tuple[interest_engine.CustomRow, ...] = ()
+    if kind == interest_engine.KIND_CUSTOM:
+        if not manual_schedule_rows:
+            raise LoanValidationError("Import the rows of the custom schedule.")
+        custom_rows = tuple(
+            interest_engine.CustomRow(
+                original_due_date=row.due_date, principal_minor=row.principal_minor
+            )
+            for row in manual_schedule_rows
+        )
+    elif manual_schedule_rows:
+        raise LoanValidationError("Imported rows are only used with the custom schedule type.")
+    try:
+        rows = interest_engine.generate_schedule(
+            interest_engine.ScheduleTerms(
+                principal_minor=principal_minor,
+                annual_rate_bps=annual_interest_bps,
+                payout_date=payout_date,
+                term_months=term_months,
+                frequency=frequency,
+                kind=kind,
+                interest_only_periods=interest_only_periods,
+                grace_business_days=grace_business_days,
+                custom_rows=custom_rows,
+            ),
+            settlement_calendar(currency),
+        )
+    except interest_engine.InterestEngineError as exc:
+        raise LoanValidationError(str(exc)) from exc
+    return [
+        ScheduleInstallmentDraft(
+            installment_number=row.number,
+            due_date=row.due_date,
+            principal_minor=row.principal_minor,
+            interest_minor=row.interest_minor,
+            total_minor=row.total_minor,
+            admin_overridden=kind == interest_engine.KIND_CUSTOM,
+            metadata={
+                "original_due_date": row.original_due_date.isoformat(),
+                "interest_start": row.interest_start.isoformat(),
+            },
+        )
+        for row in rows
+    ]
+
+
+def custom_schedule_term_months(payout_date: date, rows: list[ManualScheduleRowCommand]) -> int:
+    """The term of a custom schedule: whole months from the payout to the last due date."""
+    if not rows:
+        raise LoanValidationError("Import the rows of the custom schedule.")
+    last = max(row.due_date for row in rows)
+    months = (last.year - payout_date.year) * 12 + (last.month - payout_date.month)
+    if last.day > payout_date.day:
+        months += 1
+    return max(1, months)
+
+
+def is_engine_loan(loan: Loan) -> bool:
+    return str(loan.interest_convention) == InterestConvention.ACT_365_FIXED
+
+
+def engine_schedule_for_loan(loan: Loan, *, payout_date: date) -> list[ScheduleInstallmentDraft]:
+    manual_rows: list[ManualScheduleRowCommand] | None = None
+    if loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+        current = LoanInstallment.objects.filter(
+            loan=loan, schedule_version=loan.schedule_version
+        ).order_by("installment_number")
+        manual_rows = [
+            ManualScheduleRowCommand(
+                due_date=date.fromisoformat(
+                    str((row.metadata or {}).get("original_due_date") or row.due_date.isoformat())
+                ),
+                principal_minor=int(row.principal_minor),
+                interest_minor=0,
+            )
+            for row in current
+        ]
+    return generate_engine_schedule(
+        principal_minor=loan.principal_minor,
+        currency=loan.currency_id,
+        term_months=loan.term_months,
+        annual_interest_bps=loan.interest_rate_bps,
+        repayment_type=loan.repayment_type,
+        payout_date=payout_date,
+        frequency=loan.payment_frequency,
+        interest_only_months=loan.interest_only_months,
+        grace_business_days=loan.grace_business_days,
+        manual_schedule_rows=manual_rows,
+    )
+
+
+def confirm_engine_schedule_at_payout(*, loan_id: str, payout_date: date, actor: Model) -> bool:
+    """F10: at the payout the schedule is calculated again from the real payout day.
+
+    Called by the ledger when the borrower disbursement is finalized. Interest starts on the payout
+    day; a new schedule version is written when a due date or an amount changes. Earlier loans
+    (before 18.6) keep their schedule.
+    """
+    loan = Loan.objects.select_for_update().get(id=loan_id)
+    if not is_engine_loan(loan):
+        return False
+    rows = engine_schedule_for_loan(loan, payout_date=payout_date)
+    current = list(
+        LoanInstallment.objects.filter(loan=loan, schedule_version=loan.schedule_version).order_by(
+            "installment_number"
+        )
+    )
+    same = [
+        (row.installment_number, row.due_date, row.principal_minor, row.interest_minor)
+        for row in rows
+    ] == [
+        (
+            int(row.installment_number),
+            row.due_date,
+            int(row.principal_minor),
+            int(row.interest_minor),
+        )
+        for row in current
+    ]
+    previous_start = loan.loan_start_date
+    loan.payout_date = payout_date
+    loan.loan_start_date = payout_date
+    update_fields = ["payout_date", "loan_start_date", "updated_at"]
+    if not same:
+        loan.schedule_version = int(loan.schedule_version) + 1
+        loan.first_payment_date = rows[0].due_date
+        loan.total_scheduled_principal_minor = sum(row.principal_minor for row in rows)
+        loan.total_scheduled_interest_minor = sum(row.interest_minor for row in rows)
+        update_fields += [
+            "schedule_version",
+            "first_payment_date",
+            "total_scheduled_principal_minor",
+            "total_scheduled_interest_minor",
+        ]
+        _write_schedule(loan=loan, schedule_rows=rows, schedule_version=loan.schedule_version)
+    loan.save(update_fields=update_fields)
+    _record_loan_event(
+        loan=loan,
+        actor=actor,
+        event_type=LoanEventType.SCHEDULE_CONFIRMED,
+        new_status=loan.status,
+        note="Schedule calculated from the real payout day.",
+        metadata={
+            "payout_date": payout_date.isoformat(),
+            "planned_payout_date": previous_start.isoformat(),
+            "schedule_version": loan.schedule_version,
+            "schedule_changed": not same,
+            **_schedule_summary(rows),
+        },
+    )
+    return not same
 
 
 def original_schedule_for_loan(loan: Loan) -> list[ScheduleInstallmentDraft]:
@@ -648,7 +894,7 @@ def _write_schedule(
                 interest_minor=row.interest_minor,
                 total_minor=row.total_minor,
                 admin_overridden=row.admin_overridden,
-                metadata={},
+                metadata=dict(row.metadata or {}),
             )
             for row in schedule_rows
         ]
@@ -835,7 +1081,22 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         principal_minor=principal_minor,
         loan_start_date=loan_start_date,
     )
-    term_months = _validate_term(command.term_months)
+    convention = _validate_convention(command.interest_convention)
+    engine_loan = convention == InterestConvention.ACT_365_FIXED
+    payment_frequency = _validate_frequency(command.payment_frequency)
+    penalty_daily_rate_percent = _validate_penalty_rate(command.penalty_daily_rate_percent)
+    penalty_investor_share_bps = _validate_penalty_share(command.penalty_investor_share_bps)
+    if engine_loan and repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+        term_months = custom_schedule_term_months(
+            loan_start_date, command.manual_schedule_rows or []
+        )
+    else:
+        term_months = _validate_term(command.term_months)
+    if not engine_loan and repayment_type in {
+        RepaymentType.FULL_AT_MATURITY,
+        RepaymentType.CUSTOM_SCHEDULE,
+    }:
+        raise LoanValidationError("This repayment type needs the Actual/365 Fixed engine.")
     interest_rate_bps = _validate_rate_bps(command.interest_rate_bps, "Interest rate")
     collateral_value_minor = _validate_minor_nonnegative(
         command.collateral_value_minor,
@@ -858,16 +1119,36 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     minimum_subscription_bps = int(command.minimum_subscription_bps)
     if minimum_subscription_bps < 0 or minimum_subscription_bps > 10_000:
         raise LoanValidationError("Minimum subscription must be between 0% and 100%.")
-    schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
-        principal_minor=principal_minor,
-        currency=currency.code,
-        term_months=term_months,
-        annual_interest_bps=interest_rate_bps,
-        repayment_type=repayment_type,
-        first_payment_date=first_payment_date,
-        interest_only_months=command.interest_only_months,
-        manual_schedule_rows=command.manual_schedule_rows,
-    )
+    if engine_loan:
+        schedule_rows = generate_engine_schedule(
+            principal_minor=principal_minor,
+            currency=currency.code,
+            term_months=term_months,
+            annual_interest_bps=interest_rate_bps,
+            repayment_type=repayment_type,
+            payout_date=loan_start_date,
+            frequency=payment_frequency,
+            interest_only_months=command.interest_only_months,
+            grace_business_days=command.grace_business_days,
+            manual_schedule_rows=command.manual_schedule_rows,
+        )
+        effective_interest_only_months = (
+            command.interest_only_months
+            if repayment_type == RepaymentType.INTEREST_ONLY_THEN_AMORTIZING
+            else 0
+        )
+        first_payment_date = schedule_rows[0].due_date
+    else:
+        schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
+            principal_minor=principal_minor,
+            currency=currency.code,
+            term_months=term_months,
+            annual_interest_bps=interest_rate_bps,
+            repayment_type=repayment_type,
+            first_payment_date=first_payment_date,
+            interest_only_months=command.interest_only_months,
+            manual_schedule_rows=command.manual_schedule_rows,
+        )
     loan = Loan.objects.create(
         borrower=cast(Any, borrower),
         title=_clean_required(command.title, "Title"),
@@ -902,6 +1183,11 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         recovery_waterfall_version=PAYMENT_WATERFALL_VERSION,
         total_scheduled_principal_minor=sum(row.principal_minor for row in schedule_rows),
         total_scheduled_interest_minor=sum(row.interest_minor for row in schedule_rows),
+        interest_convention=convention,
+        payment_frequency=payment_frequency,
+        grace_business_days=command.grace_business_days,
+        penalty_daily_rate_percent=penalty_daily_rate_percent,
+        penalty_investor_share_bps=penalty_investor_share_bps,
         created_by_admin_id=command.actor.pk,
     )
     _write_schedule(loan=loan, schedule_rows=schedule_rows, schedule_version=loan.schedule_version)
@@ -970,6 +1256,10 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "recovery_fee_bps": command.recovery_fee_bps,
         "minimum_subscription_bps": command.minimum_subscription_bps,
         "manual_schedule_rows": command.manual_schedule_rows,
+        "payment_frequency": command.payment_frequency,
+        "grace_business_days": command.grace_business_days,
+        "penalty_daily_rate_percent": command.penalty_daily_rate_percent,
+        "penalty_investor_share_bps": command.penalty_investor_share_bps,
     }
     return {key for key, value in values.items() if value is not None}
 
@@ -1302,8 +1592,73 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             _set_if_changed(loan=loan, field=cleared_field, value=None, changes=changes)
         _set_if_changed(loan=loan, field="original_repayment_type", value="", changes=changes)
 
+    engine_terms_changed = False
+    for engine_field, engine_value in (
+        ("payment_frequency", command.payment_frequency),
+        ("grace_business_days", command.grace_business_days),
+        ("penalty_daily_rate_percent", command.penalty_daily_rate_percent),
+        ("penalty_investor_share_bps", command.penalty_investor_share_bps),
+    ):
+        if engine_value is None:
+            continue
+        if engine_field == "payment_frequency":
+            engine_value = _validate_frequency(str(engine_value))
+        elif engine_field == "penalty_daily_rate_percent":
+            engine_value = _validate_penalty_rate(engine_value)
+        elif engine_field == "penalty_investor_share_bps":
+            engine_value = _validate_penalty_share(cast(int, engine_value))
+        elif type(engine_value) is not int or not 0 <= engine_value <= MAX_GRACE_BUSINESS_DAYS:
+            raise LoanValidationError(
+                f"Grace must be between 0 and {MAX_GRACE_BUSINESS_DAYS} business days."
+            )
+        if getattr(loan, engine_field) != engine_value and loan.status != LoanStatus.DRAFT:
+            raise LoanValidationError(
+                "Frequency, grace and penalty X can only be changed while the loan is a draft."
+            )
+        if getattr(loan, engine_field) != engine_value and engine_field in {
+            "payment_frequency",
+            "grace_business_days",
+        }:
+            engine_terms_changed = True
+        _set_if_changed(loan=loan, field=engine_field, value=engine_value, changes=changes)
+    if engine_terms_changed and is_engine_loan(loan):
+        schedule_needs_regeneration = True
+
     schedule_rows: list[ScheduleInstallmentDraft] | None = None
-    if schedule_needs_regeneration:
+    if schedule_needs_regeneration and is_engine_loan(loan):
+        manual_rows = command.manual_schedule_rows
+        if manual_rows is not None and loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+            _set_if_changed(
+                loan=loan,
+                field="term_months",
+                value=custom_schedule_term_months(loan.loan_start_date, manual_rows),
+                changes=changes,
+            )
+        if manual_rows is None and loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+            schedule_rows = engine_schedule_for_loan(loan, payout_date=loan.loan_start_date)
+        else:
+            schedule_rows = generate_engine_schedule(
+                principal_minor=loan.principal_minor,
+                currency=loan.currency_id,
+                term_months=loan.term_months,
+                annual_interest_bps=loan.interest_rate_bps,
+                repayment_type=loan.repayment_type,
+                payout_date=loan.loan_start_date,
+                frequency=loan.payment_frequency,
+                interest_only_months=loan.interest_only_months,
+                grace_business_days=loan.grace_business_days,
+                manual_schedule_rows=manual_rows,
+            )
+        _set_if_changed(
+            loan=loan, field="first_payment_date", value=schedule_rows[0].due_date, changes=changes
+        )
+        loan.schedule_version += 1
+        changes["schedule_version"] = {
+            "previous": str(loan.schedule_version - 1),
+            "new": str(loan.schedule_version),
+        }
+        _save_loan_totals_from_schedule(loan=loan, schedule_rows=schedule_rows)
+    elif schedule_needs_regeneration:
         schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
             principal_minor=loan.principal_minor,
             currency=loan.currency_id,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from importlib import import_module
 from typing import Any
 
@@ -9,11 +10,13 @@ from rest_framework import serializers
 
 from backend.apps.loans.models import (
     CollateralType,
+    InterestConvention,
     Loan,
     LoanEvent,
     LoanPurpose,
     LoanSecurity,
     LoanStatus,
+    PaymentFrequency,
     RepaymentType,
     RiskRating,
 )
@@ -27,7 +30,8 @@ from backend.apps.platform_core.selectors.settings import (
 class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField(min_value=0)
-    interest_minor = serializers.IntegerField(min_value=0)
+    # 18.6: a custom schedule imports due date + principal; the engine calculates the interest.
+    interest_minor = serializers.IntegerField(min_value=0, required=False, default=0)
 
 
 class LoanSecurityOverviewSerializer(serializers.Serializer[Any]):
@@ -107,6 +111,15 @@ class LoanSerializer(serializers.Serializer[Any]):
     effective_late_threshold_days = serializers.SerializerMethodField()
     effective_default_threshold_days = serializers.SerializerMethodField()
     contract_terminated_on = serializers.DateField(allow_null=True)
+    # 18.6 interest engine: convention, frequency, grace, penalty X and its investors' share, the
+    # real payout day and the admin's Default declaration.
+    interest_convention = serializers.CharField()
+    payment_frequency = serializers.CharField()
+    grace_business_days = serializers.IntegerField()
+    penalty_daily_rate_percent = serializers.DecimalField(max_digits=7, decimal_places=4)
+    penalty_investor_share_bps = serializers.IntegerField()
+    payout_date = serializers.DateField(allow_null=True)
+    default_declared_on = serializers.DateField(allow_null=True)
     # U33-DEC-17: shown as Coming soon since, and the planned opening date.
     coming_soon_at = serializers.DateTimeField(allow_null=True)
     planned_opening_date = serializers.DateField(allow_null=True)
@@ -278,6 +291,23 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
         allow_empty=False,
     )
     note = serializers.CharField(required=False, allow_blank=True)
+    # 18.6: every new direct loan uses the Actual/365 Fixed engine unless an earlier schedule is
+    # asked for explicitly.
+    interest_convention = serializers.ChoiceField(
+        choices=InterestConvention.choices, required=False, default=InterestConvention.ACT_365_FIXED
+    )
+    payment_frequency = serializers.ChoiceField(
+        choices=PaymentFrequency.choices, required=False, default=PaymentFrequency.MONTHLY
+    )
+    grace_business_days = serializers.IntegerField(
+        required=False, default=0, min_value=0, max_value=30
+    )
+    penalty_daily_rate_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, default=Decimal("0"), min_value=Decimal("0")
+    )
+    penalty_investor_share_bps = serializers.IntegerField(
+        required=False, default=10_000, min_value=0, max_value=10_000
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs.get("is_refinancing"):
@@ -329,6 +359,14 @@ class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
     )
     investor_message = serializers.CharField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True)
+    payment_frequency = serializers.ChoiceField(choices=PaymentFrequency.choices, required=False)
+    grace_business_days = serializers.IntegerField(required=False, min_value=0, max_value=30)
+    penalty_daily_rate_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, min_value=Decimal("0")
+    )
+    penalty_investor_share_bps = serializers.IntegerField(
+        required=False, min_value=0, max_value=10_000
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if not attrs:
@@ -377,6 +415,10 @@ class LoanInstallmentSerializer(serializers.Serializer[Any]):
     label = serializers.CharField()  # type: ignore[assignment]
     payment_date = serializers.DateField(allow_null=True)
     admin_overridden = serializers.BooleanField()
+    # 18.6: the unadjusted due date (before the business-day move and the grace) and the start of
+    # the row's interest period; empty for earlier schedules.
+    original_due_date = serializers.DateField(allow_null=True, required=False)
+    interest_start = serializers.DateField(allow_null=True, required=False)
 
 
 class OriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):

@@ -56,6 +56,8 @@ PUBLIC_PROJECT_FIELDS = {
     "interest_rate_bps",
     "term_months",
     "repayment_type",
+    "payment_frequency",
+    "interest_only_months",
     "collateral_type",
     "collateral_description",
     # 18.3: the anonymous name of the main secured asset (never the borrower's name).
@@ -431,6 +433,7 @@ def test_public_project_has_the_contract_fields_and_never_the_borrower_identity(
     assert row["interest_rate_bps"] == 1000
     assert row["term_months"] == 12
     assert row["repayment_type"] == "equal_installments"
+    assert (row["payment_frequency"], row["interest_only_months"]) == ("monthly", 0)  # 18.6
     assert "risk_rating" not in row  # U33-DEC-16
     assert row["collateral_type"] == "real_estate"
     assert row["ltv_bps"] == 6667

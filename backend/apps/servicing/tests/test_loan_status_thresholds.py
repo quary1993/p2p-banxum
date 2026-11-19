@@ -27,6 +27,7 @@ from backend.apps.servicing.services import (
     record_loan_contract_termination,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (
     _funded_loan_with_holdings,
     admin_user,
@@ -53,6 +54,15 @@ def _freeze_today(monkeypatch: pytest.MonkeyPatch, today: date) -> None:
 
 def _scan(admin: Model, loan: Model, as_of: date) -> str:
     scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(actor=admin, as_of_date=as_of, loan_ids=(str(loan.pk),))
+    )
+    loan.refresh_from_db()
+    return str(cast(Any, loan).status)
+
+
+def _scan_and_declare(admin: Model, loan: Model, as_of: date) -> str:
+    """18.6: the scan stops at Late; then the admin declares Default."""
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(actor=admin, as_of_date=as_of, loan_ids=(str(loan.pk),))
     )
     loan.refresh_from_db()
@@ -105,7 +115,12 @@ def test_due_for_14_days_late_from_day_15_default_from_day_60(
     assert _first_row_status(loan, _day(15)) == "overdue"
     assert _scan(admin_user, loan, _day(15)) == "late"
     assert _scan(admin_user, loan, _day(59)) == "late"
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    # 18.6: Default is never automatic: on day 60 the loan stays Late and the admin is asked to
+    # decide; the declaration makes it Default.
+    assert _scan(admin_user, loan, _day(60)) == "late"
+    task = apps.get_model("admin_ops", "AdminTask").objects.get(related_object_id=str(loan.pk))
+    assert task.title.startswith("Default can be declared")
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
     # Default does not end the contract.
     assert cast(Any, loan).contract_terminated_on is None
     assert (
@@ -227,7 +242,7 @@ def test_defaulted_loan_keeps_its_days(
     admin_user: Model, investor_one: Model, investor_two: Model
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
     client = Client()
     client.force_login(cast(Any, admin_user))
     response = client.post(
@@ -257,7 +272,7 @@ def test_contract_termination_is_a_separate_recorded_stage(
     assert refused.status_code == 400
     assert "late or in default" in refused.json()["detail"]
 
-    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    assert _scan_and_declare(admin_user, loan, _day(60)) == "defaulted"
     future = client.post(
         _termination_url(loan),
         data={**payload, "terminated_on": _day(71).isoformat()},
@@ -344,4 +359,5 @@ def test_existing_contracts_keep_day_5_and_day_16_after_the_migration(
     # The loan behaves as before U33-DEC-09: Late on day 5, Default on day 16.
     assert _scan(admin_user, existing, _day(4)) == "active"
     assert _scan(admin_user, existing, _day(5)) == "late"
-    assert _scan(admin_user, existing, _day(16)) == "defaulted"
+    assert _scan(admin_user, existing, _day(16)) == "late"
+    assert _scan_and_declare(admin_user, existing, _day(16)) == "defaulted"

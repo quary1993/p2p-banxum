@@ -425,6 +425,9 @@ class EnsureLoanDefaultReviewTaskCommand:
     days_past_due: int
     outstanding_minor: int
     triggering_due_date: date | None = None
+    # 18.6: the oldest unpaid installment is late by the Default days. Default is no longer
+    # automatic: the task asks the admin to decide whether to declare it.
+    default_possible: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -911,6 +914,17 @@ def _loan_default_review_notes(command: EnsureLoanDefaultReviewTaskCommand) -> s
             "Start offline recovery follow-up. Record recovered funds with Loans > Manage > "
             "Record a recovery payment."
         )
+    if command.default_possible:
+        lines[2] = f"Default possible since: {command.as_of_date.isoformat()}"
+        return "\n".join(
+            [
+                "The oldest unpaid installment is late by the loan's Default days. Default is "
+                "not automatic: decide whether to declare it (Loans > Manage > Declare Default) "
+                "or to wait. The loan stays Late until you decide.",
+                "",
+                *lines,
+            ]
+        )
     return "\n".join(
         [
             "The loan moved to Defaulted after the day-16 servicing check. Review the risk "
@@ -941,17 +955,35 @@ def _enqueue_loan_default_alert_email(
             topic="email.loan_defaulted",
             payload={
                 "email": operations_email,
-                "subject": f"{brand} loan defaulted: {loan_title}",
+                "subject": (
+                    f"{brand} Default can be declared: {loan_title}"
+                    if command.default_possible
+                    else f"{brand} loan defaulted: {loan_title}"
+                ),
                 "notice_label": "Operations alert",
-                "headline": "A loan has defaulted",
+                "headline": (
+                    "Default can be declared"
+                    if command.default_possible
+                    else "A loan has defaulted"
+                ),
                 "status_label": "Review needed",
                 "status_tone": "danger",
                 "body_text": (
-                    f"Loan {loan_title} ({command.loan_id}) moved to Defaulted on "
-                    f"{command.as_of_date.isoformat()}, {command.days_past_due} days after a "
-                    f"missed installment ({outstanding} outstanding).\n\n"
-                    "A loan risk review task was opened in the admin console. Review the "
-                    "position and decide on investor communication."
+                    (
+                        f"The oldest unpaid installment of loan {loan_title} "
+                        f"({command.loan_id}) is {command.days_past_due} days late on "
+                        f"{command.as_of_date.isoformat()} ({outstanding} outstanding), which "
+                        "is the loan's Default days.\n\nDefault is not automatic. A task was "
+                        "opened in the admin console: decide whether to declare Default."
+                    )
+                    if command.default_possible
+                    else (
+                        f"Loan {loan_title} ({command.loan_id}) moved to Defaulted on "
+                        f"{command.as_of_date.isoformat()}, {command.days_past_due} days after "
+                        f"a missed installment ({outstanding} outstanding).\n\n"
+                        "A loan risk review task was opened in the admin console. Review the "
+                        "position and decide on investor communication."
+                    )
                 ),
                 "template_key": "ops.loan_defaulted.v1",
                 "data_rows": [
@@ -986,7 +1018,8 @@ def ensure_loan_default_review_task(command: EnsureLoanDefaultReviewTaskCommand)
 
     _require_admin_actor(command.actor)
     loan_title = _clean_required(command.loan_title, "Loan title")
-    title = f"Loan defaulted: {loan_title}"[:255]
+    prefix = "Default can be declared" if command.default_possible else "Loan defaulted"
+    title = f"{prefix}: {loan_title}"[:255]
     notes = _loan_default_review_notes(command)
     task_filter = {
         "task_type": AdminTaskType.LOAN_RISK_REVIEW,

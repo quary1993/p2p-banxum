@@ -1604,7 +1604,9 @@ def test_direct_servicing_scanner_does_not_mutate_originator_loans(
     [
         (14, "active", ""),
         (15, "late", "loan_status_late"),
-        (60, "defaulted", "loan_status_defaulted"),
+        # 18.6: Default is never automatic: on day 60 the loan stays Late and the admin gets a
+        # "Default can be declared" task.
+        (60, "late", "loan_status_late"),
     ],
 )
 def test_originator_lifecycle_scan_uses_day_15_and_day_60_boundaries(
@@ -1632,10 +1634,12 @@ def test_originator_lifecycle_scan_uses_day_15_and_day_60_boundaries(
         related_object_type="LoanDefault",
         related_object_id=str(result.loan.id),
     )
-    assert risk_tasks.count() == (1 if expected_status == "defaulted" else 0)
+    assert risk_tasks.count() == (1 if days_after_first_due >= 60 else 0)
     assert OutboxMessage.objects.filter(topic="email.loan_defaulted").count() == (
-        1 if expected_status == "defaulted" else 0
+        1 if days_after_first_due >= 60 else 0
     )
+    if days_after_first_due >= 60:
+        assert risk_tasks.get().title.startswith("Default can be declared")
     if expected_close_reason:
         assert result.profile.opportunity_status == OriginatorOpportunityStatus.CLOSED
         assert result.profile.close_reason == expected_close_reason

@@ -4,12 +4,14 @@ and one when it turns Defaulted (day 60), U33-DEC-09."""
 from __future__ import annotations
 
 from datetime import date, timedelta
+from importlib import import_module
 from typing import Any, cast
 
 import pytest
 from django.apps import apps
 from django.db.models import Model
 from django.utils import timezone
+from freezegun import freeze_time
 
 from backend.apps.originator_claims.tests.test_originator_claims import (  # noqa: F401
     _create_dated_originator_loan,
@@ -58,6 +60,15 @@ def test_originator_loan_late_and_default_notify_the_current_holder_once_each(
 
     for days in (75, 76):
         _scan_originator_at_as_of(actor=admin_user, as_of_date=today + timedelta(days=days))
+    # 18.6: the scan never declares Default; the admin does, and the declaration notifies.
+    notices = investor_notices(investor, "email.loan_status_changed")
+    assert [notice.payload["metadata"]["new_status"] for notice in notices] == ["late"]
+    declared_day = today + timedelta(days=76)
+    with freeze_time(f"{declared_day.isoformat()}T11:00:00Z"):
+        engine = import_module("backend.apps.servicing.engine")
+        engine.declare_loan_default(
+            engine.DeclareLoanDefaultCommand(actor=admin_user, loan_id=str(result.loan.id))
+        )
     notices = investor_notices(investor, "email.loan_status_changed")
     assert [notice.payload["metadata"]["new_status"] for notice in notices] == [
         "late",

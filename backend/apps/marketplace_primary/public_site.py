@@ -299,6 +299,9 @@ def _base_payload(loan: Any, profile: Any | None) -> dict[str, Any]:
         "interest_rate_bps": interest_rate_bps,
         "term_months": int(loan.term_months),
         "repayment_type": str(loan.repayment_type),
+        # 18.6: the public calculator follows the loan's payment frequency and interest-only months.
+        "payment_frequency": str(getattr(loan, "payment_frequency", "") or "monthly"),
+        "interest_only_months": int(getattr(loan, "interest_only_months", 0) or 0),
         "collateral_type": str(loan.collateral_type),
         "collateral_description": str(loan.collateral_description or ""),
         "ltv_bps": loan.ltv_bps,

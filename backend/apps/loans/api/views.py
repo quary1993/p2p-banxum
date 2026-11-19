@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
 
@@ -171,6 +172,11 @@ class LoanListCreateView(APIView):
                     minimum_subscription_bps=data.get("minimum_subscription_bps", 5_000),
                     manual_schedule_rows=_manual_rows_from_data(data.get("manual_schedule_rows")),
                     note=data.get("note", ""),
+                    interest_convention=data.get("interest_convention", "act_365_fixed"),
+                    payment_frequency=data.get("payment_frequency", "monthly"),
+                    grace_business_days=data.get("grace_business_days", 0),
+                    penalty_daily_rate_percent=data.get("penalty_daily_rate_percent", Decimal("0")),
+                    penalty_investor_share_bps=data.get("penalty_investor_share_bps", 10_000),
                 )
             )
         except LoanAuthorizationError as exc:
@@ -245,6 +251,10 @@ class LoanDetailView(APIView):
                     manual_schedule_rows=_manual_rows_from_data(data.get("manual_schedule_rows")),
                     investor_message=data.get("investor_message", ""),
                     note=data.get("note", ""),
+                    payment_frequency=data.get("payment_frequency"),
+                    grace_business_days=data.get("grace_business_days"),
+                    penalty_daily_rate_percent=data.get("penalty_daily_rate_percent"),
+                    penalty_investor_share_bps=data.get("penalty_investor_share_bps"),
                 )
             )
         except LoanAuthorizationError as exc:
