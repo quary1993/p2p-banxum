@@ -28,6 +28,10 @@ class KycStatusResponseSerializer(serializers.Serializer[Any]):
     manual_review_required = serializers.BooleanField()
     detected_flags = serializers.ListField(child=serializers.CharField())
     risk_classification = serializers.CharField(allow_blank=True)
+    # 18.3 (U33-DEC-26): verified by Didit when it provides them; read-only, "" or null otherwise.
+    verified_address = serializers.CharField(allow_blank=True, required=False, default="")
+    verified_birth_date = serializers.DateField(allow_null=True, required=False, default=None)
+    verified_nationality = serializers.CharField(allow_blank=True, required=False, default="")
 
 
 class KycSessionResponseSerializer(serializers.Serializer[Any]):
@@ -142,4 +146,7 @@ def serialize_kyc_status(
         "manual_review_required": case.manual_review_required if case is not None else False,
         "detected_flags": [],
         "risk_classification": "",
+        "verified_address": str(case.verified_address) if case is not None else "",
+        "verified_birth_date": case.verified_birth_date if case is not None else None,
+        "verified_nationality": str(case.verified_nationality) if case is not None else "",
     }

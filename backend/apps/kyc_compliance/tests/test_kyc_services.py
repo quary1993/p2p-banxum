@@ -174,6 +174,60 @@ def test_approved_didit_event_enables_financial_gate_after_phone_verified() -> N
 
 
 @pytest.mark.django_db
+def test_didit_decision_keeps_the_verified_address_birth_date_and_nationality() -> None:
+    """18.3 (U33-DEC-26, E-08): stored when Didit provides them; read-only for the investor."""
+    from backend.apps.kyc_compliance.api.serializers import serialize_kyc_status
+
+    user = create_lender(email="verified-identity@example.test")
+    mark_phone_verified(user)
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    payload = {
+        "id": "didit-event-identity",
+        "status": "approved",
+        "decision": {
+            "id_verifications": [
+                {
+                    "date_of_birth": "1984-05-17",
+                    "nationality": "che",
+                    "formatted_address": "Bahnhofstrasse 1, 8001 Zürich, Switzerland",
+                }
+            ]
+        },
+    }
+    result = process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-identity",
+            provider_event_type="verification.completed",
+            provider_status="approved",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload=payload,
+        )
+    )
+    case = result.case
+    case.refresh_from_db()
+    assert case.verified_address == "Bahnhofstrasse 1, 8001 Zürich, Switzerland"
+    assert str(case.verified_birth_date) == "1984-05-17"
+    assert case.verified_nationality == "CHE"
+    status = serialize_kyc_status(user=user, case=case, latest_session=None)
+    assert status["verified_nationality"] == "CHE"
+    # A later event without these fields keeps them.
+    process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-identity-2",
+            provider_event_type="status.updated",
+            provider_status="approved",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload={"id": "didit-event-identity-2", "status": "approved"},
+        )
+    )
+    case.refresh_from_db()
+    assert case.verified_address.startswith("Bahnhofstrasse 1")
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("flags", "risk", "expected_status"),
     [

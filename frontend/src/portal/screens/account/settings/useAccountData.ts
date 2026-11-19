@@ -34,6 +34,10 @@ export function useAccountData(previewProfile?: PreviewProfile) {
     kycLoading: !isFixturePreview && !readonly && kyc.isPending,
     financialAccess: isFixturePreview ? true : kyc.data?.financial_access_allowed === true,
     manualReviewRequired: isFixturePreview ? false : kyc.data?.manual_review_required === true,
+    // 18.3 (U33-DEC-26): verified by Didit when it provides them; never typed by the investor.
+    verifiedAddress: isFixturePreview ? "" : (kyc.data?.verified_address ?? ""),
+    verifiedBirthDate: isFixturePreview ? null : (kyc.data?.verified_birth_date ?? null),
+    verifiedNationality: isFixturePreview ? "" : (kyc.data?.verified_nationality ?? ""),
     pin,
     user
   };

@@ -99,6 +99,11 @@ class KycVerificationCase(TimestampedModel):
     decision_at = models.DateTimeField(null=True, blank=True)
     manual_review_required = models.BooleanField(default=False)
     blocking_reason = models.TextField(blank=True)
+    # 18.3 (U33-DEC-26, Vlad E-08): verified personal data from the Didit decision, when Didit
+    # provides it. Shown read-only to the investor; only the team changes it.
+    verified_address = models.TextField(blank=True)
+    verified_birth_date = models.DateField(null=True, blank=True)
+    verified_nationality = models.CharField(max_length=3, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

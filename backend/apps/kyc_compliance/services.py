@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from importlib import import_module
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
@@ -383,6 +383,43 @@ def _first_decision_item_value(
             if value is not None:
                 return str(value)
     return ""
+
+
+def _verified_identity(payload: dict[str, Any]) -> dict[str, Any]:
+    """18.3: address, birth date and nationality from a Didit decision, only when present."""
+    decision = _decision_payload(payload)
+    sources: list[dict[str, Any]] = []
+    for container in (payload, decision):
+        for key in ("id_verifications", "poa_verifications"):
+            items = container.get(key)
+            if isinstance(items, list):
+                sources.extend(item for item in items if isinstance(item, dict))
+        single = container.get("id_verification")
+        if isinstance(single, dict):
+            sources.append(single)
+
+    def first(*keys: str) -> str:
+        for source in sources:
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    identity: dict[str, Any] = {}
+    address = first("formatted_address", "address", "poa_formatted_address", "poa_address")
+    if address:
+        identity["verified_address"] = address[:1000]
+    birth = first("date_of_birth", "birth_date")
+    if birth:
+        try:
+            identity["verified_birth_date"] = date.fromisoformat(birth[:10])
+        except ValueError:
+            pass
+    nationality = first("nationality").upper()
+    if nationality.isalpha() and len(nationality) in {2, 3}:
+        identity["verified_nationality"] = nationality
+    return identity
 
 
 def _iter_text_values(value: Any) -> list[str]:
@@ -1191,8 +1228,13 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
         case.provider_session_id = command.provider_session_id
     if normalized_status in TERMINAL_DECISION_STATUSES:
         case.decision_at = now
+    # 18.3: keep what Didit verified; an event without these fields changes nothing.
+    identity = _verified_identity(command.raw_payload or {})
+    for field_name, value in identity.items():
+        setattr(case, field_name, value)
     case.save(
         update_fields=[
+            *identity.keys(),
             "status",
             "risk_classification",
             "detected_flags",

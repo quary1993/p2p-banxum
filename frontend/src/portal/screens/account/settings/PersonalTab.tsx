@@ -1,10 +1,10 @@
 // IP of Webby-Soft SRL.
 // Profile & Settings -> Personal details (design: .ps-personal-grid with Contact details and
 // Identity, the "Verification details" disclosure and "Accepted agreements"). Verified data is
-// read-only with "Contact support to change" (U33-DEC-26); only the fields today's API has are
-// shown (no address, date of birth or nationality). No self-declarations or periodic review yet
-// (U33-DEC-27, Phase 17.7).
-import { useT } from "../../../../i18n";
+// read-only with "Contact support to change" (U33-DEC-26); the address, date of birth and
+// nationality are shown when Didit verified them (18.3, Vlad E-08), never asked for or invented.
+// No self-declarations or periodic review yet (U33-DEC-27, Phase 17.7).
+import { t, useT } from "../../../../i18n";
 import { useDocumentsData } from "../../../../investorPortal/data";
 import { formatDate } from "../../../../investorPortal/format";
 import { NiIcon, PortalLink } from "../../../components";
@@ -14,6 +14,17 @@ import type { SettingsSection } from "./settingsTabs";
 import { investorTypeLabel, kycStatusView, type AccountData } from "./useAccountData";
 
 const historyIcon = { done: "check-circle", pending: "clock", action: "alert-circle" } as const;
+
+// Didit gives ISO 3166 alpha-3 codes; the common ones read as names, others stay as the code.
+const NATIONALITIES: Record<string, string> = {
+  CHE: "Swiss", CH: "Swiss", LIE: "Liechtenstein", LI: "Liechtenstein", DEU: "German", DE: "German",
+  AUT: "Austrian", AT: "Austrian", FRA: "French", FR: "French", ITA: "Italian", IT: "Italian", ROU: "Romanian", RO: "Romanian"
+};
+
+function nationalityName(code: string) {
+  if (!code) return "";
+  return t(NATIONALITIES[code.toUpperCase()] ?? code.toUpperCase());
+}
 
 function HistoryItem({ tone, title, status, description }: { tone: keyof typeof historyIcon; title: string; status: string; description?: string }) {
   return (
@@ -43,6 +54,9 @@ export function PersonalTab({ account, section }: { account: AccountData; sectio
   });
   const identityRows = [
     { label: t("Full name"), value: account.name },
+    { label: t("Date of birth"), value: account.verifiedBirthDate ? formatDate(account.verifiedBirthDate) : "" },
+    { label: t("Nationality"), value: nationalityName(account.verifiedNationality) },
+    { label: t("Address"), value: account.verifiedAddress },
     { label: t("Investor type"), value: investorTypeLabel(account.accountType) ? t(investorTypeLabel(account.accountType)) : "" },
     { label: t("Investor ID"), value: account.reference ?? "" }
   ].filter((row) => row.value);

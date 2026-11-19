@@ -3084,6 +3084,10 @@ export interface KycStatusResponse {
   manual_review_required: boolean;
   detected_flags: string[];
   risk_classification: string;
+  verified_address?: string;
+  /** @nullable */
+  verified_birth_date?: string | null;
+  verified_nationality?: string;
 }
 
 /**
@@ -27680,7 +27684,7 @@ export const getV1KycAdminManualReviewsListResponseMock = (): KycAdminCase[] => 
 
 export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial<Extract<KycSessionResponse, object>> = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<KycStatusResponse, object>> = {}): KycStatusResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), financial_access_allowed: faker.datatype.boolean(), phone_verified: faker.datatype.boolean(), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), manual_review_required: faker.datatype.boolean(), detected_flags: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial<Extract<KycStatusResponse, object>> = {}): KycStatusResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), financial_access_allowed: faker.datatype.boolean(), phone_verified: faker.datatype.boolean(), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), manual_review_required: faker.datatype.boolean(), detected_flags: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), verified_address: faker.string.alpha({length: {min: 10, max: 20}}), verified_birth_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), verified_nationality: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial<Extract<DiditWebhookResponse, object>> = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 

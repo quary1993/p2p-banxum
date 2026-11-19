@@ -899,3 +899,10 @@ Before launch, Claude Design should produce or implement:
 - Suggested improvement: designer review of these states and of the label explanation.
 - Priority: nice-to-have.
 
+
+## 2026-11-19: Audit Step 2 (18.3) Data Fields And Contextual Help
+
+- Screen or component: "Help with this step" (amount and review: the design's explanation dialog; withdraw and sell: opened in place inside the dialog), Loan originators (About text), credit file (Updated date, Source of repayment), Profile & Settings (bank name on bank cards; date of birth, nationality and address from Didit, read-only).
+- Current behavior: the help answers use the live values (minimum, balance, capacity, amount, withdrawable amount, price range, proceeds). The originator About text and the loan's Source of repayment are entered by the admin and left out when empty. The credit file's "Updated" date is the latest change of the loan, its checks or the borrower record. CH and LI bank names come from the SIX bank master (`import_six_bank_master <file>`; the platform team imports the official file); other IBANs show the name the investor typed, or no name. The verified address, birth date and nationality are shown only when Didit provided them (the nationality as a name for common codes, else the code).
+- Suggested improvement: import the SIX file on each SIX release (a scheduled reminder); the full country list for nationalities with 18.13.
+- Priority: nice-to-have.

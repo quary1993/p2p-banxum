@@ -12662,6 +12662,16 @@ components:
             type: string
         risk_classification:
           type: string
+        verified_address:
+          type: string
+          default: ''
+        verified_birth_date:
+          type: string
+          format: date
+          nullable: true
+        verified_nationality:
+          type: string
+          default: ''
       required:
       - detected_flags
       - financial_access_allowed
