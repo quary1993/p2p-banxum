@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 
 import type { Holding, PortfolioHoldingInstallment } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { useComplianceBlock } from "../../../investorPortal/complianceBlock";
+import { useComplianceBlock, useReverificationDate } from "../../../investorPortal/complianceBlock";
 import {
   useBalancesData,
   useDashboardData,
@@ -86,6 +86,7 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
   const smartInvestQuery = useSmartInvestData();
   // 18.10 (Q12): accounts without declarations are asked at sign-in (Overview), before investing.
   const complianceBlock = useComplianceBlock();
+  const reverificationDate = useReverificationDate();
   const [currencyPick, setCurrencyPick] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("all");
   const [cashflowOpen, setCashflowOpen] = useState(false);
@@ -188,6 +189,24 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
           <NiIcon name="file-text" />
           <strong>{t("Complete your declarations.")}</strong>{" "}
           {t("We need a few answers (beneficial owner, source of funds, politically exposed person, expected volume) before your next investment.")}{" "}
+          <PortalLink className="alert-link" params={{ tab: "declarations" }} to="settings">{t("Open declarations")}</PortalLink>
+        </div>
+      ) : null}
+      {complianceBlock?.reason === "compliance_review_open" ? (
+        <div className="alert alert-warning alert-icon u33-invest-kyc" role="status">
+          <NiIcon name="shield-check" />
+          <strong>{t("Compliance review in progress.")}</strong>{" "}
+          {t("New investments are paused until the review is closed. Your account, documents and investments stay available.")}{" "}
+          <PortalLink className="alert-link" params={{ tab: "declarations" }} to="settings">{t("See your declarations")}</PortalLink>
+        </div>
+      ) : null}
+      {reverificationDate && complianceBlock?.reason !== "compliance_review_open" ? (
+        <div className={`alert ${complianceBlock?.reason === "reverification_due" ? "alert-danger" : "alert-info"} alert-icon u33-invest-kyc`} role="status">
+          <NiIcon name="calendar" />
+          <strong>{complianceBlock?.reason === "reverification_due" ? t("Re-verification overdue.") : t("Re-verification due by {date}.", { date: formatDate(reverificationDate) })}</strong>{" "}
+          {complianceBlock?.reason === "reverification_due"
+            ? t("Update your details to invest again; you can still withdraw your money.")
+            : t("Please update your details and declarations before this date. After it, new investments pause until the re-verification is done.")}{" "}
           <PortalLink className="alert-link" params={{ tab: "declarations" }} to="settings">{t("Open declarations")}</PortalLink>
         </div>
       ) : null}

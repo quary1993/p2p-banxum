@@ -92,3 +92,15 @@ test("an investor without declarations fills the form and the answers are sent a
   expect(screen.getByText("Version 1 · 20 Nov 2026")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Update declarations" })).toBeInTheDocument();
 }, 30_000);
+
+test("18.11: the Overview shows a re-verification date and a review in progress", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    http.get("*/api/v1/kyc/declarations/", () =>
+      HttpResponse.json({ ...EMPTY, declaration: null, investment_block: null, investment_block_message: "", reverification_due_date: "2026-12-15" })
+    )
+  );
+  renderLiveApp(App, "/dashboard");
+  expect(await screen.findByText("Re-verification due by 15 Dec 2026.", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open declarations" })).toHaveAttribute("href", "/settings/declarations");
+}, 30_000);
