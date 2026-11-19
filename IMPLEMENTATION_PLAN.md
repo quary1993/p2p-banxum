@@ -2528,6 +2528,7 @@ Status 2026-11-19 (audit step 5, branch `u33-17-2`): done, with the limits at th
 - Investor screens: schedule rows show Pending, then "Due · N days", then the late text; received payments show the penalty apart from the interest.
 - Calculators: the public calculator and the project pages use the engine formulas in `site/format.ts` `plan()` (Actual/365 Fixed, payment frequency, interest-only periods, equal total installments, payment at maturity); the public projects API sends `payment_frequency` and `interest_only_months`. The platform project page and Smart Invest use the backend schedule rows (Smart Invest groups: custom schedule = principal and interest, full at maturity = payment at maturity).
 - Limits: the public calculator does not know the bank holidays and grace days (the confirmed schedule can differ by some days and cents); the QA and demo seeds still make legacy loans; the expense document comes from the borrower's document library (no upload in the expense form); the admin manual is not updated yet; originator claims keep their convention until 18.7; the lawyers' check of the Default clause is still open.
+- Vlad (2026-11-19): every loan may be reseeded when Phase 18 is done. Choice (the easiest path): no migration of the old loans; the QA and demo seeds move to the engine and all QA and demo loans are reseeded at the end of Phase 18 (before 18.14). Until then the old loans keep the legacy convention and only the Default rules change for them.
 
 #### 18.7 Originator claims (Q09, F02, F03, F04, C03, Q17)
 
@@ -2540,6 +2541,18 @@ Status 2026-11-19 (audit step 5, branch `u33-17-2`): done, with the limits at th
 - **Removes** the boundary-installment model (entitlement start, par purchase after the boundary, the old sentence).
 
 Waits for: the first-assignment form (legal). The originator-agreement rule on extra days is prepared by the team (E-04); the platform keeps an optional placeholder clause. Acceptance A13, A19.
+
+Status 2026-11-19 (audit step 6, branch `u33-17-2`): done, except the settlement on the debit day (18.8); the limits are at the end of this list.
+
+- Price rule (`originator_claims` migration 0017): new offers use `accrued_interest` (the API and admin default). Offers created before keep `boundary_installment` (and the Python command keeps it as its default for the older tests and seeds).
+- Reference day: planned settlement = 1 settlement day of the currency calendar after the funding deadline. It is fixed when the offer is created, from the funding deadline, and is the same for all investors (an early close or a late settlement does not change the price).
+- Price for a principal P: `P + A`, with `A = round half up(next interest x P / opening principal x accrued units / period units x investor interest share)` in exact integers. Units come from the claim's day-count convention (`platform_core/domain/day_count.py`: Actual/365 Fixed, Actual/360, Actual/Actual ISDA, 30/360 Bond Basis, 30E/360; required at import for the new rule).
+- Publication is refused when the planned settlement day is not before the next due date, when an installment is due and unpaid, or when the convention is missing.
+- Orders reserve `P + A`; the close pays the whole price to the Loan Originator (ledger activation with the accrued interest); purchases record the price. The holdings show the bought accrued interest apart, never as interest earned.
+- F04: a due date reached before the settlement (daily scan, checked again at the close) or a borrower payment recorded by an admin (`POST /api/v1/originator-claims/admin/loans/<id>/offer-failed/`) fails the offer: all participations cancelled, the money released, the investors emailed; the offer never opens again.
+- Q17: Coming soon for Loan Originator offers, with the opening emails at publication.
+- Investor screens: Review & sign shows the principal, the accrued interest in the price, the total, the first estimated payment and the investor and originator shares; the boundary-installment texts are removed for the new rule.
+- Limits: the holdings still start at the close (the settlement on the debit day with signed assignments waits for 18.8 / D-12); a payment on the claim is known to the platform only when an admin records it; the first-assignment form and the extra-days clause wait for legal.
 
 #### 18.8 Qualified signature and settlement (Q10, F01, F05, D7)
 
@@ -2564,6 +2577,18 @@ Waits for: the provider contract and the templates; the lawyers' points are foll
 - **Pending (WW):** the notice text, and whether lenders who joined before a switch to sandbox mode must also receive it.
 
 Waits for: WW validation of the regimes, counts and notice before real use. Acceptance A09.
+
+Status 2026-11-19 (audit step 6, branch `u33-17-2`): done; the limits are at the end of this list. The 20-investor rule of MKT-DEC-028 is removed.
+
+- Data (`entities` migration 0007, `originator_claims` 0018, `platform_core` 0012): `BorrowerEntity.uid` and `OriginatorLoanProfile.borrower_uid` (CHE-123.456.789, mod-11 check digit; required for a Swiss borrower at publication); `SwissCreditorRegime` per UID (mode, confirmed by and at, note); `BorrowerExternalDebt` (creditor, identification, bank or not, financing ID, identical-terms group, amount, currency, start and end, declaration reference, checked by and at); `SnbReferenceRate` (currency, date, CHF per unit, source; entered by an admin).
+- Mode: a UID without a record is in the pre-selected sandbox mode; the first publication records it, confirmed by the publishing admin. An admin changes it in the admin console (Swiss creditor mode panel, `GET/POST /api/v1/entities/admin/creditor-modes/<uid>/`): never while a financing of the UID is in funding; to 10/20 only with at most 20 creditors and at most 10 per open financing; to sandbox only with a total below CHF 500,000.
+- Total per UID in CHF: amounts of its loans in funding or running (Direct loans and Loan Originator claims) and of its external debts; EUR at the SNB rate of the day (refused when no rate is entered).
+- Creditors per UID (F07): the investors of its loans counted once, a Loan Originator while it keeps part of a claim, and external non-bank creditors (banks count in the total only).
+- Checks: at publication (UID, total in sandbox mode, places in 10/20 mode), at every investment path (order, allocation, claim purchase, resale) under a lock on the borrower's regime row, and before the close (a failure stops the close; the admin decides). A resale buyer takes the seller's place in the financing when the seller sells his last holding of it, and in the borrower count only when the seller has no holding left in any financing of the borrower.
+- Dynamic minimum in 10/20 mode: `min(R, max(minimum, round up to whole units of max(0, P - F) / N))`, with P = principal x minimum subscription for Direct loans and 0 for Loan Originator offers; an investor already in the financing keeps the usual minimum.
+- Sandbox notice: settings `swiss.sandbox_notice_text` (the E-03 placeholder) and `swiss.sandbox_notice_approved`; a short text on the offer page and a separate unchecked confirmation in Review & sign; the allocation needs the confirmation and the text version (first 16 characters of its SHA-256), stored in the order metadata. Production refuses to publish a sandbox-mode financing while the text is not approved.
+- Seeds: QA and demo Swiss borrowers get synthetic UIDs (`CHE-9xx...`, never real companies) and the 10/20 mode.
+- Limits: the SNB rate is entered by hand (no automatic source); the notice is asked for primary orders only (not for resales or legacy claim purchases); the old setting `marketplace.swiss_borrower_max_investors` stays in the database unused; the re-check at the debit day comes with 18.8; WW validation of the counts and the notice is still open.
 
 #### 18.10 Compliance (Q12, Q13)
 

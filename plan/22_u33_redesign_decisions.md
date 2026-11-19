@@ -1069,3 +1069,21 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.6 ("Status 2026-11-19"
 | Calculators | Public calculator and project pages on the engine formulas; payment frequency in the public API. |
 
 Choices made in this step (for the audit): loans created before the engine keep the legacy convention and schedules (only the Default rules change for them: no automatic Default, Default declared by an admin; their rows show Due from the due date, without the Pending window); a Default cancellation is refused once a payment or an expense is recorded after the declaration; `interest_only_then_bullet` stays periodic interest with the principal at the end (the public pages showed it as one payment at the end; corrected); the public calculator does not apply bank holidays or grace days.
+
+Vlad (2026-11-19, after the step 5 brief): every loan may be reseeded when Phase 18 is done. Choice: no migration of the old loans; the QA and demo seeds move to the engine, and all QA and demo loans are reseeded at the end of Phase 18.
+
+### Implemented In Audit Step 6 (2026-11-19, Phases 18.7 and 18.9)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.7 and 18.9 ("Status 2026-11-19").
+
+| Item | Implemented |
+| --- | --- |
+| Q09, F02 | Loan Originator offers priced as principal + accrued interest of the transferred rights, one reference day (planned settlement = 1 settlement day after the funding deadline); orders reserve the whole price; the close pays it to the originator. |
+| F03 | Day-count convention required at import: Actual/365 Fixed, Actual/360, Actual/Actual ISDA, 30/360 Bond Basis, 30E/360. |
+| F04 | A due date before the settlement or a recorded borrower payment fails the offer: participations cancelled, money released, investors emailed, never reopened. |
+| C03, scheduling | Publication refused when the planned settlement day is not before the next due date or an installment is unpaid. |
+| Q17 | Coming soon for Loan Originator offers. |
+| Q03, E-02, F06-F09 | Swiss creditor modes per borrower UID: sandbox (total below CHF 500,000, no creditor limit; pre-selected) or 10/20 (10 creditors per financing, 20 per borrower); UID required; external debts; SNB rates; checks at publication, at every investment path under a lock, and before the close; dynamic minimum. MKT-DEC-028 (20 investors) removed. |
+| E-03 | Sandbox notice: short text on the offer page, separate unchecked confirmation in Review & sign with the text version stored; placeholder text with an "approved" flag; production refuses sandbox publications while it is off. |
+
+Choices made in this step (for the audit): the accrued-interest rule is the default for new offers in the API and the admin console, and older offers keep the boundary-installment rule; the reference day is fixed when the offer is created and does not move with an early close or a late settlement; holdings still start at the close until 18.8 (settlement on the debit day); the sandbox mode is confirmed by the admin who publishes the first financing of a UID (the publish action is the confirmation); the SNB rate is entered by hand; the sandbox notice is asked for primary orders only; P of the dynamic minimum is 0 for Loan Originator offers (no subscription threshold); the 10/20 limits are lowered in tests only.
