@@ -36,6 +36,10 @@ NOTICE_TARGET_PATHS = {
     "balances": "/balances",
     "secondary_market": "/secondary-market",
     "fx": "/fx",
+    # 18.3: movements, reports and documents.
+    "transactions": "/transactions",
+    "reports": "/reports",
+    "documents": "/documents",
 }
 _TARGETS_WITH_ID = frozenset({"loan", "holding"})
 

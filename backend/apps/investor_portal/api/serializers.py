@@ -4,7 +4,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.investor_portal.services import NOTIFICATION_TARGET_TYPES
+from backend.apps.investor_portal.services import NOTIFICATION_CATEGORIES, NOTIFICATION_TARGET_TYPES
 
 
 class PortalLimitQuerySerializer(serializers.Serializer[Any]):
@@ -225,6 +225,64 @@ class InvestorDocumentDownloadResponseSerializer(serializers.Serializer[Any]):
     manifest = serializers.JSONField()
 
 
+class InvestorReportSerializer(serializers.Serializer[Any]):
+    """18.3: a report kept as issued (created by the investor or a monthly statement)."""
+
+    id = serializers.UUIDField()
+    kind = serializers.ChoiceField(
+        choices=[
+            "account_statement",
+            "portfolio",
+            "interest_repayments",
+            "tax",
+            "monthly_statement",
+        ]
+    )
+    title = serializers.CharField()
+    # Empty: EUR and CHF, reported separately.
+    currency = serializers.CharField(allow_blank=True)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    output_format = serializers.CharField()
+    filename = serializers.CharField()
+    issued_at = serializers.DateTimeField()
+    automatic = serializers.BooleanField()
+
+
+class InvestorReportsSerializer(serializers.Serializer[Any]):
+    reports = InvestorReportSerializer(many=True)
+
+
+class InvestorReportCreateRequestSerializer(serializers.Serializer[Any]):
+    kind = serializers.ChoiceField(
+        choices=["account_statement", "portfolio", "interest_repayments", "tax"]
+    )
+    # The portfolio report is always as of today; the dates are then ignored.
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    currency = serializers.ChoiceField(choices=["", "EUR", "CHF"], required=False, default="")
+    output_format = serializers.ChoiceField(choices=["pdf", "csv"], required=False, default="pdf")
+
+
+class InvestorReportSummaryQuerySerializer(serializers.Serializer[Any]):
+    # A calendar year, or "all" for every year.
+    year = serializers.CharField(required=False, default="all", max_length=4)
+
+
+class InvestorReportCurrencySummarySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    invested_minor = serializers.IntegerField()
+    principal_repaid_minor = serializers.IntegerField()
+    interest_received_minor = serializers.IntegerField()
+
+
+class InvestorReportSummarySerializer(serializers.Serializer[Any]):
+    year = serializers.IntegerField(allow_null=True)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    currencies = InvestorReportCurrencySummarySerializer(many=True)
+
+
 class InvestorNotificationSerializer(serializers.Serializer[Any]):
     id = serializers.CharField()
     notification_source = serializers.CharField()
@@ -245,6 +303,10 @@ class InvestorNotificationSerializer(serializers.Serializer[Any]):
     navigation_target_id = serializers.CharField(
         allow_blank=True,
         help_text="Loan or holding UUID for the loan and holding targets; blank otherwise.",
+    )
+    # 18.3: the design's tone (positive, late, default, neutral).
+    category = serializers.ChoiceField(
+        choices=list(NOTIFICATION_CATEGORIES), required=False, default="neutral"
     )
 
 

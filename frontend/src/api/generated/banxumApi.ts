@@ -555,16 +555,16 @@ export interface AdminUserDocument {
  * * `pdf` - pdf
  * * `csv` - csv
  */
-export type AdminUserDocumentArtifactRequestOutputFormatEnum = typeof AdminUserDocumentArtifactRequestOutputFormatEnum[keyof typeof AdminUserDocumentArtifactRequestOutputFormatEnum];
+export type OutputFormat8ffEnum = typeof OutputFormat8ffEnum[keyof typeof OutputFormat8ffEnum];
 
 
-export const AdminUserDocumentArtifactRequestOutputFormatEnum = {
+export const OutputFormat8ffEnum = {
   pdf: 'pdf',
   csv: 'csv',
 } as const;
 
 export interface AdminUserDocumentArtifactRequest {
-  output_format?: AdminUserDocumentArtifactRequestOutputFormatEnum;
+  output_format?: OutputFormat8ffEnum;
 }
 
 export interface AdminUserDocumentArtifactResponse {
@@ -1457,10 +1457,10 @@ export interface BorrowerRepaymentRecordResponse {
  * * `secondary_market_listing` - Secondary-market listing
  * * `risk_disclosure` - Risk disclosure
  */
-export type CategoryEnum = typeof CategoryEnum[keyof typeof CategoryEnum];
+export type Category393Enum = typeof Category393Enum[keyof typeof Category393Enum];
 
 
-export const CategoryEnum = {
+export const Category393Enum = {
   registration: 'registration',
   primary_market_investment: 'primary_market_investment',
   secondary_market_purchase: 'secondary_market_purchase',
@@ -1751,7 +1751,7 @@ export interface DocumentAcceptanceArtifactRequest {
 }
 
 export interface DocumentAcceptanceCreateRequest {
-  category: CategoryEnum;
+  category: Category393Enum;
   /** @maxLength 128 */
   template_key?: string;
   /** @maxLength 8 */
@@ -1867,7 +1867,7 @@ export interface DocumentTemplateVersion {
 }
 
 export interface DocumentTemplateVersionCreateRequest {
-  category: CategoryEnum;
+  category: Category393Enum;
   /** @maxLength 128 */
   template_key?: string;
   /** @maxLength 8 */
@@ -2574,6 +2574,9 @@ export interface InvestorLossRecognitionLine {
  * * `balances` - balances
  * * `secondary_market` - secondary_market
  * * `fx` - fx
+ * * `transactions` - transactions
+ * * `reports` - reports
+ * * `documents` - documents
  */
 export type NavigationTargetEnum = typeof NavigationTargetEnum[keyof typeof NavigationTargetEnum];
 
@@ -2586,6 +2589,25 @@ export const NavigationTargetEnum = {
   balances: 'balances',
   secondary_market: 'secondary_market',
   fx: 'fx',
+  transactions: 'transactions',
+  reports: 'reports',
+  documents: 'documents',
+} as const;
+
+/**
+ * * `positive` - positive
+ * * `late` - late
+ * * `default` - default
+ * * `neutral` - neutral
+ */
+export type InvestorNotificationCategoryEnum = typeof InvestorNotificationCategoryEnum[keyof typeof InvestorNotificationCategoryEnum];
+
+
+export const InvestorNotificationCategoryEnum = {
+  positive: 'positive',
+  late: 'late',
+  default: 'default',
+  neutral: 'neutral',
 } as const;
 
 export interface InvestorNotification {
@@ -2611,10 +2633,14 @@ export interface InvestorNotification {
      * * `balances` - balances
      * * `secondary_market` - secondary_market
      * * `fx` - fx
+     * * `transactions` - transactions
+     * * `reports` - reports
+     * * `documents` - documents
      */
   navigation_target: NavigationTargetEnum;
   /** Loan or holding UUID for the loan and holding targets; blank otherwise. */
   navigation_target_id: string;
+  category?: InvestorNotificationCategoryEnum;
 }
 
 export interface InvestorNotificationReadResponse {
@@ -2728,6 +2754,84 @@ export interface InvestorRecoveryDistributionLine {
   current_principal_after_minor: number;
   metadata: unknown;
   occurred_at: string;
+}
+
+/**
+ * * `account_statement` - account_statement
+ * * `portfolio` - portfolio
+ * * `interest_repayments` - interest_repayments
+ * * `tax` - tax
+ * * `monthly_statement` - monthly_statement
+ */
+export type InvestorReportKindEnum = typeof InvestorReportKindEnum[keyof typeof InvestorReportKindEnum];
+
+
+export const InvestorReportKindEnum = {
+  account_statement: 'account_statement',
+  portfolio: 'portfolio',
+  interest_repayments: 'interest_repayments',
+  tax: 'tax',
+  monthly_statement: 'monthly_statement',
+} as const;
+
+/**
+ * 18.3: a report kept as issued (created by the investor or a monthly statement).
+ */
+export interface InvestorReport {
+  id: string;
+  kind: InvestorReportKindEnum;
+  title: string;
+  currency: string;
+  start_date: string;
+  end_date: string;
+  output_format: string;
+  filename: string;
+  issued_at: string;
+  automatic: boolean;
+}
+
+export const InvestorReportCreateRequestCurrency = {...PublicEnquiryCurrencyEnum,...BlankEnum,} as const
+/**
+ * * `account_statement` - account_statement
+ * * `portfolio` - portfolio
+ * * `interest_repayments` - interest_repayments
+ * * `tax` - tax
+ */
+export type InvestorReportCreateRequestKindEnum = typeof InvestorReportCreateRequestKindEnum[keyof typeof InvestorReportCreateRequestKindEnum];
+
+
+export const InvestorReportCreateRequestKindEnum = {
+  account_statement: 'account_statement',
+  portfolio: 'portfolio',
+  interest_repayments: 'interest_repayments',
+  tax: 'tax',
+} as const;
+
+export interface InvestorReportCreateRequest {
+  kind: InvestorReportCreateRequestKindEnum;
+  start_date: string;
+  end_date: string;
+  currency?: typeof InvestorReportCreateRequestCurrency[keyof typeof InvestorReportCreateRequestCurrency];
+  output_format?: OutputFormat8ffEnum;
+}
+
+export interface InvestorReportCurrencySummary {
+  currency: string;
+  invested_minor: number;
+  principal_repaid_minor: number;
+  interest_received_minor: number;
+}
+
+export interface InvestorReportSummary {
+  /** @nullable */
+  year: number | null;
+  start_date: string;
+  end_date: string;
+  currencies: InvestorReportCurrencySummary[];
+}
+
+export interface InvestorReports {
+  reports: InvestorReport[];
 }
 
 export interface InvestorSelfServicePayoutInstructionRegisterRequest {
@@ -5961,6 +6065,9 @@ export const RedactionModeEnum = {
  * * `failed_outbox` - Failed outbox
  * * `participant_account_statement` - Participant account statement
  * * `annual_tax_information` - Annual tax information
+ * * `investor_portfolio` - Portfolio report
+ * * `investor_interest_repayments` - Interest and repayments
+ * * `investor_tax_report` - Tax report
  */
 export type ReportTypeEnum = typeof ReportTypeEnum[keyof typeof ReportTypeEnum];
 
@@ -5985,6 +6092,9 @@ export const ReportTypeEnum = {
   failed_outbox: 'failed_outbox',
   participant_account_statement: 'participant_account_statement',
   annual_tax_information: 'annual_tax_information',
+  investor_portfolio: 'investor_portfolio',
+  investor_interest_repayments: 'investor_interest_repayments',
+  investor_tax_report: 'investor_tax_report',
 } as const;
 
 /**
@@ -7538,6 +7648,14 @@ export type V1InvestorPortalPrimaryOrdersRetrieveParams = {
  * @maximum 250
  */
 limit?: number;
+};
+
+export type V1InvestorPortalReportsSummaryRetrieveParams = {
+/**
+ * @minLength 1
+ * @maxLength 4
+ */
+year?: string;
 };
 
 export type V1InvestorPortalSecondaryMarketRetrieveParams = {
@@ -16251,6 +16369,384 @@ export function useV1InvestorPortalPrimaryOrdersRetrieve<TData = Awaited<ReturnT
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1InvestorPortalPrimaryOrdersRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1InvestorPortalReportsRetrieveUrl = () => {
+
+
+
+
+  return `/api/v1/investor/portal/reports/`
+}
+
+/**
+ * 18.3: the investor's kept reports (GET) and a new report (POST).
+ */
+export const v1InvestorPortalReportsRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<InvestorReports> => {
+
+  return httpClient<InvestorReports>(getV1InvestorPortalReportsRetrieveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalReportsRetrieveQueryKey = () => {
+    return [
+    `/api/v1/investor/portal/reports/`
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalReportsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalReportsRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>> = ({ signal }) => v1InvestorPortalReportsRetrieve({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalReportsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>>
+export type V1InvestorPortalReportsRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalReportsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalReportsRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalReportsRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1InvestorPortalReportsCreateUrl = () => {
+
+
+
+
+  return `/api/v1/investor/portal/reports/`
+}
+
+/**
+ * 18.3: the investor's kept reports (GET) and a new report (POST).
+ */
+export const v1InvestorPortalReportsCreate = async (investorReportCreateRequest: InvestorReportCreateRequest, options?: Parameters<typeof httpClient>[1]): Promise<InvestorReport> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<InvestorReport>(getV1InvestorPortalReportsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(investorReportCreateRequest)
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalReportsCreateMutationKey = () => ['v1InvestorPortalReportsCreate'] as const;
+
+export const getV1InvestorPortalReportsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>, TError,V1InvestorPortalReportsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>, TError,V1InvestorPortalReportsCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1InvestorPortalReportsCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>, V1InvestorPortalReportsCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1InvestorPortalReportsCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1InvestorPortalReportsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>>
+    export type V1InvestorPortalReportsCreateMutationBody = InvestorReportCreateRequest
+    export type V1InvestorPortalReportsCreateMutationError = unknown
+    export type V1InvestorPortalReportsCreateMutationVariables = {data: InvestorReportCreateRequest}
+
+    export const useV1InvestorPortalReportsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>, TError,V1InvestorPortalReportsCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1InvestorPortalReportsCreate>>,
+        TError,
+        V1InvestorPortalReportsCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1InvestorPortalReportsCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1InvestorPortalReportsDownloadRetrieveUrl = (reportId: string,) => {
+
+
+
+
+  return `/api/v1/investor/portal/reports/${reportId}/download/`
+}
+
+/**
+ * 18.3: the file of a kept report, as it was issued.
+ */
+export const v1InvestorPortalReportsDownloadRetrieve = async (reportId: string, options?: Parameters<typeof httpClient>[1]): Promise<InvestorDocumentDownloadResponse> => {
+
+  return httpClient<InvestorDocumentDownloadResponse>(getV1InvestorPortalReportsDownloadRetrieveUrl(reportId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalReportsDownloadRetrieveQueryKey = (reportId: string,) => {
+    return [
+    `/api/v1/investor/portal/reports/${reportId}/download/`
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalReportsDownloadRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError = unknown>(reportId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalReportsDownloadRetrieveQueryKey(reportId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>> = ({ signal }) => v1InvestorPortalReportsDownloadRetrieve(reportId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: reportId !== null && reportId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalReportsDownloadRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>>
+export type V1InvestorPortalReportsDownloadRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalReportsDownloadRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError = unknown>(
+ reportId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsDownloadRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError = unknown>(
+ reportId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsDownloadRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError = unknown>(
+ reportId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalReportsDownloadRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError = unknown>(
+ reportId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsDownloadRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalReportsDownloadRetrieveQueryOptions(reportId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getV1InvestorPortalReportsSummaryRetrieveUrl = (params?: V1InvestorPortalReportsSummaryRetrieveParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/investor/portal/reports/summary/?${stringifiedParams}` : `/api/v1/investor/portal/reports/summary/`
+}
+
+/**
+ * 18.3: invested, principal repaid and interest received per currency (year or all).
+ */
+export const v1InvestorPortalReportsSummaryRetrieve = async (params?: V1InvestorPortalReportsSummaryRetrieveParams, options?: Parameters<typeof httpClient>[1]): Promise<InvestorReportSummary> => {
+
+  return httpClient<InvestorReportSummary>(getV1InvestorPortalReportsSummaryRetrieveUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1InvestorPortalReportsSummaryRetrieveQueryKey = (params?: V1InvestorPortalReportsSummaryRetrieveParams,) => {
+    return [
+    `/api/v1/investor/portal/reports/summary/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getV1InvestorPortalReportsSummaryRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError = unknown>(params?: V1InvestorPortalReportsSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1InvestorPortalReportsSummaryRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>> = ({ signal }) => v1InvestorPortalReportsSummaryRetrieve(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1InvestorPortalReportsSummaryRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>>
+export type V1InvestorPortalReportsSummaryRetrieveQueryError = unknown
+
+
+export function useV1InvestorPortalReportsSummaryRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError = unknown>(
+ params: undefined |  V1InvestorPortalReportsSummaryRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsSummaryRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalReportsSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1InvestorPortalReportsSummaryRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalReportsSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1InvestorPortalReportsSummaryRetrieve<TData = Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError = unknown>(
+ params?: V1InvestorPortalReportsSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1InvestorPortalReportsSummaryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1InvestorPortalReportsSummaryRetrieveQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -27044,7 +27540,7 @@ export const getV1InvestorPortalFeaturesRetrieveResponseMock = (overrideResponse
 
 export const getV1InvestorPortalFxRetrieveResponseMock = (overrideResponse: Partial<Extract<FxHistoryPortal, object>> = {}): FxHistoryPortal => ({quotes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int(), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int(), gross_target_amount_minor: faker.number.int(), fee_minor: faker.number.int(), target_amount_minor: faker.number.int(), issued_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', is_expired: faker.datatype.boolean(), has_exchange: faker.datatype.boolean()})), exchanges: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.uuid(), quote_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int(), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int(), gross_target_amount_minor: faker.number.int(), fee_minor: faker.number.int(), target_amount_minor: faker.number.int(), effective_net_rate: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), executed_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), terms: {daily_limit_chf_minor: faker.number.int(), daily_limit_used_chf_minor: faker.number.int(), quote_ttl_seconds: faker.number.int(), platform_fee_bps: faker.number.int()}, ...overrideResponse})
 
-export const getV1InvestorPortalNotificationsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorNotifications, object>> = {}): InvestorNotifications => ({notifications: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), notification_source: faker.string.alpha({length: {min: 10, max: 20}}), topic: faker.string.alpha({length: {min: 10, max: 20}}), topic_label: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), unread: faker.datatype.boolean(), navigation_target: faker.helpers.arrayElement(Object.values(NavigationTargetEnum)), navigation_target_id: faker.string.alpha({length: {min: 10, max: 20}})})), unread_count: faker.number.int(), ...overrideResponse})
+export const getV1InvestorPortalNotificationsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorNotifications, object>> = {}): InvestorNotifications => ({notifications: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), notification_source: faker.string.alpha({length: {min: 10, max: 20}}), topic: faker.string.alpha({length: {min: 10, max: 20}}), topic_label: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), unread: faker.datatype.boolean(), navigation_target: faker.helpers.arrayElement(Object.values(NavigationTargetEnum)), navigation_target_id: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.helpers.arrayElement(Object.values(InvestorNotificationCategoryEnum))})), unread_count: faker.number.int(), ...overrideResponse})
 
 export const getV1InvestorPortalNotificationsReadCreateResponseMock = (overrideResponse: Partial<Extract<InvestorNotificationReadResponse, object>> = {}): InvestorNotificationReadResponse => ({marked_count: faker.number.int(), unread_count: faker.number.int(), ...overrideResponse})
 
@@ -27055,6 +27551,14 @@ export const getV1InvestorPortalPortfolioRetrieveResponseMock = (overrideRespons
       })), recovered_principal_minor: faker.number.int(), recovered_contractual_interest_minor: faker.number.int(), recovered_default_interest_minor: faker.number.int(), recovered_penalties_minor: faker.number.int(), recovered_other_costs_minor: faker.number.int(), recovery_events: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({recovery_event_id: faker.string.uuid(), value_date: faker.date.past().toISOString().slice(0, 10), gross_recovered_minor: faker.number.int(), external_costs_minor: faker.number.int(), recovery_fee_minor: faker.number.int(), net_distributed_minor: faker.number.int(), credited_to_you_minor: faker.number.int()})), undefined]), recovery_stages: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({title: faker.string.alpha({length: {min: 10, max: 20}}), recovery_result: faker.string.alpha({length: {min: 10, max: 20}}), occurred_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investor_note: faker.string.alpha({length: {min: 10, max: 20}})})), undefined]), recovery_next_step: faker.helpers.arrayElement([faker.helpers.arrayElement([{title: faker.string.alpha({length: {min: 10, max: 20}}), recovery_result: faker.string.alpha({length: {min: 10, max: 20}}), occurred_on: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investor_note: faker.string.alpha({length: {min: 10, max: 20}})},null,]), undefined]), latest_public_note: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.string.uuid(), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), undefined]), open_secondary_listing: faker.helpers.arrayElement([{id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int(), transfer_price_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), listed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', paused_for_due_installment: faker.datatype.boolean()},null,])})), exposure: {by_borrower: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_country: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_purpose: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_collateral_type: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_maturity: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()})), by_loan_status: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({key: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), outstanding_principal_minor: faker.number.int(), holding_count: faker.number.int()}))}, ...overrideResponse})
 
 export const getV1InvestorPortalPrimaryOrdersRetrieveResponseMock = (overrideResponse: Partial<Extract<PrimaryOrdersPortal, object>> = {}): PrimaryOrdersPortal => ({orders: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int(), allocated_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', allocated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), released_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
+
+export const getV1InvestorPortalReportsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorReports, object>> = {}): InvestorReports => ({reports: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), kind: faker.helpers.arrayElement(Object.values(InvestorReportKindEnum)), title: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().slice(0, 10), end_date: faker.date.past().toISOString().slice(0, 10), output_format: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), issued_at: faker.date.past().toISOString().slice(0, 19) + 'Z', automatic: faker.datatype.boolean()})), ...overrideResponse})
+
+export const getV1InvestorPortalReportsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorReport, object>> = {}): InvestorReport => ({id: faker.string.uuid(), kind: faker.helpers.arrayElement(Object.values(InvestorReportKindEnum)), title: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().slice(0, 10), end_date: faker.date.past().toISOString().slice(0, 10), output_format: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), issued_at: faker.date.past().toISOString().slice(0, 19) + 'Z', automatic: faker.datatype.boolean(), ...overrideResponse})
+
+export const getV1InvestorPortalReportsDownloadRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorDocumentDownloadResponse, object>> = {}): InvestorDocumentDownloadResponse => ({content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
+
+export const getV1InvestorPortalReportsSummaryRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorReportSummary, object>> = {}): InvestorReportSummary => ({year: faker.helpers.arrayElement([faker.number.int(), null]), start_date: faker.date.past().toISOString().slice(0, 10), end_date: faker.date.past().toISOString().slice(0, 10), currencies: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), invested_minor: faker.number.int(), principal_repaid_minor: faker.number.int(), interest_received_minor: faker.number.int()})), ...overrideResponse})
 
 export const getV1InvestorPortalSecondaryMarketRetrieveResponseMock = (overrideResponse: Partial<Extract<SecondaryMarketActivityPortal, object>> = {}): SecondaryMarketActivityPortal => ({listings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), paused_for_due_installment: faker.datatype.boolean(), risk_acknowledgement_required: faker.datatype.boolean(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', state: faker.helpers.arrayElement(Object.values(SecondaryListingPortalStateEnum)), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), purchases_as_buyer: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), taker_fee_minor: faker.number.int(), buyer_total_cost_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), sales_as_seller: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), seller_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int(), transfer_price_minor: faker.number.int(), discount_premium_bps: faker.number.int(), accrued_interest_minor: faker.number.int(), maker_fee_minor: faker.number.int(), seller_net_proceeds_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({archived_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', undefined]), id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), listing_id: faker.string.uuid(), holding_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), cash_amount_minor: faker.number.int(), price_bps: faker.helpers.arrayElement([faker.number.int(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
@@ -28448,6 +28952,54 @@ export const getV1InvestorPortalPrimaryOrdersRetrieveMockHandler = (overrideResp
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1InvestorPortalPrimaryOrdersRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalReportsRetrieveMockHandler = (overrideResponse?: InvestorReports | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorReports> | InvestorReports), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/reports/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalReportsRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalReportsCreateMockHandler = (overrideResponse?: InvestorReport | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorReport> | InvestorReport), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/investor/portal/reports/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalReportsCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalReportsDownloadRetrieveMockHandler = (overrideResponse?: InvestorDocumentDownloadResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorDocumentDownloadResponse> | InvestorDocumentDownloadResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/reports/:reportId/download/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalReportsDownloadRetrieveResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1InvestorPortalReportsSummaryRetrieveMockHandler = (overrideResponse?: InvestorReportSummary | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorReportSummary> | InvestorReportSummary), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/investor/portal/reports/summary/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1InvestorPortalReportsSummaryRetrieveResponseMock(),
       { status: 200
       })
   }, options)
@@ -30083,6 +30635,10 @@ export const getBanxumApiMock = () => [
   getV1InvestorPortalNotificationsReadAllCreateMockHandler(),
   getV1InvestorPortalPortfolioRetrieveMockHandler(),
   getV1InvestorPortalPrimaryOrdersRetrieveMockHandler(),
+  getV1InvestorPortalReportsRetrieveMockHandler(),
+  getV1InvestorPortalReportsCreateMockHandler(),
+  getV1InvestorPortalReportsDownloadRetrieveMockHandler(),
+  getV1InvestorPortalReportsSummaryRetrieveMockHandler(),
   getV1InvestorPortalSecondaryMarketRetrieveMockHandler(),
   getV1InvestorPortalSupportRequestsCreateMockHandler(),
   getV1InvestorPortalTransactionsRetrieveMockHandler(),

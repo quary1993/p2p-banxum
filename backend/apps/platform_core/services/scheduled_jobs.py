@@ -38,6 +38,8 @@ PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
 ACCOUNT_SECURITY_RETENTION_JOB = "account_security_retention"
 # U33-DEC-18: the 7, 3 and 1 day closing reminders of saved opportunities.
 SAVED_OPPORTUNITY_REMINDERS_JOB = "saved_opportunity_reminders"
+# 18.3: last month's account statement of each investor with money movements (idempotent).
+MONTHLY_INVESTOR_STATEMENTS_JOB = "monthly_investor_statements"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -52,6 +54,7 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     NEWSLETTER_NEW_PROJECTS_JOB,
     PUBLIC_SITE_RETENTION_JOB,
     ACCOUNT_SECURITY_RETENTION_JOB,
+    MONTHLY_INVESTOR_STATEMENTS_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 # Jobs that change no financial or admin state run as the system, without the admin actor.
@@ -62,6 +65,7 @@ SYSTEM_JOB_NAMES = frozenset(
         PUBLIC_SITE_RETENTION_JOB,
         ACCOUNT_SECURITY_RETENTION_JOB,
         SAVED_OPPORTUNITY_REMINDERS_JOB,
+        MONTHLY_INVESTOR_STATEMENTS_JOB,
     }
 )
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
@@ -523,6 +527,11 @@ def _account_security_retention_summary(*, as_of: datetime) -> dict[str, Any]:
     return cast(dict[str, Any], sessions.purge_account_security_history(as_of=as_of))
 
 
+def _monthly_investor_statements_summary(*, as_of: datetime) -> dict[str, Any]:
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    return cast(dict[str, Any], reports.generate_monthly_statements(as_of=as_of))
+
+
 def _saved_opportunity_reminders_summary(*, as_of: datetime) -> dict[str, Any]:
     saved: Any = import_module("backend.apps.marketplace_primary.saved_opportunities")
     return cast(dict[str, Any], saved.send_saved_opportunity_reminders(as_of=as_of))
@@ -545,6 +554,8 @@ def _execute_scheduled_job(
         return _account_security_retention_summary(as_of=as_of)
     if job_name == SAVED_OPPORTUNITY_REMINDERS_JOB:
         return _saved_opportunity_reminders_summary(as_of=as_of)
+    if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:
+        return _monthly_investor_statements_summary(as_of=as_of)
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
     if job_name == BALANCE_AGEING_SCAN_JOB:

@@ -31,6 +31,8 @@ from backend.apps.platform_core.services.activity_archive import merge_archived_
 PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
     {
         "email.investor_notice",
+        # 18.3: "Document ready" (in-app only).
+        "notice.document_ready",
         "email.balance_ageing_reminder",
         "email.deposit_reconciled",
         "email.withdrawal_status",
@@ -91,6 +93,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.loan_opening_alert": "Opportunity open",
     "email.saved_opportunity_closing": "Saved opportunity",
     "notice.saved_opportunity_closing": "Saved opportunity",
+    "notice.document_ready": "Documents",
     "email.support_request_received": "Support",
     "email.security_new_sign_in": "Security",
     "email.document_acceptance_pdf": "Documents",
@@ -686,6 +689,74 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
     }
 
 
+def _investor_reports() -> Any:
+    return import_module("backend.apps.reporting.investor_reports")
+
+
+def list_investor_reports(*, actor: Model) -> dict[str, Any]:
+    """18.3: the reports the investor created and the monthly statements, newest first."""
+    investor_user_id = _require_financial_access(actor)
+    return {"reports": _investor_reports().list_investor_reports(investor_user_id=investor_user_id)}
+
+
+def create_investor_report(
+    *,
+    actor: Model,
+    audit_actor: Model,
+    kind: str,
+    start_date: date,
+    end_date: date,
+    currency: str,
+    output_format: str,
+) -> dict[str, Any]:
+    """18.3: generate and keep a report; a "Document ready" notice announces it."""
+    _require_financial_access(actor)
+    if str(audit_actor.pk) != str(actor.pk):
+        raise InvestorPortalAuthorizationError(
+            "A read-only view cannot create reports for the investor."
+        )
+    reports = _investor_reports()
+    reporting = _reporting_services()
+    try:
+        return cast(
+            dict[str, Any],
+            reports.create_investor_report(
+                reports.CreateInvestorReportCommand(
+                    actor=actor,
+                    kind=kind,
+                    start_date=start_date,
+                    end_date=end_date,
+                    currency=currency,
+                    output_format=output_format,
+                )
+            ),
+        )
+    except reporting.ReportingAuthorizationError as exc:
+        raise InvestorPortalAuthorizationError(str(exc)) from exc
+    except (reporting.ReportingError, reports.InvestorReportError) as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
+
+
+def download_investor_report(*, actor: Model, report_id: str) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    reports = _investor_reports()
+    try:
+        return cast(
+            dict[str, Any],
+            reports.investor_report_file(investor_user_id=investor_user_id, report_id=report_id),
+        )
+    except reports.InvestorReportError as exc:
+        raise InvestorPortalNotFoundError(str(exc)) from exc
+
+
+def investor_report_summary(*, actor: Model, year: int | None) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    return cast(
+        dict[str, Any],
+        _investor_reports().investor_report_summary(investor_user_id=investor_user_id, year=year),
+    )
+
+
 def notification_topic_label(topic: str) -> str:
     label = NOTIFICATION_TOPIC_LABELS.get(topic)
     if label:
@@ -730,6 +801,10 @@ NOTIFICATION_TARGET_PORTFOLIO = "portfolio"
 NOTIFICATION_TARGET_BALANCES = "balances"
 NOTIFICATION_TARGET_SECONDARY_MARKET = "secondary_market"
 NOTIFICATION_TARGET_FX = "fx"
+# 18.3: the design's targets for movements, reports and documents.
+NOTIFICATION_TARGET_TRANSACTIONS = "transactions"
+NOTIFICATION_TARGET_REPORTS = "reports"
+NOTIFICATION_TARGET_DOCUMENTS = "documents"
 NOTIFICATION_TARGET_TYPES = (
     NOTIFICATION_TARGET_NONE,
     NOTIFICATION_TARGET_LOAN,
@@ -738,7 +813,41 @@ NOTIFICATION_TARGET_TYPES = (
     NOTIFICATION_TARGET_BALANCES,
     NOTIFICATION_TARGET_SECONDARY_MARKET,
     NOTIFICATION_TARGET_FX,
+    NOTIFICATION_TARGET_TRANSACTIONS,
+    NOTIFICATION_TARGET_REPORTS,
+    NOTIFICATION_TARGET_DOCUMENTS,
 )
+# 18.3: the design's tones of a notification (positive, late, default, neutral).
+NOTIFICATION_CATEGORIES = ("positive", "late", "default", "neutral")
+_POSITIVE_NOTIFICATION_TOPICS = frozenset(
+    {
+        "email.repayment_distribution_credited",
+        "email.recovery_distribution_credited",
+        "email.originator_claim_repayment_credited",
+        "email.deposit_reconciled",
+        "email.secondary_market_sale_confirmation",
+    }
+)
+
+
+def _notification_category(*, topic: str, payload: Any) -> str:
+    """The tone of a notice: an explicit category, money credited, or a loan that turned late
+    or defaulted; everything else is neutral."""
+    payload_dict = payload if isinstance(payload, dict) else {}
+    metadata = payload_dict.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    explicit = str(metadata_dict.get("category") or "")
+    if explicit in NOTIFICATION_CATEGORIES:
+        return explicit
+    if topic == "email.loan_status_changed":
+        status = str(metadata_dict.get("new_status") or "")
+        if status == "late":
+            return "late"
+        if status in {"defaulted", "written_off"}:
+            return "default"
+    if topic in _POSITIVE_NOTIFICATION_TOPICS:
+        return "positive"
+    return "neutral"
 _PORTFOLIO_NOTIFICATION_TOPICS = frozenset(
     {
         "email.primary_investment_confirmation",
@@ -932,6 +1041,9 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 # When the event happened (platform clock), not when the email went out.
                 "created_at": record.outbox_message.created_at,
                 "sent_at": record.sent_at,
+                "category": _notification_category(
+                    topic=topic, payload=record.outbox_message.payload
+                ),
                 **_notification_target(
                     actor=actor,
                     topic=topic,
@@ -963,6 +1075,7 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 "body": _notification_body(topic=topic, outbox=outbox),
                 "created_at": outbox.created_at,
                 "sent_at": outbox.processed_at,
+                "category": _notification_category(topic=topic, payload=outbox.payload),
                 **_notification_target(actor=actor, topic=topic, payload=outbox.payload),
             }
         )

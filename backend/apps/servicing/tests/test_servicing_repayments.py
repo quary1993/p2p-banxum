@@ -2871,3 +2871,123 @@ def test_portfolio_lists_each_received_payment_of_the_investor(
         (1, date(2026, 3, 1), 1_000_00, 100_00, 1_100_00, 9_000_00),
         (2, date(2026, 3, 31), 9_000_00, 66_67, 9_066_67, 0),
     ]
+
+
+@pytest.mark.django_db
+def test_investor_reports_are_generated_kept_announced_and_summarised(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    """18.3: the design's four reports, kept as issued, "Document ready", period summary."""
+    import base64
+    from datetime import datetime as _datetime
+    from datetime import timezone as _timezone
+
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    record_borrower_repayment(_repayment_command(admin_user, loan))
+    _approve_financial_access(investor_one)
+    client = Client()
+    client.force_login(cast(Any, investor_one))
+    as_of = _datetime(2026, 3, 15, 10, 0, tzinfo=_timezone.utc)
+    reports = import_module("backend.apps.reporting.investor_reports")
+
+    tax = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="tax",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 3, 14),
+            output_format="csv",
+            as_of=as_of,
+        )
+    )
+    assert tax["title"] == "Tax report"
+    tax_csv = client.get(f"/api/v1/investor/portal/reports/{tax['id']}/download/").json()
+    lines = tax_csv["content"].strip().split("\n")
+    assert lines[0] == (
+        "Borrower country;Currency;Interest received;Late interest and charges;Payments"
+    )
+    assert lines[1].split(";")[1:] == ["CHF", "100,00", "0,00", "1"]
+
+    income = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="interest_repayments",
+            start_date=date(2026, 3, 1),
+            end_date=date(2026, 3, 14),
+            currency="CHF",
+            as_of=as_of,
+        )
+    )
+    pdf = client.get(f"/api/v1/investor/portal/reports/{income['id']}/download/").json()
+    assert pdf["content_type"] == "application/pdf"
+    assert base64.b64decode(pdf["content"]).startswith(b"%PDF")
+    portfolio = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="portfolio",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            output_format="csv",
+            as_of=as_of,
+        )
+    )
+    # The portfolio report is always as of today.
+    assert (portfolio["start_date"], portfolio["end_date"]) == (date(2026, 3, 15),) * 2
+    portfolio_csv = client.get(
+        f"/api/v1/investor/portal/reports/{portfolio['id']}/download/"
+    ).json()["content"]
+    assert ";9000,00;100,00;On schedule" in portfolio_csv
+
+    listed = client.get("/api/v1/investor/portal/reports/").json()["reports"]
+    assert sorted(item["kind"] for item in listed) == ["interest_repayments", "portfolio", "tax"]
+    # Another investor cannot open the report.
+    other = Client()
+    other.force_login(cast(Any, investor_two))
+    _approve_financial_access(investor_two)
+    assert other.get(f"/api/v1/investor/portal/reports/{tax['id']}/download/").status_code == 404
+
+    notices = client.get("/api/v1/investor/portal/notifications/").json()["notifications"]
+    ready = [item for item in notices if item["topic"] == "notice.document_ready"]
+    assert len(ready) == 3
+    assert {item["navigation_target"] for item in ready} == {"reports"}
+    assert ready[-1]["body"] == "Your Tax report is ready."
+    credited = [
+        item for item in notices if item["topic"] == "email.repayment_distribution_credited"
+    ]
+    assert {item["category"] for item in credited} <= {"positive"}
+
+    created = client.post(
+        "/api/v1/investor/portal/reports/",
+        {
+            "kind": "account_statement",
+            "start_date": "2026-01-01",
+            "end_date": "2099-01-01",
+            "currency": "EUR",
+        },
+        content_type="application/json",
+    )
+    assert created.status_code == 400
+    assert "cannot end after today" in created.json()["detail"]
+
+    summary = client.get("/api/v1/investor/portal/reports/summary/", {"year": "2026"}).json()
+    chf = next(item for item in summary["currencies"] if item["currency"] == "CHF")
+    assert (chf["principal_repaid_minor"], chf["interest_received_minor"]) == (1_000_00, 100_00)
+    assert [item["currency"] for item in summary["currencies"]] == ["EUR", "CHF"]
+
+    monthly = reports.generate_monthly_statements(
+        as_of=_datetime(2026, 4, 1, 6, 0, tzinfo=_timezone.utc)
+    )
+    assert monthly["month"] == "2026-03"
+    again = reports.generate_monthly_statements(
+        as_of=_datetime(2026, 4, 2, 6, 0, tzinfo=_timezone.utc)
+    )
+    assert again["statements_created"] == 0
+    statements = [
+        item
+        for item in client.get("/api/v1/investor/portal/reports/").json()["reports"]
+        if item["kind"] == "monthly_statement"
+    ]
+    assert [item["title"] for item in statements] == ["Account statement March 2026"]
+    assert statements[0]["automatic"] is True

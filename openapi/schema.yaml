@@ -2964,6 +2964,93 @@ paths:
               schema:
                 $ref: '#/components/schemas/PrimaryOrdersPortal'
           description: ''
+  /api/v1/investor/portal/reports/:
+    get:
+      operationId: v1_investor_portal_reports_retrieve
+      description: '18.3: the investor''s kept reports (GET) and a new report (POST).'
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorReports'
+          description: ''
+    post:
+      operationId: v1_investor_portal_reports_create
+      description: '18.3: the investor''s kept reports (GET) and a new report (POST).'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorReportCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorReportCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorReportCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorReport'
+          description: ''
+  /api/v1/investor/portal/reports/{report_id}/download/:
+    get:
+      operationId: v1_investor_portal_reports_download_retrieve
+      description: '18.3: the file of a kept report, as it was issued.'
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorDocumentDownloadResponse'
+          description: ''
+  /api/v1/investor/portal/reports/summary/:
+    get:
+      operationId: v1_investor_portal_reports_summary_retrieve
+      description: '18.3: invested, principal repaid and interest received per currency
+        (year or all).'
+      parameters:
+      - in: query
+        name: year
+        schema:
+          type: string
+          default: all
+          maxLength: 4
+          minLength: 1
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorReportSummary'
+          description: ''
   /api/v1/investor/portal/secondary-market/:
     get:
       operationId: v1_investor_portal_secondary_market_retrieve
@@ -7789,16 +7876,8 @@ components:
       properties:
         output_format:
           allOf:
-          - $ref: '#/components/schemas/AdminUserDocumentArtifactRequestOutputFormatEnum'
+          - $ref: '#/components/schemas/OutputFormat8ffEnum'
           default: pdf
-    AdminUserDocumentArtifactRequestOutputFormatEnum:
-      enum:
-      - pdf
-      - csv
-      type: string
-      description: |-
-        * `pdf` - pdf
-        * `csv` - csv
     AdminUserDocumentArtifactResponse:
       type: object
       properties:
@@ -9495,7 +9574,7 @@ components:
       required:
       - distribution_lines
       - repayment_event
-    CategoryEnum:
+    Category393Enum:
       enum:
       - registration
       - primary_market_investment
@@ -9796,7 +9875,7 @@ components:
       type: object
       properties:
         category:
-          $ref: '#/components/schemas/CategoryEnum'
+          $ref: '#/components/schemas/Category393Enum'
         template_key:
           type: string
           default: default
@@ -10069,7 +10148,7 @@ components:
       type: object
       properties:
         category:
-          $ref: '#/components/schemas/CategoryEnum'
+          $ref: '#/components/schemas/Category393Enum'
         template_key:
           type: string
           default: default
@@ -11418,10 +11497,17 @@ components:
             * `balances` - balances
             * `secondary_market` - secondary_market
             * `fx` - fx
+            * `transactions` - transactions
+            * `reports` - reports
+            * `documents` - documents
         navigation_target_id:
           type: string
           description: Loan or holding UUID for the loan and holding targets; blank
             otherwise.
+        category:
+          allOf:
+          - $ref: '#/components/schemas/InvestorNotificationCategoryEnum'
+          default: neutral
       required:
       - body
       - created_at
@@ -11435,6 +11521,18 @@ components:
       - topic
       - topic_label
       - unread
+    InvestorNotificationCategoryEnum:
+      enum:
+      - positive
+      - late
+      - default
+      - neutral
+      type: string
+      description: |-
+        * `positive` - positive
+        * `late` - late
+        * `default` - default
+        * `neutral` - neutral
     InvestorNotificationReadResponse:
       type: object
       properties:
@@ -11738,6 +11836,142 @@ components:
       - occurred_at
       - principal_minor
       - repayment_event_id
+    InvestorReport:
+      type: object
+      description: '18.3: a report kept as issued (created by the investor or a monthly
+        statement).'
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/InvestorReportKindEnum'
+        title:
+          type: string
+        currency:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        output_format:
+          type: string
+        filename:
+          type: string
+        issued_at:
+          type: string
+          format: date-time
+        automatic:
+          type: boolean
+      required:
+      - automatic
+      - currency
+      - end_date
+      - filename
+      - id
+      - issued_at
+      - kind
+      - output_format
+      - start_date
+      - title
+    InvestorReportCreateRequest:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/InvestorReportCreateRequestKindEnum'
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        currency:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/PublicEnquiryCurrencyEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        output_format:
+          allOf:
+          - $ref: '#/components/schemas/OutputFormat8ffEnum'
+          default: pdf
+      required:
+      - end_date
+      - kind
+      - start_date
+    InvestorReportCreateRequestKindEnum:
+      enum:
+      - account_statement
+      - portfolio
+      - interest_repayments
+      - tax
+      type: string
+      description: |-
+        * `account_statement` - account_statement
+        * `portfolio` - portfolio
+        * `interest_repayments` - interest_repayments
+        * `tax` - tax
+    InvestorReportCurrencySummary:
+      type: object
+      properties:
+        currency:
+          type: string
+        invested_minor:
+          type: integer
+        principal_repaid_minor:
+          type: integer
+        interest_received_minor:
+          type: integer
+      required:
+      - currency
+      - interest_received_minor
+      - invested_minor
+      - principal_repaid_minor
+    InvestorReportKindEnum:
+      enum:
+      - account_statement
+      - portfolio
+      - interest_repayments
+      - tax
+      - monthly_statement
+      type: string
+      description: |-
+        * `account_statement` - account_statement
+        * `portfolio` - portfolio
+        * `interest_repayments` - interest_repayments
+        * `tax` - tax
+        * `monthly_statement` - monthly_statement
+    InvestorReportSummary:
+      type: object
+      properties:
+        year:
+          type: integer
+          nullable: true
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        currencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorReportCurrencySummary'
+      required:
+      - currencies
+      - end_date
+      - start_date
+      - year
+    InvestorReports:
+      type: object
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorReport'
+      required:
+      - reports
     InvestorSelfServicePayoutInstructionRegisterRequest:
       type: object
       properties:
@@ -15387,6 +15621,9 @@ components:
       - balances
       - secondary_market
       - fx
+      - transactions
+      - reports
+      - documents
       type: string
       description: |-
         * `none` - none
@@ -15396,6 +15633,9 @@ components:
         * `balances` - balances
         * `secondary_market` - secondary_market
         * `fx` - fx
+        * `transactions` - transactions
+        * `reports` - reports
+        * `documents` - documents
     NewStatusEnum:
       enum:
       - active
@@ -16485,6 +16725,14 @@ components:
           maxLength: 255
       required:
       - reason
+    OutputFormat8ffEnum:
+      enum:
+      - pdf
+      - csv
+      type: string
+      description: |-
+        * `pdf` - pdf
+        * `csv` - csv
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -18911,6 +19159,9 @@ components:
       - failed_outbox
       - participant_account_statement
       - annual_tax_information
+      - investor_portfolio
+      - investor_interest_repayments
+      - investor_tax_report
       type: string
       description: |-
         * `operational_subledger` - Operational subledger
@@ -18932,6 +19183,9 @@ components:
         * `failed_outbox` - Failed outbox
         * `participant_account_statement` - Participant account statement
         * `annual_tax_information` - Annual tax information
+        * `investor_portfolio` - Portfolio report
+        * `investor_interest_repayments` - Interest and repayments
+        * `investor_tax_report` - Tax report
     RestoredTargetEnum:
       enum:
       - seed

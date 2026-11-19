@@ -171,6 +171,8 @@ class GenerateInvestorSelfServiceReportCommand:
     as_of: datetime | None = None
     participant_actor: Model | None = None
     audit_actor: Model | None = None
+    # 18.3: e.g. {"currency": "EUR"}; the participant filters always win.
+    extra_filters: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -3003,6 +3005,9 @@ def _build_dataset(
         ReportType.PARTICIPANT_ACCOUNT_STATEMENT: _participant_account_statement_dataset,
         ReportType.ANNUAL_TAX_INFORMATION: _annual_tax_information_dataset,
     }
+    # 18.3: the design's investor reports live in their own module (it imports this one).
+    investor_reports = import_module("backend.apps.reporting.investor_reports")
+    builders.update(investor_reports.DATASET_BUILDERS)
     try:
         builder = builders[ReportType(report_type)]
     except (KeyError, ValueError) as exc:
@@ -3729,7 +3734,12 @@ def _signed_amount_text(amount_minor: int, minor_units: int) -> str:
     return f"+{text}" if amount_minor > 0 else text
 
 
-def _statement_table_header(canvas: _PdfReportCanvas, *, y: float) -> float:
+TableColumns = tuple[tuple[str, float, str], ...]
+
+
+def _statement_table_header(
+    canvas: _PdfReportCanvas, *, y: float, columns: TableColumns = STATEMENT_TABLE_COLUMNS
+) -> float:
     height = 17.0
     canvas.rect(
         x=PDF_MARGIN_X,
@@ -3740,7 +3750,7 @@ def _statement_table_header(canvas: _PdfReportCanvas, *, y: float) -> float:
         stroke=PDF_RULE,
     )
     x = PDF_MARGIN_X
-    for label, width, align in STATEMENT_TABLE_COLUMNS:
+    for label, width, align in columns:
         text_x = x + PDF_TABLE_CELL_PADDING_X
         if align == "right":
             text_x = (
@@ -3768,10 +3778,11 @@ def _statement_table_row(
     cells: list[str],
     bold: bool,
     fill: tuple[int, int, int],
+    columns: TableColumns = STATEMENT_TABLE_COLUMNS,
 ) -> float:
     font = "F2" if bold else "F1"
     wrapped: list[list[str]] = []
-    for (_label, width, _align), cell in zip(STATEMENT_TABLE_COLUMNS, cells, strict=True):
+    for (_label, width, _align), cell in zip(columns, cells, strict=True):
         wrapped.append(
             _wrap_to_width(
                 cell,
@@ -3793,7 +3804,7 @@ def _statement_table_row(
         line_width=0.35,
     )
     x = PDF_MARGIN_X
-    for (_label, width, align), lines in zip(STATEMENT_TABLE_COLUMNS, wrapped, strict=True):
+    for (_label, width, align), lines in zip(columns, wrapped, strict=True):
         text_y = y - 11.0
         for line in lines:
             text_x = x + PDF_TABLE_CELL_PADDING_X
@@ -3810,7 +3821,9 @@ def _statement_table_row(
     return y - height
 
 
-def _statement_row_height(cells: list[str], *, bold: bool) -> float:
+def _statement_row_height(
+    cells: list[str], *, bold: bool, columns: TableColumns = STATEMENT_TABLE_COLUMNS
+) -> float:
     font = "F2" if bold else "F1"
     line_count = max(
         len(
@@ -3822,7 +3835,7 @@ def _statement_row_height(cells: list[str], *, bold: bool) -> float:
                 max_lines=4,
             )
         )
-        for (_label, width, _align), cell in zip(STATEMENT_TABLE_COLUMNS, cells, strict=True)
+        for (_label, width, _align), cell in zip(columns, cells, strict=True)
     )
     return (line_count * STATEMENT_TABLE_LINE_HEIGHT) + (PDF_TABLE_CELL_PADDING_Y * 2) + 1.5
 
@@ -4020,6 +4033,10 @@ def _render_pdf(
         dataset = _annual_tax_information_pdf_dataset(dataset)
     if "investor_statement" in dataset.presentation:
         pdf_bytes = _investor_statement_pdf_bytes(manifest=manifest, dataset=dataset)
+    elif "investor_table" in dataset.presentation:
+        pdf_bytes = import_module("backend.apps.reporting.investor_reports").investor_table_pdf(
+            manifest=manifest, dataset=dataset
+        )
     else:
         pdf_bytes = _report_pdf_bytes(manifest=manifest, dataset=dataset)
     checksum = _content_checksum_bytes(pdf_bytes)
@@ -4187,6 +4204,9 @@ def _require_investor_self_service_report_access(
     if report_type not in {
         ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
         ReportType.ANNUAL_TAX_INFORMATION,
+        ReportType.INVESTOR_PORTFOLIO,
+        ReportType.INVESTOR_INTEREST_REPAYMENTS,
+        ReportType.INVESTOR_TAX_REPORT,
     }:
         raise ReportingValidationError("This report type is not available for investor download.")
 
@@ -4260,9 +4280,23 @@ def _require_period_available(*, report_type: str, period: ReportPeriod, as_of: 
             "Tax information is only available for a period that has ended. This period ends "
             f"on {period.end_date.isoformat()}. Today is {today.isoformat()}."
         )
-    if report_type == ReportType.PARTICIPANT_ACCOUNT_STATEMENT and period.end_date > today:
+    if (
+        report_type
+        in {
+            ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
+            ReportType.INVESTOR_PORTFOLIO,
+            ReportType.INVESTOR_INTEREST_REPAYMENTS,
+            ReportType.INVESTOR_TAX_REPORT,
+        }
+        and period.end_date > today
+    ):
+        what = (
+            "An account statement"
+            if report_type == ReportType.PARTICIPANT_ACCOUNT_STATEMENT
+            else "A report"
+        )
         raise ReportingValidationError(
-            "An account statement cannot end after today. This period ends on "
+            f"{what} cannot end after today. This period ends on "
             f"{period.end_date.isoformat()}. Today is {today.isoformat()}."
         )
 
@@ -4490,6 +4524,7 @@ def generate_investor_self_service_report(
         period_preset=ReportPeriodPreset.CUSTOM,
         period_anchor_date=None,
         filters={
+            **dict(command.extra_filters or {}),
             "participant_type": "lender",
             "participant_id": str(participant_actor.pk),
         },
