@@ -444,7 +444,7 @@ function InvestmentRow({ holding, state, multipleLots, onOpen }: { holding: Hold
       <td className="mi64-status-cell" data-mobile-label={t("Status")} data-status={state}>
         <div className="bxm-mi-status">
           <StatusTag tone={tag.tone}>{tag.label}</StatusTag>
-          {listed ? <StatusTag status="listed" /> : null}
+          {listed ? <StatusTag status={holding.open_secondary_listing?.paused_for_due_installment ? "pending" : "listed"} /> : null}
         </div>
       </td>
       <td data-mobile-label={t("Investment")}>

@@ -230,6 +230,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
   const blockedReason = frozenAccount.frozen ? frozenActionReason(frozenAccount) : isReadonlyView() ? t("This is a read-only view. Resale actions are disabled.") : "";
   const [dialog, setDialog] = useState<{ kind: "edit" | "cancel"; holding: Holding; listing: HoldingOpenSecondaryListing } | null>(null);
   const listed = holdings.filter((holding) => holding.open_secondary_listing && ["active", "approval_requested"].includes(holding.open_secondary_listing.status));
+  const pausedNote = t("Pending: an installment of this loan is due and not yet paid. Buyers do not see the listing until the payment is recorded.");
   const completed = activity.filter((entry) => entry.action === "sale" || entry.action === "buy");
   return (
     <div className="rs-own-list">
@@ -258,6 +259,8 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
             {listed.map((holding) => {
               const listing = holding.open_secondary_listing as HoldingOpenSecondaryListing;
               const pending = listing.status !== "active";
+              // C03: buyers do not see the listing while an installment of the loan is due.
+              const paused = listing.paused_for_due_installment;
               return (
                 <tr key={listing.id}>
                   <td data-mobile-label={t("Investment")}>
@@ -266,7 +269,11 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
                       <div>
                         <strong>{holding.loan.loan_title}</strong>
                         <small className="r67-country"><span>{holding.loan.borrower_name}</span></small>
-                        <StatusTag status={pending ? undefined : "listed"} tone={pending ? "neutral" : undefined}>{pending ? t("Awaiting approval") : undefined}</StatusTag>
+                        {paused ? (
+                          <StatusTag status="pending" />
+                        ) : (
+                          <StatusTag status={pending ? undefined : "listed"} tone={pending ? "neutral" : undefined}>{pending ? t("Awaiting approval") : undefined}</StatusTag>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -279,7 +286,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
                   <td data-mobile-label={t("Listed on")}><span className="rs-time">{listing.listed_at ? formatDate(listing.listed_at) : "—"}</span></td>
                   <td data-mobile-label={t("Actions")}>
                     <div className="u33-row-actions">
-                      <Button disabled={Boolean(blockedReason)} onClick={() => setDialog({ kind: "edit", holding, listing })} size="sm" title={blockedReason || undefined}>{t("Edit")}</Button>
+                      <Button disabled={Boolean(blockedReason) || paused} onClick={() => setDialog({ kind: "edit", holding, listing })} size="sm" title={blockedReason || (paused ? pausedNote : undefined)}>{t("Edit")}</Button>
                       <Button disabled={Boolean(blockedReason)} onClick={() => setDialog({ kind: "cancel", holding, listing })} size="sm" title={blockedReason || undefined}>{t("Cancel listing")}</Button>
                     </div>
                   </td>
@@ -290,6 +297,7 @@ function MyListings({ holdings, activity, t }: { holdings: Holding[]; activity: 
         </table>
       )}
       {blockedReason && listed.length > 0 ? <p className="u33-muted u33-blocked-note">{blockedReason}</p> : null}
+      {listed.some((holding) => holding.open_secondary_listing?.paused_for_due_installment) ? <p className="u33-muted u33-blocked-note">{pausedNote}</p> : null}
       {completed.length > 0 ? (
         <section aria-labelledby="rs-completed-title" className="u33-resale-activity">
           <h2 id="rs-completed-title">{t("Completed sales and purchases")}</h2>

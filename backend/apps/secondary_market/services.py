@@ -355,10 +355,44 @@ def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
         raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
 
 
+# C03 (Vlad, 2026-11-17): from the due date of an unpaid installment until the payment is
+# recorded, the loan is closed to new buyers. Listings stay open but leave the market (the
+# seller sees them as "Pending"); they return when the payment is recorded.
+DUE_INSTALLMENT_LISTING_MESSAGE = (
+    "An installment of this loan is due and not yet paid. "
+    "You can list it after the payment is recorded."
+)
+DUE_INSTALLMENT_PURCHASE_MESSAGE = (
+    "This listing is paused while an installment of the loan is due and not yet paid."
+)
+
+
+def loan_ids_closed_to_new_buyers(*, loans: list[Model], as_of_date: date) -> set[str]:
+    """Loans with an installment due on or before ``as_of_date`` and not yet paid (C03)."""
+    direct = [loan for loan in loans if not _is_originator_claim_loan(loan)]
+    originator = [loan for loan in loans if _is_originator_claim_loan(loan)]
+    closed: set[str] = set()
+    if direct:
+        closed |= _servicing_services().loan_ids_with_due_unpaid_installment(
+            loans=direct, as_of_date=as_of_date
+        )
+    if originator:
+        closed |= _originator_services().originator_loan_ids_with_due_unpaid_installment(
+            loans=originator, as_of_date=as_of_date
+        )
+    return closed
+
+
+def _loan_closed_to_new_buyers(loan: Model) -> bool:
+    return bool(loan_ids_closed_to_new_buyers(loans=[loan], as_of_date=business_date(now_utc())))
+
+
 def _require_listable_loan_status(loan: Model) -> str:
     """Only holdings of performing (``active``) loans can be listed, edited or bought."""
     loan_status = str(cast(Any, loan).status)
     if loan_status == PERFORMING_LOAN_STATUS:
+        if _loan_closed_to_new_buyers(loan):
+            raise SecondaryMarketValidationError(DUE_INSTALLMENT_LISTING_MESSAGE)
         return loan_status
     if _is_originator_claim_loan(loan):
         raise SecondaryMarketValidationError(LATE_OR_DEFAULTED_ORIGINATOR_LISTING_MESSAGE)
@@ -368,9 +402,11 @@ def _require_listable_loan_status(loan: Model) -> str:
 
 
 def _require_purchasable_loan_status(loan: Model) -> None:
-    """A listing can be bought only while its loan performs (rule C18)."""
+    """A listing can be bought only while its loan performs (rule C18) and no installment is due."""
     loan_status = str(cast(Any, loan).status)
     if loan_status == PERFORMING_LOAN_STATUS:
+        if _loan_closed_to_new_buyers(loan):
+            raise SecondaryMarketValidationError(DUE_INSTALLMENT_PURCHASE_MESSAGE)
         return
     if loan_status in NON_PERFORMING_LOAN_STATUSES:
         raise SecondaryMarketValidationError(
@@ -3332,9 +3368,21 @@ def list_active_secondary_market_listings(
         .filter(loan__status=PERFORMING_LOAN_STATUS)
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
+    as_of_date = business_date(now_utc())
+    listed_loans = {str(listing.loan_id): cast(Model, listing.loan) for listing in listings}
+    closed_loan_ids = loan_ids_closed_to_new_buyers(
+        loans=list(listed_loans.values()), as_of_date=as_of_date
+    )
+    visible: list[SecondaryMarketListing] = []
     for listing in listings:
         # The viewer's own listing is shown as "Your listing", without a Buy action.
         listing.is_own_listing = str(listing.seller_user_id) == str(actor.pk)  # type: ignore[attr-defined]
+        listing.paused_for_due_installment = str(listing.loan_id) in closed_loan_ids  # type: ignore[attr-defined]
+        # C03: other sellers' listings of a loan with a due installment leave the market.
+        if listing.paused_for_due_installment and not listing.is_own_listing:  # type: ignore[attr-defined]
+            continue
+        visible.append(listing)
+    listings = visible
     if not listings:
         return listings
 
@@ -3342,7 +3390,6 @@ def list_active_secondary_market_listings(
         listing for listing in listings if not _is_originator_claim_loan(cast(Model, listing.loan))
     ]
     loans_by_id = {str(listing.loan_id): cast(Model, listing.loan) for listing in direct_listings}
-    as_of_date = business_date(now_utc())
     schedule_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
         loans=list(loans_by_id.values()),
         as_of_date=as_of_date,
@@ -3439,6 +3486,13 @@ def get_active_secondary_market_listing_detail(
     holding = cast(Model, listing.holding)
     as_of = now_utc()
     as_of_date = business_date(as_of)
+    is_own_listing = str(listing.seller_user_id) == str(actor.pk)
+    paused_for_due_installment = bool(
+        loan_ids_closed_to_new_buyers(loans=[cast(Model, loan)], as_of_date=as_of_date)
+    )
+    # C03: only the seller still opens a listing paused for a due installment.
+    if paused_for_due_installment and not is_own_listing:
+        raise SecondaryMarketValidationError("Secondary-market listing is not available.")
     is_originator = _is_originator_claim_loan(cast(Model, loan))
     originator_loan_payload: dict[str, Any] | None = None
     if is_originator:
@@ -3503,7 +3557,8 @@ def get_active_secondary_market_listing_detail(
         "loan_id": str(listing.loan_id),
         "loan_title": str(loan.title),
         "product_type": str(getattr(loan, "product_type", "direct")),
-        "is_own_listing": str(listing.seller_user_id) == str(actor.pk),
+        "is_own_listing": is_own_listing,
+        "paused_for_due_installment": paused_for_due_installment,
         "status": str(listing.status),
         "current_principal_minor": current_pricing.current_principal_minor,
         "currency": str(listing.currency_id),

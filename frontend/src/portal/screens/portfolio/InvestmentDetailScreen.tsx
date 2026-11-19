@@ -138,13 +138,16 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
   const actions: ReactNode[] = [];
   if (canSell) actions.push(<Button icon="coins" key="sell" onClick={() => setDialog("sell")}>{t("Sell investment")}</Button>);
   if (listing && !blockedReason) {
-    actions.push(<Button icon="edit" key="edit" onClick={() => setDialog("edit")}>{t("Edit listing")}</Button>);
+    // C03: the price cannot change while the listing is paused for a due installment.
+    if (!listing.paused_for_due_installment) actions.push(<Button icon="edit" key="edit" onClick={() => setDialog("edit")}>{t("Edit listing")}</Button>);
     actions.push(<Button icon="cross-circle-fill" key="cancel" onClick={() => setDialog("cancel")}>{t("Cancel listing")}</Button>);
   }
   actions.push(<ButtonLink icon="briefcase" key="project" params={{ loanId: loan.loan_id }} to="loan">{t("View project")}</ButtonLink>);
 
   const resaleNote = listing
-    ? t("Listed on the resale market at {price}. A buyer must purchase it for the sale to complete.", { price: money(listing.transfer_price_minor) })
+    ? listing.paused_for_due_installment
+      ? t("Pending: an installment of this loan is due and not yet paid. Buyers do not see your listing at {price} until the payment is recorded.", { price: money(listing.transfer_price_minor) })
+      : t("Listed on the resale market at {price}. A buyer must purchase it for the sale to complete.", { price: money(listing.transfer_price_minor) })
     : state === "funded"
       ? t("You can sell this investment on the resale market after the loan is paid out to the borrower.")
       : state === "active" && blockedReason

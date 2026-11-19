@@ -16,7 +16,8 @@ export type TagStatus =
   | "sold"
   | "funded"
   | "repaying"
-  | "listed";
+  | "listed"
+  | "pending";
 export type TagTone = "neutral" | "open" | "solid" | "late" | "default" | "muted" | "type";
 
 const toneClass: Record<TagTone, string> = {
@@ -40,7 +41,8 @@ const statusTone: Record<TagStatus, TagTone> = {
   sold: "muted",
   funded: "solid",
   repaying: "solid",
-  listed: "neutral"
+  listed: "neutral",
+  pending: "neutral"
 };
 const statusLabel: Record<TagStatus, string> = {
   open: "Open",
@@ -53,7 +55,9 @@ const statusLabel: Record<TagStatus, string> = {
   sold: "Sold",
   funded: "Fully funded",
   repaying: "Repaying",
-  listed: "Listed for sale"
+  listed: "Listed for sale",
+  // C03: from the due date of an unpaid installment until the payment is recorded.
+  pending: "Pending"
 };
 
 /** A status pill: pass `status` for the standard label and colour, or `tone` + children. */

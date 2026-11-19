@@ -958,6 +958,46 @@ def get_loan_servicing_status_snapshot(
     )
 
 
+def loan_ids_with_due_unpaid_installment(*, loans: list[Model], as_of_date: date) -> set[str]:
+    """Direct loans with an installment due on or before ``as_of_date`` and not fully paid.
+
+    C03 (Vlad, 2026-11-17): from the due date itself until the payment is recorded, the loan
+    is closed to new buyers (resale listings hidden, purchases refused). A payment recorded
+    for the installment, also on its due date, reopens it.
+    """
+    loan_ids = [str(cast(Any, loan).pk) for loan in loans]
+    if not loan_ids:
+        return set()
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    due_rows = list(
+        installment_model.objects.filter(
+            loan_id__in=loan_ids,
+            schedule_version=F("loan__schedule_version"),
+            due_date__lte=as_of_date,
+        ).values_list("id", "loan_id", "principal_minor", "interest_minor")
+    )
+    if not due_rows:
+        return set()
+    paid_by_installment_id = {
+        str(row["installment_id"]): int(row["paid_principal_minor"] or 0)
+        + int(row["paid_interest_minor"] or 0)
+        for row in BorrowerRepaymentEvent.objects.filter(
+            installment_id__in=[row[0] for row in due_rows]
+        )
+        .values("installment_id")
+        .annotate(
+            paid_principal_minor=Sum("principal_applied_minor"),
+            paid_interest_minor=Sum("interest_applied_minor"),
+        )
+    }
+    return {
+        str(loan_id)
+        for installment_id, loan_id, principal_minor, interest_minor in due_rows
+        if paid_by_installment_id.get(str(installment_id), 0)
+        < int(principal_minor) + int(interest_minor)
+    }
+
+
 def get_loan_repayment_schedule_snapshots(
     *,
     loans: list[Model],

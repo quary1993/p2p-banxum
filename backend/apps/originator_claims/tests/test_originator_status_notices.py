@@ -3,8 +3,8 @@ and one when it turns Defaulted (day 60), U33-DEC-09."""
 
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Any
+from datetime import date, timedelta
+from typing import Any, cast
 
 import pytest
 from django.apps import apps
@@ -68,10 +68,11 @@ def test_originator_loan_late_and_default_notify_the_current_holder_once_each(
 
 
 @pytest.mark.django_db
-def test_claim_offers_close_on_the_loans_late_day_not_on_day_5(
+def test_claim_offers_close_from_the_due_date_until_the_installment_is_paid(
     admin_user: Model,  # noqa: F811
 ) -> None:
-    """Audit G-02: quotes and purchases use the loan's Late day (platform 15 or contract)."""
+    """C03 (Vlad, 2026-11-17): the offer closes on the due date of an unpaid installment, not at
+    the Late day (an import that records the payment reopens it)."""
     from importlib import import_module
 
     services = import_module("backend.apps.originator_claims.services")
@@ -81,18 +82,26 @@ def test_claim_offers_close_on_the_loans_late_day_not_on_day_5(
     )
     profile = result.profile
     profile.refresh_from_db()
-    # The first installment is due on day 15 after today: 10 days past due on day 25.
-    ten_days_late = today + timedelta(days=25)
+    # The first installment is due on day 15 after today.
+    due_date = today + timedelta(days=15)
 
-    reason = services._originator_opportunity_closed_reason(
-        profile, is_par_subscription=False, as_of_date=ten_days_late
-    )
-    assert reason == ""
+    def reason(as_of: date) -> str:
+        return cast(
+            str,
+            services._originator_opportunity_closed_reason(
+                profile, is_par_subscription=False, as_of_date=as_of
+            ),
+        )
 
-    apps.get_model("loans", "Loan").objects.filter(pk=result.loan.pk).update(
-        late_threshold_days=5, default_threshold_days=16
+    assert reason(due_date - timedelta(days=1)) == ""
+    assert reason(due_date) == services.DUE_INSTALLMENT_UNAVAILABLE_MESSAGE
+    assert reason(due_date + timedelta(days=10)) == services.DUE_INSTALLMENT_UNAVAILABLE_MESSAGE
+    assert services.originator_loan_ids_with_due_unpaid_installment(
+        loans=[profile.loan], as_of_date=due_date
+    ) == {str(profile.loan_id)}
+    assert (
+        services.originator_loan_ids_with_due_unpaid_installment(
+            loans=[profile.loan], as_of_date=due_date - timedelta(days=1)
+        )
+        == set()
     )
-    profile.loan.refresh_from_db()
-    assert services._originator_opportunity_closed_reason(
-        profile, is_par_subscription=False, as_of_date=ten_days_late
-    ) == ("Originator claim opportunity is unavailable because the loan is late.")

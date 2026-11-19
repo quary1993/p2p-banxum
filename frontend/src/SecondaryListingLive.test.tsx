@@ -269,3 +269,15 @@ test("A-35: your own listing is not offered to you, and its offer page has no Bu
   expect(calls.acceptances).toHaveLength(0);
   expect(calls.codes).toHaveLength(0);
 }, 30_000);
+
+test("C03: a listing paused for a due installment shows Pending, without Edit, and can still be cancelled", async () => {
+  const portfolio = holdingFixture("listing-paused");
+  const holding = portfolio.holdings[0];
+  holding.open_secondary_listing = { ...holding.open_secondary_listing!, paused_for_due_installment: true };
+  server.use(...sellerHandlers(portfolio, () => HttpResponse.json({}, { status: 201 })));
+
+  renderLiveApp(App, "/portfolio/h1");
+  expect(await screen.findByText(/Pending: an installment of this loan is due and not yet paid/, {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit listing" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel listing" })).toBeEnabled();
+});

@@ -1591,7 +1591,8 @@ export const portfolioFixture: InvestorPortfolio = {
         // 2% seller fee (owner decision 2026-10-16).
         seller_net_proceeds_minor: amount(8252.09),
         listed_at: "2026-06-04T11:30:00+02:00",
-        updated_at: "2026-06-04T11:30:00+02:00"
+        updated_at: "2026-06-04T11:30:00+02:00",
+        paused_for_due_installment: false
       }
     },
     {
@@ -2661,6 +2662,7 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     collateral_type: "equipment",
     remaining_term_months: 24,
     is_own_listing: false,
+    paused_for_due_installment: false,
     borrower_name: "Engadin Hospitality AG",
     borrower_country: "CH"
   },
@@ -2696,6 +2698,7 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     collateral_type: "real_estate",
     remaining_term_months: 14,
     is_own_listing: false,
+    paused_for_due_installment: false,
     borrower_name: "Jura Précision SA",
     borrower_country: "CH"
   }
@@ -2751,7 +2754,8 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       risk_acknowledgement_required: false,
       public_disclosure_note: "",
       listed_at: "2026-05-28T10:00:00+02:00",
-      created_at: "2026-05-28T10:00:00+02:00"
+      created_at: "2026-05-28T10:00:00+02:00",
+      paused_for_due_installment: false
     }
   ],
   purchases_as_buyer: [

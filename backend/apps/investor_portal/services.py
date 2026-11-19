@@ -1407,8 +1407,24 @@ def get_investor_portfolio(
         for listing in listing_model.objects.filter(
             holding_id__in=[holding.pk for holding in holdings],
             status__in=["active", "approval_requested"],
-        ).order_by("holding_id", "-updated_at", "-id")
+        )
+        .select_related("loan", "loan__originator_profile")
+        .order_by("holding_id", "-updated_at", "-id")
     }
+    # C03: an open listing is "Pending" while an installment of its loan is due and unpaid.
+    paused_loan_ids = (
+        import_module("backend.apps.secondary_market.services").loan_ids_closed_to_new_buyers(
+            loans=list(
+                {
+                    str(listing.loan_id): listing.loan
+                    for listing in open_listings_by_holding_id.values()
+                }.values()
+            ),
+            as_of_date=business_date(now_utc()),
+        )
+        if open_listings_by_holding_id
+        else set()
+    )
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
@@ -1491,6 +1507,7 @@ def get_investor_portfolio(
                         "seller_net_proceeds_minor": int(open_listing.seller_net_proceeds_minor),
                         "listed_at": open_listing.listed_at,
                         "updated_at": open_listing.updated_at,
+                        "paused_for_due_installment": str(open_listing.loan_id) in paused_loan_ids,
                     }
                     if open_listing is not None
                     else None
@@ -2023,6 +2040,24 @@ def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     listing_event_model = _model("secondary_market", "SecondaryMarketListingEvent")
     purchase_model = _model("secondary_market", "SecondaryMarketPurchase")
+    seller_listings = list(
+        listing_model.objects.filter(seller_user_id=investor_user_id)
+        .select_related("currency", "loan", "loan__originator_profile")
+        .order_by("-created_at", "-id")[:limit_value]
+    )
+    open_loans = {
+        str(listing.loan_id): listing.loan
+        for listing in seller_listings
+        if str(listing.status) in {"active", "approval_requested"}
+    }
+    # C03: an open listing is "Pending" while an installment of its loan is due and unpaid.
+    paused_loan_ids = (
+        import_module("backend.apps.secondary_market.services").loan_ids_closed_to_new_buyers(
+            loans=list(open_loans.values()), as_of_date=business_date(now_utc())
+        )
+        if open_loans
+        else set()
+    )
     listings: list[dict[str, Any]] = [
         {
             "id": str(listing.pk),
@@ -2043,12 +2078,12 @@ def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -
             "public_disclosure_note": str(listing.public_disclosure_note),
             "listed_at": listing.listed_at,
             "created_at": listing.created_at,
+            "paused_for_due_installment": (
+                str(listing.status) in {"active", "approval_requested"}
+                and str(listing.loan_id) in paused_loan_ids
+            ),
         }
-        for listing in (
-            listing_model.objects.filter(seller_user_id=investor_user_id)
-            .select_related("currency", "loan")
-            .order_by("-created_at", "-id")[:limit_value]
-        )
+        for listing in seller_listings
     ]
     purchases_as_buyer: list[dict[str, Any]] = [
         {

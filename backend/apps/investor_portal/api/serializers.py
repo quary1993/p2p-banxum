@@ -410,6 +410,8 @@ class HoldingOpenSecondaryListingSerializer(serializers.Serializer[Any]):
     seller_net_proceeds_minor = serializers.IntegerField()
     listed_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField()
+    # C03: shown as "Pending" while an installment of the loan is due and unpaid.
+    paused_for_due_installment = serializers.BooleanField()
 
 
 class HoldingSerializer(serializers.Serializer[Any]):
@@ -522,6 +524,8 @@ class SecondaryListingPortalSerializer(serializers.Serializer[Any]):
     seller_net_proceeds_minor = serializers.IntegerField()
     currency = serializers.CharField()
     loan_status_at_listing = serializers.CharField()
+    # C03: an open listing of a loan with a due, unpaid installment is "Pending".
+    paused_for_due_installment = serializers.BooleanField()
     risk_acknowledgement_required = serializers.BooleanField()
     public_disclosure_note = serializers.CharField(allow_blank=True)
     listed_at = serializers.DateTimeField(allow_null=True)

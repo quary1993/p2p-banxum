@@ -962,8 +962,17 @@ def test_open_listing_is_cancelled_and_seller_told_when_loan_turns_non_performin
 def test_servicing_status_scan_cancels_open_listing_of_a_loan_that_turns_late(
     admin_user: Model,
     investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import backend.apps.secondary_market.services as secondary_services
+
     servicing = import_module("backend.apps.servicing.services")
+    # C03: the listing is made before the installment falls due (31 Dec 2025).
+    monkeypatch.setattr(
+        secondary_services,
+        "now_utc",
+        lambda: datetime(2025, 12, 31, 12, 0, tzinfo=ZoneInfo("UTC")),
+    )
     _approve_financial_access(investor)
     loan = _create_funded_loan(admin_user)
     # U33-DEC-09: Late from day 15 (16 Jan is day 15).

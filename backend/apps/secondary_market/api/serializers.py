@@ -92,6 +92,9 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     remaining_term_months = serializers.SerializerMethodField()
     # True for the viewer's own listing: it is shown without a Buy action.
     is_own_listing = serializers.SerializerMethodField()
+    # C03: true while an installment of the loan is due and unpaid. Only the seller still sees the
+    # listing (as "Pending", without actions that would reach buyers).
+    paused_for_due_installment = serializers.SerializerMethodField()
     # Borrower and country of the "For sale now" row (U33 design: "Borrower · Country"). The same
     # buyer-safe values as on the listing detail.
     borrower_name = serializers.SerializerMethodField()
@@ -102,6 +105,12 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
         if isinstance(listing, dict):
             return bool(listing.get("is_own_listing", False))
         return bool(getattr(listing, "is_own_listing", False))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_paused_for_due_installment(self, listing: Any) -> bool:
+        if isinstance(listing, dict):
+            return bool(listing.get("paused_for_due_installment", False))
+        return bool(getattr(listing, "paused_for_due_installment", False))
 
     @extend_schema_field(serializers.CharField())
     def get_borrower_name(self, listing: Any) -> str:

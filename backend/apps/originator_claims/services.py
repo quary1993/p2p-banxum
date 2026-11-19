@@ -347,6 +347,12 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
 )
 
 
+# C03 (Vlad, 2026-11-17): the offer leaves the opportunities list while an installment is due.
+DUE_INSTALLMENT_UNAVAILABLE_MESSAGE = (
+    "This opportunity is closed while an installment of the loan is due and not yet paid."
+)
+
+
 def _schedule_row_status(
     *, due_date: date, as_of_date: date, is_outstanding: bool, late_days: int
 ) -> str:
@@ -3475,6 +3481,44 @@ def _originator_payment_history_payload(
     ]
 
 
+def originator_loan_ids_with_due_unpaid_installment(
+    *, loans: list[Model], as_of_date: date
+) -> set[str]:
+    """Originator claims whose current schedule has an installment due by ``as_of_date``.
+
+    C03 (Vlad, 2026-11-17): a row is paid once an import with an as-of date on or after its due
+    date records it; until then, from the due date itself, the claim is closed to new buyers.
+    """
+    profiles = [
+        cast(Any, loan).originator_profile
+        for loan in loans
+        if getattr(cast(Any, loan), "originator_profile", None) is not None
+    ]
+    by_import_id = {
+        str(profile.current_import_id): str(profile.loan_id)
+        for profile in profiles
+        if profile.current_import_id is not None
+    }
+    if not by_import_id:
+        return set()
+    blocked: set[str] = set()
+    for import_id, import_as_of, due_date in OriginatorLoanScheduleRow.objects.filter(
+        loan_import_id__in=by_import_id, due_date__lte=as_of_date
+    ).values_list("loan_import_id", "loan_import__as_of_date", "due_date"):
+        if due_date > import_as_of:
+            blocked.add(by_import_id[str(import_id)])
+    return blocked
+
+
+def originator_installment_due_unpaid(profile: OriginatorLoanProfile, *, as_of_date: date) -> bool:
+    """True from the due date of an unpaid installment until an import records the payment."""
+    return bool(
+        originator_loan_ids_with_due_unpaid_installment(
+            loans=[cast(Model, profile.loan)], as_of_date=as_of_date
+        )
+    )
+
+
 def _originator_days_past_due(
     profile: OriginatorLoanProfile,
     *,
@@ -3885,12 +3929,10 @@ def _originator_opportunity_closed_reason(
         return "Originator subscription funding period has ended."
     if profile.maturity_date <= as_of_date + timedelta(days=30):
         return "Originator claim opportunity is within 30 days of maturity."
-    # U33-DEC-09: the loan's own Late day (contract or platform), not a fixed day 5.
-    if (
-        _originator_days_past_due(profile, as_of_date=as_of_date)
-        >= loan_status_thresholds(profile.loan).late_days
-    ):
-        return "Originator claim opportunity is unavailable because the loan is late."
+    # C03 (Vlad, 2026-11-17): closed from the due date of an unpaid installment until the
+    # payment is recorded (this also covers a loan that is Late).
+    if originator_installment_due_unpaid(profile, as_of_date=as_of_date):
+        return DUE_INSTALLMENT_UNAVAILABLE_MESSAGE
     return ""
 
 
@@ -4217,13 +4259,8 @@ def _create_originator_claim_quote_locked(
         raise OriginatorClaimsValidationError(
             "This opportunity is closed because 30 days or less remain to maturity."
         )
-    if (
-        _originator_days_past_due(profile, as_of_date=today)
-        >= loan_status_thresholds(profile.loan).late_days
-    ):
-        raise OriginatorClaimsValidationError(
-            "This opportunity is unavailable because the loan is late."
-        )
+    if originator_installment_due_unpaid(profile, as_of_date=today):
+        raise OriginatorClaimsValidationError(DUE_INSTALLMENT_UNAVAILABLE_MESSAGE)
     loan_import = profile.current_import
     if loan_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
@@ -4500,13 +4537,8 @@ def _purchase_originator_claim_after_sensitive_code(
         raise OriginatorClaimsValidationError(
             "Originator claim opportunity is within 30 days of maturity."
         )
-    if (
-        _originator_days_past_due(profile, as_of_date=today)
-        >= loan_status_thresholds(profile.loan).late_days
-    ):
-        raise OriginatorClaimsValidationError(
-            "Originator claim opportunity is unavailable because the loan is late."
-        )
+    if originator_installment_due_unpaid(profile, as_of_date=today):
+        raise OriginatorClaimsValidationError(DUE_INSTALLMENT_UNAVAILABLE_MESSAGE)
     loan_import = profile.current_import
     if loan_import is None or quote.schedule_revision != profile.schedule_revision:
         raise OriginatorClaimsValidationError(

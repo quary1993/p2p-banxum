@@ -10629,9 +10629,12 @@ components:
         updated_at:
           type: string
           format: date-time
+        paused_for_due_installment:
+          type: boolean
       required:
       - id
       - listed_at
+      - paused_for_due_installment
       - price_bps
       - publication_type
       - seller_net_proceeds_minor
@@ -18703,6 +18706,8 @@ components:
           type: string
         loan_status_at_listing:
           type: string
+        paused_for_due_installment:
+          type: boolean
         risk_acknowledgement_required:
           type: boolean
         public_disclosure_note:
@@ -18727,6 +18732,7 @@ components:
       - loan_status_at_listing
       - loan_title
       - maker_fee_minor
+      - paused_for_due_installment
       - public_disclosure_note
       - publication_type
       - risk_acknowledgement_required
@@ -18890,6 +18896,9 @@ components:
         is_own_listing:
           type: boolean
           readOnly: true
+        paused_for_due_installment:
+          type: boolean
+          readOnly: true
         borrower_name:
           type: string
           readOnly: true
@@ -18918,6 +18927,7 @@ components:
       - loan_title
       - minimum_taker_fee_minor
       - originator_name
+      - paused_for_due_installment
       - price_bps
       - product_type
       - projected_yield_bps
@@ -19008,6 +19018,9 @@ components:
         is_own_listing:
           type: boolean
           readOnly: true
+        paused_for_due_installment:
+          type: boolean
+          readOnly: true
         borrower_name:
           type: string
         borrower_country:
@@ -19080,6 +19093,7 @@ components:
       - minimum_taker_fee_minor
       - originator_id
       - originator_name
+      - paused_for_due_installment
       - price_bps
       - product_type
       - projected_yield_bps
