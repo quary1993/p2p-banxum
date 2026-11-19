@@ -2321,6 +2321,19 @@ Design reference: the U33 package of 3 Nov 2026 (`site/dist/` is the reference H
 - **Validations gate real use, not building.** Items marked "WW", "bank" or "legal" can be built and tested; they are not used with real money or real borrowers before the validation is recorded.
 - **Financial changes:** services only, append-only ledger, migrations with loan events where data changes, focused tests, regenerated OpenAPI schema and client, all gates (backend pytest, mypy, ruff, lint-imports, migration-check; frontend tsc x2, eslint, vitest, build).
 - **End of each slice:** gates green, screenshots compared with the design, `plan/22` "Implemented" notes, design TODO and this plan updated, one commit per coherent change.
+- **Delivery in audit steps (Vlad, 2026-11-19).** The work is delivered in the steps below. Each step ends with green gates, a git bundle and a short audit brief (scope, changed rules, how to test, known limits); an external (GPT) audit follows before the next step starts. Audit findings are fixed or answered first.
+
+| Audit step | Slices | Content |
+| --- | --- | --- |
+| 1 | 18.2 | Small rule and display changes, FX screen removal and the S7 clean-up, multilanguage pause. |
+| 2 | 18.3 + D-11 | Design 1:1 pass of the screens and data without new rules; the kept functions reskinned into the U33 design. |
+| 3 | 18.4 | Bank calendars, the 56-day return rule and failed returns. |
+| 4 | 18.5 | Password sign-in with SMS or authenticator app, recovery codes, trusted devices, operations with the email code + PIN or authenticator code, recovery. |
+| 5 | 18.6 | Interest engine, schedules and the late-payment mechanics (Pending, penalty X, expenses, Default). |
+| 6 | 18.7 + 18.9 | Originator claim prices and failure rule; Swiss creditor modes. |
+| 7 | 18.10 + 18.11 | Declarations and proof of securities; states without an HTML reference and the kept public pages. |
+| 8 | 18.12 | Privacy and cookie texts, internal security review. |
+| Later | 18.8, 18.13, 18.14 | Electronic signatures after research (D-12); translations; launch readiness. |
 
 #### 18.1 Design map and approved deviations
 
@@ -2328,18 +2341,18 @@ Approved deviations from the U33 HTML (the answers prevail):
 
 | No. | Design shows | Platform does | Source |
 | --- | --- | --- | --- |
-| D-1 | Authenticator code to confirm operations | PIN only, with a server authorization bound to operation, amount and destination | U33-DEC-01 |
+| D-1 | Authenticator code to confirm operations | The email code + the PIN, as today; an investor who set up an authenticator app types its code instead of the PIN (no PIN is needed then), wherever the design shows the code; a server authorization bound to operation, amount and destination | Vlad 2026-11-19 (changes U33-DEC-01) |
 | D-2 | Authenticator app and passkeys at sign-in | Password + SMS code or authenticator app (one, chosen), 10 recovery codes, trusted device 30 days; no passkeys | U33-DEC-01, Q05 |
 | D-3 | Three acceptances in Review & sign | Two (investment/assignment terms; risks); resale agreements per side | U33-DEC-14 |
 | D-4 | Resale up to 101%, seller fee 1% | 0-102% of the outstanding principal; fee = min(2% x price, 2% x outstanding principal) | U33-DEC-06/07 |
 | D-5 | Some texts: repayments to the bank account | Repayments to the Banxum balance | U33-DEC-02 |
-| D-6 | "Banxum co-investment" line with amount | Label "Banxum invests", no amount | Q04 |
+| D-6 | "Banxum co-investment" line with amount | Label "Banxum invests", no amount (for now; may change) | Q04, Vlad 2026-11-19 |
 | D-7 | Email preference switches | Service emails always on; "News from Banxum" is the only marketing switch | U33-DEC-30, Q14 |
 | D-8 | Editable personal data | Read-only, "Contact support to change" | U33-DEC-26 |
 | D-9 | Smart Invest automatic options | Individual confirmation only | U33-DEC-19 |
 | D-10 | No extra public pages | All projects, Statistics, Help, Guides, newsletter, cookie settings, imprint stay (in the U33 public style) | Q24 |
-| D-11 | (not in the design) | Kept functions: amount line (minimum, amount open, usable balance), funding close date, Transactions CSV, report currency and summary, account closure request, CHF IBAN beside the QR-IBAN, QR code PNG, cookie settings, imprint | design TODO 2026-11-09 |
-| D-12 | QES at the funding close | QES before settlement (direct, originator, resale); director or authorized deputy | Q10, round 2 |
+| D-11 | (not in the design) | Kept functions: amount line (minimum, amount open, usable balance), funding close date, Transactions CSV, report currency and summary, account closure request, CHF IBAN beside the QR-IBAN, QR code PNG, cookie settings, imprint; each reskinned to fit the U33 design (doubts are asked before building) | design TODO 2026-11-09, Vlad 2026-11-19 |
+| D-12 | QES at the funding close | **Deferred:** short research first on electronic signatures (who signs: Garanta for direct loans, the originator for originator loans, the seller for resales; what is done on and off the platform). Until then the current flows stay | Vlad 2026-11-19 (Q10 under review) |
 
 Route map (design route -> platform route: work left, slice):
 
@@ -2349,21 +2362,21 @@ Route map (design route -> platform route: work left, slice):
 | `#/projects` | `/marketplace` | Saved first (18.2); "Banxum invests" (18.2); repayment groups and Smart Invest step 5 (18.3, final in 18.6); creditor places (18.9). |
 | `#/projects/archive` | `/marketplace/archive` | Done (anonymous names stay). |
 | `#/projects/:id` | `/marketplace/:id` | Cumulative LTV with the asset list (18.2); originator price breakdown (18.7); sandbox notice (18.9); schedule from the new engine (18.6). |
-| `#/projects/:id/invest` | `/marketplace/:id/invest` | PIN-only confirmation (18.5); originator total and first payment (18.7); WW confirmation (18.9); "Help with this step" (18.3). |
+| `#/projects/:id/invest` | `/marketplace/:id/invest` | Email code + PIN or authenticator code (18.5); originator total and first payment (18.7); WW confirmation (18.9); "Help with this step" (18.3). |
 | `#/projects/:id/credit-file` | `/marketplace/:id/credit-file` | "Updated" date and "Source of repayment" fields (18.3); in-app PDF reader (18.3). |
 | `#/investments` | `/portfolio` | Received payments per installment (18.3); sold / written-off / reserved states (18.11). |
-| `#/investments/:id` | `/portfolio/:id` | "All payments" with received rows (18.3); signed assignment in documents (18.8); Sell with PIN (18.5). |
-| `#/secondary` | `/secondary-market` | Borrower country and maturity in the buyer list, My listings states (18.3); PIN (18.5); settlement after signature (18.8). |
+| `#/investments/:id` | `/portfolio/:id` | "All payments" with received rows (18.3); signed assignment in documents (later, D-12); Sell with the email code + PIN or authenticator code (18.5). |
+| `#/secondary` | `/secondary-market` | Borrower country and maturity in the buyer list, My listings states (18.3); email code + PIN or authenticator code (18.5); signatures later (D-12). |
 | `#/auto-invest` | `/smart-invest` | Fifth step Repayments and "No preference" (18.3; groups final in 18.6). |
-| `#/account` | `/balances` | Reserved column per lot (18.3); 56-day return and "Return failed" states (18.4); PIN withdraw (18.5). |
+| `#/account` | `/balances` | Reserved column per lot (18.3); 56-day return and "Return failed" states (18.4); withdraw with the email code + PIN or authenticator code (18.5). |
 | `#/transactions` | `/transactions` | Server filters, date range, pagination, "available after" per movement, reservation / release / closing entries (Q26) (18.2-18.3). |
 | `#/reports` | `/reports` | The design's four reports generated by the backend: Portfolio report, Interest and repayments, Tax report (interest by borrower country and currency), Monthly statement; period summary; PDF reader (18.3). |
 | `#/settings/*` | `/settings/*` | Security tab (password, factor, recovery codes, trusted devices, sessions) (18.5); Declarations (18.10); bank name on the bank card (18.3); verified address, birth date and nationality from Didit when available (18.3). |
-| `#/documents` | `/documents` | Signed assignments (18.8); PDF reader (18.3). |
+| `#/documents` | `/documents` | PDF reader (18.3); signed assignments later (D-12). |
 | `#/notifications` | `/notifications` | Categories and tones, navigation targets (18.3). |
 | `#/help` | `/portal/help` | Contextual "Help with this step" (18.3); answer texts per rule (each slice). |
 | `#/originators` | `/marketplace/originators` | Originator "About" text from the admin (18.3). |
-| `#/login`, `#/signup`, `#/onboarding/:step` | `/login`, `/register`, `/verification` | Password + factor + PIN + Didit flow 1:1, recovery screens (18.5). |
+| `#/login`, `#/signup`, `#/onboarding/:step` | `/login`, `/register`, `/verification` | Password + factor + PIN (SMS users) + Didit flow 1:1, recovery screens (18.5). |
 | Public pages (home, about, opportunities, project pages, companies, originators, contact, terms/privacy/risks) | `/`, site routes | Empty and form states, cookie notice, funded-loan record, footer links, public asset name per security (18.3); public calculator on the new engine (18.6); privacy and cookie texts (18.12); kept pages in U33 style (18.11). |
 | (FX) | `/fx` | Removed (18.2). |
 
@@ -2419,8 +2432,8 @@ Waits for: nothing (the lawyers' procedure for an impossible return is followed 
 #### 18.5 Sign-in and security (U33-DEC-01, Q05, Q06, D1-D6)
 
 - **Sign-in:** password (12-128 characters, no forced mix, common-password list, leaked-password check through the Have I Been Pwned range API with k-anonymity; if the API is unreachable, the common list still applies and the event is logged) + one second factor chosen at registration: SMS (Twilio Verify) or authenticator app (TOTP, RFC 6238); 10 single-use recovery codes (stored hashed); optional trusted device for 30 days (server record bound to the device cookie hash; password still asked; separate from `banxum_device` alerts).
-- **Registration (design 1:1):** data and agreements -> email -> SMS/app enrolment -> PIN -> Didit -> verification states.
-- **Operations:** PIN only, after a review step; a server authorization bound to operation, amount and destination, single use, short expiry; changed data needs a new authorization; attempt limits, audit and alerts stay. Replaces the email code in invest, withdraw, bank account, sell and buy flows.
+- **Registration (design 1:1):** data and agreements -> email -> SMS/app enrolment -> PIN (only when the factor is SMS) -> Didit -> verification states.
+- **Operations (Vlad, 2026-11-19, D-1):** after a review step, the email code + the PIN, as today (ACC-DEC-009); an investor who set up an authenticator app (for example Google Authenticator) types its code instead of the PIN, and needs no PIN. The design's authenticator screens are used for those investors; the PIN boxes for the others. A server authorization bound to operation, amount and destination, single use, short expiry; changed data needs a new authorization; attempt limits, audit and alerts stay. Applies to invest, withdraw, bank account, sell and buy flows.
 - **Recovery:** forgotten password = single-use email link + second factor; forgotten PIN = password + second factor; lost factor without codes = assisted recovery (support case -> new Didit check compared with the stored identity -> approval by another authorized person -> unfinished authorizations invalidated, valid investments untouched -> 24 h notice with a "This was not me" link -> single-use link, password, new factor). Limits: 3 assisted recovery requests per account per 7 days. After a completed recovery: 72 h without new bank accounts or a change of the default return account (withdrawals to verified accounts stay possible; mandatory returns are not blocked). Every reset is notified; password or factor reset ends all other sessions.
 - **No migration flow** (no real investors; confirmed by Vlad, E-01): test accounts are reset or re-created at the release.
 - **Admins:** password + authenticator app (no SMS).
@@ -2463,6 +2476,8 @@ Tests add: grace in business days, the pending window over a weekend (offers and
 Waits for: the first-assignment form (legal). The originator-agreement rule on extra days is prepared by the team (E-04); the platform keeps an optional placeholder clause. Acceptance A13, A19.
 
 #### 18.8 Qualified signature and settlement (Q10, F01, F05, D7)
+
+**Deferred (Vlad, 2026-11-19, D-12).** A short research comes first: how to integrate electronic signatures, who signs (Garanta for direct loans, the originator for originator loans, the seller for resales; this differs from Q10, where Garanta signs for the seller and originator claims pass through Garanta), and what is done on and off the platform. The bullets below are the earlier plan, kept until the research ends. Until then payouts, originator settlements and resales keep their current flows.
 
 - **Provider:** evaluate Skribble, then compare Swisscom Trust Services (batch QES by one signer through the API, qualified time stamp, price, data location, long-term validation); a provider-neutral signing interface with a fake provider for development and tests.
 - **Documents:** one assignment declaration per investment (EN first, DE in 18.13), PDF/A, signed with a personal QES in batches by an admin user with the signer permission (until further notice; later the managing director or the authorized deputy); stored in Documents with the verification data; never "signed" before success.
@@ -2513,7 +2528,7 @@ Waits for: compliance texts and bands; legal list of proofs per type and jurisdi
 - Recorded validations: WW (regimes, counts, notice, penalty clause, resale mandate, first assignment, 60-day reading), bank (processing time, cut-offs, debit proof, calendars), legal (templates EN/DE, recovery costs, proofs), operations (service capacity, owners and deputies), licence (Q22), external security test.
 - Test accounts reset; production settings (addresses, domain, keys); the design acceptance matrix A01-A30 passed in the implemented app; the go-live checklist (section 19).
 
-Order: 18.2 -> 18.3 -> 18.4 -> 18.5 -> 18.6 -> 18.7 + 18.8 (together: settlement needs both) -> 18.9 -> 18.10, with 18.11 alongside from 18.3; then 18.12, 18.13 and 18.14.
+Order (audit steps in 18.0): 18.2 -> 18.3 -> 18.4 -> 18.5 -> 18.6 -> 18.7 + 18.9 -> 18.10 + 18.11 -> 18.12; 18.8 after the signature research; then 18.13 and 18.14.
 
 ## 9. Critical End-to-End Scenarios
 

@@ -35,6 +35,8 @@ Status: Approved (new solution). Open implementation confirmations below.
 
 > Updated 2026-11-17 (Vlad, D1/D3): NIST password rules; no migration flow (no real investors; Eduard to confirm). Details: "Round 2 Answers Of 2026-11-16".
 
+> **Changed 2026-11-19** (Vlad, D-1): operations keep the email code + PIN; an authenticator app, when the investor set one up, replaces the PIN. Details: "Vlad's Answers Of 2026-11-19".
+
 Supersedes: ACC-DEC-001 (magic-link login), ACC-DEC-008 (email code for sensitive actions), ACC-DEC-009 (email code + PIN).
 
 Decision:
@@ -394,6 +396,8 @@ Status: Approved (design with the new authentication). Validation open.
 > **Changed 2026-11-13** (Q10): the QES is a condition of settlement; chain originator -> Garanta -> investors; resale assignment signed by Garanta for the seller; one managing-director signature; EN/DE templates. Details: "Final Answers Of 2026-11-13".
 
 > Updated 2026-11-16 (round 2: F05, Q10.2): first assignment upload required; authorized deputy signer. Details: "Round 2 Answers Of 2026-11-16".
+
+> **Deferred 2026-11-19** (Vlad, D-12): research on electronic signatures first; the assignor signs (Garanta for direct loans, the originator for originator loans, the seller for resales). Details: "Vlad's Answers Of 2026-11-19".
 
 Supersedes: DOC-DEC-003 (no e-signature) for the post-closing assignment declaration; updates DOC-DEC-005.
 
@@ -953,3 +957,29 @@ Validated by Vlad (2026-11-18): interest already built up on the declaration day
 | Signer | Until further notice, an admin user with the signer permission signs the assignments with his own QES (his authority to sign for Garanta to be confirmed by the lawyers). |
 | Licence | Garanta has the template licence; nothing to do in the platform. |
 | Lawyers | No validation blocks the work; Vlad reports any change from the lawyers. |
+
+### Vlad's Answers Of 2026-11-19 (Design Deviations D-1 To D-12)
+
+The answers to the approved deviations from the U33 HTML (`IMPLEMENTATION_PLAN.md` 18.1).
+
+| No. | Topic | Answer |
+| --- | --- | --- |
+| D-1 | Confirming an operation | **Changed:** an authenticator app (for example Google Authenticator) is an option. Sensitive operations keep the **email code + the PIN**, as today (ACC-DEC-009); an investor who set up the authenticator types its code instead of the PIN, and needs no PIN. Wherever the design asks for the authenticator code, those investors see it; the others see the PIN. The server authorization bound to the operation, amount and destination stays. |
+| D-2 | Sign-in | Agreed: password + one second factor (SMS or app), 10 recovery codes, optional trusted device for 30 days; no passkeys. |
+| D-3 | Acceptances | Agreed: two (investment and assignment terms; risks); a resale keeps one agreement per side. |
+| D-4 | Resale price and fee | Agreed: 0-102% of the outstanding principal; fee = min(2% x price, 2% x outstanding principal). |
+| D-5 | Where repayments go | Agreed: the Banxum balance. |
+| D-6 | "Banxum invests" | Agreed: the label only, for now (may change). |
+| D-7 | Email switches | Agreed: service emails always go out; "News from Banxum" is the only marketing switch. |
+| D-8 | Personal data | Agreed: read-only, "Contact support to change". |
+| D-9 | Smart Invest | Agreed: never invests by itself; each investment is confirmed. |
+| D-10 | Extra public pages | Agreed: they stay, rebuilt in the U33 public style. |
+| D-11 | Kept functions | Every kept function is reskinned and fitted into the U33 design; doubts are asked before building. |
+| D-12 | Signature before settlement | **Deferred:** a short research on electronic signatures first. The assignor signs: Garanta (Banxum) for direct loans, the loan originator for originator loans, the seller for resales. The research says what is done on the platform and what off it. Until then the current flows stay. |
+
+Points that differ from Eduard's decisions (to signal):
+
+- D-1: U33-DEC-01 and Q05 approved the PIN alone for operations and asked not to add a code to each operation; the email code now stays, and the authenticator replaces the PIN when set up.
+- D-12: Q10 had Garanta sign the resale assignment for the seller as representative, and originator claims pass through Garanta (originator -> Garanta -> investors). Now the seller signs himself and the originator signs for originator loans; the chain and the mandate are part of the research.
+
+Delivery: Phase 18 is built in audit steps (`IMPLEMENTATION_PLAN.md` 18.0); an external audit follows each step.
