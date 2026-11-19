@@ -129,6 +129,23 @@ def format_amount_minor(amount_minor: int, currency: str, *, minor_units: int = 
     return f"{code} {sign}{grouped}{suffix}"
 
 
+def format_number_minor(amount_minor: int, *, minor_units: int = 2) -> str:
+    """A number in currency units without the currency ("46'941.30"), in the active format.
+
+    Outside ``number_format_context`` it is the canonical Swiss form; inside, the investor's
+    format (C09: every newly generated personal report).
+    """
+    return format_amount_minor(amount_minor, "CHF", minor_units=minor_units).removeprefix("CHF ")
+
+
+def csv_number_format(number_format: str | None) -> tuple[str, str]:
+    """F15: (column separator, decimal sign) of a personal CSV, without thousands separators:
+    European "1234,56" with ";" columns, Swiss "1234.56" with "," columns."""
+    if clean_number_format(number_format) == NUMBER_FORMAT_SWISS:
+        return ",", "."
+    return ";", ","
+
+
 def localize_number_text(text: str, number_format: str | None) -> str:
     """Show the canonical amounts ("CHF 1'234.50") and percentages ("7.40%") of a message in
     the investor's format. Other numbers (dates, references) are not touched."""

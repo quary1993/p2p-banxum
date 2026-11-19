@@ -9,6 +9,7 @@ import json
 import re
 import textwrap
 import zipfile
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -29,7 +30,12 @@ from backend.apps.platform_core.domain.access import (
 )
 from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
-from backend.apps.platform_core.domain.money import minor_units_to_decimal, number_format_context
+from backend.apps.platform_core.domain.money import (
+    csv_number_format,
+    format_number_minor,
+    minor_units_to_decimal,
+    number_format_context,
+)
 from backend.apps.platform_core.domain.pdf_text import (
     PDF_STANDARD_FONT_OBJECTS,
     pdf_literal,
@@ -347,7 +353,7 @@ def _date_time_bounds(start_date: date, end_date: date) -> tuple[datetime, datet
     )
 
 
-def _csv_cell(value: Any) -> str | int:
+def _csv_cell(value: Any, *, decimal_sign: str = ".") -> str | int:
     if value is None:
         return ""
     if isinstance(value, bool):
@@ -355,8 +361,8 @@ def _csv_cell(value: Any) -> str | int:
     if isinstance(value, int):
         return value
     if isinstance(value, Decimal):
-        # A plain number (digits, sign, point) cannot start a spreadsheet formula.
-        return format(value, "f")
+        # A plain number (digits, sign, decimal sign) cannot start a spreadsheet formula.
+        return format(value, "f").replace(".", decimal_sign)
     if isinstance(value, date | datetime):
         return value.isoformat()
     if isinstance(value, dict | list):
@@ -372,12 +378,26 @@ def _csv_cell(value: Any) -> str | int:
     return text
 
 
-def _rows_to_csv(*, columns: list[str], rows: list[dict[str, Any]]) -> str:
+def _rows_to_csv(
+    *, columns: list[str], rows: list[dict[str, Any]], number_format: str | None = None
+) -> str:
+    """CSV rows. A personal report (C09 / F15) follows the investor's number format: decimal sign
+    of the format, no thousands separator, ";" columns for European and "," for Swiss. Other
+    reports keep "," columns and "." decimals."""
+    delimiter, decimal_sign = csv_number_format(number_format) if number_format else (",", ".")
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=columns,
+        extrasaction="ignore",
+        lineterminator="\n",
+        delimiter=delimiter,
+    )
     writer.writeheader()
     for row in rows:
-        writer.writerow({column: _csv_cell(row.get(column)) for column in columns})
+        writer.writerow(
+            {column: _csv_cell(row.get(column), decimal_sign=decimal_sign) for column in columns}
+        )
     return buffer.getvalue()
 
 
@@ -3560,8 +3580,9 @@ def _render_csv(
     start_date: date,
     end_date: date,
     dataset: ReportDataset,
+    number_format: str | None = None,
 ) -> RenderedReport:
-    content = _rows_to_csv(columns=dataset.columns, rows=dataset.rows)
+    content = _rows_to_csv(columns=dataset.columns, rows=dataset.rows, number_format=number_format)
     content_bytes = content.encode("utf-8")
     filename = _report_filename(
         report_type=report_type,
@@ -3629,11 +3650,8 @@ def _readable_key(value: str) -> str:
 
 
 def _major_amount_text(amount_minor: int, minor_units: int) -> str:
-    sign = "-" if amount_minor < 0 else ""
-    if minor_units <= 0:
-        return f"{sign}{abs(amount_minor):,}".replace(",", "'")
-    major, minor = divmod(abs(amount_minor), 10**minor_units)
-    return f"{sign}{major:,}".replace(",", "'") + f".{minor:0{minor_units}d}"
+    """An amount in currency units; in a personal report, in the investor's format (C09)."""
+    return format_number_minor(amount_minor, minor_units=minor_units)
 
 
 def _annual_tax_information_pdf_dataset(dataset: ReportDataset) -> ReportDataset:
@@ -4109,6 +4127,7 @@ def _render_report(
     end_date: date,
     dataset: ReportDataset,
     manifest: dict[str, Any],
+    number_format: str | None = None,
 ) -> RenderedReport:
     if output_format == ReportOutputFormat.CSV:
         return _render_csv(
@@ -4116,8 +4135,18 @@ def _render_report(
             start_date=start_date,
             end_date=end_date,
             dataset=dataset,
+            number_format=number_format,
         )
     if output_format == ReportOutputFormat.PDF:
+        if number_format is not None:
+            with number_format_context(number_format):
+                return _render_pdf(
+                    report_type=report_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                    dataset=dataset,
+                    manifest=manifest,
+                )
         return _render_pdf(
             report_type=report_type,
             start_date=start_date,
@@ -4263,13 +4292,24 @@ def _generate_report_artifact(
     )
     _require_period_available(report_type=report_type, period=period, as_of=generated_at)
 
-    dataset = _build_dataset(
-        report_type=report_type,
-        start_date=period.start_date,
-        end_date=period.end_date,
-        redaction_mode=redaction_mode,
-        filters=filters,
-    )
+    # C09 / F15: a report an investor downloads is written in that investor's number format,
+    # its texts included ("Principal CHF 1.000,00").
+    personal_number_format: str | None = None
+    if run_mode == "investor_self_service" and filters.get("participant_id"):
+        personal_number_format = (
+            _external_model("accounts_auth", "User")
+            .objects.filter(pk=str(filters["participant_id"]))
+            .values_list("number_format", flat=True)
+            .first()
+        ) or "european"
+    with number_format_context(personal_number_format) if personal_number_format else nullcontext():
+        dataset = _build_dataset(
+            report_type=report_type,
+            start_date=period.start_date,
+            end_date=period.end_date,
+            redaction_mode=redaction_mode,
+            filters=filters,
+        )
     exported_filters: dict[str, Any] = filters
     if redaction_mode != ReportRedactionMode.FULL:
         scrubber = _InvestorIdentifierScrubber()
@@ -4294,6 +4334,8 @@ def _generate_report_artifact(
         "source_counts": dataset.source_counts,
         "notes": dataset.notes,
     }
+    if personal_number_format:
+        manifest["number_format"] = personal_number_format
     rendered = _render_report(
         output_format=output_format,
         report_type=report_type,
@@ -4301,6 +4343,7 @@ def _generate_report_artifact(
         end_date=period.end_date,
         dataset=dataset,
         manifest=manifest,
+        number_format=personal_number_format,
     )
     manifest.update(
         {

@@ -4,6 +4,7 @@ import base64
 import csv
 import hashlib
 import io
+import re
 import zipfile
 from datetime import date, datetime, time
 from importlib import import_module
@@ -470,7 +471,20 @@ def _post_originator_claim_reporting_entries(
 
 
 def _csv_rows(content: str) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(content)))
+    """Rows of a CSV report. A personal report in the European format (C09 / F15: ";" columns,
+    "," decimals) is read back with "." decimals, so the expected amounts stay comparable."""
+    header = content.split("\n", 1)[0]
+    if ";" not in header:
+        return list(csv.DictReader(io.StringIO(content)))
+    rows = list(csv.DictReader(io.StringIO(content), delimiter=";"))
+    decimal = re.compile(r"^-?\d+,\d+$")
+    return [
+        {
+            key: value.replace(",", ".") if decimal.match(value or "") else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
 
 
 @pytest.mark.django_db
@@ -1180,7 +1194,8 @@ def test_lender_tax_statement_reports_own_principal_at_period_end_not_current(
         _investor_tax_statement(investor, date(2026, 2, 1), date(2026, 2, 28), "pdf")
     )
     assert "Outstanding principal at period end" in february_pdf
-    assert "10'000.00" in february_pdf
+    # C09: the investor's number format (European by default).
+    assert "10.000,00" in february_pdf
     assert "1'000'000" not in february_pdf
     assert "outstanding_principal_at_period_end" not in february_pdf
     assert "Amount Minor" not in february_pdf

@@ -962,7 +962,9 @@ def test_investor_statement_download_is_self_scoped(
 
     assert artifact["content_type"].startswith("text/csv")
     assert cast(Any, investor).investor_reference in artifact["content"]
-    assert "1500.00" in artifact["content"]
+    # C09 / F15: the investor's format (European by default): ";" columns, "," decimals.
+    assert artifact["content"].startswith("investor;currency;")
+    assert "1500,00" in artifact["content"]
     assert cast(Any, other_investor).investor_reference not in artifact["content"]
     assert "9500.00" not in artifact["content"]
     assert "950000" not in artifact["content"]

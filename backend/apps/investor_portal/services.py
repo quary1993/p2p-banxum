@@ -1654,7 +1654,6 @@ def _investor_activity_entries(
     entries: list[dict[str, Any]] = []
     lot_model = _model("ledger", "InvestorBalanceLot")
     withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
-    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
     repayment_line_model = _model("servicing", "InvestorRepaymentDistributionLine")
     originator_repayment_line_model = _model(
         "originator_claims", "InvestorOriginatorRepaymentDistributionLine"
@@ -1861,26 +1860,7 @@ def _investor_activity_entries(
                 },
             )
         )
-    for order in (
-        order_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency", "loan")
-        .order_by("-created_at")[:limit_value]
-    ):
-        loan = order.loan
-        entries.append(
-            _activity(
-                activity_id=str(order.pk),
-                activity_type="primary_order",
-                occurred_at=order.created_at,
-                direction="internal",
-                title="Primary-market investment order",
-                amount_minor=int(order.allocated_amount_minor) or int(order.requested_amount_minor),
-                currency=_currency_code(order.currency),
-                status=str(order.status),
-                loan_id=str(loan.pk),
-                loan_title=str(loan.title),
-            )
-        )
+    entries.extend(_primary_order_activity(investor_user_id, limit_value))
     for purchase in (
         originator_purchase_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency", "loan_profile__loan", "loan_profile__originator")
@@ -1991,6 +1971,163 @@ def _investor_activity_entries(
         )
     entries.sort(key=lambda item: item["occurred_at"], reverse=True)
     return entries[:limit_value]
+
+
+# Q26 (2026-11-13): why a reservation ended without an investment, from the order event's code.
+PRIMARY_ORDER_END_REASONS = {
+    "no_capacity_at_allocation": "No amount was left in the project when the order was processed.",
+    "remaining_capacity_below_loan_minimum": (
+        "The amount left in the project was below the minimum investment."
+    ),
+    "loan_funding_closed": "The funding closed without this order.",
+    "loan_funding_cancelled": "The project's funding was cancelled.",
+    "replaced_by_new_order": "Replaced by a newer order on the same loan before confirmation.",
+    "pending_order_expired": "Not confirmed within the pending-order time limit.",
+    "released_by_banxum": "Released by Banxum.",
+}
+
+
+def _primary_order_activity(investor_user_id: str, limit_value: int | None) -> list[dict[str, Any]]:
+    """Q26: the reservation, its release and the closing are separate entries in Transactions.
+
+    Each entry has the project, amount, currency, date, the reason of a release and the order it
+    belongs to. An order still waiting for allocation is one "order placed" entry.
+    """
+    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
+    event_model = _model("marketplace_primary", "PrimaryInvestmentOrderEvent")
+    orders = {
+        str(order.pk): order
+        for order in order_model.objects.filter(investor_user_id=investor_user_id)
+        .select_related("currency", "loan")
+        .order_by("-created_at")[:limit_value]
+    }
+    if not orders:
+        return []
+    events = list(
+        event_model.objects.filter(order_id__in=list(orders)).order_by("occurred_at", "id")
+    )
+    released_order_ids = {
+        str(event.order_id) for event in events if event.event_type == "balance_released"
+    }
+    allocated_order_ids = {
+        str(event.order_id) for event in events if event.event_type == "balance_allocated"
+    }
+    entries: list[dict[str, Any]] = []
+
+    def entry(
+        order: Any, event: Any, activity_type: str, amount_minor: int, direction: str, title: str
+    ) -> dict[str, Any]:
+        metadata = dict(cast(dict[str, Any], event.metadata or {}))
+        # The admin's note stays internal (it is never shown to the investor); the reason comes
+        # from the event's code.
+        code = str(metadata.get("reason_code") or metadata.get("reason") or "")
+        reason = PRIMARY_ORDER_END_REASONS.get(code, "")
+        if not reason and activity_type == "primary_reservation_released":
+            reason = (
+                "Released by Banxum."
+                if str(event.event_type) == "balance_released"
+                else "The order ended without an investment."
+            )
+        return _activity(
+            activity_id=f"{order.pk}:{event.pk}",
+            activity_type=activity_type,
+            occurred_at=event.occurred_at,
+            direction=direction,
+            title=title,
+            amount_minor=amount_minor,
+            currency=_currency_code(order.currency),
+            status=str(order.status),
+            loan_id=str(order.loan_id),
+            loan_title=str(order.loan.title),
+            metadata={"order_id": str(order.pk), "reason": reason},
+        )
+
+    for event in events:
+        order = orders[str(event.order_id)]
+        metadata = dict(cast(dict[str, Any], event.metadata or {}))
+        event_type = str(event.event_type)
+        if event_type == "created" and str(order.pk) not in allocated_order_ids:
+            if str(order.status) in {"pending", "pending_allocation"}:
+                entries.append(
+                    entry(
+                        order,
+                        event,
+                        "primary_order",
+                        int(order.requested_amount_minor),
+                        "internal",
+                        "Investment order placed",
+                    )
+                )
+        elif event_type == "balance_allocated":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation",
+                    int(metadata.get("allocated_amount_minor") or order.allocated_amount_minor),
+                    "internal",
+                    "Amount reserved",
+                )
+            )
+        elif event_type == "balance_released":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation_released",
+                    int(metadata.get("released_amount_minor") or order.allocated_amount_minor),
+                    "internal",
+                    "Reservation released",
+                )
+            )
+        elif event_type == "closed_invested":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_investment",
+                    int(metadata.get("allocated_amount_minor") or order.allocated_amount_minor),
+                    "out",
+                    "Investment",
+                )
+            )
+        elif event_type == "closed_not_invested":
+            had_reservation = (
+                str(order.pk) in allocated_order_ids and str(order.pk) not in released_order_ids
+            )
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation_released" if had_reservation else "primary_order_ended",
+                    int(order.allocated_amount_minor)
+                    if had_reservation
+                    else int(order.requested_amount_minor),
+                    "internal",
+                    "Reservation released" if had_reservation else "Investment order not invested",
+                )
+            )
+    # An order without recorded events (older records): one entry with its current state.
+    ordered_ids = {str(event.order_id) for event in events}
+    for order_id, order in orders.items():
+        if order_id in ordered_ids:
+            continue
+        entries.append(
+            _activity(
+                activity_id=order_id,
+                activity_type="primary_order",
+                occurred_at=order.created_at,
+                direction="internal",
+                title="Primary-market investment order",
+                amount_minor=int(order.allocated_amount_minor) or int(order.requested_amount_minor),
+                currency=_currency_code(order.currency),
+                status=str(order.status),
+                loan_id=str(order.loan_id),
+                loan_title=str(order.loan.title),
+                metadata={"order_id": order_id, "reason": ""},
+            )
+        )
+    return entries
 
 
 def get_primary_orders(*, actor: Model, limit: int | None = None) -> dict[str, Any]:

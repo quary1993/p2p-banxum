@@ -231,3 +231,65 @@ def test_cancelled_funding_and_admin_release_notify_with_message_and_amount(
     assert_renders_to(cancelled, investor, "CHF 6'000.00", "The borrower withdrew the request.")
     # The release made by the cancellation itself is covered by the cancellation notice.
     assert len(investor_notices(investor, "email.primary_order_released")) == 1
+
+
+def test_transactions_show_reservation_release_and_closing_as_separate_entries(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """Q26: a reservation, its release (with a reason) and the order it belongs to are separate
+    entries; the admin's internal note is never shown."""
+    from importlib import import_module
+
+    portal = import_module("backend.apps.investor_portal.services")
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=30_000_00, idempotency_key="q26-dep")
+    released_order = _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=4_000_00, idempotency_prefix="q26-rel"
+    )
+    _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=6_000_00, idempotency_prefix="q26-can"
+    )
+    release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user,
+            order_id=str(released_order.id),
+            reason="Internal: investor asked by phone.",
+            idempotency_key="q26-release",
+        )
+    )
+    cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Internal: borrower withdrew.",
+            investor_message="The borrower withdrew the request.",
+            idempotency_key="q26-cancel",
+        )
+    )
+
+    entries = [
+        entry
+        for entry in portal.get_investor_activity(actor=investor)["entries"]
+        if str(entry["activity_type"]).startswith("primary_")
+    ]
+    kinds = sorted((entry["activity_type"], entry["amount_minor"]) for entry in entries)
+    assert kinds == [
+        ("primary_reservation", 4_000_00),
+        ("primary_reservation", 6_000_00),
+        ("primary_reservation_released", 4_000_00),
+        ("primary_reservation_released", 6_000_00),
+    ]
+    reasons = {
+        entry["amount_minor"]: entry["metadata"]["reason"]
+        for entry in entries
+        if entry["activity_type"] == "primary_reservation_released"
+    }
+    assert reasons == {
+        4_000_00: "Released by Banxum.",
+        6_000_00: "The project's funding was cancelled.",
+    }
+    assert all(entry["loan_title"] == "Real estate bridge loan" for entry in entries)
+    assert all(entry["metadata"]["order_id"] for entry in entries)
+    assert "Internal" not in str(entries)

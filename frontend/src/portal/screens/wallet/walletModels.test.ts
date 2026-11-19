@@ -213,3 +213,19 @@ test("documents are sorted into investment, statements and platform tabs", () =>
   expect(periodLabel(fullYear)).toBe("2025");
   expect(documentYears({ period_start: "2024-07-01", period_end: "2026-01-31", date: "" })).toEqual([2024, 2025, 2026]);
 });
+
+test("Q26: reservation, release with its reason and investment are separate Transactions entries", () => {
+  const reserved = transactionRow(entry({ activity_type: "primary_reservation", direction: "internal", status: "balance_allocated", loan_title: "Alpine loan" }));
+  expect([reserved.label, reserved.status, reserved.group, reserved.sign, reserved.pending]).toEqual(["Reservation", "Until closing", "reservation", "none", true]);
+  const ended = transactionRow(entry({ activity_type: "primary_reservation", direction: "internal", status: "balance_released" }));
+  expect(ended.status).toBe("Ended");
+  const released = transactionRow(
+    entry({ activity_type: "primary_reservation_released", direction: "internal", status: "balance_released", loan_title: "Alpine loan", metadata: { order_id: "o1", reason: "The project's funding was cancelled." } })
+  );
+  expect([released.label, released.status]).toEqual(["Reservation released", "Back on your balance"]);
+  expect(released.description).toEqual({ text: "{loan} · {reason}", vars: { loan: "Alpine loan", reason: "The project's funding was cancelled." } });
+  const invested = transactionRow(entry({ activity_type: "primary_investment", direction: "out", status: "closed_invested" }));
+  expect([invested.label, invested.group, invested.sign]).toEqual(["Investment", "investment", "out"]);
+  const notInvested = transactionRow(entry({ activity_type: "primary_order_ended", direction: "internal", status: "closed_not_invested", metadata: { reason: "" } }));
+  expect([notInvested.label, notInvested.status]).toEqual(["Investment order", "Not invested"]);
+});

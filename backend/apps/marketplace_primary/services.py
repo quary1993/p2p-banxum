@@ -1369,6 +1369,8 @@ def release_primary_order_balance(
         "released_amount_minor": order.allocated_amount_minor,
         "release_journal_entry_id": str(release_result.journal_entry.id),
         "reason": reason,
+        # Q26: the investor-facing reason of the release (the admin's reason stays internal).
+        "reason_code": "loan_funding_cancelled" if funding_resolution else "released_by_banxum",
     }
     _record_order_event(
         order=order,

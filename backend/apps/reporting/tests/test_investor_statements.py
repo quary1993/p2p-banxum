@@ -6,6 +6,7 @@ import base64
 import csv
 import io
 import json
+import re
 import zipfile
 from datetime import date, datetime, time, timedelta
 from importlib import import_module
@@ -172,7 +173,20 @@ def _ledger_balance_minor(investor: Model, currency: str, end_date: date) -> int
 
 
 def _csv_rows(content: str) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(content)))
+    """Rows of a CSV report. A personal report in the European format (C09 / F15: ";" columns,
+    "," decimals) is read back with "." decimals, so the expected amounts stay comparable."""
+    header = content.split("\n", 1)[0]
+    if ";" not in header:
+        return list(csv.DictReader(io.StringIO(content)))
+    rows = list(csv.DictReader(io.StringIO(content), delimiter=";"))
+    decimal = re.compile(r"^-?\d+,\d+$")
+    return [
+        {
+            key: value.replace(",", ".") if decimal.match(value or "") else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
 
 
 def _pdf_text(artifact: Any) -> str:
@@ -334,6 +348,7 @@ def test_investor_statement_is_signed_formatted_and_reconciles_to_ledger(
         assert internal not in content
     assert "406000" not in content and "'-" not in content
 
+    # C09: the investor's number format (European by default), texts included.
     pdf = _pdf_text(_statement(investor, start, end, "pdf"))
     for expected in (
         "Account statement",
@@ -341,18 +356,28 @@ def test_investor_statement_is_signed_formatted_and_reconciles_to_ledger(
         "01 Feb 2026 to 31 Mar 2026",
         "CHF account",
         "Opening balance",
-        "4'000.00",
+        "4.000,00",
         "Repayment from Alpine Equipment Loan",
-        "Principal CHF 1'000.00, interest CHF 60.00.",
-        "+1'060.00",
-        "-1'000.00",
-        "-500.00",
+        "Principal CHF 1.000,00, interest CHF 60,00.",
+        "+1.060,00",
+        "-1.000,00",
+        "-500,00",
         "Closing balance",
-        "3'560.00",
+        "3.560,00",
         "EUR account",
-        "+1'083.50",
+        "+1.083,50",
     ):
         assert expected in pdf, expected
+    # An investor who chose the Swiss format gets "'" and "." in a new statement.
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.filter(pk=investor.pk).update(number_format="swiss")
+    swiss_pdf = _pdf_text(_statement(investor, start, end, "pdf"))
+    assert "Principal CHF 1'000.00, interest CHF 60.00." in swiss_pdf
+    assert "3'560.00" in swiss_pdf
+    swiss_csv = _statement(investor, start, end, "csv").content
+    assert swiss_csv.startswith("investor,currency,")
+    assert ",3560.00," in swiss_csv
+    user_model.objects.filter(pk=investor.pk).update(number_format="european")
     for internal in ("investor_balance_liability", "Journal Entry", "406000", "Amount Minor"):
         assert internal not in pdf
 

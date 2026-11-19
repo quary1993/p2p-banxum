@@ -136,6 +136,37 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
       if (status === "balance_released") return { ...base, group: "reservation", label: "Reservation released", status: "Released", icon: "undo", sign: "none" };
       if (status === "closed_not_invested") return { ...base, group: "reservation", label: "Investment order", status: "Not invested", icon: "clock", sign: "none" };
       return { ...base, group: "reservation", label: "Investment order", status: humanize(status), icon: "clock", sign: "none" };
+    // Q26: the reservation, its release (with the reason) and the investment are separate entries.
+    case "primary_reservation":
+      return RESERVED.has(status)
+        ? { ...base, group: "reservation", label: "Reservation", status: "Until closing", pending: true, icon: "clock", sign: "none" }
+        : { ...base, group: "reservation", label: "Reservation", status: "Ended", icon: "clock", sign: "none" };
+    case "primary_reservation_released": {
+      const reason = metadataText(entry, "reason");
+      return {
+        ...base,
+        group: "reservation",
+        label: "Reservation released",
+        status: "Back on your balance",
+        icon: "undo",
+        sign: "none",
+        description: reason ? { text: "{loan} · {reason}", vars: { loan: entry.loan_title || "", reason } } : base.description
+      };
+    }
+    case "primary_investment":
+      return { ...base, group: "investment", label: "Investment", status: "Completed", icon: "growth", sign: "out" };
+    case "primary_order_ended": {
+      const reason = metadataText(entry, "reason");
+      return {
+        ...base,
+        group: "reservation",
+        label: "Investment order",
+        status: "Not invested",
+        icon: "clock",
+        sign: "none",
+        description: reason ? { text: "{loan} · {reason}", vars: { loan: entry.loan_title || "", reason } } : base.description
+      };
+    }
     case "originator_claim_purchase":
       return { ...base, group: "investment", label: "Investment", status: "Completed", icon: "growth" };
     case "repayment_distribution":
