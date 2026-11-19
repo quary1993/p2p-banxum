@@ -264,3 +264,23 @@ def test_new_operation_details_get_a_new_code_at_once(investor: Model) -> None:
     assert changed.status_code == 202
     code_model = apps.get_model("accounts_auth", "SensitiveActionCode")
     assert code_model.objects.get(id=first.json()["code_id"]).superseded_at is not None
+
+
+@pytest.mark.django_db
+def test_codes_per_account_are_capped_even_for_changed_details(
+    investor: Model, settings: Any
+) -> None:
+    """Changed details skip the cooldown; the hourly cap still stops a loop of new amounts."""
+    settings.AUTH_SENSITIVE_CODE_HOURLY_LIMIT = 3
+    client = _client(investor)
+
+    statuses = [
+        _request_code(
+            client, "withdrawal", {"amount_minor": amount, "currency": "CHF", "iban": IBAN}
+        ).status_code
+        for amount in (100_00, 200_00, 300_00, 400_00)
+    ]
+
+    assert statuses == [202, 202, 202, 429]
+    # The cap counts every action of the account, not only this one.
+    assert _request_code(client, "pin_change", None).status_code == 429

@@ -241,6 +241,10 @@ AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
     default=60,
 )
 AUTH_SENSITIVE_CODE_MAX_ATTEMPTS = env.int("AUTH_SENSITIVE_CODE_MAX_ATTEMPTS", default=3)
+# 18.5: changed operation details skip the cooldown (a price that moved needs a new code at
+# once), so the emails per account are capped per hour and per day (all actions together).
+AUTH_SENSITIVE_CODE_HOURLY_LIMIT = env.int("AUTH_SENSITIVE_CODE_HOURLY_LIMIT", default=30)
+AUTH_SENSITIVE_CODE_DAILY_LIMIT = env.int("AUTH_SENSITIVE_CODE_DAILY_LIMIT", default=100)
 # Investor PIN for sensitive actions (ACC-DEC-009): this many wrong PINs in a row lock
 # the PIN for AUTH_PIN_LOCK_SECONDS (real clock). A correct PIN resets the count.
 AUTH_PIN_MAX_ATTEMPTS = env.int("AUTH_PIN_MAX_ATTEMPTS", default=5)

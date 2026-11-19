@@ -1052,5 +1052,5 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.5 ("Status 2026-11-19"
 | Q06, D6 | Sign-in place from the DB-IP Lite City file when configured, else the country (attribution on the privacy page in 18.12). |
 | S7, audit G-07 | Old skin removed; `u33.css` without the legacy guard; public site and admin console load lazily with their own CSS; `styles.css` for the admin console only. |
 
-Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not; the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
+Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not (capped at 30 per hour and 100 per day per account); the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
 

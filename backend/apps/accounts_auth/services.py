@@ -5,7 +5,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -1149,6 +1149,23 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
 
 
 @transaction.atomic
+def _check_sensitive_code_volume(user: User, now: datetime, ttl: timedelta) -> None:
+    """18.5: at most AUTH_SENSITIVE_CODE_HOURLY_LIMIT / _DAILY_LIMIT codes per account.
+
+    Changed operation details skip the cooldown, so this cap stops a loop of new amounts from
+    sending unlimited emails. Real time from expires_at (created_at follows the QA clock).
+    """
+    codes = SensitiveActionCode.objects.filter(user=user)
+    for window, limit in (
+        (timedelta(hours=1), settings.AUTH_SENSITIVE_CODE_HOURLY_LIMIT),
+        (timedelta(days=1), settings.AUTH_SENSITIVE_CODE_DAILY_LIMIT),
+    ):
+        if codes.filter(expires_at__gt=now - window + ttl).count() >= limit:
+            raise SensitiveActionCodeThrottleError(
+                "Too many confirmation codes requested. Try again later."
+            )
+
+
 def issue_sensitive_action_code(
     command: SensitiveActionCodeCommand,
 ) -> SensitiveActionCodeIssueResult:
@@ -1180,6 +1197,7 @@ def issue_sensitive_action_code(
         raise OperationDetailsError("This code is not for an operation.")
 
     now = timezone.now()
+    _check_sensitive_code_volume(command.user, now, command.ttl)
     cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
     latest_active = (
         SensitiveActionCode.objects.filter(
