@@ -12271,6 +12271,14 @@ components:
       - status
       - trigger_labels
       - triggers
+    ComplianceReviewDecisionEnum:
+      enum:
+      - close
+      - more_information
+      type: string
+      description: |-
+        * `close` - close
+        * `more_information` - more_information
     ContactEnquiryFields:
       type: object
       description: 'Contact: request a conversation (topic and message optional).'
@@ -12350,6 +12358,18 @@ components:
       - platform_business_date
       - qa_controls_available
       - user
+    DecisionEnum:
+      enum:
+      - approve
+      - decline
+      - request_reverification
+      - reopen
+      type: string
+      description: |-
+        * `approve` - Approve
+        * `decline` - Decline
+        * `request_reverification` - Request re-verification
+        * `reopen` - Reopen manual review
     Declaration:
       type: object
       properties:
@@ -15567,7 +15587,7 @@ components:
       type: object
       properties:
         decision:
-          $ref: '#/components/schemas/KycManualReviewDecisionRequestDecisionEnum'
+          $ref: '#/components/schemas/DecisionEnum'
         reason_code:
           $ref: '#/components/schemas/KycManualReviewDecisionRequestReasonCodeEnum'
         note:
@@ -15577,18 +15597,6 @@ components:
       required:
       - decision
       - reason_code
-    KycManualReviewDecisionRequestDecisionEnum:
-      enum:
-      - approve
-      - decline
-      - request_reverification
-      - reopen
-      type: string
-      description: |-
-        * `approve` - Approve
-        * `decline` - Decline
-        * `request_reverification` - Request re-verification
-        * `reopen` - Reopen manual review
     KycManualReviewDecisionRequestReasonCodeEnum:
       enum:
       - pep_review
@@ -22966,7 +22974,7 @@ components:
       type: object
       properties:
         decision:
-          $ref: '#/components/schemas/ReviewDecisionRequestDecisionEnum'
+          $ref: '#/components/schemas/ComplianceReviewDecisionEnum'
         note:
           type: string
           default: ''
@@ -22975,14 +22983,6 @@ components:
           default: ''
       required:
       - decision
-    ReviewDecisionRequestDecisionEnum:
-      enum:
-      - close
-      - more_information
-      type: string
-      description: |-
-        * `close` - close
-        * `more_information` - more_information
     RevokeOtherSessionsResponse:
       type: object
       properties:

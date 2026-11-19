@@ -444,6 +444,9 @@ SPECTACULAR_SETTINGS = {
         # 18.9: Swiss creditor modes ("sandbox", "ten_twenty") in every serializer.
         "SwissCreditorModeEnum": ["sandbox", "ten_twenty"],
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
+        # 18.10: keep the KYC manual-review name; the compliance review decision gets its own.
+        "DecisionEnum": "backend.apps.kyc_compliance.models.KycManualReviewDecisionType.choices",
+        "ComplianceReviewDecisionEnum": ["close", "more_information"],
         "RepaymentTypeEnum": "backend.apps.loans.models.RepaymentType.choices",
         "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",
         "PurposeEnum": "backend.apps.loans.models.LoanPurpose.choices",

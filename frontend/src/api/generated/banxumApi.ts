@@ -1859,6 +1859,18 @@ export interface ComplianceReview {
 }
 
 /**
+ * * `close` - close
+ * * `more_information` - more_information
+ */
+export type ComplianceReviewDecisionEnum = typeof ComplianceReviewDecisionEnum[keyof typeof ComplianceReviewDecisionEnum];
+
+
+export const ComplianceReviewDecisionEnum = {
+  close: 'close',
+  more_information: 'more_information',
+} as const;
+
+/**
  * * `How investing works` - How investing works
  * * `An opportunity` - An opportunity
  * * `Another question` - Another question
@@ -1939,6 +1951,22 @@ export interface CurrentUserResponse {
   qa_controls_available: boolean;
   platform_business_date: string;
 }
+
+/**
+ * * `approve` - Approve
+ * * `decline` - Decline
+ * * `request_reverification` - Request re-verification
+ * * `reopen` - Reopen manual review
+ */
+export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+
+
+export const DecisionEnum = {
+  approve: 'approve',
+  decline: 'decline',
+  request_reverification: 'request_reverification',
+  reopen: 'reopen',
+} as const;
 
 export type DeclarationCompanyDetails = {[key: string]: string};
 
@@ -3585,22 +3613,6 @@ export interface KycManualReviewDecision {
 }
 
 /**
- * * `approve` - Approve
- * * `decline` - Decline
- * * `request_reverification` - Request re-verification
- * * `reopen` - Reopen manual review
- */
-export type KycManualReviewDecisionRequestDecisionEnum = typeof KycManualReviewDecisionRequestDecisionEnum[keyof typeof KycManualReviewDecisionRequestDecisionEnum];
-
-
-export const KycManualReviewDecisionRequestDecisionEnum = {
-  approve: 'approve',
-  decline: 'decline',
-  request_reverification: 'request_reverification',
-  reopen: 'reopen',
-} as const;
-
-/**
  * * `pep_review` - PEP review
  * * `high_risk_review` - High-risk review
  * * `adverse_media_review` - Adverse-media review
@@ -3631,7 +3643,7 @@ export const KycManualReviewDecisionRequestReasonCodeEnum = {
 } as const;
 
 export interface KycManualReviewDecisionRequest {
-  decision: KycManualReviewDecisionRequestDecisionEnum;
+  decision: DecisionEnum;
   reason_code: KycManualReviewDecisionRequestReasonCodeEnum;
   note?: string;
   evidence_summary?: string;
@@ -7098,20 +7110,8 @@ export interface ReverificationRequest {
   reason?: string;
 }
 
-/**
- * * `close` - close
- * * `more_information` - more_information
- */
-export type ReviewDecisionRequestDecisionEnum = typeof ReviewDecisionRequestDecisionEnum[keyof typeof ReviewDecisionRequestDecisionEnum];
-
-
-export const ReviewDecisionRequestDecisionEnum = {
-  close: 'close',
-  more_information: 'more_information',
-} as const;
-
 export interface ReviewDecisionRequest {
-  decision: ReviewDecisionRequestDecisionEnum;
+  decision: ComplianceReviewDecisionEnum;
   note?: string;
   investor_message?: string;
 }
