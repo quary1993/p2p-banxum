@@ -1768,3 +1768,30 @@ def test_fx_history_carries_the_daily_limit_and_quote_lock_from_settings(investo
     assert terms["daily_limit_used_chf_minor"] == 0
     assert terms["quote_ttl_seconds"] == 60
     assert terms["platform_fee_bps"] >= 0
+
+
+@pytest.mark.django_db
+def test_bank_cards_show_the_bank_name_from_the_six_master_or_as_typed(
+    admin_user: Model, investor: Model
+) -> None:
+    """18.3: CH and LI names from the SIX bank master; other IBANs as the investor typed them."""
+    _approve_financial_access(investor)
+    master = import_module("backend.apps.platform_core.services.bank_master")
+    master.import_six_bank_master("IID;Name of bank/institution\n4835;Example Bank AG\n")
+    instruction_model = apps.get_model("ledger", "InvestorPayoutInstruction")
+    for currency, iban, metadata in (
+        ("CHF", "CH5604835012345678009", {"bank_name": "Typed name is ignored"}),
+        ("EUR", "DE89370400440532013000", {"bank_name": "Commerzbank"}),
+    ):
+        instruction_model.objects.create(
+            investor_user_id=investor.pk,
+            currency_id=currency,
+            destination_iban=iban,
+            destination_account_name="Investor Name",
+            created_by_admin_id=admin_user.pk,
+            metadata=metadata,
+        )
+    payload = get_investor_balances(actor=investor)
+    names = {row["destination_iban"]: row["bank_name"] for row in payload["payout_instructions"]}
+    assert names["CH5604835012345678009"] == "Example Bank AG"
+    assert names["DE89370400440532013000"] == "Commerzbank"

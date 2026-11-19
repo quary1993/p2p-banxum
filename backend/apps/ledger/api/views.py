@@ -368,6 +368,7 @@ class InvestorSelfServicePayoutInstructionRegisterView(APIView):
                     destination_iban=data["destination_iban"],
                     destination_account_name=data["destination_account_name"],
                     notes=data.get("notes", ""),
+                    bank_name=data.get("bank_name", ""),
                     sensitive_action_code_id=str(data["sensitive_action_code_id"]),
                     sensitive_action_code=data["sensitive_action_code"],
                     pin=data["pin"],

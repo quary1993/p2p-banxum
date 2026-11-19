@@ -37,6 +37,8 @@ export function BankAccountDialog({
   const [currency, setCurrency] = useState(fixedCurrency ?? "CHF");
   const [iban, setIban] = useState("");
   const [accountName, setAccountName] = useState(holderName);
+  // 18.3: typed only for an IBAN outside CH and LI (those names come from the SIX bank master).
+  const [bankName, setBankName] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [continueToken, setContinueToken] = useState(0);
@@ -45,6 +47,7 @@ export function BankAccountDialog({
   const pin = useSensitivePin();
   useAutoSend(emailCode.send, step === "confirm");
   const compactIban = iban.replace(/\s/g, "");
+  const typedBank = compactIban.length >= 2 && !["CH", "LI"].includes(compactIban.slice(0, 2));
   const detailsValid = CURRENCIES.includes(currency as (typeof CURRENCIES)[number]) && compactIban.length >= 15 && accountName.trim().length > 1;
   const canSubmit = detailsValid && pin.ready && (isFixturePreview || (Boolean(emailCode.codeId) && code.length === 6));
 
@@ -64,6 +67,7 @@ export function BankAccountDialog({
           currency,
           destination_iban: compactIban,
           destination_account_name: accountName.trim(),
+          bank_name: typedBank ? bankName.trim() : "",
           sensitive_action_code_id: emailCode.codeId,
           sensitive_action_code: code,
           pin: pin.value
@@ -146,6 +150,12 @@ export function BankAccountDialog({
             <label className="form-label" htmlFor="ib-holder">{t("Account holder")}</label>
             <input className="form-control" id="ib-holder" name="holder" onChange={(event) => setAccountName(event.target.value)} value={accountName} />
           </div>
+          {typedBank ? (
+            <div className="form-group">
+              <label className="form-label" htmlFor="ib-bank">{t("Bank name")} <small className="bxm-muted">{t("Optional")}</small></label>
+              <input autoComplete="off" className="form-control" id="ib-bank" maxLength={120} name="bank" onChange={(event) => setBankName(event.target.value)} value={bankName} />
+            </div>
+          ) : null}
           <DialogActions onCancel={onClose} primaryDisabled={!detailsValid} primaryLabel={t("Continue")} primaryType="submit" />
         </form>
       ) : (
@@ -161,6 +171,7 @@ export function BankAccountDialog({
             <div><dt>{t("Currency")}</dt><dd>{currency}</dd></div>
             <div><dt>{t("IBAN")}</dt><dd><span className="bxm-iban">{formatIban(compactIban)}</span></dd></div>
             <div><dt>{t("Account holder")}</dt><dd>{accountName.trim()}</dd></div>
+            {typedBank && bankName.trim() ? <div><dt>{t("Bank")}</dt><dd>{bankName.trim()}</dd></div> : null}
           </dl>
           <EmailCodeField code={emailCode} onChange={setCode} value={code} />
           {pin.lockedUntil !== null ? (

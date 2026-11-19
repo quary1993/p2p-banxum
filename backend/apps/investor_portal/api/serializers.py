@@ -110,6 +110,8 @@ class PayoutInstructionSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     destination_iban = serializers.CharField()
     destination_account_name = serializers.CharField()
+    # 18.3: from the SIX bank master for CH and LI IBANs, else as typed by the investor; may be "".
+    bank_name = serializers.CharField(allow_blank=True, required=False, default="")
     is_verified_usable = serializers.BooleanField()
     verification_status = serializers.ChoiceField(
         choices=[("verified", "Verified"), ("pending", "Pending verification")],

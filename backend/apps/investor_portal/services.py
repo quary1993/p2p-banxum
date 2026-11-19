@@ -378,6 +378,19 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         for lot in lots
         if int(lot.available_amount_minor) > 0 or reserved_by_lot.get(str(lot.pk), 0) > 0
     ]
+    active_instructions = list(
+        payout_model.objects.filter(
+            investor_user_id=investor_user_id,
+            status="active",
+        )
+        .select_related("currency")
+        .order_by("currency", "-created_at")
+    )
+    # 18.3: the bank name (SIX bank master for CH and LI IBANs, else the name the investor typed).
+    bank_master = import_module("backend.apps.platform_core.services.bank_master")
+    master_names = bank_master.bank_names_for_ibans(
+        [str(instruction.destination_iban) for instruction in active_instructions]
+    )
     payout_instructions = [
         {
             "id": str(instruction.pk),
@@ -385,6 +398,12 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
             "status": str(instruction.status),
             "destination_iban": str(instruction.destination_iban),
             "destination_account_name": str(instruction.destination_account_name),
+            "bank_name": master_names.get(str(instruction.destination_iban))
+            or (
+                ""
+                if bank_master.uses_bank_master(str(instruction.destination_iban))
+                else str((instruction.metadata or {}).get("bank_name") or "")
+            ),
             "is_verified_usable": bool(instruction.is_verified_usable),
             # U33-DEC-05: "Verified" and "Pending verification" are shown separately.
             "verification_status": "verified" if instruction.is_verified_usable else "pending",
@@ -392,12 +411,7 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
             "verified_at": instruction.verified_at,
             "created_at": instruction.created_at,
         }
-        for instruction in payout_model.objects.filter(
-            investor_user_id=investor_user_id,
-            status="active",
-        )
-        .select_related("currency")
-        .order_by("currency", "-created_at")
+        for instruction in active_instructions
     ]
     summaries = _balance_summaries(
         investor_user_id=investor_user_id,

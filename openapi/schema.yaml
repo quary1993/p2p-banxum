@@ -12027,6 +12027,10 @@ components:
           maxLength: 255
         notes:
           type: string
+        bank_name:
+          type: string
+          default: ''
+          maxLength: 120
         sensitive_action_code_id:
           type: string
           format: uuid
@@ -17156,6 +17160,9 @@ components:
           type: string
         destination_account_name:
           type: string
+        bank_name:
+          type: string
+          default: ''
         is_verified_usable:
           type: boolean
         verification_status:

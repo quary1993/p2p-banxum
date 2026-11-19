@@ -317,6 +317,8 @@ class RegisterInvestorSelfServicePayoutInstructionCommand:
     notes: str = ""
     ip_address: str | None = None
     user_agent: str = ""
+    # 18.3: the bank name the investor types for an IBAN outside CH and LI (optional).
+    bank_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -2551,6 +2553,12 @@ def _register_investor_self_service_payout_instruction_after_sensitive_code(
         metadata={
             "submitted_by": "investor_self_service",
             "requires_admin_verification": True,
+            # 18.3: CH and LI names come from the SIX bank master, never from the investor.
+            **(
+                {"bank_name": command.bank_name.strip()[:120]}
+                if command.bank_name.strip() and destination_iban[:2] not in {"CH", "LI"}
+                else {}
+            ),
         },
     )
     if not instruction.is_verified_usable:

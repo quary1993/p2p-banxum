@@ -27,8 +27,15 @@ function BankPanel({ instruction, readonly, onChange, onUseForReturns }: { instr
   return (
     <PsPanel className="ps-bank" title={t("{currency} account", { currency: instruction.currency })}>
       <div className="ps-panel-body">
-        {/* Design: bank name, IBAN and account holder. The platform does not store the bank name. */}
+        {/* Design: bank name, IBAN and account holder. 18.3: the bank name comes from the SIX bank
+            master for CH and LI IBANs, else the investor typed it; it is left out when unknown. */}
         <dl className="ps-bank-facts">
+          {instruction.bank_name ? (
+            <div>
+              <dt>{t("Bank")}</dt>
+              <dd>{instruction.bank_name}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>{t("IBAN")}</dt>
             <dd><span className="bxm-iban">{formatIban(instruction.destination_iban)}</span></dd>

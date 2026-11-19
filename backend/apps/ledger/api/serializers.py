@@ -342,6 +342,8 @@ class InvestorSelfServicePayoutInstructionRegisterRequestSerializer(
     destination_iban = serializers.CharField(max_length=128)
     destination_account_name = serializers.CharField(max_length=255)
     notes = serializers.CharField(required=False, allow_blank=True)
+    # 18.3: optional, for an IBAN outside CH and LI (their names come from the SIX bank master).
+    bank_name = serializers.CharField(required=False, allow_blank=True, max_length=120, default="")
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
     pin = sensitive_action_pin_field()
