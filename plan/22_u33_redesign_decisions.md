@@ -1054,7 +1054,6 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.5 ("Status 2026-11-19"
 
 Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not (capped at 30 per hour and 100 per day per account); the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
 
-
 ### Implemented In Audit Step 5 (2026-11-19, Phase 18.6)
 
 Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.6 ("Status 2026-11-19").
