@@ -335,3 +335,21 @@ def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) 
                 actor=admin_user, loan_id=str(loan.pk), collateral_value_minor=1_00
             )
         )
+
+
+def test_equal_principal_is_closed_for_new_direct_loans(admin_user: Model) -> None:
+    """F14: "Amortizing principal and interest" is refused for a new loan or a change to it."""
+    from dataclasses import replace
+
+    command = _loan_command(admin_user, _borrower(admin_user))
+    with pytest.raises(LoanValidationError, match="Equal principal repayments are closed"):
+        create_loan(replace(command, repayment_type="amortizing_principal_interest"))
+    loan = create_loan(command)
+    with pytest.raises(LoanValidationError, match="Equal principal repayments are closed"):
+        update_loan(
+            UpdateLoanCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                repayment_type="amortizing_principal_interest",
+            )
+        )

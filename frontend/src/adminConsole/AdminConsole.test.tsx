@@ -209,8 +209,14 @@ test("recovery stages are written by the admin with real dates, and the next ste
   expect(within(dialog).getByText(/Add the next step only when you know/)).toBeInTheDocument();
   expect(within(dialog).getByText("No stage is recorded for this loan.")).toBeInTheDocument();
   const record = within(dialog).getByRole("button", { name: "Record stage" });
+  // Q16: an own title must be typed; a standard stage gives its name.
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "own" } });
   expect(record).toBeDisabled();
-  fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Formal notice" } });
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "recovery_closed" } });
+  expect(within(dialog).getByLabelText("Result")).toBeInTheDocument();
+  expect(record).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "formal_notice" } });
+  expect(within(dialog).queryByLabelText("Result")).not.toBeInTheDocument();
   fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2099-01-01" } });
   expect(within(dialog).getByText("Date in the future")).toBeInTheDocument();
   expect(record).toBeDisabled();

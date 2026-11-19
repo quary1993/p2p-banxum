@@ -10780,6 +10780,9 @@ components:
       properties:
         title:
           type: string
+        recovery_result:
+          type: string
+          default: ''
         occurred_on:
           type: string
           format: date
@@ -13386,6 +13389,10 @@ components:
           $ref: '#/components/schemas/LoanRecoveryStageStatusEnum'
         title:
           type: string
+        standard_key:
+          type: string
+        recovery_result:
+          type: string
         occurred_on:
           type: string
           format: date
@@ -13411,9 +13418,11 @@ components:
       - investor_note
       - occurred_on
       - recorded_by_email
+      - recovery_result
       - removed_at
       - removed_by_email
       - removed_reason
+      - standard_key
       - status
       - title
     LoanRecoveryStageList:
@@ -13440,7 +13449,17 @@ components:
           $ref: '#/components/schemas/LoanRecoveryStageStatusEnum'
         title:
           type: string
+          default: ''
           maxLength: 120
+        standard_key:
+          type: string
+          default: ''
+          maxLength: 40
+        recovery_result:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/RecoveryResultEnum'
+          - $ref: '#/components/schemas/BlankEnum'
         occurred_on:
           type: string
           format: date
@@ -13451,7 +13470,6 @@ components:
           maxLength: 4000
       required:
       - status
-      - title
     LoanRecoveryStageStatusEnum:
       enum:
       - done
@@ -18519,6 +18537,13 @@ components:
       - as_of_date
       - bank_stated_balance_minor
       - currency
+    RecoveryResultEnum:
+      enum:
+      - full
+      - partial
+      - none
+      type: string
+      description: "* `` - \n* `full` - full\n* `partial` - partial\n* `none` - none"
     RedactionModeEnum:
       enum:
       - redacted

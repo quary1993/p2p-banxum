@@ -529,6 +529,14 @@ class LoanRecoveryStageStatus(models.TextChoices):
     NEXT = "next", "Next"
 
 
+class LoanRecoveryResult(models.TextChoices):
+    """Q16: the result recorded with "Recovery closed"."""
+
+    FULL = "full", "Full recovery"
+    PARTIAL = "partial", "Partial recovery"
+    NONE = "none", "No recovery"
+
+
 class LoanRecoveryStage(TimestampedModel):
     """U33-DEC-22: a real stage of the follow-up of a late or defaulted loan, recorded by an admin.
 
@@ -541,6 +549,12 @@ class LoanRecoveryStage(TimestampedModel):
     loan = models.ForeignKey("loans.Loan", on_delete=models.PROTECT, related_name="recovery_stages")
     status = models.CharField(max_length=8, choices=LoanRecoveryStageStatus.choices)
     title = models.CharField(max_length=120)
+    # Q16: the standard stage name the admin picked (empty for an own title); German names in 18.13.
+    standard_key = models.CharField(max_length=40, blank=True, default="")
+    # Q16: "Recovery closed" states the result (full, partial or no recovery).
+    recovery_result = models.CharField(
+        max_length=8, choices=LoanRecoveryResult.choices, blank=True, default=""
+    )
     occurred_on = models.DateField(null=True, blank=True)
     investor_note = models.TextField(blank=True, default="")
     created_by_admin_id = models.UUIDField()

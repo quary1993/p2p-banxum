@@ -20,7 +20,11 @@ from django.db.models import Model
 from backend.apps.platform_core.domain.access import actor_ref_for_user
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.servicing.models import LoanRecoveryStage, LoanRecoveryStageStatus
+from backend.apps.servicing.models import (
+    LoanRecoveryResult,
+    LoanRecoveryStage,
+    LoanRecoveryStageStatus,
+)
 from backend.apps.servicing.services import (
     ServicingValidationError,
     _clean_required,
@@ -32,6 +36,18 @@ from backend.apps.servicing.services import (
 # current again keeps its history.
 RECOVERY_STAGE_LOAN_STATUSES = frozenset({"late", "defaulted", "written_off"})
 TITLE_MAX_LENGTH = 120
+# Q16 (2026-11-13): the standard English stage names the admin can pick; an own title is allowed.
+STANDARD_RECOVERY_STAGES = {
+    "reminder_sent": "Reminder sent",
+    "formal_notice": "Formal notice",
+    "enforcement_of_security": "Enforcement of the security",
+    "debt_collection": "Debt collection proceedings",
+    "claim_in_insolvency": "Claim filed in insolvency",
+    "sale_of_security": "Sale of the security",
+    "recovery_closed": "Recovery closed",
+    "agreement_terminated": "Loan agreement terminated",
+}
+RECOVERY_CLOSED_KEY = "recovery_closed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +58,10 @@ class RecordRecoveryStageCommand:
     title: str
     occurred_on: date | None = None
     investor_note: str = ""
+    # Q16: a standard stage (its English name becomes the title) and the result of "Recovery
+    # closed" (full, partial or none).
+    standard_key: str = ""
+    recovery_result: str = ""
 
 
 def _admin_emails(stages: list[LoanRecoveryStage]) -> dict[str, str]:
@@ -66,6 +86,8 @@ def _stage_payload(
         "id": str(stage.id),
         "status": stage.status,
         "title": stage.title,
+        "standard_key": stage.standard_key,
+        "recovery_result": stage.recovery_result,
         "occurred_on": stage.occurred_on,
         "investor_note": stage.investor_note,
         "created_at": stage.created_at,
@@ -106,7 +128,24 @@ def record_recovery_stage(command: RecordRecoveryStageCommand) -> dict[str, Any]
         )
     if command.status not in LoanRecoveryStageStatus.values:
         raise ServicingValidationError("The stage must be done or next.")
-    title = _clean_required(command.title, "Title")
+    standard_key = command.standard_key.strip()
+    if standard_key and standard_key not in STANDARD_RECOVERY_STAGES:
+        raise ServicingValidationError("Unknown standard stage.")
+    title = (
+        STANDARD_RECOVERY_STAGES[standard_key]
+        if standard_key
+        else _clean_required(command.title, "Title")
+    )
+    recovery_result = command.recovery_result.strip()
+    closing = standard_key == RECOVERY_CLOSED_KEY
+    if recovery_result and recovery_result not in LoanRecoveryResult.values:
+        raise ServicingValidationError("The result must be full, partial or no recovery.")
+    if closing and command.status == LoanRecoveryStageStatus.DONE and not recovery_result:
+        raise ServicingValidationError(
+            "Recovery closed states the result: full, partial or no recovery."
+        )
+    if recovery_result and not closing:
+        raise ServicingValidationError("A result is recorded only with Recovery closed.")
     if len(title) > TITLE_MAX_LENGTH:
         raise ServicingValidationError(f"The title can have at most {TITLE_MAX_LENGTH} characters.")
     today = business_date(now_utc())
@@ -133,6 +172,8 @@ def record_recovery_stage(command: RecordRecoveryStageCommand) -> dict[str, Any]
         loan_id=loan_ref.id,
         status=command.status,
         title=title,
+        standard_key=standard_key,
+        recovery_result=recovery_result,
         occurred_on=command.occurred_on,
         investor_note=command.investor_note.strip(),
         created_by_admin_id=command.actor.pk,
@@ -148,6 +189,8 @@ def record_recovery_stage(command: RecordRecoveryStageCommand) -> dict[str, Any]
                 "stage_id": str(stage.id),
                 "status": command.status,
                 "title": title,
+                "standard_key": standard_key,
+                "recovery_result": recovery_result,
                 "occurred_on": command.occurred_on.isoformat() if command.occurred_on else None,
                 "replaced_stage_ids": replaced,
             },
@@ -199,6 +242,7 @@ def investor_recovery_stages(loan_ids: list[str]) -> dict[str, dict[str, Any]]:
     for stage in stages:
         entry = {
             "title": stage.title,
+            "recovery_result": stage.recovery_result,
             "occurred_on": stage.occurred_on,
             "investor_note": stage.investor_note,
         }

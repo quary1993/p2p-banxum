@@ -522,6 +522,8 @@ class LoanRecoveryStageListView(APIView):
                     title=data["title"],
                     occurred_on=data["occurred_on"],
                     investor_note=data["investor_note"],
+                    standard_key=data["standard_key"],
+                    recovery_result=data["recovery_result"],
                 )
             )
         except ServicingAuthorizationError as exc:

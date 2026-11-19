@@ -16,6 +16,14 @@ import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "..
 import { NiIcon } from "../../../components";
 import { overdueRows } from "./investmentModel";
 
+// Q16: "Recovery closed" states the result (full, partial or no recovery).
+const RECOVERY_RESULT_TEXT: Record<string, string> = { full: "Full recovery", partial: "Partial recovery", none: "No recovery" };
+
+function stageTitle(stage: { title: string; recovery_result?: string }, t: (text: string) => string) {
+  const result = stage.recovery_result ? RECOVERY_RESULT_TEXT[stage.recovery_result] : "";
+  return result ? `${stage.title} · ${t(result)}` : stage.title;
+}
+
 /** Public notes of a loan, newest first. */
 function usePublicNotes(loanId: string) {
   const query = useLoanRiskNotesData(loanId);
@@ -78,7 +86,7 @@ function RecordedSteps({ holding, missedOn }: { holding: Holding; missedOn: stri
         <li key={`${stage.title}-${stage.occurred_on ?? ""}-${index}`}>
           <span aria-hidden="true" className="rc-step-dot done" />
           <div>
-            <strong>{stage.title}</strong>
+            <strong>{stageTitle(stage, t)}</strong>
             {stage.occurred_on ? <time dateTime={stage.occurred_on}>{formatDate(stage.occurred_on)}</time> : null}
           </div>
           {stage.investor_note ? <p>{stage.investor_note}</p> : null}
@@ -303,7 +311,7 @@ export function RecoveryUpdate({ holding, focus }: { holding: Holding; focus: bo
                   ) : null}
                   {[...stages].reverse().map((stage, index) => (
                     <li className="is-done" key={`${stage.title}-${index}`}>
-                      <h6>{stage.title}</h6>
+                      <h6>{stageTitle(stage, t)}</h6>
                       <p>{stage.occurred_on ? formatDate(stage.occurred_on) : ""}{stage.investor_note ? ` · ${stage.investor_note}` : ""}</p>
                     </li>
                   ))}

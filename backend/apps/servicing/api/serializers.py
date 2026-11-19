@@ -522,6 +522,9 @@ class LoanRecoveryStageSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
     title = serializers.CharField()
+    # Q16: the standard stage picked (empty for an own title) and the result of Recovery closed.
+    standard_key = serializers.CharField(allow_blank=True)
+    recovery_result = serializers.CharField(allow_blank=True)
     occurred_on = serializers.DateField(allow_null=True)
     investor_note = serializers.CharField(allow_blank=True)
     created_at = serializers.DateTimeField()
@@ -537,7 +540,14 @@ class LoanRecoveryStageListSerializer(serializers.Serializer[Any]):
 
 class LoanRecoveryStageRequestSerializer(serializers.Serializer[Any]):
     status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
-    title = serializers.CharField(max_length=120)
+    # An own title, or empty with a standard stage (Q16).
+    title = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    standard_key = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, default=""
+    )
+    recovery_result = serializers.ChoiceField(
+        choices=["", "full", "partial", "none"], required=False, default=""
+    )
     occurred_on = serializers.DateField(required=False, allow_null=True, default=None)
     investor_note = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=4000

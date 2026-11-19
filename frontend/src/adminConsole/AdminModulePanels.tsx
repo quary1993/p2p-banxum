@@ -4507,6 +4507,10 @@ function InterestOnlyMonthsInput({
   );
 }
 
+// F14 (2026-11-16): equal principal ("Amortizing principal and interest") is closed for new direct
+// loans; a loan that already has it keeps it. Originator imports keep their contract's type.
+const NEW_DIRECT_REPAYMENT_TYPES = Object.values(RepaymentTypeEnum).filter((value) => value !== RepaymentTypeEnum.amortizing_principal_interest);
+
 function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
@@ -4591,7 +4595,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <TextInput integer label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput integer label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
-          <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <SelectInput label="Repayment type" onChange={setRepaymentType} options={NEW_DIRECT_REPAYMENT_TYPES} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
           <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
@@ -4750,7 +4754,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <TextInput integer label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput integer label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
-          <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <SelectInput label="Repayment type" onChange={setRepaymentType} options={loan.repayment_type === RepaymentTypeEnum.amortizing_principal_interest ? Object.values(RepaymentTypeEnum) : NEW_DIRECT_REPAYMENT_TYPES} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
           <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
@@ -7139,23 +7143,34 @@ function LoanCreditChecksForm({ loan }: { loan: Loan }) {
 }
 
 // Examples only: the admin writes the title of the real step; there is no fixed workflow (U33-DEC-22).
-const RECOVERY_STAGE_SUGGESTIONS = [
-  "Reminder sent",
-  "Formal notice",
-  "Enforcement of the security",
-  "Debt collection proceedings",
-  "Claim filed in insolvency",
-  "Sale of the security",
-  "Recovery closed"
+// Q16 (2026-11-13): the standard English stage names (the server keeps the key for the German names
+// of 18.13); "own" lets the admin type an own title.
+const STANDARD_RECOVERY_STAGES: Array<[string, string]> = [
+  ["reminder_sent", "Reminder sent"],
+  ["formal_notice", "Formal notice"],
+  ["enforcement_of_security", "Enforcement of the security"],
+  ["debt_collection", "Debt collection proceedings"],
+  ["claim_in_insolvency", "Claim filed in insolvency"],
+  ["sale_of_security", "Sale of the security"],
+  ["recovery_closed", "Recovery closed"],
+  ["agreement_terminated", "Loan agreement terminated"]
 ];
+const STAGE_OPTIONS = [...STANDARD_RECOVERY_STAGES.map(([key]) => key), "own"];
+const RECOVERY_RESULTS: Array<[string, string]> = [
+  ["full", "Full recovery"],
+  ["partial", "Partial recovery"],
+  ["none", "No recovery"]
+];
+const recoveryResultText = (value: string | undefined) => RECOVERY_RESULTS.find(([key]) => key === value)?.[1] ?? "";
 
 /** U33-DEC-22: the real stages of a late or defaulted loan, and the next step when it is known. */
 function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublishNote?: () => void }) {
   const businessDate = useAdminBusinessDate();
   const queryClient = useQueryClient();
-  const listId = useId();
   const stagesQuery = useV1ServicingAdminLoansRecoveryStagesRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
   const [kind, setKind] = useState<"done" | "next">("done");
+  const [stageKey, setStageKey] = useState<string>("reminder_sent");
+  const [result, setResult] = useState("");
   const [title, setTitle] = useState("");
   const [occurredOn, setOccurredOn] = useState(businessDate);
   const [investorNote, setInvestorNote] = useState("");
@@ -7169,6 +7184,7 @@ function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublish
       onSuccess: (stage) => {
         setSuccess(stage.status === "next" ? `Next step saved: ${stage.title}.` : `Stage recorded: ${stage.title}.`);
         setTitle("");
+        setResult("");
         setInvestorNote("");
         refresh();
       }
@@ -7189,12 +7205,23 @@ function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublish
   const removed = stages.filter((stage) => stage.removed_at);
   const futureDone = kind === "done" && occurredOn > businessDate;
   const pastNext = kind === "next" && Boolean(occurredOn) && occurredOn < businessDate;
-  const blocked = !title.trim() || (kind === "done" && !occurredOn) || futureDone || pastNext || record.isPending;
+  const own = stageKey === "own";
+  const closing = stageKey === "recovery_closed";
+  const missingResult = closing && kind === "done" && !result;
+  const blocked = (own && !title.trim()) || (kind === "done" && !occurredOn) || futureDone || pastNext || missingResult || record.isPending;
+  const shownTitle = own ? title.trim() : STANDARD_RECOVERY_STAGES.find(([key]) => key === stageKey)?.[1] ?? "";
 
   function submit() {
-    const data = { status: kind, title: title.trim(), occurred_on: occurredOn || null, investor_note: investorNote.trim() };
+    const data = {
+      status: kind,
+      title: own ? title.trim() : "",
+      standard_key: own ? "" : stageKey,
+      recovery_result: (closing ? result : "") as "" | "full" | "partial" | "none",
+      occurred_on: occurredOn || null,
+      investor_note: investorNote.trim()
+    };
     if (isFixturePreview) {
-      setPreview(`${kind === "next" ? "Next step" : "Stage"} "${data.title}" would be recorded for ${loan.id}.`);
+      setPreview(`${kind === "next" ? "Next step" : "Stage"} "${shownTitle}" would be recorded for ${loan.id}.`);
       return;
     }
     record.mutate({ loanId: loan.id, data });
@@ -7225,7 +7252,10 @@ function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublish
             <tbody>
               {active.map((stage) => (
                 <tr key={stage.id}>
-                  <td>{stage.status === "next" ? `Next step: ${stage.title}` : stage.title}</td>
+                  <td>
+                    {stage.status === "next" ? `Next step: ${stage.title}` : stage.title}
+                    {stage.recovery_result ? <small className="muted"> · {recoveryResultText(stage.recovery_result)}</small> : null}
+                  </td>
                   <td>{stage.occurred_on ? formatDate(stage.occurred_on) : "Not known"}</td>
                   <td>{stage.investor_note || "-"}</td>
                   <td><button className="link" onClick={() => setRemoveId(stage.id)} type="button">Remove</button></td>
@@ -7275,10 +7305,27 @@ function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublish
           options={["done", "next"]}
           value={kind}
         />
-        <Field hint="Write the real step. The list only gives examples." label="Title">
-          <input aria-label="Title" list={listId} maxLength={120} onChange={(event) => setTitle(event.target.value)} required value={title} />
-          <datalist id={listId}>{RECOVERY_STAGE_SUGGESTIONS.map((item) => <option key={item} value={item} />)}</datalist>
-        </Field>
+        <SelectInput<string>
+          hint="A standard name, or your own title for a step that has none."
+          label="Stage"
+          onChange={(value) => {
+            setStageKey(value);
+            if (value !== "recovery_closed") setResult("");
+          }}
+          optionLabel={(option) => (option === "own" ? "Own title" : STANDARD_RECOVERY_STAGES.find(([key]) => key === option)?.[1] ?? option)}
+          options={STAGE_OPTIONS}
+          value={stageKey}
+        />
+        {own ? <TextInput label="Title" onChange={setTitle} required value={title} /> : null}
+        {closing ? (
+          <SelectInput<string>
+            label="Result"
+            onChange={setResult}
+            optionLabel={(option) => (option ? recoveryResultText(option) : "Choose the result")}
+            options={["", ...RECOVERY_RESULTS.map(([key]) => key)]}
+            value={result}
+          />
+        ) : null}
         <TextInput hint={kind === "next" ? "Leave empty when the date is not known." : undefined} label={kind === "next" ? "Planned date" : "Date"} onChange={setOccurredOn} required={kind === "done"} type="date" value={occurredOn} />
       </FieldGrid>
       <TextAreaInput hint="Shown to the loan's lenders. Facts only." label="Note for lenders" onChange={setInvestorNote} value={investorNote} />

@@ -120,6 +120,7 @@ def test_admin_records_real_stages_and_the_next_step_investors_see_them(
     )
     assert holding["recovery_next_step"] == {
         "title": "Auction of the property",
+        "recovery_result": "",
         "occurred_on": _day(90).isoformat(),
         "investor_note": "The auction date is set by the court.",
     }
@@ -181,3 +182,50 @@ def test_dates_follow_what_really_happened(
         ).status_code
         == 403
     )
+
+
+def test_standard_stage_names_and_the_result_of_recovery_closed(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Q16: a standard name or an own title; "Recovery closed" states the result."""
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    _today(monkeypatch, _day(70))
+    client = _admin(admin_user)
+    assert _scan(admin_user, loan, _day(60)) == "defaulted"
+    day = _day(65).isoformat()
+
+    standard = _record(client, loan, status="done", standard_key="formal_notice", occurred_on=day)
+    own = _record(client, loan, status="done", title="Call with the borrower", occurred_on=day)
+    unknown = _record(client, loan, status="done", standard_key="unknown", occurred_on=day)
+    no_result = _record(
+        client, loan, status="done", standard_key="recovery_closed", occurred_on=day
+    )
+    result_elsewhere = _record(
+        client, loan, status="done", title="Note", recovery_result="full", occurred_on=day
+    )
+    closed = _record(
+        client,
+        loan,
+        status="done",
+        standard_key="recovery_closed",
+        recovery_result="partial",
+        occurred_on=day,
+    )
+
+    assert standard.status_code == 201, standard.content
+    assert (standard.json()["title"], standard.json()["standard_key"]) == (
+        "Formal notice",
+        "formal_notice",
+    )
+    assert (own.json()["title"], own.json()["standard_key"]) == ("Call with the borrower", "")
+    assert unknown.status_code == 400
+    assert no_result.status_code == 400
+    assert "states the result" in no_result.json()["detail"]
+    assert result_elsewhere.status_code == 400
+    assert closed.status_code == 201, closed.content
+    holding = _portfolio_loan_holding(investor_one)
+    last = holding["recovery_stages"][-1]
+    assert (last["title"], last["recovery_result"]) == ("Recovery closed", "partial")

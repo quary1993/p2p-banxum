@@ -377,6 +377,8 @@ class HoldingRecoveryStageSerializer(serializers.Serializer[Any]):
     """U33-DEC-22: a real stage of the loan's follow-up, recorded by the team."""
 
     title = serializers.CharField()
+    # Q16: with "Recovery closed": full, partial or none (empty otherwise).
+    recovery_result = serializers.CharField(allow_blank=True, required=False, default="")
     occurred_on = serializers.DateField(
         allow_null=True, help_text="The real date; for the next step, null when not known."
     )

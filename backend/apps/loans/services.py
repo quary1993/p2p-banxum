@@ -219,6 +219,21 @@ def _repayment_type(value: str) -> RepaymentType:
     return cast(RepaymentType, _text_choice(RepaymentType, value, "repayment type"))
 
 
+def _eligible_repayment_type(value: str, *, current: str | None = None) -> RepaymentType:
+    """F14 (2026-11-16): the equal-principal type ("Amortizing principal and interest") is closed
+    for new direct loans; a loan that already has it keeps it (imported contracts too)."""
+    repayment = _repayment_type(value)
+    if (
+        repayment == RepaymentType.AMORTIZING_PRINCIPAL_INTEREST
+        and current != RepaymentType.AMORTIZING_PRINCIPAL_INTEREST
+    ):
+        raise LoanValidationError(
+            "Equal principal repayments are closed for new loans: use equal installments "
+            "(principal and interest) or interest with the principal at the end."
+        )
+    return repayment
+
+
 def _risk_rating(value: str) -> RiskRating:
     return cast(RiskRating, _text_choice(RiskRating, value, "risk rating"))
 
@@ -799,7 +814,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     first_payment_date = _derive_first_payment_date(loan_start_date)
     purpose = _purpose(command.purpose)
     collateral_type = _eligible_collateral_type(command.collateral_type)
-    repayment_type = _repayment_type(command.repayment_type)
+    repayment_type = _eligible_repayment_type(command.repayment_type)
     risk_rating = _risk_rating(command.risk_rating)
     principal_minor = _validate_principal(command.principal_minor, currency)
     (
@@ -1087,7 +1102,9 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="repayment_type",
-            value=_repayment_type(command.repayment_type),
+            value=_eligible_repayment_type(
+                command.repayment_type, current=str(loan.repayment_type)
+            ),
             changes=changes,
         )
         schedule_needs_regeneration = True
