@@ -27,6 +27,9 @@ class BorrowerEntitySerializer(serializers.Serializer[Any]):
     employees = serializers.IntegerField(allow_null=True)
     employees_year = serializers.IntegerField(allow_null=True)
     registration_number = serializers.CharField()
+    uid = serializers.CharField(
+        required=False, default="", help_text="18.9: Swiss UID (CHE-123.456.789)."
+    )
     business_classification = serializers.CharField()
     business_classification_public = serializers.BooleanField()
     registered_address = serializers.CharField()
@@ -71,6 +74,7 @@ class BorrowerEntityCreateRequestSerializer(serializers.Serializer[Any]):
     employees = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     employees_year = serializers.IntegerField(required=False, allow_null=True)
     registration_number = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    uid = serializers.CharField(required=False, allow_blank=True, max_length=32)
     business_classification = serializers.CharField(required=False, allow_blank=True)
     business_classification_public = serializers.BooleanField(default=False)
     registered_address = serializers.CharField(required=False, allow_blank=True)
@@ -120,6 +124,7 @@ class BorrowerEntityUpdateRequestSerializer(serializers.Serializer[Any]):
     employees_year = serializers.IntegerField(required=False, allow_null=True)
     clear_employees = serializers.BooleanField(required=False, default=False)
     registration_number = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    uid = serializers.CharField(required=False, allow_blank=True, max_length=32)
     business_classification = serializers.CharField(required=False, allow_blank=True)
     business_classification_public = serializers.BooleanField(required=False)
     registered_address = serializers.CharField(required=False, allow_blank=True)
@@ -351,3 +356,80 @@ class BorrowerDocumentMetadataRequestSerializer(serializers.Serializer[Any]):
     document_status = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=64
     )
+
+
+class SwissCreditorFinancingSerializer(serializers.Serializer[dict[str, object]]):
+    loan_id = serializers.UUIDField()
+    title = serializers.CharField()
+    status = serializers.CharField()
+    currency = serializers.CharField()
+    creditors = serializers.IntegerField()
+
+
+class BorrowerExternalDebtSerializer(serializers.Serializer[dict[str, object]]):
+    id = serializers.UUIDField()
+    creditor_name = serializers.CharField()
+    creditor_identification = serializers.CharField()
+    creditor_is_bank = serializers.BooleanField()
+    financing_id = serializers.CharField()
+    identical_terms_group = serializers.CharField(allow_blank=True)
+    principal_minor = serializers.IntegerField()
+    currency = serializers.CharField()
+    start_date = serializers.DateField()
+    ended_on = serializers.DateField(allow_null=True)
+    declaration_reference = serializers.CharField(allow_blank=True)
+    checked_at = serializers.DateTimeField()
+
+
+class SwissCreditorModeOverviewSerializer(serializers.Serializer[dict[str, object]]):
+    """18.9: the creditor mode of a Swiss borrower UID with its total and creditors."""
+
+    uid = serializers.CharField()
+    mode = serializers.ChoiceField(choices=["sandbox", "ten_twenty"])
+    confirmed = serializers.BooleanField()
+    confirmed_at = serializers.DateTimeField(allow_null=True)
+    confirmed_by_admin_id = serializers.UUIDField(allow_null=True)
+    confirmation_note = serializers.CharField(allow_blank=True)
+    total_chf_minor = serializers.IntegerField(allow_null=True)
+    total_error = serializers.CharField(allow_blank=True)
+    sandbox_limit_chf_minor = serializers.IntegerField()
+    borrower_creditors = serializers.IntegerField()
+    borrower_creditor_limit = serializers.IntegerField()
+    financing_creditor_limit = serializers.IntegerField()
+    financings = SwissCreditorFinancingSerializer(many=True)
+    external_debts = BorrowerExternalDebtSerializer(many=True)
+
+
+class SwissCreditorModeRequestSerializer(serializers.Serializer[dict[str, object]]):
+    mode = serializers.ChoiceField(choices=["sandbox", "ten_twenty"])
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BorrowerExternalDebtRequestSerializer(serializers.Serializer[dict[str, object]]):
+    creditor_name = serializers.CharField(max_length=255)
+    creditor_identification = serializers.CharField(max_length=128)
+    creditor_is_bank = serializers.BooleanField(default=False)
+    financing_id = serializers.CharField(max_length=128)
+    identical_terms_group = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=128
+    )
+    principal_minor = serializers.IntegerField(min_value=1)
+    currency = serializers.ChoiceField(choices=["CHF", "EUR"])
+    start_date = serializers.DateField()
+    declaration_document_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    declaration_reference = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BorrowerExternalDebtEndRequestSerializer(serializers.Serializer[dict[str, object]]):
+    ended_on = serializers.DateField()
+
+
+class SnbReferenceRateSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(read_only=True)
+    currency = serializers.ChoiceField(choices=["EUR"])
+    rate_date = serializers.DateField()
+    chf_per_unit = serializers.DecimalField(max_digits=12, decimal_places=6)
+    source = serializers.CharField(max_length=255)  # type: ignore[assignment]

@@ -438,6 +438,8 @@ SPECTACULAR_SETTINGS = {
         "BorrowerDocumentTypeEnum": ("backend.apps.entities.models.BorrowerDocumentType.choices"),
         "BorrowerEntityTypeEnum": "backend.apps.entities.models.BorrowerEntityType.choices",
         "BorrowerKybStatusEnum": "backend.apps.entities.models.BorrowerKybStatus.choices",
+        # 18.9: Swiss creditor modes ("sandbox", "ten_twenty") in every serializer.
+        "SwissCreditorModeEnum": ["sandbox", "ten_twenty"],
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
         "RepaymentTypeEnum": "backend.apps.loans.models.RepaymentType.choices",
         "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",

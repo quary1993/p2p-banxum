@@ -3734,6 +3734,167 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerInvestorDisclosure'
           description: ''
+  /api/v1/entities/admin/creditor-modes/{uid}/:
+    get:
+      operationId: entities_admin_creditor_mode_retrieve
+      description: '18.9: the creditor mode of a Swiss borrower UID (overview and
+        change/confirm).'
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwissCreditorModeOverview'
+          description: ''
+    post:
+      operationId: entities_admin_creditor_mode_update
+      description: '18.9: the creditor mode of a Swiss borrower UID (overview and
+        change/confirm).'
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwissCreditorModeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SwissCreditorModeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SwissCreditorModeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwissCreditorModeOverview'
+          description: ''
+  /api/v1/entities/admin/creditor-modes/{uid}/external-debts/:
+    post:
+      operationId: entities_admin_external_debts_create
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwissCreditorModeOverview'
+          description: ''
+  /api/v1/entities/admin/external-debts/{debt_id}/end/:
+    post:
+      operationId: entities_admin_external_debts_end
+      parameters:
+      - in: path
+        name: debt_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtEndRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtEndRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerExternalDebtEndRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwissCreditorModeOverview'
+          description: ''
+  /api/v1/entities/admin/snb-rates/:
+    get:
+      operationId: entities_admin_snb_rates_list
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SnbReferenceRate'
+          description: ''
+    post:
+      operationId: entities_admin_snb_rates_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnbReferenceRate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SnbReferenceRate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SnbReferenceRate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnbReferenceRate'
+          description: ''
   /api/v1/fx/admin/delta-report/:
     get:
       operationId: v1_fx_admin_delta_report_retrieve
@@ -10845,6 +11006,10 @@ components:
           nullable: true
         registration_number:
           type: string
+        uid:
+          type: string
+          default: ''
+          description: '18.9: Swiss UID (CHE-123.456.789).'
         business_classification:
           type: string
         business_classification_public:
@@ -10972,6 +11137,9 @@ components:
         registration_number:
           type: string
           maxLength: 128
+        uid:
+          type: string
+          maxLength: 32
         business_classification:
           type: string
         business_classification_public:
@@ -11092,6 +11260,104 @@ components:
         * `real_estate_project_company` - Real estate project company
         * `special_purpose_vehicle` - Special purpose vehicle
         * `other` - Other
+    BorrowerExternalDebt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        creditor_name:
+          type: string
+        creditor_identification:
+          type: string
+        creditor_is_bank:
+          type: boolean
+        financing_id:
+          type: string
+        identical_terms_group:
+          type: string
+        principal_minor:
+          type: integer
+        currency:
+          type: string
+        start_date:
+          type: string
+          format: date
+        ended_on:
+          type: string
+          format: date
+          nullable: true
+        declaration_reference:
+          type: string
+        checked_at:
+          type: string
+          format: date-time
+      required:
+      - checked_at
+      - creditor_identification
+      - creditor_is_bank
+      - creditor_name
+      - currency
+      - declaration_reference
+      - ended_on
+      - financing_id
+      - id
+      - identical_terms_group
+      - principal_minor
+      - start_date
+    BorrowerExternalDebtEndRequest:
+      type: object
+      properties:
+        ended_on:
+          type: string
+          format: date
+      required:
+      - ended_on
+    BorrowerExternalDebtRequest:
+      type: object
+      properties:
+        creditor_name:
+          type: string
+          maxLength: 255
+        creditor_identification:
+          type: string
+          maxLength: 128
+        creditor_is_bank:
+          type: boolean
+          default: false
+        financing_id:
+          type: string
+          maxLength: 128
+        identical_terms_group:
+          type: string
+          default: ''
+          maxLength: 128
+        principal_minor:
+          type: integer
+          minimum: 1
+        currency:
+          $ref: '#/components/schemas/SmartInvestCurrencyEnum'
+        start_date:
+          type: string
+          format: date
+        declaration_document_id:
+          type: string
+          format: uuid
+          nullable: true
+        declaration_reference:
+          type: string
+          default: ''
+          maxLength: 255
+        notes:
+          type: string
+          default: ''
+      required:
+      - creditor_identification
+      - creditor_name
+      - currency
+      - financing_id
+      - principal_minor
+      - start_date
     BorrowerFinancialYear:
       type: object
       description: 'U33-DEC-20: the figures of one financial year (totals, and details
@@ -17478,6 +17744,15 @@ components:
         minimum_subscription_bps:
           type: integer
           default: 5000
+        creditor_mode:
+          type: string
+          nullable: true
+          description: '18.9: Swiss creditor mode of the borrower (''sandbox'' or
+            ''ten_twenty''); null for other borrowers.'
+        sandbox_notice:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceSandboxNotice'
+          nullable: true
         offer_price:
           allOf:
           - $ref: '#/components/schemas/MarketplaceOfferPrice'
@@ -17764,6 +18039,15 @@ components:
         minimum_subscription_bps:
           type: integer
           default: 5000
+        creditor_mode:
+          type: string
+          nullable: true
+          description: '18.9: Swiss creditor mode of the borrower (''sandbox'' or
+            ''ten_twenty''); null for other borrowers.'
+        sandbox_notice:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceSandboxNotice'
+          nullable: true
       required:
       - borrower_city
       - borrower_country
@@ -18053,6 +18337,21 @@ components:
       required:
       - milestones
       - status
+    MarketplaceSandboxNotice:
+      type: object
+      description: '18.9 (E-03): notice for a borrower in sandbox mode; the investor
+        confirms this version.'
+      properties:
+        text:
+          type: string
+        version:
+          type: string
+        approved:
+          type: boolean
+      required:
+      - approved
+      - text
+      - version
     MarketplaceSecurity:
       type: object
       description: 'U33-DEC-21: one security of the loan; only the fields that apply
@@ -19607,6 +19906,9 @@ components:
         registration_number:
           type: string
           maxLength: 128
+        uid:
+          type: string
+          maxLength: 32
         business_classification:
           type: string
         business_classification_public:
@@ -20747,6 +21049,15 @@ components:
           type: string
           writeOnly: true
           pattern: ^\d{6}$
+        sandbox_notice_confirmed:
+          type: boolean
+          default: false
+          description: '18.9: the investor confirmed the sandbox notice (borrowers
+            in sandbox mode).'
+        sandbox_notice_version:
+          type: string
+          default: ''
+          maxLength: 64
       required:
       - document_acceptance_id
       - idempotency_key
@@ -24126,6 +24437,36 @@ components:
         * `not_set_up` - Not set up
         * `active` - Active
         * `paused` - Paused
+    SnbReferenceRate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        currency:
+          $ref: '#/components/schemas/SnbReferenceRateCurrencyEnum'
+        rate_date:
+          type: string
+          format: date
+        chf_per_unit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,6})?$
+        source:
+          type: string
+          maxLength: 255
+      required:
+      - chf_per_unit
+      - currency
+      - id
+      - rate_date
+      - source
+    SnbReferenceRateCurrencyEnum:
+      enum:
+      - EUR
+      type: string
+      description: '* `EUR` - EUR'
     Status828Enum:
       enum:
       - active
@@ -24191,6 +24532,101 @@ components:
           format: uri
       required:
       - file
+    SwissCreditorFinancing:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+        currency:
+          type: string
+        creditors:
+          type: integer
+      required:
+      - creditors
+      - currency
+      - loan_id
+      - status
+      - title
+    SwissCreditorModeEnum:
+      enum:
+      - sandbox
+      - ten_twenty
+      type: string
+      description: |-
+        * `sandbox` - sandbox
+        * `ten_twenty` - ten_twenty
+    SwissCreditorModeOverview:
+      type: object
+      description: '18.9: the creditor mode of a Swiss borrower UID with its total
+        and creditors.'
+      properties:
+        uid:
+          type: string
+        mode:
+          $ref: '#/components/schemas/SwissCreditorModeEnum'
+        confirmed:
+          type: boolean
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+        confirmed_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        confirmation_note:
+          type: string
+        total_chf_minor:
+          type: integer
+          nullable: true
+        total_error:
+          type: string
+        sandbox_limit_chf_minor:
+          type: integer
+        borrower_creditors:
+          type: integer
+        borrower_creditor_limit:
+          type: integer
+        financing_creditor_limit:
+          type: integer
+        financings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SwissCreditorFinancing'
+        external_debts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BorrowerExternalDebt'
+      required:
+      - borrower_creditor_limit
+      - borrower_creditors
+      - confirmation_note
+      - confirmed
+      - confirmed_at
+      - confirmed_by_admin_id
+      - external_debts
+      - financing_creditor_limit
+      - financings
+      - mode
+      - sandbox_limit_chf_minor
+      - total_chf_minor
+      - total_error
+      - uid
+    SwissCreditorModeRequest:
+      type: object
+      properties:
+        mode:
+          $ref: '#/components/schemas/SwissCreditorModeEnum'
+        note:
+          type: string
+          default: ''
+      required:
+      - mode
     TargetEnum:
       enum:
       - auto

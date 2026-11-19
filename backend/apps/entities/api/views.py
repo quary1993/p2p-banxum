@@ -24,14 +24,28 @@ from backend.apps.entities.api.serializers import (
     BorrowerEntityListQuerySerializer,
     BorrowerEntitySerializer,
     BorrowerEntityUpdateRequestSerializer,
+    BorrowerExternalDebtEndRequestSerializer,
+    BorrowerExternalDebtRequestSerializer,
     BorrowerFinancialYearListSerializer,
     BorrowerFinancialYearRequestSerializer,
     BorrowerFinancialYearSerializer,
     BorrowerInvestorDisclosureSerializer,
     CreditFileMoveRequestSerializer,
+    SnbReferenceRateSerializer,
+    SwissCreditorModeOverviewSerializer,
+    SwissCreditorModeRequestSerializer,
     serialize_borrower_document,
     serialize_borrower_entity,
     serialize_borrower_event,
+)
+from backend.apps.entities.creditor_regime import (
+    RecordExternalDebtCommand,
+    SetCreditorModeCommand,
+    creditor_mode_overview,
+    end_external_debt,
+    record_external_debt,
+    record_snb_rate,
+    set_creditor_mode,
 )
 from backend.apps.entities.models import BorrowerEntity
 from backend.apps.entities.services import (
@@ -46,6 +60,7 @@ from backend.apps.entities.services import (
     update_borrower_entity,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
+from backend.apps.platform_core.models import SnbReferenceRate
 
 
 def _admin_forbidden_response() -> Response:
@@ -118,6 +133,7 @@ class BorrowerEntityListCreateView(APIView):
                     employees=data.get("employees"),
                     employees_year=data.get("employees_year"),
                     registration_number=data.get("registration_number", ""),
+                    uid=data.get("uid", ""),
                     business_classification=data.get("business_classification", ""),
                     business_classification_public=data.get(
                         "business_classification_public", False
@@ -193,6 +209,7 @@ class BorrowerEntityDetailView(APIView):
                     employees_year=data.get("employees_year"),
                     clear_employees=bool(data.get("clear_employees", False)),
                     registration_number=data.get("registration_number"),
+                    uid=data.get("uid"),
                     business_classification=data.get("business_classification"),
                     business_classification_public=data.get("business_classification_public"),
                     registered_address=data.get("registered_address"),
@@ -543,3 +560,152 @@ class BorrowerDocumentMetadataView(APIView):
         except credit_file.CreditFileError as exc:
             return _credit_file_error(exc)
         return Response(serialize_borrower_document(document))
+
+
+def _regime_error(exc: Exception) -> Response:
+    code = (
+        status.HTTP_403_FORBIDDEN
+        if isinstance(exc, BorrowerAuthorizationError)
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return Response({"detail": str(exc)}, status=code)
+
+
+class SwissCreditorModeView(APIView):
+    """18.9: the creditor mode of a Swiss borrower UID (overview and change/confirm)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="entities_admin_creditor_mode_retrieve",
+        responses={200: SwissCreditorModeOverviewSerializer},
+    )
+    def get(self, request: Request, uid: str) -> Response:
+        try:
+            payload = creditor_mode_overview(actor=cast(Model, request.user), uid=uid)
+        except (BorrowerAuthorizationError, BorrowerValidationError) as exc:
+            return _regime_error(exc)
+        return Response(SwissCreditorModeOverviewSerializer(payload).data)
+
+    @extend_schema(
+        operation_id="entities_admin_creditor_mode_update",
+        request=SwissCreditorModeRequestSerializer,
+        responses={200: SwissCreditorModeOverviewSerializer},
+    )
+    def post(self, request: Request, uid: str) -> Response:
+        serializer = SwissCreditorModeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            set_creditor_mode(
+                SetCreditorModeCommand(
+                    actor=cast(Model, request.user),
+                    uid=uid,
+                    mode=str(data["mode"]),
+                    note=str(data.get("note", "")),
+                )
+            )
+            payload = creditor_mode_overview(actor=cast(Model, request.user), uid=uid)
+        except (BorrowerAuthorizationError, BorrowerValidationError) as exc:
+            return _regime_error(exc)
+        return Response(SwissCreditorModeOverviewSerializer(payload).data)
+
+
+class BorrowerExternalDebtCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="entities_admin_external_debts_create",
+        request=BorrowerExternalDebtRequestSerializer,
+        responses={201: SwissCreditorModeOverviewSerializer},
+    )
+    def post(self, request: Request, uid: str) -> Response:
+        serializer = BorrowerExternalDebtRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            record_external_debt(
+                RecordExternalDebtCommand(
+                    actor=cast(Model, request.user),
+                    uid=uid,
+                    creditor_name=str(data["creditor_name"]),
+                    creditor_identification=str(data["creditor_identification"]),
+                    creditor_is_bank=bool(data["creditor_is_bank"]),
+                    financing_id=str(data["financing_id"]),
+                    identical_terms_group=str(data.get("identical_terms_group", "")),
+                    principal_minor=int(data["principal_minor"]),
+                    currency=str(data["currency"]),
+                    start_date=data["start_date"],
+                    declaration_document_id=(
+                        str(data["declaration_document_id"])
+                        if data.get("declaration_document_id")
+                        else None
+                    ),
+                    declaration_reference=str(data.get("declaration_reference", "")),
+                    notes=str(data.get("notes", "")),
+                )
+            )
+            payload = creditor_mode_overview(actor=cast(Model, request.user), uid=uid)
+        except (BorrowerAuthorizationError, BorrowerValidationError) as exc:
+            return _regime_error(exc)
+        return Response(
+            SwissCreditorModeOverviewSerializer(payload).data, status=status.HTTP_201_CREATED
+        )
+
+
+class BorrowerExternalDebtEndView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="entities_admin_external_debts_end",
+        request=BorrowerExternalDebtEndRequestSerializer,
+        responses={200: SwissCreditorModeOverviewSerializer},
+    )
+    def post(self, request: Request, debt_id: str) -> Response:
+        serializer = BorrowerExternalDebtEndRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            debt = end_external_debt(
+                actor=cast(Model, request.user),
+                debt_id=str(debt_id),
+                ended_on=serializer.validated_data["ended_on"],
+            )
+            payload = creditor_mode_overview(actor=cast(Model, request.user), uid=str(debt.uid))
+        except (BorrowerAuthorizationError, BorrowerValidationError) as exc:
+            return _regime_error(exc)
+        return Response(SwissCreditorModeOverviewSerializer(payload).data)
+
+
+class SnbReferenceRateListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="entities_admin_snb_rates_list",
+        responses={200: SnbReferenceRateSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return Response({"detail": "Admin access required."}, status=403)
+        rates = SnbReferenceRate.objects.order_by("-rate_date", "currency")[:60]
+        return Response(SnbReferenceRateSerializer(rates, many=True).data)
+
+    @extend_schema(
+        operation_id="entities_admin_snb_rates_create",
+        request=SnbReferenceRateSerializer,
+        responses={201: SnbReferenceRateSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = SnbReferenceRateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            rate = record_snb_rate(
+                actor=cast(Model, request.user),
+                currency=str(data["currency"]),
+                rate_date=data["rate_date"],
+                chf_per_unit=str(data["chf_per_unit"]),
+                source=str(data["source"]),
+            )
+        except (BorrowerAuthorizationError, BorrowerValidationError) as exc:
+            return _regime_error(exc)
+        return Response(SnbReferenceRateSerializer(rate).data, status=status.HTTP_201_CREATED)

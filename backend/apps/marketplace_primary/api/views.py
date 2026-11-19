@@ -319,6 +319,8 @@ class PrimaryInvestmentOrderAllocateView(APIView):
                     pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
+                    sandbox_notice_confirmed=bool(data.get("sandbox_notice_confirmed", False)),
+                    sandbox_notice_version=str(data.get("sandbox_notice_version", "")),
                 )
             )
         except SensitiveActionPinError as exc:

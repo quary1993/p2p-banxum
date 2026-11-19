@@ -18,6 +18,7 @@ from backend.apps.entities.models import (
     BorrowerEntityType,
     BorrowerKybStatus,
 )
+from backend.apps.platform_core.domain import creditor_regime
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.story import StoryValidationError, validate_story
 from backend.apps.platform_core.domain.time import business_date, now_utc
@@ -84,6 +85,17 @@ def _optional_clean(value: str | None) -> str | None:
     if value is None:
         return None
     return value.strip()
+
+
+def _clean_uid(value: str | None) -> str:
+    """18.9: the Swiss UID in its stored form (CHE-123.456.789); blank stays blank."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return creditor_regime.normalize_uid(raw)
+    except creditor_regime.CreditorRegimeError as exc:
+        raise BorrowerValidationError(str(exc)) from exc
 
 
 def _entity_type(value: str) -> BorrowerEntityType:
@@ -221,6 +233,7 @@ class CreateBorrowerEntityCommand:
     employees: int | None = None
     employees_year: int | None = None
     registration_number: str = ""
+    uid: str = ""
     business_classification: str = ""
     business_classification_public: bool = False
     registered_address: str = ""
@@ -261,6 +274,7 @@ class UpdateBorrowerEntityCommand:
     employees_year: int | None = None
     clear_employees: bool = False
     registration_number: str | None = None
+    uid: str | None = None
     business_classification: str | None = None
     business_classification_public: bool | None = None
     registered_address: str | None = None
@@ -326,6 +340,7 @@ def create_borrower_entity(command: CreateBorrowerEntityCommand) -> BorrowerEnti
         employees=command.employees,
         employees_year=command.employees_year,
         registration_number=command.registration_number.strip(),
+        uid=_clean_uid(command.uid),
         business_classification=command.business_classification.strip(),
         business_classification_public=command.business_classification_public,
         registered_address=command.registered_address.strip(),
@@ -459,6 +474,13 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
                 value=command_value,
                 changes=changes,
             )
+    if command.uid is not None:
+        _set_if_changed(
+            borrower=borrower,
+            field="uid",
+            value=_clean_uid(command.uid),
+            changes=changes,
+        )
     for field_name in (
         "business_classification_public",
         "registered_address_public",

@@ -296,6 +296,14 @@ class MarketplaceSecuritySerializer(serializers.Serializer[Any]):
     documents = MarketplaceSecurityDocumentSerializer(many=True)
 
 
+class MarketplaceSandboxNoticeSerializer(serializers.Serializer[Any]):
+    """18.9 (E-03): notice for a borrower in sandbox mode; the investor confirms this version."""
+
+    text = serializers.CharField()
+    version = serializers.CharField()
+    approved = serializers.BooleanField()
+
+
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
     # Q04: a Garanta account has a confirmed reservation or holds a participation (no amount).
@@ -389,6 +397,19 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     )
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
+    # A plain string: a nullable choice field makes the generated mock pick from an empty list.
+    creditor_mode = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "18.9: Swiss creditor mode of the borrower ('sandbox' or 'ten_twenty'); "
+            "null for other borrowers."
+        ),
+    )
+    sandbox_notice = MarketplaceSandboxNoticeSerializer(
+        required=False, allow_null=True, default=None
+    )
 
 
 class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -665,6 +686,14 @@ class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
     pin = sensitive_action_pin_field()
+    sandbox_notice_confirmed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="18.9: the investor confirmed the sandbox notice (borrowers in sandbox mode).",
+    )
+    sandbox_notice_version = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=64
+    )
 
 
 class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]):

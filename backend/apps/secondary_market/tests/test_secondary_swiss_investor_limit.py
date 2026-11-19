@@ -22,14 +22,13 @@ from django.db import close_old_connections, connection
 from django.db.models import Model
 from django.test import Client
 
-from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.investor_limit import (
-    SWISS_BORROWER_MAX_INVESTORS_SETTING,
     SWISS_INVESTOR_LIMIT_CODE,
+    swiss_investor_limit_message,
 )
-from backend.apps.platform_core.services.settings import (
-    SetPlatformSettingCommand,
-    set_platform_setting,
+from backend.apps.platform_core.tests.creditor_mode_helpers import (  # noqa: F401
+    restore_limits,
+    set_swiss_creditor_mode,
 )
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.secondary_market import services as secondary_services
@@ -54,7 +53,7 @@ from backend.apps.secondary_market.tests.test_secondary_market import (
 # Fixtures shared with the secondary-market tests (the clock freeze is autouse).
 __all__ = ["admin_user", "freeze_secondary_market_clock"]
 
-FULL_MESSAGE = "This loan to a Swiss company already has the maximum of {} investors."
+FULL_MESSAGE = swiss_investor_limit_message(999).replace("999", "{}")
 
 
 def loan_investor_limit(loan: Model) -> Any:
@@ -81,15 +80,8 @@ def _lender(name: str) -> Model:
 
 
 def _set_limit(value: int) -> None:
-    set_platform_setting(
-        SetPlatformSettingCommand(
-            actor=ActorRef.system(),
-            key=SWISS_BORROWER_MAX_INVESTORS_SETTING,
-            value=value,
-            value_type="integer",
-            reason="Swiss-borrower investor limit test.",
-        )
-    )
+    """18.9: the borrowers' 10/20 mode with a lowered per-financing limit (0 = sandbox mode)."""
+    set_swiss_creditor_mode(financing_limit=value)
 
 
 def _holding(admin_user: Model, investor: Model, loan: Model, key: str) -> Model:
@@ -206,7 +198,7 @@ def test_new_buyer_is_refused_when_the_seller_stays_and_no_place_is_left(
 
 
 @pytest.mark.django_db
-def test_setting_zero_and_other_borrowers_do_not_limit_secondary_buyers(
+def test_sandbox_mode_and_other_borrowers_do_not_limit_secondary_buyers(
     admin_user: Model,
 ) -> None:
     loan = _create_funded_loan(admin_user)

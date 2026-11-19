@@ -1078,6 +1078,18 @@ def _private_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]
     }
 
 
+def _snapshot_uid(snapshot: dict[str, Any]) -> str:
+    """18.9: the final borrower's Swiss UID (normalized); required before a Swiss publication."""
+    raw = str(_snapshot_value(snapshot, "uid")).strip()
+    if not raw:
+        return ""
+    regimes = import_module("backend.apps.platform_core.domain.creditor_regime")
+    try:
+        return str(regimes.normalize_uid(raw))
+    except regimes.CreditorRegimeError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+
+
 def _apply_borrower_snapshot(
     profile: OriginatorLoanProfile,
     snapshot: dict[str, Any],
@@ -1098,6 +1110,7 @@ def _apply_borrower_snapshot(
     profile.borrower_employees = _snapshot_value(snapshot, "employees", None)
     profile.borrower_employees_year = _snapshot_value(snapshot, "employees_year", None)
     profile.borrower_registration_number = str(_snapshot_value(snapshot, "registration_number"))
+    profile.borrower_uid = _snapshot_uid(snapshot)
     profile.business_classification = str(_snapshot_value(snapshot, "business_classification"))
     profile.business_classification_public = bool(
         _snapshot_value(snapshot, "business_classification_public", False)
@@ -1622,6 +1635,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         borrower_employees=_snapshot_value(snapshot, "employees", None),
         borrower_employees_year=_snapshot_value(snapshot, "employees_year", None),
         borrower_registration_number=str(_snapshot_value(snapshot, "registration_number")),
+        borrower_uid=_snapshot_uid(snapshot),
         business_classification=str(_snapshot_value(snapshot, "business_classification")),
         business_classification_public=bool(
             _snapshot_value(snapshot, "business_classification_public", False)
@@ -2189,6 +2203,11 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             )
         if uses_accrued_interest_price(profile):
             _check_accrued_offer_can_publish(profile, publication_date=publication_date)
+    _check_creditor_mode(
+        lambda regimes: regimes.check_publication(
+            cast(Model, loan), actor=command.actor, on=business_date(now_utc())
+        )
+    )
     now = now_utc()
     # New claims reserve investor money in escrow while the round is open.
     # Legacy claims remain immediately assignable for historical compatibility.
@@ -2502,6 +2521,9 @@ def close_originator_subscription_round(
         "funding_close_failed",
     }:
         raise OriginatorClaimsValidationError("Originator funding round is not open.")
+    _check_creditor_mode(
+        lambda regimes: regimes.check_before_close(cast(Model, loan), on=command.as_of_date)
+    )
     if _accrued_offer_due_date_reached(profile, command.as_of_date):
         # 18.7 (F04): re-checked at the close; the daily scan or the admin fails the offer.
         raise OriginatorClaimsValidationError(
@@ -3625,11 +3647,7 @@ def fail_originator_offer_if_needed(
     """18.7 (F04): a borrower payment on the claim or a due date before the settlement fails
     an offer priced with accrued interest. Every participation is cancelled, the reserved money
     goes back to the available balances and the offer never reopens."""
-    profile = (
-        OriginatorLoanProfile.objects.select_related("loan")
-        .filter(loan_id=loan_id)
-        .first()
-    )
+    profile = OriginatorLoanProfile.objects.select_related("loan").filter(loan_id=loan_id).first()
     if profile is None or not uses_accrued_interest_price(profile):
         return None
     if profile.opportunity_status not in {
@@ -3702,6 +3720,15 @@ def _check_accrued_offer_can_publish(
             "An installment of the claim is due and unpaid; an offer cannot be published."
         )
     _price_period_row(profile)
+
+
+def _check_creditor_mode(check: Any) -> None:
+    """18.9: run a Swiss creditor mode check; a violation is a validation error."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        check(regimes)
+    except regimes.CreditorRegimeViolation as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
 
 
 def _accrued_offer_due_date_reached(profile: OriginatorLoanProfile, as_of_date: date) -> bool:
@@ -4542,6 +4569,10 @@ def originator_marketplace_payload(
         "entitlement_start_date": profile.entitlement_start_date,
         "investor_interest_participation_bps": int(profile.investor_interest_participation_bps),
         "investor_penalty_participation_bps": int(profile.investor_penalty_participation_bps),
+        # 18.9: the Swiss creditor mode of the final borrower and the sandbox notice.
+        **import_module("backend.apps.marketplace_primary.services").creditor_mode_fields(
+            cast(Model, profile.loan)
+        ),
     }
     if not include_detail:
         return payload
@@ -5001,9 +5032,17 @@ def _purchase_originator_claim_after_sensitive_code(
     if swiss_limit_applies:
         # Count the claim's investors under the loan lock, like every other investment
         # path, so two new investors cannot both take the last place (MKT-DEC-028).
-        apps.get_model("loans", "Loan").objects.select_for_update().filter(
-            id=quote.loan_profile.loan_id
-        ).first()
+        locked_loan = (
+            apps.get_model("loans", "Loan")
+            .objects.select_for_update()
+            .filter(id=quote.loan_profile.loan_id)
+            .first()
+        )
+        if locked_loan is not None:
+            # 18.9: and the borrower's regime row, so creditors of one UID queue.
+            import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(
+                locked_loan
+            )
     profile = (
         OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import", "loan__currency")

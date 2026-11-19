@@ -11,12 +11,27 @@ from backend.apps.entities.api.views import (
     BorrowerEntityDetailView,
     BorrowerEntityListCreateView,
     BorrowerEventListView,
+    BorrowerExternalDebtCreateView,
+    BorrowerExternalDebtEndView,
     BorrowerFinancialYearDetailView,
     BorrowerFinancialYearListView,
     BorrowerInvestorDisclosurePreviewView,
+    SnbReferenceRateListCreateView,
+    SwissCreditorModeView,
 )
 
 urlpatterns = [
+    # 18.9: Swiss creditor modes per borrower UID, external debts and SNB reference rates.
+    path("admin/creditor-modes/<str:uid>/", SwissCreditorModeView.as_view()),
+    path(
+        "admin/creditor-modes/<str:uid>/external-debts/",
+        BorrowerExternalDebtCreateView.as_view(),
+    ),
+    path(
+        "admin/external-debts/<uuid:debt_id>/end/",
+        BorrowerExternalDebtEndView.as_view(),
+    ),
+    path("admin/snb-rates/", SnbReferenceRateListCreateView.as_view()),
     path("admin/borrowers/", BorrowerEntityListCreateView.as_view(), name="borrower-list-create"),
     path(
         "admin/borrowers/<uuid:borrower_id>/",

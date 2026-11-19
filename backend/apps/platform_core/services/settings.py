@@ -118,7 +118,24 @@ DEFAULT_PLATFORM_SETTINGS = (
         "investment.swiss_borrower_max_investors",
         20,
         "integer",
-        "Most investors per loan to a Swiss borrower; 0 switches the limit off.",
+        "Not used since 18.9 (Swiss creditor modes per borrower UID replace this limit).",
+    ),
+    SettingDefinition(
+        "swiss.sandbox_notice_text",
+        (
+            "[Placeholder - legal text pending] {borrower} operates under the Swiss sandbox "
+            "exemption from the banking licence and is not supervised by FINMA. Your "
+            "investment is not covered by the Swiss deposit protection."
+        ),
+        "string",
+        "18.9 (E-03): notice shown before investing in a borrower in sandbox mode.",
+    ),
+    SettingDefinition(
+        "swiss.sandbox_notice_approved",
+        False,
+        "boolean",
+        "18.9: the WW-approved notice text is in place; production refuses sandbox publications "
+        "while false.",
     ),
     SettingDefinition(
         "investment.banxum_investor_emails",

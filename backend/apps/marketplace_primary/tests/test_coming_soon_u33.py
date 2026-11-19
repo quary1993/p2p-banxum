@@ -22,6 +22,7 @@ from backend.apps.marketplace_primary.services import (
 )
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.models import OutboxMessage
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 
 pytestmark = pytest.mark.django_db
 
@@ -96,6 +97,7 @@ def _draft(admin_user: Model, *, title: str = "Coming soon bridge loan") -> Mode
         year_founded=2015,
         kyb_status="approved",
         country="CH",
+        uid=next_test_uid(),
         created_by_admin_id=admin_user.pk,
     )
     loans = _loans()

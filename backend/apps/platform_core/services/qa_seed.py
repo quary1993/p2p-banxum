@@ -119,6 +119,8 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                     year_founded=2015 + index,
                     registration_number=registration,
                     country="Switzerland",
+                    # 18.9: synthetic valid UIDs for the Swiss creditor modes.
+                    uid=("CHE-220.000.010", "CHE-220.001.015", "CHE-330.000.012")[index % 3],
                     kyb_status="approved",
                     business_classification="Manufacturing" if index == 0 else "Wholesale",
                     business_classification_public=True,
@@ -126,6 +128,18 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 )
             )
         borrowers.append(borrower)
+    # 18.9: the QA catalogue lends more than CHF 500,000 per borrower: 10/20 mode.
+    regimes = import_module("backend.apps.entities.creditor_regime")
+    for borrower in borrowers:
+        if str(getattr(borrower, "uid", "") or ""):
+            regimes.set_creditor_mode(
+                regimes.SetCreditorModeCommand(
+                    actor=actor,
+                    uid=str(borrower.uid),
+                    mode="ten_twenty",
+                    note="Synthetic QA borrower.",
+                )
+            )
     catalogue = import_module("backend.apps.loans.management.commands.seed_marketplace_demo_loans")
     direct_loans = []
     for index, spec in enumerate(catalogue.DEMO_LOAN_SPECS):

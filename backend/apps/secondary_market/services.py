@@ -313,17 +313,16 @@ def _assert_transfer_within_investor_limit(
     seller_user_id: str,
     holding_id: str,
 ) -> None:
-    """A whole-holding purchase by a new investor must not raise a Swiss-borrower loan's
-    investor count above its limit (plan/09 MKT-DEC-028).
+    """A whole-holding purchase by a new creditor must not raise the creditor counts of a Swiss
+    borrower in 10/20 mode above the limits (18.9: 10 per financing, 20 per borrower).
 
-    The buyer takes the seller's place when this is the seller's last holding of the
-    loan; otherwise the buyer needs a free place. The authoritative check runs under the
-    loan lock.
+    The buyer takes the seller's place in the financing when this is the seller's last holding
+    of the loan, and in the borrower count when the seller also has no holding in another
+    financing of the borrower; otherwise the buyer needs a free place. The authoritative check
+    runs under the loan lock and the borrower's regime lock.
     """
-    limit = cast(
-        InvestorLimit,
-        import_module("backend.apps.marketplace_primary.investor_limit").loan_investor_limit(loan),
-    )
+    selectors = import_module("backend.apps.marketplace_primary.investor_limit")
+    limit = cast(InvestorLimit, selectors.loan_investor_limit(loan))
     if not limit.applies or limit.is_investor(buyer_user_id):
         return
     seller_stays_investor = (
@@ -333,9 +332,13 @@ def _assert_transfer_within_investor_limit(
         .exclude(id=holding_id)
         .exists()
     )
+    seller_stays_borrower_creditor = seller_stays_investor or bool(
+        selectors.is_creditor_in_other_financings(loan, seller_user_id)
+    )
     if limit.transfer_refused(
         buyer_user_id=buyer_user_id,
         seller_stays_investor=seller_stays_investor,
+        seller_stays_borrower_creditor=seller_stays_borrower_creditor,
     ):
         raise SecondaryMarketSwissInvestorLimitError(
             swiss_investor_limit_message(int(limit.max_investors or 0))
@@ -3011,7 +3014,9 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError(
             "Buyer must acknowledge the non-standard listing risk disclosure."
         )
-    # The loan row is locked: two new investors cannot both take the last place.
+    # The loan row is locked, and (18.9) the borrower's regime row: two new creditors of one
+    # UID cannot both take the last place.
+    import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(loan)
     _assert_transfer_within_investor_limit(
         loan=loan,
         buyer_user_id=buyer_user_id,

@@ -34,6 +34,7 @@ from backend.apps.loans.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 
 
 @pytest.fixture
@@ -77,6 +78,7 @@ def _borrower(admin_user: Model, *, kyb_status: str = "approved", hold: bool = F
             kyb_status=kyb_status,
             compliance_hold=hold,
             country="Switzerland",
+            uid=next_test_uid(),
             created_by_admin_id=admin_user.pk,
         ),
     )

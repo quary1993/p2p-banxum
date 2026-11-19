@@ -43,6 +43,10 @@ class BorrowerEntityEventType(models.TextChoices):
     UPDATED = "updated", "Updated"
     KYB_STATUS_CHANGED = "kyb_status_changed", "KYB status changed"
     DOCUMENT_ADDED = "document_added", "Document added"
+    # 18.9: Swiss creditor mode and external debts (Q03, F06-F09).
+    CREDITOR_MODE_CHANGED = "creditor_mode_changed", "Creditor mode changed"
+    EXTERNAL_DEBT_RECORDED = "external_debt_recorded", "External debt recorded"
+    EXTERNAL_DEBT_ENDED = "external_debt_ended", "External debt ended"
 
 
 class BorrowerEntity(TimestampedModel):
@@ -66,6 +70,8 @@ class BorrowerEntity(TimestampedModel):
     employees = models.PositiveIntegerField(null=True, blank=True)
     employees_year = models.PositiveSmallIntegerField(null=True, blank=True)
     registration_number = models.CharField(max_length=128, blank=True)
+    # 18.9: the Swiss UID (CHE-123.456.789), mandatory for a Swiss borrower before publication.
+    uid = models.CharField(max_length=16, blank=True, default="")
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)
     registered_address = models.TextField(blank=True)
@@ -285,4 +291,66 @@ class BorrowerDebtFacility(TimestampedModel):
                 ),
                 name="borrower_debt_facility_amounts_not_negative",
             )
+        ]
+
+
+class SwissCreditorMode(models.TextChoices):
+    SANDBOX = "sandbox", "Sandbox (total below CHF 500,000, no creditor limit)"
+    TEN_TWENTY = "ten_twenty", "10/20 (10 creditors per financing, 20 per borrower)"
+
+
+class SwissCreditorRegime(TimestampedModel):
+    """18.9 (E-02): the creditor mode of one Swiss borrower, by UID (direct loans and Loan
+    Originator claims of the same company share it). Pre-selected sandbox; confirmed by an admin
+    before the first publication."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    uid = models.CharField(max_length=16, unique=True)
+    mode = models.CharField(
+        max_length=16, choices=SwissCreditorMode.choices, default=SwissCreditorMode.SANDBOX
+    )
+    confirmed_by_admin_id = models.UUIDField(null=True, blank=True)
+    confirmed_at = PlatformDateTimeField(null=True, blank=True)
+    confirmation_note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["uid"]
+
+
+class BorrowerExternalDebt(TimestampedModel):
+    """18.9 (F09): a debt of a Swiss borrower outside Banxum, from a signed borrower declaration.
+
+    It counts in the borrower total ``T`` and, for a non-bank creditor, in the creditor counts.
+    Records are ended (``ended_on``), never deleted.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    uid = models.CharField(max_length=16, db_index=True)
+    creditor_name = models.CharField(max_length=255)
+    creditor_identification = models.CharField(max_length=128)
+    creditor_is_bank = models.BooleanField(default=False)
+    financing_id = models.CharField(max_length=128)
+    identical_terms_group = models.CharField(max_length=128, blank=True, default="")
+    principal_minor = models.BigIntegerField()
+    currency = models.CharField(max_length=3)
+    start_date = models.DateField()
+    ended_on = models.DateField(null=True, blank=True)
+    declaration_document_id = models.UUIDField(null=True, blank=True)
+    declaration_reference = models.CharField(max_length=255, blank=True, default="")
+    checked_by_admin_id = models.UUIDField()
+    checked_at = PlatformDateTimeField()
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["uid", "start_date", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(principal_minor__gt=0),
+                name="entities_external_debt_positive_principal",
+            ),
+            models.UniqueConstraint(
+                fields=["uid", "creditor_identification", "financing_id"],
+                condition=models.Q(ended_on__isnull=True),
+                name="entities_external_debt_open_unique",
+            ),
         ]

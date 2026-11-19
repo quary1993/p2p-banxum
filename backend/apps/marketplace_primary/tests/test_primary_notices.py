@@ -29,6 +29,7 @@ from backend.apps.marketplace_primary.tests.test_primary_marketplace import (  #
     _create_primary_acceptance,
     _create_published_loan,
     _declare_deposit,
+    _sandbox_ack,
     _sensitive_code_payload,
     admin_user,
     investor,
@@ -85,6 +86,7 @@ def test_allocated_orders_send_one_notice_with_the_amount_actually_reserved(
     allocate = AllocatePrimaryInvestmentOrderCommand(
         actor=investor,
         order_id=str(pending.id),
+        **_sandbox_ack(pending),
         document_acceptance_id=str(acceptance.pk),
         idempotency_key="alloc-part-allocate",
         **_sensitive_code_payload(investor, "primary_investment"),

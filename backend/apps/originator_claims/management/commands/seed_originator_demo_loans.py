@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -30,6 +31,7 @@ from backend.apps.originator_claims.services import (
     place_originator_loan_on_hold,
     publish_originator_loan,
 )
+from backend.apps.platform_core.domain import creditor_regime
 from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
@@ -461,6 +463,14 @@ def _activation_outstanding_principal_minor(
     return spec.principal_minor - int(schedule[0].principal_minor)
 
 
+def _demo_uid(spec: DemoOriginatorLoanSpec) -> str:
+    """18.9: a synthetic valid UID for a Swiss demo borrower (demo data only)."""
+    if spec.borrower_country != "Switzerland":
+        return ""
+    seed = int(hashlib.sha256(spec.key.encode("utf-8")).hexdigest()[:8], 16)
+    return str(creditor_regime.synthetic_uid(seed))
+
+
 def _borrower_snapshot(spec: DemoOriginatorLoanSpec) -> dict[str, Any]:
     return {
         "borrower_legal_name": f"BANXUM Demo Confidential Borrower - {spec.key}",
@@ -468,6 +478,7 @@ def _borrower_snapshot(spec: DemoOriginatorLoanSpec) -> dict[str, Any]:
         "year_founded": 2014,
         "entity_type": "Private company",
         "country": spec.borrower_country,
+        "uid": _demo_uid(spec),
         "business_classification": "Small or medium-sized operating company",
         "business_classification_public": True,
         "registered_address": "Withheld in private-test catalogue",
@@ -682,6 +693,17 @@ class Command(BaseCommand):
                             skin_in_the_game_bps=loan_spec.skin_in_the_game_bps,
                         )
                     )
+                    if _demo_uid(loan_spec):
+                        # 18.9: demo Swiss borrowers in the 10/20 mode (no CHF total needed).
+                        regimes = import_module("backend.apps.entities.creditor_regime")
+                        regimes.set_creditor_mode(
+                            regimes.SetCreditorModeCommand(
+                                actor=actor,
+                                uid=_demo_uid(loan_spec),
+                                mode="ten_twenty",
+                                note="Synthetic demo borrower.",
+                            )
+                        )
                     profile = publish_originator_loan(
                         PublishOriginatorLoanCommand(
                             actor=actor,

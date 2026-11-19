@@ -54,6 +54,26 @@ from backend.apps.platform_core.tests.factories import (
     assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
+
+
+def _sandbox_ack(order: Any) -> dict[str, Any]:
+    """18.9 (E-03): the investor's confirmation of the sandbox notice, when the borrower has one."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    services = import_module("backend.apps.marketplace_primary.services")
+    loan = (
+        apps.get_model("loans", "Loan")
+        .objects.select_related("borrower")
+        .get(pk=cast(Any, order).loan_id)
+    )
+    notice = regimes.sandbox_notice(loan, borrower_name=services._borrower_public_name(loan))
+    if notice is None:
+        return {}
+    return {"sandbox_notice_confirmed": True, "sandbox_notice_version": notice["version"]}
+
+
+def _sandbox_ack_loan(loan: Any) -> dict[str, Any]:
+    return _sandbox_ack(type("OrderLike", (), {"loan_id": cast(Any, loan).pk})())
 
 
 def _close_primary_at_as_of(command: ClosePrimaryLoanFundingCommand) -> PrimaryLoanClose:
@@ -162,6 +182,7 @@ def _create_borrower(admin_user: Model, *, country: str = "CH") -> Model:
             entity_type="swiss_company",
             kyb_status="approved",
             country=country,
+            uid=next_test_uid(),
             created_by_admin_id=admin_user.pk,
         ),
     )
@@ -419,6 +440,7 @@ def _create_and_allocate_order(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key=f"{idempotency_prefix}-allocate",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -565,6 +587,7 @@ def test_balance_allocation_reserves_lots_and_updates_loan_commitment(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-1",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -611,6 +634,7 @@ def test_balance_allocation_requires_sensitive_action_code(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="market-allocate-missing-sensitive-code",
             )
@@ -649,6 +673,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-idempotent",
             **allocation_code,
@@ -658,6 +683,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-idempotent",
             **allocation_code,
@@ -671,6 +697,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="market-allocate-conflict",
                 **allocation_code,
@@ -713,6 +740,7 @@ def test_balance_allocation_allows_pledge_before_lot_investment_deadline(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-before-lot-deadline",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -753,6 +781,7 @@ def test_allocation_refuses_a_partial_fill_below_the_minimum_order(
     command = AllocatePrimaryInvestmentOrderCommand(
         actor=investor,
         order_id=str(order.id),
+        **_sandbox_ack(order),
         document_acceptance_id=str(acceptance.pk),
         idempotency_key="market-allocate-final-fill",
         **_sensitive_code_payload(investor, "primary_investment"),
@@ -806,6 +835,7 @@ def test_allocation_keeps_a_partial_fill_that_reaches_the_minimum_order(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-fill-at-minimum",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -846,6 +876,7 @@ def test_allocation_uses_remaining_capacity_and_leaves_excess_balance_available(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-partial",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -900,6 +931,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(wrong_category.pk),
                 idempotency_key="market-allocate-wrong-category",
                 **allocation_code,
@@ -917,6 +949,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(wrong_context.pk),
                 idempotency_key="market-allocate-wrong-context",
                 **allocation_code,
@@ -933,6 +966,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(other_acceptance.pk),
                 idempotency_key="market-allocate-other-user-acceptance",
                 **allocation_code,
@@ -950,6 +984,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(stale_acceptance.pk),
                 idempotency_key="market-allocate-stale-acceptance",
                 **allocation_code,
@@ -994,6 +1029,7 @@ def test_allocation_blocks_other_investor_order_access(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=other_investor,
                 order_id=str(order.id),
+                **_sandbox_ack(order),
                 document_acceptance_id=str(other_acceptance.pk),
                 idempotency_key="market-allocate-idor",
                 **_sensitive_code_payload(other_investor, "primary_investment"),
@@ -1028,6 +1064,7 @@ def test_allocation_closes_not_invested_when_no_capacity_remains(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-no-capacity",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -1091,6 +1128,7 @@ def test_new_order_closes_the_investors_unconfirmed_order_on_the_same_loan(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(first.id),
+                **_sandbox_ack(first),
                 document_acceptance_id=str(first_acceptance.pk),
                 idempotency_key="market-allocate-abandoned",
                 **code,
@@ -1106,6 +1144,7 @@ def test_new_order_closes_the_investors_unconfirmed_order_on_the_same_loan(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(second.id),
+            **_sandbox_ack(second),
             document_acceptance_id=str(second_acceptance.pk),
             idempotency_key="market-allocate-replacement",
             **code,
@@ -1194,6 +1233,7 @@ def test_order_api_reports_closed_orders_clearly(
         data={
             "document_acceptance_id": str(replaced_acceptance.pk),
             "idempotency_key": "api-r-allocate-1",
+            **_sandbox_ack_loan(loan),
             **code,
         },
         content_type="application/json",
@@ -1208,6 +1248,7 @@ def test_order_api_reports_closed_orders_clearly(
         data={
             "document_acceptance_id": str(current_acceptance.pk),
             "idempotency_key": "api-r-allocate-2",
+            **_sandbox_ack_loan(loan),
             **code,
         },
         content_type="application/json",
@@ -1249,6 +1290,7 @@ def test_admin_release_restores_lots_and_loan_commitment(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-release",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -1299,6 +1341,7 @@ def test_admin_release_is_idempotent_and_rejects_double_release(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-double-release",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -1360,6 +1403,7 @@ def test_release_fails_loud_on_committed_principal_underflow(
         AllocatePrimaryInvestmentOrderCommand(
             actor=investor,
             order_id=str(order.id),
+            **_sandbox_ack(order),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-underflow",
             **_sensitive_code_payload(investor, "primary_investment"),
@@ -2441,6 +2485,7 @@ def test_primary_marketplace_api_flow(
         data={
             "document_acceptance_id": str(acceptance.pk),
             "idempotency_key": "api-market-allocate-1",
+            **_sandbox_ack_loan(loan),
             **_sensitive_code_payload(investor, "primary_investment"),
         },
         content_type="application/json",
@@ -2731,6 +2776,7 @@ def test_investor_without_a_verified_account_cannot_order_or_allocate(
             AllocatePrimaryInvestmentOrderCommand(
                 actor=investor,
                 order_id=str(pending.id),
+                **_sandbox_ack(pending),
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="penalty-pending-allocate",
                 **_sensitive_code_payload(investor, "primary_investment"),
@@ -2861,6 +2907,7 @@ def test_primary_allocation_endpoint_needs_the_pin(
             data={
                 "document_acceptance_id": str(acceptance.pk),
                 "idempotency_key": "pin-allocate",
+                **_sandbox_ack_loan(loan),
                 **fields,
             },
             content_type="application/json",

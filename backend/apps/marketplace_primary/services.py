@@ -130,6 +130,9 @@ class AllocatePrimaryInvestmentOrderCommand:
     pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
+    # 18.9 (E-03): the investor confirmed the sandbox notice of this version (sandbox mode only).
+    sandbox_notice_confirmed: bool = False
+    sandbox_notice_version: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +387,44 @@ def _minimum_investment_minor(currency_code: str) -> int:
         if type(value) is int:
             return value
     return 100000
+
+
+def creditor_mode_fields(loan: Model) -> dict[str, Any]:
+    """18.9: the Swiss creditor mode of the loan's borrower and, in sandbox mode, the notice."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    return {
+        "creditor_mode": regimes.creditor_mode_payload(loan),
+        "sandbox_notice": regimes.sandbox_notice(loan, borrower_name=_borrower_public_name(loan)),
+    }
+
+
+def _assert_sandbox_notice_confirmed(loan: Model, command: Any) -> None:
+    """E-03 / F06.2: a borrower in sandbox mode needs the investor's explicit confirmation of the
+    notice (the version shown), recorded with the order."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    notice = regimes.sandbox_notice(loan, borrower_name=_borrower_public_name(loan))
+    if notice is None:
+        return
+    if not bool(getattr(command, "sandbox_notice_confirmed", False)) or str(
+        getattr(command, "sandbox_notice_version", "") or ""
+    ) != str(notice["version"]):
+        raise MarketplacePrimaryValidationError(
+            "Confirm that you read the sandbox notice of this borrower before investing."
+        )
+
+
+def _borrower_public_name(loan: Model) -> str:
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim":
+        profile = (
+            _model("originator_claims", "OriginatorLoanProfile")
+            .objects.filter(loan_id=loan_ref.pk)
+            .only("borrower_display_name")
+            .first()
+        )
+        return str(getattr(profile, "borrower_display_name", "") or "")
+    borrower = getattr(loan_ref, "borrower", None)
+    return str(getattr(borrower, "legal_name", "") or "")
 
 
 def _loan_investor_limit(loan: Model) -> InvestorLimit:
@@ -1094,8 +1135,10 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             metadata={"reason": "no_capacity_at_allocation"},
         )
         return order
-    # Swiss-borrower limit (MKT-DEC-028): counted under the loan lock taken above, so
-    # two new investors cannot both take the last place.
+    # Swiss creditor limit (18.9): counted under the loan lock taken above and the borrower's
+    # regime lock, so two new creditors of the same UID cannot both take the last place.
+    import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(loan)
+    _assert_sandbox_notice_confirmed(loan, command)
     investor_limit = _loan_investor_limit(loan)
     _assert_order_within_investor_limit(
         loan=loan,
@@ -1195,6 +1238,10 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
     if accrued_interest_minor:
         order.metadata["price_accrued_interest_minor"] = accrued_interest_minor
         order.metadata["reserved_amount_minor"] = reserved_amount_minor
+    if getattr(command, "sandbox_notice_confirmed", False):
+        # E-03: proof of the notice version the investor confirmed.
+        order.metadata["sandbox_notice_version"] = str(command.sandbox_notice_version)
+        order.metadata["sandbox_notice_confirmed_at"] = now_utc().isoformat()
     order.save(
         update_fields=[
             "status",
@@ -1744,6 +1791,12 @@ def close_primary_loan_funding(
             "Borrower is declined, under review, or subject to a compliance hold. "
             "Routine KYB expiry does not block funding close."
         )
+    # 18.9 (F08): the creditor mode is checked again before the close; a failure stops it.
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.check_before_close(loan, on=business_date(now_utc()))
+    except regimes.CreditorRegimeViolation as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
     minimum_required_minor = _minimum_subscription_required_minor(loan)
     if int(loan_ref.committed_principal_minor) < minimum_required_minor:
         raise MarketplacePrimaryValidationError(
@@ -2422,6 +2475,7 @@ def public_marketplace_listing_payload(
         viewer_user_id=viewer_user_id,
     )
     return {
+        **creditor_mode_fields(loan),
         **progress,
         "product_type": str(loan_ref.product_type),
         "investment_flow": "primary_order",

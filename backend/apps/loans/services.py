@@ -1760,6 +1760,12 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
+    # 18.9: a Swiss borrower needs its UID and a confirmed creditor mode; the mode's limits.
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.check_publication(loan, actor=command.actor, on=_business_today())
+    except regimes.CreditorRegimeViolation as exc:
+        raise LoanValidationError(str(exc)) from exc
     paid_installments, original_loan_state = _validate_publication_original_loan_state(
         loan,
         pre_publication_paid_installments=command.pre_publication_paid_installment_numbers,

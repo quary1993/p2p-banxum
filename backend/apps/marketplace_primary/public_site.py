@@ -23,9 +23,9 @@ from django.apps import apps
 from django.db.models import Model, Q, Sum
 
 from backend.apps.marketplace_primary.investor_limit import (
+    loan_creditor_modes,
     loan_investor_ids,
-    max_investors_for_borrower_country,
-    swiss_borrower_max_investors,
+    loan_investor_limit,
 )
 from backend.apps.marketplace_primary.models import PrimaryLoanClose
 from backend.apps.marketplace_primary.services import (
@@ -36,6 +36,7 @@ from backend.apps.marketplace_primary.services import (
     marketplace_payload_has_capacity,
 )
 from backend.apps.platform_core.domain.countries import country_code
+from backend.apps.platform_core.domain.creditor_regime import MODE_TEN_TWENTY
 from backend.apps.platform_core.domain.investor_limit import (
     InvestorLimit,
     new_investor_minimum_minor,
@@ -373,7 +374,8 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
     legacy_sold = _legacy_sold_principal(loans)
     # One source of truth with the Swiss-borrower investor limit (MKT-DEC-028).
     investors_by_loan = loan_investor_ids([str(loan.id) for loan in loans])
-    platform_investor_limit = swiss_borrower_max_investors()
+    # 18.9: the creditor mode of each borrower in one pass; only the 10/20 mode has a limit.
+    modes_by_loan = loan_creditor_modes(loan for loan in loans if str(loan.status) == "published")
     # 18.3: the anonymous asset name of each loan's main security, when the admin entered one.
     public_asset_names = {
         str(loan_id): str(name)
@@ -414,13 +416,17 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
             funded_at = _funded_at(loan, profile, direct_closes)
         base_payload = _base_payload(loan, profile)
         base_payload["security_public_name"] = public_asset_names.get(str(loan.id), "")
-        investor_limit = InvestorLimit(
-            max_investors=max_investors_for_borrower_country(
-                base_payload["borrower_country"],
-                platform_limit=platform_investor_limit,
-            ),
-            investor_ids=investors_by_loan.get(str(loan.id), frozenset()),
+        # 18.9: the creditor limit of the borrower's mode (only 10/20 has one).
+        investor_limit = (
+            loan_investor_limit(cast(Model, loan))
+            if modes_by_loan.get(str(loan.id)) == MODE_TEN_TWENTY
+            else InvestorLimit(max_investors=None)
         )
+        if not investor_limit.applies:
+            investor_limit = InvestorLimit(
+                max_investors=None,
+                investor_ids=investors_by_loan.get(str(loan.id), frozenset()),
+            )
         minimum: int | None = None
         if figures["public_status"] == PUBLIC_STATUS_OPEN:
             if profile is None:
@@ -435,12 +441,14 @@ def _build_projects(loans: list[Any]) -> list[_Project]:
                 loan_minimum = _loan_minimum_investment_minor(cast(Model, loan))
             remaining = int(figures["remaining_capacity_minor"])
             if investor_limit.applies:
-                # Swiss borrower: the minimum that lets the places left fill the loan;
-                # null when no new investor can join (MKT-DEC-028).
+                # Swiss borrower in 10/20 mode: the minimum that lets the places left reach
+                # the success threshold; null when no new creditor can join (18.9).
                 minimum = new_investor_minimum_minor(
                     minimum_minor=loan_minimum,
                     remaining_minor=remaining,
                     places_left=int(investor_limit.places_left or 0),
+                    threshold_minor=investor_limit.threshold_minor,
+                    allocated_minor=investor_limit.allocated_minor,
                 )
             else:
                 # What a new investor must invest now: the loan minimum, or the

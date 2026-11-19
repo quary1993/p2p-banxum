@@ -20,6 +20,7 @@ from backend.apps.platform_core.services.impersonation import (
     READONLY_IMPERSONATION_HEADER,
     issue_readonly_impersonation_token,
 )
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 from backend.apps.smart_invest.models import (
     SmartInvestMatchNotification,
     SmartInvestRule,
@@ -93,6 +94,7 @@ def _borrower(admin_user: Model, *, suffix: str = "") -> Model:
             year_founded=2018,
             kyb_status="approved",
             country="Switzerland",
+            uid=next_test_uid(),
             created_by_admin_id=admin_user.pk,
         ),
     )

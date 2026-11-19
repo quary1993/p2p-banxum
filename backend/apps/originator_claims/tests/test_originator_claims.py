@@ -943,6 +943,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_legal_name": "Confidential Borrower AG",
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
+                "uid": "CHE-123.456.788",
             },
         )
     )
@@ -1003,6 +1004,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_legal_name": "Confidential Borrower AG",
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
+                "uid": "CHE-123.456.788",
             },
         ),
     )

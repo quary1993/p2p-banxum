@@ -191,6 +191,8 @@ class OriginatorLoanProfile(TimestampedModel):
     borrower_employees = models.PositiveIntegerField(null=True, blank=True)
     borrower_employees_year = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_registration_number = models.CharField(max_length=128, blank=True)
+    # 18.9: the Swiss UID of the final borrower (creditor modes count per UID).
+    borrower_uid = models.CharField(max_length=16, blank=True, default="")
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)
     registered_address = models.TextField(blank=True)
