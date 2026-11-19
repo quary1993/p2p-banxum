@@ -31,6 +31,8 @@ import { useFrozenAccount } from "../../../investorPortal/accountState";
 import { isFixturePreview, useBalancesData, useLoanDetailData } from "../../../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyLabel, formatRateBps, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
 import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
+import { useComplianceBlock } from "../../../investorPortal/complianceBlock";
+import { ComplianceBlockNotice } from "../../../investorPortal/ComplianceBlockNotice";
 import { isSwissInvestorLimitError, swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
 import { isNotFoundError } from "../../../investorPortal/session";
 import type { DemoAccountState } from "../../../investorPortal/types";
@@ -205,6 +207,7 @@ function useReviewAmount(loan: MarketplaceLoanDetail, initialAmount: string | un
 }
 
 function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: () => void }) {
+  const complianceBlock = useComplianceBlock();
   const t = useT();
   useNumberFormat();
   const queryClient = useQueryClient();
@@ -333,7 +336,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
     );
   }
 
-  const ready = amount.valid && terms && risks && (!sandboxNotice || sandboxConfirmed) && !places?.fullForViewer;
+  const ready = amount.valid && terms && risks && (!sandboxNotice || sandboxConfirmed) && !places?.fullForViewer && !complianceBlock;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (ready) {
@@ -369,6 +372,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
               </div>
             ) : null}
             {!isFixturePreview && termsQuery.isError ? <div className="alert alert-danger" role="alert">{t("The current investment terms could not be loaded.")}</div> : null}
+            <ComplianceBlockNotice block={complianceBlock} />
             <SignActions disabled={!ready} label={t("Confirm investment")} />
           </>
         }
@@ -518,6 +522,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
 }
 
 function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: () => void }) {
+  const complianceBlock = useComplianceBlock();
   const t = useT();
   useNumberFormat();
   const queryClient = useQueryClient();
@@ -694,7 +699,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
     );
   }
 
-  const ready = Boolean(quote) && terms && risks && amount.valid && !places?.fullForViewer;
+  const ready = Boolean(quote) && terms && risks && amount.valid && !places?.fullForViewer && !complianceBlock;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!quote) {
@@ -724,6 +729,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
                 termsLabel={t("I accept the investment terms and the immediate assignment of the claim.")}
               />
               {!isFixturePreview && termsQuery.isError ? <div className="alert alert-danger" role="alert">{t("The current investment terms could not be loaded.")}</div> : null}
+              <ComplianceBlockNotice block={complianceBlock} />
               <SignActions
                 disabled={!ready}
                 extra={<button className="link u33-invest-reprice" onClick={reprice} type="button">{t("Reprice")}</button>}

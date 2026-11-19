@@ -2,7 +2,7 @@
 // The addresses of Profile & Settings (design: #/settings/:tab). /settings is Personal details;
 // /settings/verification and /settings/agreements open Personal details with that section expanded,
 // as the design's routes do. App.tsx maps these paths to the "settings" route with a `tab` param.
-export const SETTINGS_TABS = ["personal", "security", "bank-accounts", "notifications", "preferences"] as const;
+export const SETTINGS_TABS = ["personal", "security", "declarations", "bank-accounts", "notifications", "preferences"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 export const SETTINGS_SECTIONS = ["verification", "agreements"] as const;

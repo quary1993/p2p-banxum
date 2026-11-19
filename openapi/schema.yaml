@@ -4837,6 +4837,12 @@ paths:
   /api/v1/kyc/admin/compliance/reviews/:
     get:
       operationId: v1_kyc_admin_compliance_reviews_list
+      parameters:
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: open (not closed), closed or more_information
       tags:
       - v1
       security:

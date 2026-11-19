@@ -9062,6 +9062,13 @@ export const V1InvestorPortalTransactionsExportRetrieveGroup = {
   other: 'other',
 } as const;
 
+export type V1KycAdminComplianceReviewsListParams = {
+/**
+ * open (not closed), closed or more_information
+ */
+status?: string;
+};
+
 export type V1LedgerAdminInvestorBalanceSummaryRetrieveParams = {
 /**
  * @minLength 1
@@ -21750,17 +21757,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1KycAdminComplianceInvestorsReverificationCompleteCreateMutationOptions(options), queryClient);
     }
 
-export const getV1KycAdminComplianceReviewsListUrl = () => {
+export const getV1KycAdminComplianceReviewsListUrl = (params?: V1KycAdminComplianceReviewsListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/kyc/admin/compliance/reviews/`
+  return stringifiedParams.length > 0 ? `/api/v1/kyc/admin/compliance/reviews/?${stringifiedParams}` : `/api/v1/kyc/admin/compliance/reviews/`
 }
 
-export const v1KycAdminComplianceReviewsList = async ( options?: Parameters<typeof httpClient>[1]): Promise<ComplianceReview[]> => {
+export const v1KycAdminComplianceReviewsList = async (params?: V1KycAdminComplianceReviewsListParams, options?: Parameters<typeof httpClient>[1]): Promise<ComplianceReview[]> => {
 
-  return httpClient<ComplianceReview[]>(getV1KycAdminComplianceReviewsListUrl(),
+  return httpClient<ComplianceReview[]>(getV1KycAdminComplianceReviewsListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -21773,23 +21787,23 @@ export const v1KycAdminComplianceReviewsList = async ( options?: Parameters<type
 
 
 
-export const getV1KycAdminComplianceReviewsListQueryKey = () => {
+export const getV1KycAdminComplianceReviewsListQueryKey = (params?: V1KycAdminComplianceReviewsListParams,) => {
     return [
-    `/api/v1/kyc/admin/compliance/reviews/`
+    `/api/v1/kyc/admin/compliance/reviews/`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getV1KycAdminComplianceReviewsListQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+export const getV1KycAdminComplianceReviewsListQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(params?: V1KycAdminComplianceReviewsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getV1KycAdminComplianceReviewsListQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getV1KycAdminComplianceReviewsListQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>> = ({ signal }) => v1KycAdminComplianceReviewsList({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>> = ({ signal }) => v1KycAdminComplianceReviewsList(params, { signal, ...requestOptions });
 
 
 
@@ -21803,7 +21817,7 @@ export type V1KycAdminComplianceReviewsListQueryError = unknown
 
 
 export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
+ params: undefined |  V1KycAdminComplianceReviewsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>,
           TError,
@@ -21813,7 +21827,7 @@ export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<ty
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
+ params?: V1KycAdminComplianceReviewsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>,
           TError,
@@ -21823,16 +21837,16 @@ export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<ty
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ params?: V1KycAdminComplianceReviewsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useV1KycAdminComplianceReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ params?: V1KycAdminComplianceReviewsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminComplianceReviewsList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getV1KycAdminComplianceReviewsListQueryOptions(options)
+  const queryOptions = getV1KycAdminComplianceReviewsListQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

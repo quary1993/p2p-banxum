@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { useT } from "../../../i18n";
 import { PageHead, Tabs, type TabItem } from "../../components";
 import { BankAccountsTab } from "./settings/BankAccountsTab";
+import { DeclarationsTab } from "./settings/DeclarationsTab";
 import { NotificationsTab } from "./settings/NotificationsTab";
 import { PersonalTab } from "./settings/PersonalTab";
 import { PreferencesTab } from "./settings/PreferencesTab";
@@ -18,6 +19,7 @@ import { useAccountData, type PreviewProfile } from "./settings/useAccountData";
 const TAB_LABELS: Array<[SettingsTab, string]> = [
   ["personal", "Personal details"],
   ["security", "account|Security"],
+  ["declarations", "Declarations"],
   ["bank-accounts", "Bank accounts"],
   ["notifications", "Notifications"],
   ["preferences", "Preferences"]
@@ -42,6 +44,7 @@ export function SettingsScreen({ tab: tabParam, previewProfile }: { tab?: string
       <div className="ps-content">
         {tab === "personal" ? <PersonalTab account={account} key={section ?? "personal"} section={section} /> : null}
         {tab === "security" ? <SecurityTab account={account} /> : null}
+        {tab === "declarations" ? <DeclarationsTab account={account} /> : null}
         {tab === "bank-accounts" ? <BankAccountsTab account={account} /> : null}
         {tab === "notifications" ? <NotificationsTab account={account} /> : null}
         {tab === "preferences" ? <PreferencesTab account={account} /> : null}

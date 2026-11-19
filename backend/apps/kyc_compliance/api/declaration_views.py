@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db.models import Model
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -167,7 +167,17 @@ class InvestorDeclarationView(APIView):
 class ComplianceReviewListView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={200: ComplianceReviewSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                str,
+                required=False,
+                description="open (not closed), closed or more_information",
+            )
+        ],
+        responses={200: ComplianceReviewSerializer(many=True)},
+    )
     def get(self, request: Request) -> Response:
         try:
             rows = services.list_reviews(

@@ -216,6 +216,7 @@ import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type T
 import { adminFormDefaults } from "./adminFixtures";
 import { financialYearCheckResults, minorToUnits, unitsToMinor } from "./statementUnits";
 import { withIdempotencyKey } from "./adminIdempotency";
+import { DeclarationReviewsCard, SecurityProofsPanel, StaffRolesCard } from "./ComplianceDeclarations";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
 import { adminHref, navigateAdmin, useAdminParam, useAdminSegments } from "./adminRoute";
@@ -1440,6 +1441,11 @@ export function CompliancePanel() {
         <StatLike label="PEP/high risk" value={cases.filter((item) => item.detected_flags.some((flag) => flag.includes("pep") || flag.includes("high"))).length} sub="AML officer queue" />
         <StatLike label="Pending decision" value={cases.filter((item) => !item.decision_at).length} sub="No Garanta decision yet" />
         <StatLike label="Provider" value={cases[0]?.provider ?? "Didit"} sub="External KYC/KYB provider" />
+      </section>
+
+      <section className="admin-stack">
+        <DeclarationReviewsCard />
+        <StaffRolesCard />
       </section>
 
       <section className="admin-stack">
@@ -6094,6 +6100,7 @@ function ManageLoanModal({
             {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
 
             {action === "securities" ? <LoanSecuritiesForm loan={loan} onDone={onChanged} /> : null}
+            {action === "securities" ? <SecurityProofsPanel loanId={loan.id} /> : null}
 
             {action === "status_days" ? <LoanStatusDaysForm loan={loan} onDone={onChanged} /> : null}
 

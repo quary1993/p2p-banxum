@@ -231,3 +231,27 @@ test("a sandbox borrower has no places line; the separate notice must be confirm
   await waitFor(() => expect(calls.allocate).toHaveLength(1), { timeout: 5000 });
   expect(calls.allocate[0]).toMatchObject({ sandbox_notice_confirmed: true, sandbox_notice_version: "notice-v1" });
 }, 30_000);
+
+test("18.10: a compliance review in progress pauses the investment with a link to the declarations", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    ...orderHandlers(swissLoan(), () => HttpResponse.json({})),
+    http.get("*/api/v1/kyc/declarations/", () =>
+      HttpResponse.json({
+        declaration: null,
+        review_open: true,
+        review_status: "open",
+        review_message: "",
+        reverification_due_date: null,
+        investment_block: "compliance_review_open",
+        investment_block_message: "Our compliance team is reviewing your declarations."
+      })
+    )
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("5000");
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  expect(await screen.findByText("Our compliance team is reviewing your declarations.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See your declarations" })).toHaveAttribute("href", "/settings/declarations");
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+}, 30_000);
