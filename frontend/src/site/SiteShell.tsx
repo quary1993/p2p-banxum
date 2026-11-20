@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { isMultilanguageEnabled } from "../i18n/language";
 import { NiIcon, SiteLink } from "./components";
 import { siteCompany } from "./content";
 import { SiteToastContext, useSiteNav, useSiteToast } from "./context";
@@ -140,7 +141,8 @@ export function SiteShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="site-header-actions">
-            <LanguageDropdown />
+            {/* E-06 (audit S1-5): no language control while the multilanguage work is paused. */}
+            {isMultilanguageEnabled() ? <LanguageDropdown /> : null}
             <SiteLink className="btn btn-md btn-site-outline site-hide-menu" href="/login">
               Log in
             </SiteLink>
@@ -187,9 +189,11 @@ export function SiteShell({ children }: { children: ReactNode }) {
               Open account
             </SiteLink>
           </div>
-          <div className="mt-4">
-            <LanguageDropdown inMenu />
-          </div>
+          {isMultilanguageEnabled() ? (
+            <div className="mt-4">
+              <LanguageDropdown inMenu />
+            </div>
+          ) : null}
         </div>
       </div>
 

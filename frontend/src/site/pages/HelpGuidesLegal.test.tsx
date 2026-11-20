@@ -219,3 +219,11 @@ test("newsletter links: confirm, unsubscribe and a link without a token", async 
   expect(window.location.pathname).toBe("/projects");
   expect(document.activeElement).toBe(screen.getByLabelText("Email address"));
 });
+
+test("E-06 (audit S1-5): the pages in the older public shell show no language control", () => {
+  for (const path of ["/help", "/projects", "/statistics", "/guides"]) {
+    const view = renderSite(path);
+    expect(screen.queryByRole("button", { name: /^Language:/ })).not.toBeInTheDocument();
+    view.unmount();
+  }
+});

@@ -240,6 +240,9 @@ test("Q14: a Stop these alerts link posts its token once and says exactly what s
   expect(await screen.findByRole("heading", { name: "Reminder emails stopped" })).toBeInTheDocument();
   expect(screen.getByText(/The opportunity stays saved/)).toBeInTheDocument();
   expect(stops).toEqual(["good-token"]);
+  // Audit step 1 (D5): the token leaves the address bar once it is read.
+  expect(window.location.search).toBe("");
+  expect(window.location.pathname).toBe("/alerts/stop");
   view.unmount();
 
   renderSite("/alerts/stop?token=bad");

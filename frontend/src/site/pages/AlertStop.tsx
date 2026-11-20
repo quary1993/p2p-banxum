@@ -28,7 +28,9 @@ function isInvalidToken(error: unknown) {
 
 export function AlertStop() {
   const { query } = useSiteNav();
-  const token = (query.get("token") ?? "").trim();
+  // Read once: the token is then removed from the address bar and the history (audit step 1,
+  // D5), so a copied link or a referrer does not carry it.
+  const [token] = useState(() => (query.get("token") ?? "").trim());
   const stop = useAlertStop().mutateAsync;
   const [outcome, setOutcome] = useState<Outcome>({ status: "pending" });
   const posted = useRef(false);
@@ -44,6 +46,9 @@ export function AlertStop() {
   useEffect(() => {
     if (!token || posted.current) return;
     posted.current = true;
+    if (window.location.search.includes("token=")) {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
     post();
   }, [post, token]);
 
