@@ -1637,7 +1637,8 @@ def get_investor_portfolio(
         model_label=("servicing", "InvestorRepaymentDistributionLine"),
         investor_user_id=investor_user_id,
         holding_ids=all_holding_ids,
-        fields=["amount_minor", "principal_minor", "interest_minor", "fee_minor"],
+        # Audit S5-9: direct loans on the 18.6 engine pay penalty X to the investors too.
+        fields=["amount_minor", "principal_minor", "interest_minor", "penalty_minor", "fee_minor"],
     )
     originator_repayment_totals = _aggregate_by_holding(
         model_label=("originator_claims", "InvestorOriginatorRepaymentDistributionLine"),
@@ -1765,7 +1766,8 @@ def get_investor_portfolio(
                 + int(originator_repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0))
                 + int(originator_repayment.get("interest_minor", 0)),
-                "received_penalty_minor": int(originator_repayment.get("penalty_minor", 0)),
+                "received_penalty_minor": int(repayment.get("penalty_minor", 0))
+                + int(originator_repayment.get("penalty_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),
                 "received_payments": received_payments.get(str(holding.pk), []),
                 "investment_schedule": [
@@ -2069,7 +2071,9 @@ def _investor_activity_entries(
         )
     for line in (
         repayment_line_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency", "repayment_event", "repayment_event__loan")
+        .select_related(
+            "currency", "repayment_event", "repayment_event__loan", "repayment_event__installment"
+        )
         .order_by("-occurred_at")[:limit_value]
     ):
         loan = line.repayment_event.loan
@@ -2087,7 +2091,9 @@ def _investor_activity_entries(
                 metadata={
                     "principal_minor": int(line.principal_minor),
                     "interest_minor": int(line.interest_minor),
+                    "penalty_minor": int(line.penalty_minor),
                     "fee_minor": int(line.fee_minor),
+                    "installment_number": int(line.repayment_event.installment.installment_number),
                 },
             )
         )

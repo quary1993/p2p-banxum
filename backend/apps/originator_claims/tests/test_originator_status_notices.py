@@ -201,3 +201,20 @@ def test_the_offer_list_reads_the_c03_check_and_the_schedules_once(
     three_offers, three_count = schedule_queries()
     assert (one_offer, three_offers) == (1, 3)
     assert three_count == one_count
+
+
+@pytest.mark.django_db
+def test_a_loan_originator_claim_is_never_an_engine_loan(admin_user: Model) -> None:  # noqa: F811
+    """Audit S5-7: the new default convention is for direct loans; a claim keeps its source
+    convention and its loan is not served by the 18.6 engine."""
+    engine = import_module("backend.apps.servicing.engine")
+    loans_services = import_module("backend.apps.loans.services")
+    today = business_date(timezone.now())
+    result: Any = _create_dated_originator_loan(admin_user=admin_user, today=today, suffix="ENG")
+
+    assert result.loan.interest_convention == "legacy_monthly"
+    assert not engine.is_engine_loan(result.loan)
+    # Also when the field says otherwise, the product decides.
+    result.loan.interest_convention = "act_365_fixed"
+    assert not engine.is_engine_loan(result.loan)
+    assert not loans_services.is_engine_loan(result.loan)

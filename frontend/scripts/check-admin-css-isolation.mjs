@@ -35,7 +35,10 @@ const SAMPLE = `
 
 function page(withAdmin) {
   const links = [built("index-"), built("SitePages-"), ...(withAdmin ? [built("AdminApp-")] : [])];
-  return `<!doctype html><html><head><meta charset="utf-8">${links.map((href) => `<link rel="stylesheet" href="${href}">`).join("")}</head>
+  // Transitions are switched off: a style read in the middle of a transition (after the class of
+  // <html> changes) would differ from run to run.
+  const still = "<style>*,*::before,*::after{transition:none!important;animation:none!important}</style>";
+  return `<!doctype html><html><head><meta charset="utf-8">${links.map((href) => `<link rel="stylesheet" href="${href}">`).join("")}${still}</head>
 <body>${SAMPLE}<pre id="out"></pre><script>
 const out = {};
 for (const skin of ["bxu", "bxs", "bxa"]) {

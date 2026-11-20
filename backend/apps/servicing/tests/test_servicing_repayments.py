@@ -54,7 +54,8 @@ from backend.apps.servicing.services import (
 from backend.apps.servicing.tests.default_helpers import scan_and_declare
 
 # Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
-pytestmark = pytest.mark.usefixtures("legacy_status_days")
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
 
 
 @pytest.fixture

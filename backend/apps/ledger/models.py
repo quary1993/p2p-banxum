@@ -38,11 +38,13 @@ class LedgerAccountType(models.TextChoices):
     )
     # 18.6 (F13 B): cents not yet paid to investors (fractions carried per investor).
     UNDISTRIBUTED_FRACTIONS = "undistributed_fractions", "Undistributed investor cent fractions"
-    # 18.6: recovery expenses repaid by the borrower and Garanta's part of penalty X.
+    # 18.6: recovery expenses repaid by the borrower (Garanta paid them first). Audit step 5
+    # (D7): Garanta's part of penalty X is income with another meaning, on its own account.
     GARANTA_RECOVERY_RECEIVABLE = (
         "garanta_recovery_receivable",
-        "Garanta recovery expenses and penalty share",
+        "Garanta recovery expenses repaid by the borrower",
     )
+    GARANTA_PENALTY_INCOME = "garanta_penalty_income", "Garanta part of penalty X"
 
 
 class LedgerPostingSide(models.TextChoices):

@@ -26,7 +26,8 @@ from backend.apps.servicing.tests.test_servicing_repayments import (
 
 __all__ = ["admin_user", "investor_one", "investor_two"]
 
-pytestmark = pytest.mark.django_db
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("pre_cutover_loans")]
 
 
 def _today(monkeypatch: pytest.MonkeyPatch, today: date) -> None:

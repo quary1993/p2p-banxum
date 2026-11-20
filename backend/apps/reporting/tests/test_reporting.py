@@ -36,6 +36,9 @@ from backend.apps.reporting.services import (
     generate_report,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
 
 @pytest.mark.django_db
 def test_historical_balance_exports_do_not_use_current_consumed_lots(

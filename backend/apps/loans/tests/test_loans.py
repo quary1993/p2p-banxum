@@ -36,6 +36,10 @@ from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 
 @pytest.fixture
 def admin_user() -> Model:

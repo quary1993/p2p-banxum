@@ -1549,6 +1549,9 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
     loan = loan_model.objects.create(
         borrower=None,
         product_type="originator_claim",
+        # Audit S5-7: the 18.6 engine is for direct loans; a claim keeps its source convention
+        # (on the originator profile), so the loan is not an engine loan.
+        interest_convention="legacy_monthly",
         status="draft",
         title=_required(command.title, "Title"),
         investor_summary=_required(command.investor_summary, "Investor summary"),

@@ -37,6 +37,10 @@ from backend.apps.secondary_market.tests.test_secondary_market import (
     _list_holding_for_sale,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 __all__ = ["buyer", "freeze_market_clock", "ops_admin", "seller"]
 
 PRINCIPAL = 10_000_00

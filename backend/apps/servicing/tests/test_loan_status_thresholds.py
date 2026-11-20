@@ -35,6 +35,10 @@ from backend.apps.servicing.tests.test_servicing_repayments import (
     investor_two,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 __all__ = ["admin_user", "investor_one", "investor_two"]
 
 # The first unpaid installment of _funded_loan_with_holdings is due on 28 Feb 2026.

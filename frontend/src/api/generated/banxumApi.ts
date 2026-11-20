@@ -3984,14 +3984,12 @@ export interface ManualScheduleRowRequest {
 
 /**
  * * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
- * * `legacy_monthly` - Earlier schedule (before 18.6)
  */
 export type LoanCreateRequestInterestConventionEnum = typeof LoanCreateRequestInterestConventionEnum[keyof typeof LoanCreateRequestInterestConventionEnum];
 
 
 export const LoanCreateRequestInterestConventionEnum = {
   act_365_fixed: 'act_365_fixed',
-  legacy_monthly: 'legacy_monthly',
 } as const;
 
 /**

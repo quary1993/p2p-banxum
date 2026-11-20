@@ -366,3 +366,86 @@ def test_a_small_early_payment_reduces_the_current_installment_only() -> None:
     assert current.interest_start == date(2027, 1, 5)
     # Later installments do not change.
     assert position.installments[1].owed == rows[1].total_minor
+
+
+def _small_loan() -> list[engine.EngineRow]:
+    """The audit S5-4 example: CHF 1,000 at 12%, monthly equal installments."""
+    return engine.generate_schedule(
+        engine.ScheduleTerms(
+            principal_minor=1_000_00,
+            annual_rate_bps=RATE_BPS,
+            payout_date=PAYOUT,
+            term_months=12,
+            frequency="monthly",
+            kind=engine.KIND_EQUAL_INSTALLMENTS,
+        ),
+        CHF_DAYS,
+    )
+
+
+def _early(position: engine.LoanPosition, amount: int, day: date) -> engine.Allocation:
+    return engine.allocate_payment(
+        position,
+        amount_minor=amount,
+        value_date=day,
+        annual_rate_bps=RATE_BPS,
+        kind=engine.KIND_EQUAL_INSTALLMENTS,
+    )
+
+
+def test_a_second_early_payment_does_not_collect_the_interest_again() -> None:
+    """Audit S5-4: 1.00 on 11 January, then 50.00 on 14 January, both before the first row is
+    due (15 January). The second payment owes only the interest built up less the 1.00."""
+    rows = _small_loan()
+    position = _position(rows)
+    # 15 December to 10 January = 27 days on 1,000 at 12% = 8.88 built up on 11 January.
+    built_11 = engine.interest_minor(1_000_00, RATE_BPS, PAYOUT, date(2027, 1, 11))
+    first = _early(position, 1_00, date(2027, 1, 11))
+    assert first.interest_minor == 1_00 and first.principal_minor == 0
+    # 14 January: 30 days built up, 1.00 of it already paid.
+    built_14 = engine.interest_minor(1_000_00, RATE_BPS, PAYOUT, date(2027, 1, 14))
+    second = _early(position, 50_00, date(2027, 1, 14))
+
+    assert built_11 == 8_88
+    assert second.interest_minor == built_14 - 1_00
+    assert second.principal_minor == 50_00 - (built_14 - 1_00)
+    assert first.interest_minor + second.interest_minor == built_14
+
+
+def test_two_early_payments_on_the_same_day_pay_the_interest_once() -> None:
+    rows = _small_loan()
+    position = _position(rows)
+    day = date(2027, 1, 11)
+    built = engine.interest_minor(1_000_00, RATE_BPS, PAYOUT, day)
+
+    first = _early(position, 5_00, day)
+    second = _early(position, 20_00, day)
+
+    assert first.interest_minor == 5_00
+    # Only the rest of the built-up interest, then principal (no new day, no new interest).
+    assert second.interest_minor == built - 5_00
+    assert second.principal_minor == 20_00 - (built - 5_00)
+    assert first.interest_minor + second.interest_minor == built
+
+
+def test_partial_early_payments_then_the_payoff_reconcile() -> None:
+    """A partial-interest payment, a later early payment and a full payoff: the interest paid is
+    exactly the Actual/365 interest of each period on the principal outstanding in it."""
+    rows = _small_loan()
+    position = _position(rows)
+    _early(position, 3_00, date(2027, 1, 6))
+    second = _early(position, 400_00, date(2027, 1, 12))
+    # Interest to 11 January on 1,000, less the 3.00 already paid; the rest repays principal.
+    built = engine.interest_minor(1_000_00, RATE_BPS, PAYOUT, date(2027, 1, 12))
+    assert second.interest_minor == built - 3_00
+    outstanding = position.principal_owed
+    assert outstanding == 1_000_00 - second.principal_minor
+    # Payoff on 20 January: interest from 12 January on the smaller principal, then everything.
+    payoff_day = date(2027, 1, 20)
+    interest_due = engine.interest_minor(outstanding, RATE_BPS, date(2027, 1, 12), payoff_day)
+    payoff = _early(position, outstanding + interest_due, payoff_day)
+
+    assert payoff.unapplied_minor == 0
+    assert payoff.interest_minor == interest_due
+    assert position.principal_owed == 0
+    assert 3_00 + second.interest_minor + payoff.interest_minor == built + interest_due

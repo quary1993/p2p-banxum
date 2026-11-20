@@ -7751,7 +7751,8 @@ const DAY_COUNT_LABELS: Record<string, string> = {
 };
 
 function isEngineLoan(loan: Loan) {
-  return loan.interest_convention === "act_365_fixed";
+  // A direct loan on the 18.6 engine; a Loan Originator claim never is (audit S5-7).
+  return loan.interest_convention === "act_365_fixed" && (loan.product_type ?? "direct") === "direct";
 }
 
 const SERVICING_STATUS_LABELS: Record<string, { label: string; tone: Tone }> = {
@@ -8068,7 +8069,7 @@ function LatePaymentsPanel({ loan, onDone }: { loan: Loan; onDone: () => void })
               </OperationConfirmButton>
             </>
           ) : (
-            <p className="muted">Expenses can be recorded once an installment is Due (after the Pending days), in Late or after a Default declaration.</p>
+            <p className="muted">Expenses can be recorded when an installment was Due (after the Pending days), in Late or after a Default declaration on the expense's value date. After an expense, a payment cannot have an earlier value date.</p>
           )}
           {expense.error ? <Banner tone="bad" title="Expense not recorded">{errorMessage(expense.error)}</Banner> : null}
         </>
@@ -8083,7 +8084,7 @@ function LatePaymentsPanel({ loan, onDone }: { loan: Loan; onDone: () => void })
               ? `: principal ${formatMoneyMinor(activeDeclaration.whole_principal_minor, loan.currency)}, interest ${formatMoneyMinor(activeDeclaration.whole_interest_minor, loan.currency)}, penalties until then ${formatMoneyMinor(activeDeclaration.frozen_penalty_minor, loan.currency)}. Penalty X now runs on the whole amount.`
               : "."}
           </Banner>
-          <p className="muted admin-manage-hint">Only a super admin can cancel a declaration made by mistake, with a written reason. Both events stay in the history and the investors get a correction.</p>
+          <p className="muted admin-manage-hint">Only a super admin can cancel a declaration made by mistake, with a written reason, and only while no money was recorded after it (no payment, recovery receipt, expense or write-off). Both events stay in the history and the investors get a correction.</p>
           <TextAreaInput label="Reason for the cancellation" onChange={setCancelReason} value={cancelReason} />
           <OperationConfirmButton
             confirmLabel="Cancel the declaration"

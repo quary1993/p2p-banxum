@@ -435,6 +435,9 @@ class DeclareBorrowerRepaymentDistributionCommand:
     garanta_minor: int = 0
     fractions_withheld_minor: int = 0
     fractions_released_minor: int = 0
+    # Audit step 5 (D7): the part of ``garanta_minor`` that is Garanta's share of penalty X (the
+    # rest are recovery expenses repaid by the borrower).
+    garanta_penalty_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1482,6 +1485,11 @@ def _borrower_repayment_distribution_fingerprint(
                     "garanta_minor": command.garanta_minor,
                     "fractions_withheld_minor": command.fractions_withheld_minor,
                     "fractions_released_minor": command.fractions_released_minor,
+                    **(
+                        {"garanta_penalty_minor": command.garanta_penalty_minor}
+                        if command.garanta_penalty_minor
+                        else {}
+                    ),
                 }
                 if command.garanta_minor
                 or command.fractions_withheld_minor
@@ -4097,6 +4105,155 @@ def _validated_recovery_credit_lines(
     return validated
 
 
+@dataclass(frozen=True, slots=True)
+class FractionReleaseLineCommand:
+    investor_user_id: str
+    holding_id: str
+    interest_minor: int
+    penalty_minor: int
+
+    @property
+    def amount_minor(self) -> int:
+        return self.interest_minor + self.penalty_minor
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseLoanCentFractionsCommand:
+    actor: Model
+    loan_id: str
+    currency: str
+    value_date: date
+    source_type: str
+    source_id: str
+    lines: list[FractionReleaseLineCommand]
+    reason: str
+
+
+@transaction.atomic
+def release_loan_cent_fractions(
+    command: ReleaseLoanCentFractionsCommand,
+) -> list[InvestorBalanceCreditResult]:
+    """Audit S5-12: pay the whole cents kept on the fractions account to the investors of a loan
+    whose servicing ended without a final borrower payment (a final write-off). Internal
+    movement: the fractions account to the investors' balances, one lot per investor."""
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    lines = [line for line in command.lines if line.amount_minor > 0]
+    if any(line.interest_minor < 0 or line.penalty_minor < 0 for line in command.lines):
+        raise LedgerValidationError("Released cents cannot be negative.")
+    total = sum(line.amount_minor for line in lines)
+    if total <= 0:
+        return []
+    fractions_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.UNDISTRIBUTED_FRACTIONS,
+        currency=currency,
+        name=f"{currency.code} undistributed investor cent fractions",
+    )
+    postings = [
+        PostingCommand(
+            account=fractions_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=total,
+            memo="Carried cent fractions paid to the investors at the end of servicing",
+        )
+    ]
+    for line in lines:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+                    currency=currency,
+                    owner_type="investor",
+                    owner_id=str(line.investor_user_id),
+                    name=f"{currency.code} investor balance liability {line.investor_user_id}",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=line.amount_minor,
+                memo="Carried cent fractions credited to investor balance",
+            )
+        )
+    now = now_utc()
+    received_at = _received_at_from_value_date(command.value_date)
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="loan_cent_fractions_released",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=total,
+            net_amount_minor=total,
+            booking_date=command.value_date,
+            value_date=command.value_date,
+            effective_at=now,
+            received_at=received_at,
+            source_type=command.source_type,
+            source_id=command.source_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=_derived_idempotency_key(
+                "ledger-cent-fractions", f"{command.source_type}:{command.source_id}"
+            ),
+            postings=postings,
+            tax_metadata={
+                "interest_minor": sum(line.interest_minor for line in lines),
+                "penalty_minor": sum(line.penalty_minor for line in lines),
+            },
+            metadata={"reason": command.reason, "line_count": len(lines)},
+        )
+    )
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    credits: list[InvestorBalanceCreditResult] = []
+    for index, line in enumerate(lines):
+        lot = InvestorBalanceLot.objects.create(
+            investor_user_id=line.investor_user_id,
+            currency=currency,
+            source_journal_entry=journal_entry,
+            source_type=BalanceLotSourceType.INSTALLMENT,
+            source_id=f"{command.source_id}:fractions:{index}",
+            received_at=received_at,
+            investment_deadline_at=investment_deadline_at,
+            withdrawal_deadline_at=withdrawal_deadline_at,
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            return_after_days=balance_auto_return_after_days(),
+            lineage=[
+                {
+                    "source_type": command.source_type,
+                    "source_id": command.source_id,
+                    "line_index": index,
+                    "loan_id": str(command.loan_id),
+                    "holding_id": line.holding_id,
+                    "interest_minor": line.interest_minor,
+                    "penalty_minor": line.penalty_minor,
+                    "metadata": {"final_cents": True, "reason": command.reason},
+                }
+            ],
+        )
+        credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=line.amount_minor,
+                balance_lot=lot,
+            )
+        )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.loan_cent_fractions_released",
+            target_type="LedgerJournalEntry",
+            target_id=str(journal_entry.id),
+            metadata={
+                "loan_id": str(command.loan_id),
+                "currency": currency.code,
+                "amount_minor": total,
+                "reason": command.reason,
+                "balance_lot_ids": [str(credit.balance_lot.id) for credit in credits],
+            },
+        )
+    )
+    return credits
+
+
 @transaction.atomic
 def declare_borrower_repayment_distribution(
     command: DeclareBorrowerRepaymentDistributionCommand,
@@ -4241,17 +4398,35 @@ def declare_borrower_repayment_distribution(
                 memo="Borrower repayment distribution credited to investor balance",
             )
         )
-    if command.garanta_minor:
+    if not 0 <= command.garanta_penalty_minor <= command.garanta_minor:
+        raise LedgerValidationError("Garanta's penalty part must be within the Garanta part.")
+    garanta_expenses_minor = command.garanta_minor - command.garanta_penalty_minor
+    if garanta_expenses_minor:
         postings.append(
             PostingCommand(
                 account=get_or_create_ledger_account(
                     account_type=LedgerAccountType.GARANTA_RECOVERY_RECEIVABLE,
                     currency=currency,
-                    name=f"{currency.code} Garanta recovery expenses and penalty share",
+                    name=f"{currency.code} Garanta recovery expenses repaid by borrowers",
                 ),
                 side=LedgerPostingSide.CREDIT,
-                amount_minor=command.garanta_minor,
-                memo="Recovery expenses and Garanta's part of penalty X repaid by the borrower",
+                amount_minor=garanta_expenses_minor,
+                memo="Recovery expenses repaid by the borrower",
+            )
+        )
+    if command.garanta_penalty_minor:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.GARANTA_PENALTY_INCOME,
+                    currency=currency,
+                    owner_type="platform",
+                    owner_id="garanta",
+                    name=f"{currency.code} Garanta part of penalty X",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=command.garanta_penalty_minor,
+                memo="Garanta's part of penalty X paid by the borrower",
             )
         )
     if command.fractions_withheld_minor or command.fractions_released_minor:
@@ -4306,6 +4481,7 @@ def declare_borrower_repayment_distribution(
                 "interest_minor": sum(line.interest_minor for line in distribution_lines),
                 "penalty_minor": sum(line.penalty_minor for line in distribution_lines),
                 "garanta_minor": command.garanta_minor,
+                "garanta_penalty_minor": command.garanta_penalty_minor,
                 "fractions_withheld_minor": command.fractions_withheld_minor,
                 "fractions_released_minor": command.fractions_released_minor,
             },

@@ -314,6 +314,10 @@ def _seed_catalogue(*, actor: Any) -> None:
                 loan_start_date=deadline,
                 minimum_subscription_bps=5000,
                 note="Synthetic QA reset catalogue.",
+                # Audit S5-7: earlier schedule until the reseed at the end of Phase 18.
+                interest_convention="legacy_monthly",
+                pre_cutover_contract_signed_on=loan_services.ENGINE_CUTOVER_DATE
+                - timedelta(days=1),
             )
         )
         loan_services.publish_loan(

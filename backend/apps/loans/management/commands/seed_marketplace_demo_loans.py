@@ -20,6 +20,7 @@ from backend.apps.loans.models import (
     RiskRating,
 )
 from backend.apps.loans.services import (
+    ENGINE_CUTOVER_DATE,
     CreateLoanCommand,
     LoansError,
     PublishLoanCommand,
@@ -365,6 +366,9 @@ class Command(BaseCommand):
                             loan_start_date=deadline,
                             funding_deadline=deadline,
                             note=marker,
+                            # Audit S5-7: earlier schedule until the reseed at the end of 18.
+                            interest_convention="legacy_monthly",
+                            pre_cutover_contract_signed_on=ENGINE_CUTOVER_DATE - timedelta(days=1),
                         )
                     )
                     _demo_creditor_mode(actor=actor, borrower=borrower)

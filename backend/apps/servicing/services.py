@@ -458,6 +458,10 @@ def _ledger_services() -> Any:
     return import_module("backend.apps.ledger.services")
 
 
+def _is_engine_loan(loan: Any) -> bool:
+    return bool(import_module("backend.apps.servicing.engine").is_engine_loan(loan))
+
+
 def _secondary_market_services() -> Any:
     return import_module("backend.apps.secondary_market.services")
 
@@ -1036,7 +1040,7 @@ def get_loan_repayment_schedule_snapshots(
     pending_calendar_by_loan_id = {
         loan_id: settlement_calendar(str(cast(Any, loan).currency_id))
         for loan_id, loan in loan_by_id.items()
-        if str(getattr(loan, "interest_convention", "")) == "act_365_fixed"
+        if _is_engine_loan(loan)
     }
     installment_ids = [installment.pk for installment in installments]
     paid_by_installment_id = {
@@ -2474,10 +2478,12 @@ def _after_repayment_listing_refresh_and_emails(
             [],
         ).append(line)
     for investor_user_id, investor_lines in distribution_lines_by_investor.items():
+        # One refresh per holding (an engine receipt can have one line per installment).
+        investor_holding_ids = list(dict.fromkeys(str(line.holding_id) for line in investor_lines))
         active_listing_refreshes = [
-            active_listing_by_holding_id[str(line.holding_id)]
-            for line in investor_lines
-            if str(line.holding_id) in active_listing_by_holding_id
+            active_listing_by_holding_id[holding_id]
+            for holding_id in investor_holding_ids
+            if holding_id in active_listing_by_holding_id
         ]
         listing_notice = ""
         listing_metadata: dict[str, Any] = {}
@@ -2568,7 +2574,7 @@ def record_borrower_repayment(
 ) -> RecordBorrowerRepaymentResult:
     _require_admin_actor(command.actor)
     if _loan_model().objects.filter(
-        id=command.loan_id, interest_convention="act_365_fixed"
+        id=command.loan_id, interest_convention="act_365_fixed", product_type="direct"
     ).exists():
         # 18.6: new direct loans: one payment form (amount + value date), allocated by the engine.
         from backend.apps.servicing import engine as engine_servicing
@@ -3026,6 +3032,14 @@ def record_loan_recovery_payment(
             "This is a Loan Originator loan. Record its recovery receipts through the Loan "
             "Originator servicing workflow (Manage > Record borrower repayment / schedule "
             "revision)."
+        )
+    if _is_engine_loan(loan):
+        # Audit S5-5: a loan on the 18.6 engine is paid only through the engine (amount and
+        # value date; the server works out expenses, penalties, interest and principal). The
+        # amounts typed in this form would bypass the engine position.
+        raise ServicingValidationError(
+            "This loan uses the 18.6 interest engine. Record the receipt with 'Record payment' "
+            "(amount and value date); the engine allocates it after the Default declaration."
         )
     if str(loan_ref.status) not in RECOVERY_ALLOWED_LOAN_STATUSES:
         raise ServicingValidationError(
@@ -3809,6 +3823,17 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
             payload=event_metadata,
             idempotency_key=f"loan:{loan_ref.id}:loss-recognized:{write_off.id}",
         )
+    )
+    # Audit S5-12: the write-off ends servicing; the cents kept for the investors are paid out.
+    from backend.apps.servicing import engine as engine_servicing
+
+    engine_servicing.settle_fractions_at_end_of_servicing(
+        loan,
+        actor=command.actor,
+        value_date=business_date(now_utc()),
+        source_type="loan_write_off_event",
+        source_id=str(write_off.id),
+        reason="final_write_off",
     )
     return cast(LoanWriteOffEvent, write_off)
 

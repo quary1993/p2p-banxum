@@ -56,6 +56,10 @@ from backend.apps.secondary_market.tests.test_secondary_market import (
     _sensitive_code_payload,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 # U33-DEC-06: up to 102% of the outstanding principal.
 ABOVE_PAR = "The sale price can be at most 102% of the outstanding principal."
 

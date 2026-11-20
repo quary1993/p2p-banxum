@@ -22,7 +22,8 @@ import copy
 import uuid
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -65,7 +66,11 @@ def _services() -> Any:
 
 
 def is_engine_loan(loan: Model) -> bool:
-    return str(getattr(loan, "interest_convention", "")) == ENGINE_CONVENTION
+    """A direct loan on the 18.6 engine (a Loan Originator claim never is)."""
+    return (
+        str(getattr(loan, "interest_convention", "")) == ENGINE_CONVENTION
+        and str(getattr(loan, "product_type", "direct")) == "direct"
+    )
 
 
 def _require_admin(actor: Model) -> None:
@@ -188,6 +193,8 @@ def build_position(loan: Model, *, lock: bool = False) -> PositionContext:
                 scheduled_interest=int(row.interest_minor),
                 penalty_accrued=Decimal(str(saved.get("accrued", "0"))),
                 penalty_paid=int(saved.get("paid", 0)),
+                # Audit S5-4: interest already paid on this row of this schedule version.
+                interest_paid=interest_paid,
             )
         )
         previous_due = cast(date, row.due_date)
@@ -495,24 +502,54 @@ def _engine_distribution(
             )
             for index, part in zip(indexes, parts, strict=True):
                 setattr(lines[index], f"{component}_minor", part)
-    withheld = (
+    # Audit S5-2: the carried fractions can make the whole cents of this payment more than the
+    # investors' part of it (a carry crossing). The difference then comes out of the fractions
+    # account; it is never a negative amount kept back.
+    net_kept = (
         interest_minor + penalty_minor - sum(paid_interest.values()) - sum(paid_penalty.values())
     )
-    released = 0
+    withheld = max(net_kept, 0)
+    released = max(-net_kept, 0)
     final_paid: dict[str, int] = {}
     if final_payment:
-        # The last cents of the loan: the carried fractions, by largest remainder.
+        released += _release_final_fractions(
+            loan=loan, lines=lines, fractions=fractions, final_paid=final_paid
+        )
+    return EngineDistribution(
+        lines=[line for line in lines if line.amount_minor > 0],
+        withheld_minor=withheld,
+        released_minor=released,
+        fractions=fractions,
+        final_paid=final_paid,
+    )
+
+
+def _release_final_fractions(
+    *,
+    loan: Model,
+    lines: list[EngineDistributionLine],
+    fractions: dict[str, tuple[Decimal, Decimal]],
+    final_paid: dict[str, int],
+) -> int:
+    """The last cents of a loan (F13 B): the carried fractions, by largest remainder.
+
+    Audit S5-9: interest and penalty are two pools. Each pool sums to whole cents (every payment
+    split a whole number of cents of that component), so each is released on its own and a
+    released penalty cent stays a penalty cent. Investors who no longer hold the loan get their
+    cents on their latest holding. Returns the cents released."""
+    released = 0
+    for position, component in ((0, "interest"), (1, "penalty")):
         totals = {
-            investor: values[0] + values[1] for investor, values in fractions.items() if any(values)
+            investor: values[position]
+            for investor, values in fractions.items()
+            if values[position] > 0
         }
-        available = int(sum(totals.values(), Decimal(0)).quantize(CENT))
+        available = int(sum(totals.values(), Decimal(0)).quantize(CENT, rounding=ROUND_HALF_UP))
         investors = sorted(totals)
         parts = _largest_remainder(available, [totals[investor] for investor in investors])
         for investor, cents in zip(investors, parts, strict=True):
-            fractions[investor] = (Decimal(0), Decimal(0))
             if cents <= 0:
                 continue
-            final_paid[investor] = cents
             line = next((item for item in lines if item.investor_user_id == investor), None)
             if line is None:
                 latest = _latest_holding(loan, investor)
@@ -527,15 +564,98 @@ def _engine_distribution(
                     final_cents=True,
                 )
                 lines.append(line)
-            line.interest_minor += cents
+            setattr(line, f"{component}_minor", getattr(line, f"{component}_minor") + cents)
+            final_paid[investor] = final_paid.get(investor, 0) + cents
             released += cents
-    return EngineDistribution(
-        lines=[line for line in lines if line.amount_minor > 0],
-        withheld_minor=withheld,
-        released_minor=released,
-        fractions=fractions,
-        final_paid=final_paid,
+    for investor in fractions:
+        fractions[investor] = (Decimal(0), Decimal(0))
+    return released
+
+
+def settle_fractions_at_end_of_servicing(
+    loan: Model, *, actor: Model, value_date: date, source_type: str, source_id: str, reason: str
+) -> dict[str, Any]:
+    """Audit S5-12: a loan that ends without a final borrower payment (a final write-off) pays
+    the investors the whole cents kept for them, by largest remainder per pool (interest,
+    penalty), from the fractions account. A true sub-cent residue is recorded as the closed
+    rounding result. Returns what was settled (empty for a loan without fractions)."""
+    if not is_engine_loan(loan):
+        return {}
+    rows = list(
+        InvestorDistributionFraction.objects.select_for_update().filter(loan=cast(Any, loan))
     )
+    fractions = {
+        str(row.investor_user_id): (Decimal(row.interest_fraction), Decimal(row.penalty_fraction))
+        for row in rows
+    }
+    if not any(any(values) for values in fractions.values()):
+        return {}
+    lines: list[EngineDistributionLine] = []
+    final_paid: dict[str, int] = {}
+    pools = (
+        sum((values[0] for values in fractions.values()), Decimal(0)),
+        sum((values[1] for values in fractions.values()), Decimal(0)),
+    )
+    released = _release_final_fractions(
+        loan=loan, lines=lines, fractions=fractions, final_paid=final_paid
+    )
+    residue = {
+        "interest": str(pools[0] - sum(line.interest_minor for line in lines)),
+        "penalty": str(pools[1] - sum(line.penalty_minor for line in lines)),
+    }
+    if released:
+        ledger: Any = import_module("backend.apps.ledger.services")
+        ledger.release_loan_cent_fractions(
+            ledger.ReleaseLoanCentFractionsCommand(
+                actor=actor,
+                loan_id=str(cast(Any, loan).pk),
+                currency=str(cast(Any, loan).currency_id),
+                value_date=value_date,
+                source_type=source_type,
+                source_id=source_id,
+                lines=[
+                    ledger.FractionReleaseLineCommand(
+                        investor_user_id=line.investor_user_id,
+                        holding_id=str(cast(Any, line.holding).pk),
+                        interest_minor=line.interest_minor,
+                        penalty_minor=line.penalty_minor,
+                    )
+                    for line in lines
+                    if line.amount_minor > 0
+                ],
+                reason=reason,
+            )
+        )
+    for row in rows:
+        row.interest_fraction = Decimal(0)
+        row.penalty_fraction = Decimal(0)
+        row.final_paid_minor = int(row.final_paid_minor) + final_paid.get(
+            str(row.investor_user_id), 0
+        )
+        row.save(
+            update_fields=[
+                "interest_fraction",
+                "penalty_fraction",
+                "final_paid_minor",
+                "updated_at",
+            ]
+        )
+    result = {
+        "released_minor": released,
+        "by_investor": final_paid,
+        "closed_rounding_residue": residue,
+        "reason": reason,
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="servicing.cent_fractions_settled",
+            target_type="Loan",
+            target_id=str(cast(Any, loan).pk),
+            metadata={**result, "source_type": source_type, "source_id": source_id},
+        )
+    )
+    return result
 
 
 def _latest_holding(loan: Model, investor_user_id: str) -> Model | None:
@@ -584,8 +704,15 @@ class EnginePaymentPlan:
 
 
 def _penalty_investors_part(loan: Model, penalty_minor: int) -> int:
+    """The investors' part of a penalty payment, in whole cents.
+
+    Audit S5-9 rule: Garanta's part is rounded down to the cent and the investors get the rest,
+    so the investors' part is never rounded against them and no sub-cent of the split is left
+    over (the investors' cents are then split between them with the carried fractions)."""
     share = int(cast(Any, loan).penalty_investor_share_bps)
-    return int((Decimal(penalty_minor) * Decimal(share) / Decimal(10_000)).quantize(CENT))
+    garanta_exact = Decimal(penalty_minor) * Decimal(10_000 - share) / Decimal(10_000)
+    garanta = int(garanta_exact.to_integral_value(rounding=ROUND_FLOOR))
+    return penalty_minor - garanta
 
 
 def plan_engine_payment(
@@ -845,6 +972,7 @@ def record_engine_repayment(command: Any) -> Any:
                 admin_notes=command.admin_notes,
                 idempotency_key=idempotency_key,
                 garanta_minor=plan.garanta_minor,
+                garanta_penalty_minor=allocation.penalty_minor - plan.penalty_investors_minor,
                 fractions_withheld_minor=distribution.withheld_minor,
                 fractions_released_minor=distribution.released_minor,
             )
@@ -936,6 +1064,17 @@ def record_engine_repayment(command: Any) -> Any:
     _save_fractions(loan, distribution)
     credits = {credit.line_index: credit for credit in ledger_result.balance_credits}
     lines: list[InvestorRepaymentDistributionLine] = []
+    # Audit S5-10: each investor's credit is recorded under every installment the receipt paid
+    # (the investor's share of each one), so the investor's payment table shows each row. The
+    # ledger keeps one credit (one balance lot) per holding for the one bank movement.
+    event_order = [key for key in event_ids if key in events]
+    event_weights = _event_component_weights(
+        allocation=allocation,
+        anchor_key=anchor_key,
+        keys=event_order,
+        other_penalties=other_penalties,
+        future_principal=future_principal,
+    )
     for index, line in enumerate(distribution.lines):
         if line.principal_minor:
             services._record_holding_principal_update(
@@ -946,26 +1085,34 @@ def record_engine_repayment(command: Any) -> Any:
                 before_minor=line.current_principal_before_minor,
                 after_minor=line.current_principal_after_minor,
             )
-        lines.append(
-            InvestorRepaymentDistributionLine.objects.create(
-                repayment_event=anchor_event,
-                holding=line.holding,
-                investor_user_id=line.investor_user_id,
-                currency=currency,
-                balance_lot=credits[index].balance_lot,
-                amount_minor=line.amount_minor,
-                principal_minor=line.principal_minor,
-                interest_minor=line.interest_minor,
-                penalty_minor=line.penalty_minor,
-                fee_minor=0,
-                current_principal_before_minor=line.current_principal_before_minor,
-                current_principal_after_minor=line.current_principal_after_minor,
-                metadata={
-                    "line_index": index,
-                    **({"final_cents": True} if line.final_cents else {}),
-                },
+        parts = _split_line_over_events(line, keys=event_order, weights=event_weights)
+        principal_before = line.current_principal_before_minor
+        for key in event_order:
+            principal, interest, penalty = parts[key]
+            if principal + interest + penalty <= 0:
+                continue
+            lines.append(
+                InvestorRepaymentDistributionLine.objects.create(
+                    repayment_event=events[key],
+                    holding=line.holding,
+                    investor_user_id=line.investor_user_id,
+                    currency=currency,
+                    balance_lot=credits[index].balance_lot,
+                    amount_minor=principal + interest + penalty,
+                    principal_minor=principal,
+                    interest_minor=interest,
+                    penalty_minor=penalty,
+                    fee_minor=0,
+                    current_principal_before_minor=principal_before,
+                    current_principal_after_minor=principal_before - principal,
+                    metadata={
+                        "line_index": index,
+                        "anchor_event_id": str(anchor_id),
+                        **({"final_cents": True} if line.final_cents else {}),
+                    },
+                )
             )
-        )
+            principal_before -= principal
     new_version = None
     if allocation.schedule_changed:
         new_version = _write_schedule_version(
@@ -1030,6 +1177,53 @@ def record_engine_repayment(command: Any) -> Any:
     )
 
 
+def _event_component_weights(
+    *,
+    allocation: ie.Allocation,
+    anchor_key: str,
+    keys: list[str],
+    other_penalties: int,
+    future_principal: int,
+) -> dict[str, tuple[int, int, int]]:
+    """(principal, interest, penalty) the receipt paid on each installment event, as recorded on
+    the events (the anchor also carries the future principal and the penalties outside rows)."""
+    weights: dict[str, tuple[int, int, int]] = {}
+    for key in keys:
+        penalty, interest, principal = allocation.installments.get(key, (0, 0, 0))
+        if key == anchor_key:
+            penalty += other_penalties
+            principal += future_principal
+        weights[key] = (principal, interest, penalty)
+    return weights
+
+
+def _split_by_weights(total: int, keys: list[str], weights: list[int], anchor: str) -> list[int]:
+    if total <= 0 or sum(weights) <= 0:
+        return [total if key == anchor else 0 for key in keys]
+    return _largest_remainder(
+        total, [Decimal(total) * Decimal(weight) / Decimal(sum(weights)) for weight in weights]
+    )
+
+
+def _split_line_over_events(
+    line: EngineDistributionLine,
+    *,
+    keys: list[str],
+    weights: dict[str, tuple[int, int, int]],
+) -> dict[str, tuple[int, int, int]]:
+    """One holding's whole-cent credit split over the installment events by largest remainder,
+    each component on its own; cents without a weight (final cents) go on the first event."""
+    anchor = keys[0]
+    split: dict[str, list[int]] = {key: [0, 0, 0] for key in keys}
+    for position, total in enumerate(
+        (line.principal_minor, line.interest_minor, line.penalty_minor)
+    ):
+        parts = _split_by_weights(total, keys, [weights[key][position] for key in keys], anchor)
+        for key, part in zip(keys, parts, strict=True):
+            split[key][position] = part
+    return {key: (values[0], values[1], values[2]) for key, values in split.items()}
+
+
 def _anchor_key(context: PositionContext) -> str:
     """The row a payment without installment parts (expenses, penalties) is recorded on."""
     open_rows = [row for row in context.position.installments if row.owed > 0]
@@ -1056,23 +1250,57 @@ class RecordLoanExpenseCommand:
     idempotency_key: str = ""
 
 
+def _expense_fingerprint(command: RecordLoanExpenseCommand, *, note: str) -> str:
+    return cast(
+        str,
+        _services()._stable_json_fingerprint(
+            {
+                "loan_id": str(command.loan_id),
+                "amount_minor": command.amount_minor,
+                "value_date": command.value_date.isoformat(),
+                "note": note,
+                "evidence_reference": command.evidence_reference.strip()[:255],
+                "document_id": str(command.document_id or ""),
+            }
+        ),
+    )
+
+
+def _existing_expense(idempotency_key: str, *, fingerprint: str) -> LoanExpense | None:
+    """Audit S5-8: a replay returns the expense only for the same request (loan, amount, date,
+    note, evidence); the key used for another request is refused."""
+    existing = LoanExpense.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if dict(existing.metadata or {}).get("request_fingerprint") != fingerprint:
+        raise EngineServicingError(
+            "This idempotency key was already used for a different expense request."
+        )
+    return cast(LoanExpense, existing)
+
+
 @transaction.atomic
 def record_loan_expense(command: RecordLoanExpenseCommand) -> LoanExpense:
     _require_admin(command.actor)
     services = _services()
     idempotency_key = services._clean_idempotency_key(command.idempotency_key)
-    existing = LoanExpense.objects.filter(idempotency_key=idempotency_key).first()
+    note = command.note.strip()
+    fingerprint = _expense_fingerprint(command, note=note)
+    existing = _existing_expense(idempotency_key, fingerprint=fingerprint)
     if existing is not None:
-        return cast(LoanExpense, existing)
+        return existing
     loan = services._locked_loan(command.loan_id)
     loan_ref = cast(Any, loan)
     if not is_engine_loan(loan):
         raise EngineServicingError("Expenses are recorded on loans with the 18.6 interest engine.")
     if type(command.amount_minor) is not int or command.amount_minor <= 0:
         raise EngineServicingError("The expense amount must be positive.")
-    note = command.note.strip()
     if not note:
         raise EngineServicingError("Write what the expense is for.")
+    # Checked again under the loan lock (a parallel request with the same key).
+    existing = _existing_expense(idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
     today = _today()
     if command.value_date > today:
         raise EngineServicingError("The value date cannot be in the future.")
@@ -1081,11 +1309,13 @@ def record_loan_expense(command: RecordLoanExpenseCommand) -> LoanExpense:
         raise EngineServicingError(
             "The value date cannot be before the last recorded payment, expense or declaration."
         )
-    status = engine_status(loan, as_of=today)
+    # Audit S5-3: the loan must have been Due, Late or in Default on the expense's value date,
+    # not only today (an expense cannot go back into the Pending days).
+    status = engine_status(loan, as_of=command.value_date)
     if status.label not in EXPENSE_STATUSES:
         raise EngineServicingError(
-            "Expenses can be recorded once an installment is Due (unpaid after the Pending "
-            "days), in Late or after a Default declaration."
+            "On the value date of the expense an installment must be Due (unpaid after the "
+            "Pending days), in Late or after a Default declaration."
         )
     document_id = None
     if command.document_id:
@@ -1095,18 +1325,33 @@ def record_loan_expense(command: RecordLoanExpenseCommand) -> LoanExpense:
         ).exists():
             raise EngineServicingError("The file must be a document of this borrower.")
         document_id = uuid.UUID(str(command.document_id))
-    expense = LoanExpense.objects.create(
-        loan=loan,
-        currency_id=str(loan_ref.currency_id),
-        amount_minor=command.amount_minor,
-        value_date=command.value_date,
-        note=note,
-        evidence_reference=command.evidence_reference.strip()[:255],
-        document_id=document_id,
-        created_by_admin_id=command.actor.pk,
-        metadata={"status_when_recorded": status.label, "days_late": status.days_late},
-        idempotency_key=idempotency_key,
-    )
+    try:
+        with transaction.atomic():
+            expense = LoanExpense.objects.create(
+                loan=loan,
+                currency_id=str(loan_ref.currency_id),
+                amount_minor=command.amount_minor,
+                value_date=command.value_date,
+                note=note,
+                evidence_reference=command.evidence_reference.strip()[:255],
+                document_id=document_id,
+                created_by_admin_id=command.actor.pk,
+                metadata={
+                    "status_when_recorded": status.label,
+                    "days_late": status.days_late,
+                    "request_fingerprint": fingerprint,
+                },
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing = _existing_expense(idempotency_key, fingerprint=fingerprint)
+        if existing is None:
+            raise
+        return existing
+    # Audit S5-3: the expense moves the economic position to its value date (penalties counted
+    # to it), so no later payment can have an earlier value date.
+    ie.accrue_penalties(context.position, command.value_date)
+    _save_state(context)
     event_metadata = {
         "expense_id": str(expense.id),
         "amount_minor": expense.amount_minor,
@@ -1177,8 +1422,6 @@ class CancelLoanDefaultCommand:
 
 def _legacy_days_late(loan: Model, as_of: date) -> tuple[int, int, Any]:
     if str(getattr(loan, "product_type", "direct")) == "originator_claim":
-        from importlib import import_module
-
         days = import_module(
             "backend.apps.originator_claims.services"
         ).originator_loan_days_past_due(str(cast(Any, loan).pk), as_of_date=as_of)
@@ -1328,6 +1571,35 @@ def declare_loan_default(command: DeclareLoanDefaultCommand) -> LoanDefaultDecla
     return declaration
 
 
+def money_recorded_after_declaration(loan: Model, declaration: LoanDefaultDeclaration) -> str:
+    """Audit S5-6: what money was recorded on the loan after the Default declaration, on any
+    path (engine or legacy payment, recovery receipt, expense, write-off, Loan Originator
+    repayment); "" when nothing. A cancellation would give such money another meaning."""
+    after = declaration.created_at
+    checks: list[tuple[str, Any]] = [
+        ("A borrower payment", BorrowerRepaymentEvent.objects.filter(loan=loan)),
+        ("An expense", LoanExpense.objects.filter(loan=loan)),
+        (
+            "A recovery receipt",
+            apps.get_model("servicing", "LoanRecoveryEvent").objects.filter(loan=loan),
+        ),
+        (
+            "A write-off",
+            apps.get_model("servicing", "LoanWriteOffEvent").objects.filter(loan=loan),
+        ),
+        (
+            "A Loan Originator repayment",
+            apps.get_model("originator_claims", "OriginatorBorrowerRepayment").objects.filter(
+                loan_profile__loan=loan
+            ),
+        ),
+    ]
+    for label, query in checks:
+        if query.filter(created_at__gt=after).exists():
+            return label
+    return ""
+
+
 @transaction.atomic
 def cancel_loan_default(command: CancelLoanDefaultCommand) -> LoanDefaultDeclaration:
     """A super admin cancels a Default declared by mistake, with a written reason."""
@@ -1344,17 +1616,13 @@ def cancel_loan_default(command: CancelLoanDefaultCommand) -> LoanDefaultDeclara
     if declaration is None:
         raise EngineServicingError("This loan has no Default declaration to cancel.")
     today = _today()
+    activity = money_recorded_after_declaration(loan, declaration)
+    if activity:
+        raise EngineServicingError(
+            f"{activity} was recorded after the declaration: it cannot be cancelled any more. "
+            "A correction now needs a compensating, audited accounting entry."
+        )
     if is_engine_loan(loan):
-        if (
-            BorrowerRepaymentEvent.objects.filter(
-                loan=loan, created_at__gt=declaration.created_at
-            ).exists()
-            or LoanExpense.objects.filter(loan=loan, created_at__gt=declaration.created_at).exists()
-        ):
-            raise EngineServicingError(
-                "A payment or an expense was recorded after the declaration: it cannot be "
-                "cancelled any more."
-            )
         installment_model = _installment_model()
         before_rows = list(
             installment_model.objects.filter(

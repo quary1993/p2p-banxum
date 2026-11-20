@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from importlib import import_module
@@ -119,9 +119,12 @@ class CreateLoanCommand:
     minimum_subscription_bps: int = 5_000
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     note: str = ""
-    # 18.6: the Python default keeps the earlier schedule (tests, seeds); the admin API creates
-    # every new direct loan with the Actual/365 Fixed engine.
-    interest_convention: str = InterestConvention.LEGACY_MONTHLY
+    # 18.6 (audit S5-7): every new direct loan uses the Actual/365 Fixed engine (None = the
+    # engine). The earlier monthly schedule is only for a contract signed before the engine
+    # (``pre_cutover_contract_signed_on`` before ENGINE_CUTOVER_DATE); the admin API never
+    # creates one.
+    interest_convention: str | None = None
+    pre_cutover_contract_signed_on: date | None = None
     payment_frequency: str = PaymentFrequency.MONTHLY
     grace_business_days: int = 0
     penalty_daily_rate_percent: Decimal = Decimal("0")
@@ -336,6 +339,27 @@ def _validate_frequency(value: str) -> str:
 
 def _validate_convention(value: str) -> str:
     return str(_text_choice(InterestConvention, value, "interest convention"))
+
+
+# Audit S5-7: the 18.6 engine applies to every direct loan created from this day on. Loans that
+# existed then kept the earlier monthly schedule (migration loans 0029).
+ENGINE_CUTOVER_DATE = date(2026, 11, 19)
+
+
+def _resolve_interest_convention(command: CreateLoanCommand) -> str:
+    """The convention of a new loan: the engine, unless the loan records a contract signed
+    before the engine existed (an import of a real earlier contract)."""
+    if not command.interest_convention:
+        return str(InterestConvention.ACT_365_FIXED)
+    convention = _validate_convention(command.interest_convention)
+    if convention == InterestConvention.LEGACY_MONTHLY:
+        signed_on = command.pre_cutover_contract_signed_on
+        if signed_on is None or signed_on >= ENGINE_CUTOVER_DATE:
+            raise LoanValidationError(
+                "New loans use the Actual/365 Fixed interest engine. The earlier monthly schedule "
+                "is only for a contract signed before 19 November 2026; give its signing date."
+            )
+    return convention
 
 
 def _validate_rate_bps(value: int, label: str, *, allow_zero: bool = False) -> int:
@@ -709,7 +733,11 @@ def custom_schedule_term_months(payout_date: date, rows: list[ManualScheduleRowC
 
 
 def is_engine_loan(loan: Loan) -> bool:
-    return str(loan.interest_convention) == InterestConvention.ACT_365_FIXED
+    """A direct loan on the 18.6 engine (a Loan Originator claim never is)."""
+    return (
+        str(loan.interest_convention) == InterestConvention.ACT_365_FIXED
+        and str(loan.product_type) == "direct"
+    )
 
 
 def engine_schedule_for_loan(loan: Loan, *, payout_date: date) -> list[ScheduleInstallmentDraft]:
@@ -746,47 +774,65 @@ def confirm_engine_schedule_at_payout(*, loan_id: str, payout_date: date, actor:
     """F10: at the payout the schedule is calculated again from the real payout day.
 
     Called by the ledger when the borrower disbursement is finalized. Interest starts on the payout
-    day; a new schedule version is written when a due date or an amount changes. Earlier loans
-    (before 18.6) keep their schedule.
+    day. Audit S5-11: a confirmed version is always written (also when the rounded amounts and
+    dates are the same as planned), with the payout day on every row, so the current rows always
+    carry the real interest start. Returns True when a due date, an amount, the unadjusted due
+    date or the interest start changed. Earlier loans (before 18.6) keep their schedule.
     """
     loan = Loan.objects.select_for_update().get(id=loan_id)
     if not is_engine_loan(loan):
         return False
-    rows = engine_schedule_for_loan(loan, payout_date=payout_date)
+    confirmed_on = payout_date.isoformat()
+    rows = [
+        replace(row, metadata={**dict(row.metadata or {}), "payout_confirmed_on": confirmed_on})
+        for row in engine_schedule_for_loan(loan, payout_date=payout_date)
+    ]
     current = list(
         LoanInstallment.objects.filter(loan=loan, schedule_version=loan.schedule_version).order_by(
             "installment_number"
         )
     )
-    same = [
-        (row.installment_number, row.due_date, row.principal_minor, row.interest_minor)
-        for row in rows
-    ] == [
-        (
-            int(row.installment_number),
-            row.due_date,
-            int(row.principal_minor),
-            int(row.interest_minor),
+
+    def _shape(number: int, due: date, principal: int, interest: int, meta: Any) -> tuple[Any, ...]:
+        values = dict(meta or {})
+        return (
+            number,
+            due,
+            principal,
+            interest,
+            values.get("original_due_date", ""),
+            values.get("interest_start", ""),
         )
+
+    changed = [
+        _shape(row.installment_number, row.due_date, row.principal_minor, row.interest_minor,
+               row.metadata)
+        for row in rows
+    ] != [
+        _shape(int(row.installment_number), row.due_date, int(row.principal_minor),
+               int(row.interest_minor), row.metadata)
         for row in current
     ]
     previous_start = loan.loan_start_date
+    previous_version = int(loan.schedule_version)
     loan.payout_date = payout_date
     loan.loan_start_date = payout_date
-    update_fields = ["payout_date", "loan_start_date", "updated_at"]
-    if not same:
-        loan.schedule_version = int(loan.schedule_version) + 1
-        loan.first_payment_date = rows[0].due_date
-        loan.total_scheduled_principal_minor = sum(row.principal_minor for row in rows)
-        loan.total_scheduled_interest_minor = sum(row.interest_minor for row in rows)
-        update_fields += [
+    loan.schedule_version = previous_version + 1
+    loan.first_payment_date = rows[0].due_date
+    loan.total_scheduled_principal_minor = sum(row.principal_minor for row in rows)
+    loan.total_scheduled_interest_minor = sum(row.interest_minor for row in rows)
+    _write_schedule(loan=loan, schedule_rows=rows, schedule_version=loan.schedule_version)
+    loan.save(
+        update_fields=[
+            "payout_date",
+            "loan_start_date",
             "schedule_version",
             "first_payment_date",
             "total_scheduled_principal_minor",
             "total_scheduled_interest_minor",
+            "updated_at",
         ]
-        _write_schedule(loan=loan, schedule_rows=rows, schedule_version=loan.schedule_version)
-    loan.save(update_fields=update_fields)
+    )
     _record_loan_event(
         loan=loan,
         actor=actor,
@@ -794,14 +840,15 @@ def confirm_engine_schedule_at_payout(*, loan_id: str, payout_date: date, actor:
         new_status=loan.status,
         note="Schedule calculated from the real payout day.",
         metadata={
-            "payout_date": payout_date.isoformat(),
+            "payout_date": confirmed_on,
             "planned_payout_date": previous_start.isoformat(),
+            "planned_schedule_version": previous_version,
             "schedule_version": loan.schedule_version,
-            "schedule_changed": not same,
+            "schedule_changed": changed,
             **_schedule_summary(rows),
         },
     )
-    return not same
+    return changed
 
 
 def original_schedule_for_loan(loan: Loan) -> list[ScheduleInstallmentDraft]:
@@ -1081,7 +1128,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         principal_minor=principal_minor,
         loan_start_date=loan_start_date,
     )
-    convention = _validate_convention(command.interest_convention)
+    convention = _resolve_interest_convention(command)
     engine_loan = convention == InterestConvention.ACT_365_FIXED
     payment_frequency = _validate_frequency(command.payment_frequency)
     penalty_daily_rate_percent = _validate_penalty_rate(command.penalty_daily_rate_percent)
@@ -1197,6 +1244,11 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         # Fail fast if the declared original terms cannot produce an informational schedule.
         original_schedule_for_loan(loan)
     metadata = _loan_metadata(loan, schedule_rows)
+    metadata["interest_convention"] = convention
+    if command.pre_cutover_contract_signed_on is not None:
+        metadata["pre_cutover_contract_signed_on"] = (
+            command.pre_cutover_contract_signed_on.isoformat()
+        )
     _record_loan_event(
         loan=loan,
         actor=command.actor,

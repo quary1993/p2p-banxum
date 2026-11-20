@@ -16512,11 +16512,8 @@ components:
     LoanCreateRequestInterestConventionEnum:
       enum:
       - act_365_fixed
-      - legacy_monthly
       type: string
-      description: |-
-        * `act_365_fixed` - Actual/365 Fixed (18.6 engine)
-        * `legacy_monthly` - Earlier schedule (before 18.6)
+      description: '* `act_365_fixed` - Actual/365 Fixed (18.6 engine)'
     LoanCreditCheck:
       type: object
       description: 'U33-DEC-20: a recorded check (what, result, source, date).'

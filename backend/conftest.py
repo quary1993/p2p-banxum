@@ -74,3 +74,23 @@ def row_locks_need_a_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(QuerySet, "select_for_update", checked)
 
+
+
+@pytest.fixture
+def pre_cutover_loans(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit S5-7: a new loan uses the 18.6 engine. Test modules written for the earlier monthly
+    schedule (contracts from before the engine) ask for this fixture, so a loan they create
+    without a convention keeps the earlier schedule, as the loans of migration 0029 do."""
+    from importlib import import_module
+
+    from django.apps import apps
+
+    loans_services: Any = import_module("backend.apps.loans.services")
+    legacy = "legacy_monthly"
+
+    def resolve(command: Any) -> str:
+        return str(command.interest_convention or legacy)
+
+    monkeypatch.setattr(loans_services, "_resolve_interest_convention", resolve)
+    field = apps.get_model("loans", "Loan")._meta.get_field("interest_convention")
+    monkeypatch.setattr(field, "_get_default", lambda: legacy, raising=False)

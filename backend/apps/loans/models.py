@@ -218,10 +218,12 @@ class Loan(TimestampedModel):
     # 18.6 interest engine (new direct loans): convention, frequency, grace in business days, the
     # daily penalty X (% per day) and the investors' share of it (the rest is Garanta's), the real
     # payout day (the schedule is confirmed from it) and the admin's Default declaration.
+    # Audit S5-7: a new loan is an engine loan; the loans that existed at the 18.6 release kept
+    # legacy_monthly through migration 0029.
     interest_convention = models.CharField(
         max_length=32,
         choices=InterestConvention.choices,
-        default=InterestConvention.LEGACY_MONTHLY,
+        default=InterestConvention.ACT_365_FIXED,
     )
     payment_frequency = models.CharField(
         max_length=16, choices=PaymentFrequency.choices, default=PaymentFrequency.MONTHLY

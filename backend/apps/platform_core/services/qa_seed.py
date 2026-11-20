@@ -180,6 +180,10 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 title=title,
                 funding_deadline=today + timedelta(days=days),
                 note=SEED_KEY,
+                # Audit S5-7: the QA catalogue still models contracts from before the 18.6 engine;
+                # it moves to the engine with the reseed at the end of Phase 18.
+                interest_convention="legacy_monthly",
+                pre_cutover_contract_signed_on=loans.ENGINE_CUTOVER_DATE - timedelta(days=1),
             )
             loan = loans.create_loan(loans.CreateLoanCommand(**values))
             loans.publish_loan(loans.PublishLoanCommand(actor=actor, loan_id=str(loan.pk)))

@@ -56,6 +56,10 @@ from backend.apps.secondary_market.services import (
     reject_secondary_market_listing,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 
 @pytest.fixture
 def admin_user() -> Model:

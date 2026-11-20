@@ -42,6 +42,9 @@ from backend.apps.secondary_market.tests.test_secondary_market import (  # noqa:
     other_investor,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
 DUE_DATE = date(2026, 1, 20)
 
 

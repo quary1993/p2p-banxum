@@ -50,6 +50,10 @@ from backend.apps.secondary_market.tests.test_secondary_market import (
     freeze_secondary_market_clock,
 )
 
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
 # Fixtures shared with the secondary-market tests (the clock freeze is autouse).
 __all__ = ["admin_user", "freeze_secondary_market_clock"]
 

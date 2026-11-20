@@ -291,10 +291,12 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
         allow_empty=False,
     )
     note = serializers.CharField(required=False, allow_blank=True)
-    # 18.6: every new direct loan uses the Actual/365 Fixed engine unless an earlier schedule is
-    # asked for explicitly.
+    # 18.6 (audit S5-7): every loan created here uses the Actual/365 Fixed engine; the earlier
+    # monthly schedule cannot be chosen (it exists only for contracts signed before the engine).
     interest_convention = serializers.ChoiceField(
-        choices=InterestConvention.choices, required=False, default=InterestConvention.ACT_365_FIXED
+        choices=[(InterestConvention.ACT_365_FIXED.value, InterestConvention.ACT_365_FIXED.label)],
+        required=False,
+        default=InterestConvention.ACT_365_FIXED,
     )
     payment_frequency = serializers.ChoiceField(
         choices=PaymentFrequency.choices, required=False, default=PaymentFrequency.MONTHLY

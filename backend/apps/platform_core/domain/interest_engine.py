@@ -498,6 +498,10 @@ class OpenInstallment:
     scheduled_interest: int = 0
     penalty_accrued: Decimal = ZERO
     penalty_paid: int = 0
+    # Audit S5-4: interest already paid on this row from ``interest_start`` on (by early
+    # payments before its due date). An early payment owes only the interest built up to its
+    # value date minus this amount, so a second early payment never collects it again.
+    interest_paid: int = 0
 
     @property
     def owed(self) -> int:
@@ -701,6 +705,9 @@ def _pay_expenses(
     position: LoanPosition, allocation: Allocation, remaining: int, *, with_penalty: bool
 ) -> int:
     for item in sorted(position.expenses, key=lambda value: (value.value_date, value.key)):
+        if item.value_date > allocation.value_date:
+            # Audit S5-3: an expense with a later value date did not exist on this value date.
+            continue
         paid = _take(remaining, item.amount_owed)
         if paid:
             item.amount_owed -= paid
@@ -748,6 +755,8 @@ def _allocate_after_default(position: LoanPosition, allocation: Allocation, rema
     remaining -= penalty
     allocation.penalty_minor += penalty
     for item in position.expenses:
+        if item.value_date > allocation.value_date:
+            continue
         expense_penalty = _take(remaining, item.penalty_owed)
         item.penalty_paid += expense_penalty
         remaining -= expense_penalty
@@ -794,7 +803,10 @@ def _apply_prepayment(
     current = future[0]
     outstanding = sum(row.principal_owed for row in future)
     accrued_days = max(0, (value_date - current.interest_start).days)
-    accrued = round_minor(interest_exact(outstanding, annual_rate_bps, accrued_days))
+    built_up = round_minor(interest_exact(outstanding, annual_rate_bps, accrued_days))
+    # Audit S5-4: the interest built up since the period start, less what earlier early payments
+    # already paid of it (same day or earlier). Never more than the row still owes.
+    accrued = max(0, min(built_up - current.interest_paid, current.interest_owed))
     allocation.accrued_interest_days = accrued_days
     interest_paid = _take(remaining, accrued)
     remaining -= interest_paid
@@ -803,6 +815,7 @@ def _apply_prepayment(
     if interest_paid < accrued:
         # Not even the interest built up: it is part of the current installment's interest.
         current.interest_owed = max(0, current.interest_owed - interest_paid)
+        current.interest_paid += interest_paid
         _add_installment(allocation, current.key, 0, interest_paid, 0)
         allocation.prepayment_minor = interest_paid
         return remaining
@@ -819,6 +832,7 @@ def _apply_prepayment(
             new_outstanding, annual_rate_bps, value_date, current.due_date
         )
         current.interest_start = value_date
+        current.interest_paid = 0
         _add_installment(allocation, current.key, 0, interest_paid, principal_paid)
         allocation.schedule_changed = True
         return remaining
@@ -828,6 +842,7 @@ def _apply_prepayment(
     _add_installment(allocation, current.key, 0, interest_paid, current_principal)
     current.principal_owed = 0
     current.interest_owed = 0
+    current.interest_paid = 0
     later = future[1:]
     later_outstanding = new_outstanding
     regenerated = regenerate_future_rows(
