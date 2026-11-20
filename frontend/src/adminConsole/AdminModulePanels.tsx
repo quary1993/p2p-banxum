@@ -3614,14 +3614,18 @@ function OriginatorLoanCreateForm({
         <TextInput integer label="Underlying borrower coupon bps" onChange={setCouponBps} required value={couponBps} />
         <MoneyMinorInput currency={currency} label="Minimum investment minor units" onChange={setMinimumInvestment} required value={minimumInvestment} />
         <TextInput hint="Last inclusive subscription date. Maximum 50 days including the opening date. Reserved sources must cover the remaining window. A full subscription closes earlier automatically." label="Funding deadline" onChange={setFundingDeadline} required type="date" value={fundingDeadline} />
-        <SelectInput
-          optionLabel={(value) => (value === "accrued_interest" ? "Principal + accrued interest (18.7)" : "Boundary installment (before 18.7)")}
-          hint="18.7: investors pay the principal at the planned settlement day (1 settlement day after the funding deadline) plus the accrued interest of the rights they buy, and receive the next payment. The boundary rule is kept only for offers prepared before 18.7."
-          label="Price rule"
-          onChange={(value) => setPricingRule(value as "accrued_interest" | "boundary_installment")}
-          options={["accrued_interest", "boundary_installment"]}
-          value={pricingRule}
-        />
+        {/* Audit S6-4: a new offer is priced with accrued interest; the boundary rule shows only
+            for a draft that was created with it before 18.7. */}
+        {detail?.pricing_rule === "boundary_installment" ? (
+          <SelectInput
+            optionLabel={(value) => (value === "accrued_interest" ? "Principal + accrued interest (18.7)" : "Boundary installment (before 18.7)")}
+            hint="This draft was prepared before 18.7 with the boundary rule. It can keep it or move to the accrued-interest price; a new offer always uses the accrued-interest price."
+            label="Price rule"
+            onChange={(value) => setPricingRule(value as "accrued_interest" | "boundary_installment")}
+            options={["accrued_interest", "boundary_installment"]}
+            value={pricingRule}
+          />
+        ) : null}
         {pricingRule === "accrued_interest" ? (
           <SelectInput
             optionLabel={(value) => DAY_COUNT_LABELS[value] ?? value}
@@ -3649,9 +3653,15 @@ function OriginatorLoanCreateForm({
         <Field label="Schedule and payment CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field>
       </FieldGrid>
       <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
-      <Banner tone="neutral" title="Par subscription and delayed entitlement">
-        Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. Holdings activate automatically when funding closes. No primary purchase fee applies and no investor interest accrues during funding. The boundary installment belongs entirely to the LO and is recorded through borrower repayments.
-      </Banner>
+      {pricingRule === "boundary_installment" ? (
+        <Banner tone="neutral" title="Par subscription and delayed entitlement (before 18.7)">
+          Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. Holdings activate automatically when funding closes. No primary purchase fee applies and no investor interest accrues during funding. The boundary installment belongs entirely to the LO and is recorded through borrower repayments.
+        </Banner>
+      ) : (
+        <Banner tone="neutral" title="Principal plus accrued interest">
+          Investors pay the principal at the planned settlement day (1 settlement day after the funding deadline) plus the accrued interest of the rights they buy, and receive the whole next payment. The accrued interest they paid is not income. A due date or a borrower payment before the settlement makes the offer fail and releases every reservation.
+        </Banner>
+      )}
       <TextAreaInput label="Purpose description" onChange={setPurposeDescription} value={purposeDescription} />
       <TextAreaInput label="Collateral description" onChange={setCollateralDescription} value={collateralDescription} />
       <h3>Final borrower snapshot</h3>
@@ -3916,8 +3926,8 @@ function OriginatorLoanManageModal({
   }
 
   function closeRound() {
+    // Audit S6-2: the server closes on its own business date; the form sends no date.
     const data: OriginatorFundingRoundCloseRequest = withIdempotencyKey("originator-funding-close", {
-      as_of_date: asOfDate,
       close_reason: closeReason
     }, { loanId: loan.id });
     if (isFixturePreview) { setPreview("The round would close, create active holdings, and record the LO payable automatically. The boundary installment remains entirely payable to the LO."); return; }
@@ -4057,7 +4067,8 @@ function OriginatorLoanManageModal({
         <div className="admin-form-panel">
           {paused ? <Banner tone="warn" title="This round is paused">Closing it ends the pause and closes the round at the subscribed amount.</Banner> : null}
           <Banner tone="neutral" title="No minimum subscription threshold">A full round closes automatically. After the deadline, this action closes at whatever principal was actually subscribed; zero-subscription rounds must be cancelled.</Banner>
-          <FieldGrid><TextInput label="Close as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput hint="Short audit reason, maximum 64 characters." label="Close reason" onChange={setCloseReason} required value={closeReason} /></FieldGrid>
+          <p className="muted admin-manage-hint">The round closes on today&apos;s business date ({formatDate(businessDate)}). If an installment fell due before the settlement, the offer fails instead: every participation is cancelled and the money is released.</p>
+          <FieldGrid><TextInput hint="Short audit reason, maximum 64 characters." label="Close reason" onChange={setCloseReason} required value={closeReason} /></FieldGrid>
           <OperationConfirmButton confirmLabel="Close funding round" description="Pending unallocated orders close without investment. Allocated balances become active holdings and are recorded as payable to the LO in the same transaction." details={[{ label: "Loan", value: loan.title }, { label: "Committed", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Reason", value: closeReason || "Required" }]} disabled={!closeReason.trim() || closeRoundMutation.isPending} onConfirm={closeRound} title="Close originator funding round" variant="primary">Review and close round</OperationConfirmButton>
         </div>
       ) : null}

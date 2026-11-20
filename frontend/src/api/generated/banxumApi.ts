@@ -2905,6 +2905,24 @@ export interface Holding {
   open_secondary_listing: HoldingOpenSecondaryListing | null;
 }
 
+/**
+ * * `act_365_fixed` - act_365_fixed
+ * * `act_360` - act_360
+ * * `act_act_isda` - act_act_isda
+ * * `thirty_360_bond_basis` - thirty_360_bond_basis
+ * * `thirty_e_360` - thirty_e_360
+ */
+export type InterestConventionF71Enum = typeof InterestConventionF71Enum[keyof typeof InterestConventionF71Enum];
+
+
+export const InterestConventionF71Enum = {
+  act_365_fixed: 'act_365_fixed',
+  act_360: 'act_360',
+  act_act_isda: 'act_act_isda',
+  thirty_360_bond_basis: 'thirty_360_bond_basis',
+  thirty_e_360: 'thirty_e_360',
+} as const;
+
 export interface InvestorActivity {
   entries: ActivityEntry[];
 }
@@ -5714,42 +5732,22 @@ export interface OriginatorEnquiryRequest {
 }
 
 export interface OriginatorFundingRoundCloseRequest {
-  as_of_date: string;
+  as_of_date?: string;
   /** @maxLength 64 */
   close_reason: string;
   /** @maxLength 160 */
   idempotency_key: string;
 }
 
-/**
- * * `act_365_fixed` - act_365_fixed
- * * `act_360` - act_360
- * * `act_act_isda` - act_act_isda
- * * `thirty_360_bond_basis` - thirty_360_bond_basis
- * * `thirty_e_360` - thirty_e_360
- */
-export type OriginatorLoanCreateInterestConventionEnum = typeof OriginatorLoanCreateInterestConventionEnum[keyof typeof OriginatorLoanCreateInterestConventionEnum];
-
-
-export const OriginatorLoanCreateInterestConventionEnum = {
-  act_365_fixed: 'act_365_fixed',
-  act_360: 'act_360',
-  act_act_isda: 'act_act_isda',
-  thirty_360_bond_basis: 'thirty_360_bond_basis',
-  thirty_e_360: 'thirty_e_360',
-} as const;
-
-export const OriginatorLoanCreateInterestConvention = {...OriginatorLoanCreateInterestConventionEnum,...BlankEnum,} as const
+export const OriginatorLoanCreateInterestConvention = {...InterestConventionF71Enum,...BlankEnum,} as const
 /**
  * * `accrued_interest` - accrued_interest
- * * `boundary_installment` - boundary_installment
  */
-export type PricingRuleEnum = typeof PricingRuleEnum[keyof typeof PricingRuleEnum];
+export type OriginatorLoanCreatePricingRuleEnum = typeof OriginatorLoanCreatePricingRuleEnum[keyof typeof OriginatorLoanCreatePricingRuleEnum];
 
 
-export const PricingRuleEnum = {
+export const OriginatorLoanCreatePricingRuleEnum = {
   accrued_interest: 'accrued_interest',
-  boundary_installment: 'boundary_installment',
 } as const;
 
 export interface OriginatorLoanCreate {
@@ -5771,7 +5769,7 @@ export interface OriginatorLoanCreate {
   /** @minimum 1 */
   minimum_investment_minor: number;
   funding_deadline: string;
-  pricing_rule?: PricingRuleEnum;
+  pricing_rule?: OriginatorLoanCreatePricingRuleEnum;
   /**
      * Day-count convention of the claim contract (F03); required for 18.7 offers.
      *
@@ -5876,6 +5874,18 @@ export interface OriginatorLoanProfileResponse {
 export interface OriginatorLoanPublish {
   as_of_date: string;
 }
+
+/**
+ * * `accrued_interest` - accrued_interest
+ * * `boundary_installment` - boundary_installment
+ */
+export type OriginatorLoanReplacePricingRuleEnum = typeof OriginatorLoanReplacePricingRuleEnum[keyof typeof OriginatorLoanReplacePricingRuleEnum];
+
+
+export const OriginatorLoanReplacePricingRuleEnum = {
+  accrued_interest: 'accrued_interest',
+  boundary_installment: 'boundary_installment',
+} as const;
 
 /**
  * 18.7 (F04): the borrower paid on the claim before the settlement.
@@ -6165,8 +6175,12 @@ export interface PatchedMarketingConsentUpdateRequest {
   marketing_consent?: boolean;
 }
 
-export const PatchedOriginatorLoanCreateInterestConvention = {...OriginatorLoanCreateInterestConventionEnum,...BlankEnum,} as const
-export interface PatchedOriginatorLoanCreate {
+export const PatchedOriginatorLoanReplaceInterestConvention = {...InterestConventionF71Enum,...BlankEnum,} as const
+/**
+ * Replace a draft: a draft created before 18.7 may keep the boundary-installment rule (the
+ * service refuses it for any other draft).
+ */
+export interface PatchedOriginatorLoanReplace {
   originator_id?: string;
   /** @maxLength 255 */
   title?: string;
@@ -6185,7 +6199,7 @@ export interface PatchedOriginatorLoanCreate {
   /** @minimum 1 */
   minimum_investment_minor?: number;
   funding_deadline?: string;
-  pricing_rule?: PricingRuleEnum;
+  pricing_rule?: OriginatorLoanReplacePricingRuleEnum;
   /**
      * Day-count convention of the claim contract (F03); required for 18.7 offers.
      *
@@ -6195,7 +6209,7 @@ export interface PatchedOriginatorLoanCreate {
      * * `thirty_360_bond_basis` - thirty_360_bond_basis
      * * `thirty_e_360` - thirty_e_360
      */
-  interest_convention?: typeof PatchedOriginatorLoanCreateInterestConvention[keyof typeof PatchedOriginatorLoanCreateInterestConvention];
+  interest_convention?: typeof PatchedOriginatorLoanReplaceInterestConvention[keyof typeof PatchedOriginatorLoanReplaceInterestConvention];
   /** @nullable */
   entitlement_start_date?: string | null;
   /**
@@ -29652,7 +29666,7 @@ export const getOriginatorClaimsAdminLoansUpdateUrl = (loanId: string,) => {
 }
 
 export const originatorClaimsAdminLoansUpdate = async (loanId: string,
-    patchedOriginatorLoanCreate?: PatchedOriginatorLoanCreate, options?: Parameters<typeof httpClient>[1]): Promise<OriginatorLoanProfileResponse> => {
+    patchedOriginatorLoanReplace?: PatchedOriginatorLoanReplace, options?: Parameters<typeof httpClient>[1]): Promise<OriginatorLoanProfileResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -29665,7 +29679,7 @@ return httpClient<OriginatorLoanProfileResponse>(getOriginatorClaimsAdminLoansUp
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(patchedOriginatorLoanCreate)
+    body: JSON.stringify(patchedOriginatorLoanReplace)
   }
 );}
 
@@ -29703,9 +29717,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type OriginatorClaimsAdminLoansUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof originatorClaimsAdminLoansUpdate>>>
-    export type OriginatorClaimsAdminLoansUpdateMutationBody = PatchedOriginatorLoanCreate | undefined
+    export type OriginatorClaimsAdminLoansUpdateMutationBody = PatchedOriginatorLoanReplace | undefined
     export type OriginatorClaimsAdminLoansUpdateMutationError = unknown
-    export type OriginatorClaimsAdminLoansUpdateMutationVariables = {loanId: string;data?: PatchedOriginatorLoanCreate}
+    export type OriginatorClaimsAdminLoansUpdateMutationVariables = {loanId: string;data?: PatchedOriginatorLoanReplace}
 
     export const useOriginatorClaimsAdminLoansUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof originatorClaimsAdminLoansUpdate>>, TError,OriginatorClaimsAdminLoansUpdateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}

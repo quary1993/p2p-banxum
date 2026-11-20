@@ -27,6 +27,7 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorLoanHoldSerializer,
     OriginatorLoanProfileResponseSerializer,
     OriginatorLoanPublishSerializer,
+    OriginatorLoanReplaceSerializer,
     OriginatorOfferFailedRequestSerializer,
     OriginatorSettlementQueueRowSerializer,
     OriginatorSettlementRequestSerializer,
@@ -264,11 +265,11 @@ class OriginatorLoanDetailView(APIView):
 
     @extend_schema(
         operation_id="originator_claims_admin_loans_update",
-        request=OriginatorLoanCreateSerializer,
+        request=OriginatorLoanReplaceSerializer,
         responses={200: OriginatorLoanProfileResponseSerializer},
     )
     def patch(self, request: Request, loan_id: Any) -> Response:
-        serializer = OriginatorLoanCreateSerializer(data=request.data)
+        serializer = OriginatorLoanReplaceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
@@ -328,7 +329,8 @@ class OriginatorFundingRoundCloseView(APIView):
                 CloseOriginatorSubscriptionRoundCommand(
                     actor=_actor(request),
                     loan_id=str(loan_id),
-                    as_of_date=data["as_of_date"],
+                    # Audit S6-2: the server's business date, never a date from the form.
+                    as_of_date=business_date(now_utc()),
                     close_reason=str(data["close_reason"]),
                     idempotency_key=str(data["idempotency_key"]),
                     admin_decision=True,

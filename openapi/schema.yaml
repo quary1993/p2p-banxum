@@ -7628,13 +7628,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+              $ref: '#/components/schemas/PatchedOriginatorLoanReplace'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+              $ref: '#/components/schemas/PatchedOriginatorLoanReplace'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+              $ref: '#/components/schemas/PatchedOriginatorLoanReplace'
       security:
       - cookieAuth: []
       responses:
@@ -14251,6 +14251,20 @@ components:
       - investor_note
       - occurred_on
       - title
+    InterestConventionF71Enum:
+      enum:
+      - act_365_fixed
+      - act_360
+      - act_act_isda
+      - thirty_360_bond_basis
+      - thirty_e_360
+      type: string
+      description: |-
+        * `act_365_fixed` - act_365_fixed
+        * `act_360` - act_360
+        * `act_act_isda` - act_act_isda
+        * `thirty_360_bond_basis` - thirty_360_bond_basis
+        * `thirty_e_360` - thirty_e_360
     InvestorActivity:
       type: object
       properties:
@@ -19803,7 +19817,6 @@ components:
           type: string
           maxLength: 160
       required:
-      - as_of_date
       - close_reason
       - idempotency_key
     OriginatorLoanCreate:
@@ -19840,7 +19853,7 @@ components:
           format: date
         pricing_rule:
           allOf:
-          - $ref: '#/components/schemas/PricingRuleEnum'
+          - $ref: '#/components/schemas/OriginatorLoanCreatePricingRuleEnum'
           default: accrued_interest
         interest_convention:
           default: ''
@@ -19853,7 +19866,7 @@ components:
             * `thirty_360_bond_basis` - thirty_360_bond_basis
             * `thirty_e_360` - thirty_e_360
           oneOf:
-          - $ref: '#/components/schemas/OriginatorLoanCreateInterestConventionEnum'
+          - $ref: '#/components/schemas/InterestConventionF71Enum'
           - $ref: '#/components/schemas/BlankEnum'
         entitlement_start_date:
           type: string
@@ -19926,20 +19939,11 @@ components:
       - risk_rating
       - source_filename
       - title
-    OriginatorLoanCreateInterestConventionEnum:
+    OriginatorLoanCreatePricingRuleEnum:
       enum:
-      - act_365_fixed
-      - act_360
-      - act_act_isda
-      - thirty_360_bond_basis
-      - thirty_e_360
+      - accrued_interest
       type: string
-      description: |-
-        * `act_365_fixed` - act_365_fixed
-        * `act_360` - act_360
-        * `act_act_isda` - act_act_isda
-        * `thirty_360_bond_basis` - thirty_360_bond_basis
-        * `thirty_e_360` - thirty_e_360
+      description: '* `accrued_interest` - accrued_interest'
     OriginatorLoanHold:
       type: object
       properties:
@@ -20110,6 +20114,14 @@ components:
           format: date
       required:
       - as_of_date
+    OriginatorLoanReplacePricingRuleEnum:
+      enum:
+      - accrued_interest
+      - boundary_installment
+      type: string
+      description: |-
+        * `accrued_interest` - accrued_interest
+        * `boundary_installment` - boundary_installment
     OriginatorLoanScheduleRowResponse:
       type: object
       properties:
@@ -20754,8 +20766,11 @@ components:
       properties:
         marketing_consent:
           type: boolean
-    PatchedOriginatorLoanCreate:
+    PatchedOriginatorLoanReplace:
       type: object
+      description: |-
+        Replace a draft: a draft created before 18.7 may keep the boundary-installment rule (the
+        service refuses it for any other draft).
       properties:
         originator_id:
           type: string
@@ -20788,7 +20803,7 @@ components:
           format: date
         pricing_rule:
           allOf:
-          - $ref: '#/components/schemas/PricingRuleEnum'
+          - $ref: '#/components/schemas/OriginatorLoanReplacePricingRuleEnum'
           default: accrued_interest
         interest_convention:
           default: ''
@@ -20801,7 +20816,7 @@ components:
             * `thirty_360_bond_basis` - thirty_360_bond_basis
             * `thirty_e_360` - thirty_e_360
           oneOf:
-          - $ref: '#/components/schemas/OriginatorLoanCreateInterestConventionEnum'
+          - $ref: '#/components/schemas/InterestConventionF71Enum'
           - $ref: '#/components/schemas/BlankEnum'
         entitlement_start_date:
           type: string
@@ -21567,14 +21582,6 @@ components:
       - original_principal_by_currency
       - outstanding_principal_by_currency
       - realized_interest_by_currency
-    PricingRuleEnum:
-      enum:
-      - accrued_interest
-      - boundary_installment
-      type: string
-      description: |-
-        * `accrued_interest` - accrued_interest
-        * `boundary_installment` - boundary_installment
     PrimaryInvestmentOrder:
       type: object
       properties:

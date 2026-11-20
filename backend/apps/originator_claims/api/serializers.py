@@ -131,11 +131,10 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
     interest_rate_bps = serializers.IntegerField(min_value=1)
     minimum_investment_minor = serializers.IntegerField(min_value=1)
     funding_deadline = serializers.DateField()
-    # 18.7: new offers are priced as principal + accrued interest (no boundary installment);
-    # the boundary fields are only for ``pricing_rule = boundary_installment``.
-    pricing_rule = serializers.ChoiceField(
-        choices=["accrued_interest", "boundary_installment"], default="accrued_interest"
-    )
+    # 18.7 (audit S6-4): a new offer is priced as principal + accrued interest; the removed
+    # boundary-installment rule cannot be chosen here (the replace serializer below keeps it for
+    # a draft created before 18.7).
+    pricing_rule = serializers.ChoiceField(choices=["accrued_interest"], default="accrued_interest")
     interest_convention = serializers.ChoiceField(
         choices=[*DAY_COUNT_CONVENTIONS.keys()],
         required=False,
@@ -186,6 +185,15 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
             if missing:
                 raise serializers.ValidationError(missing)
         return attrs
+
+
+class OriginatorLoanReplaceSerializer(OriginatorLoanCreateSerializer):
+    """Replace a draft: a draft created before 18.7 may keep the boundary-installment rule (the
+    service refuses it for any other draft)."""
+
+    pricing_rule = serializers.ChoiceField(
+        choices=["accrued_interest", "boundary_installment"], default="accrued_interest"
+    )
 
 
 class OriginatorLoanScheduleRowResponseSerializer(serializers.Serializer[dict[str, object]]):
@@ -303,7 +311,8 @@ class OriginatorLoanPublishSerializer(serializers.Serializer[dict[str, object]])
 
 
 class OriginatorFundingRoundCloseRequestSerializer(serializers.Serializer[dict[str, object]]):
-    as_of_date = serializers.DateField()
+    # Audit S6-2: ignored; the close runs on the server's business date (kept for older clients).
+    as_of_date = serializers.DateField(required=False)
     close_reason = serializers.CharField(max_length=64)
     idempotency_key = serializers.CharField(max_length=160)
 

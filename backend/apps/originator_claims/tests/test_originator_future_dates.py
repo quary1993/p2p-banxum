@@ -24,6 +24,9 @@ from backend.apps.originator_claims.tests.test_originator_claims import (
 )
 from backend.apps.platform_core.domain.time import business_date
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 
 @pytest.mark.django_db
 def test_originator_receipt_refuses_future_value_booking_and_as_of_dates() -> None:

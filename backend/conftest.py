@@ -94,3 +94,19 @@ def pre_cutover_loans(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loans_services, "_resolve_interest_convention", resolve)
     field = apps.get_model("loans", "Loan")._meta.get_field("interest_convention")
     monkeypatch.setattr(field, "_get_default", lambda: legacy, raising=False)
+
+
+@pytest.fixture
+def boundary_offers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit S6-4: a new Loan Originator offer is priced with accrued interest. Test modules
+    written for the boundary-installment offers of before 18.7 ask for this fixture, so an offer
+    they create without a rule keeps the boundary rule."""
+    from importlib import import_module
+
+    originator: Any = import_module("backend.apps.originator_claims.services")
+    boundary = originator.OriginatorPricingRule.BOUNDARY_INSTALLMENT
+
+    def resolve(command: Any, *, existing_rule: str | None = None) -> Any:
+        return originator.OriginatorPricingRule(command.pricing_rule or boundary)
+
+    monkeypatch.setattr(originator, "_resolve_pricing_rule", resolve)

@@ -691,6 +691,10 @@ class Command(BaseCommand):
                             borrower_snapshot=_borrower_snapshot(loan_spec),
                             premium_fee_bps=0,
                             skin_in_the_game_bps=loan_spec.skin_in_the_game_bps,
+                            # Audit S6-4: the demo still models offers from before 18.7; it
+                            # moves to accrued-interest offers with the reseed at the end of 18.
+                            pricing_rule="boundary_installment",
+                            historical_boundary_offer=True,
                         )
                     )
                     if _demo_uid(loan_spec):

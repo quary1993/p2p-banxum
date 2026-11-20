@@ -57,6 +57,9 @@ from backend.apps.platform_core.tests.factories import (
 )
 from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 
 def _sandbox_ack(order: Any) -> dict[str, Any]:
     """18.9 (E-03): the investor's confirmation of the sandbox notice, when the borrower has one."""

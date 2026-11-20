@@ -8,6 +8,7 @@ due date (or a borrower payment) before the settlement fails the offer. Q17: Com
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from importlib import import_module
 from typing import Any, cast
@@ -35,6 +36,7 @@ from backend.apps.originator_claims.services import (
     OriginatorClaimsValidationError,
     PublishOriginatorLoanCommand,
     accrued_interest_for_principal,
+    close_originator_subscription_round,
     create_loan_originator,
     create_originator_loan,
     publish_originator_loan,
@@ -428,4 +430,154 @@ def test_a_coming_soon_offer_is_listed_and_the_opening_alert_goes_out_at_publica
             topic="email.loan_opening_alert", payload__loan_id=str(result.loan.id)
         ).count()
         == 1
+    )
+
+
+def _held_open_offer(admin_user: Model, investor: Model, *, suffix: str) -> Any:
+    """An accrued-interest offer with one participation, kept open (paused) past its deadline."""
+    today = business_date(now_utc())
+    result = _create(admin_user, today=today, suffix=suffix, deadline_days=5)
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=150_000,
+        deposit_minor=180_000,
+        suffix=suffix,
+    )
+    profile = OriginatorLoanProfile.objects.get(pk=result.profile.pk)
+    profile.is_on_hold = True
+    profile.hold_reason = "Investigating"
+    profile.save(update_fields=["is_on_hold", "hold_reason"])
+    return result, profile
+
+
+def _at(day: date) -> Any:
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    clock = datetime.combine(day, time(12), UTC)
+    for target in (
+        "backend.apps.originator_claims.services.now_utc",
+        "backend.apps.marketplace_primary.services.now_utc",
+        "backend.apps.originator_claims.api.views.now_utc",
+    ):
+        stack.enter_context(patch(target, return_value=clock))
+    return stack
+
+
+@pytest.mark.django_db
+def test_a_close_after_the_due_date_fails_the_offer_once(
+    admin_user: Model, investor: Model
+) -> None:
+    """Audit S6-1: the close itself fails the offer (participations cancelled, money released,
+    one email per investor); the offer never reopens."""
+    from backend.apps.originator_claims.services import OriginatorOfferFailedError
+
+    result, profile = _held_open_offer(admin_user, investor, suffix="F1")
+    due = cast(date, profile.price_next_due_date)
+    command = CloseOriginatorSubscriptionRoundCommand(
+        actor=admin_user,
+        loan_id=str(result.loan.id),
+        as_of_date=due,
+        close_reason="Admin decision",
+        idempotency_key="f1-close",
+        admin_decision=True,
+    )
+    with _at(due):
+        with pytest.raises(OriginatorOfferFailedError, match="offer failed"):
+            close_originator_subscription_round(command)
+        with pytest.raises(OriginatorClaimsValidationError):
+            close_originator_subscription_round(replace(command, idempotency_key="f1-close-2"))
+
+    profile.refresh_from_db()
+    ledger = import_module("backend.apps.ledger.services")
+    balance = ledger.summarize_investor_balance(investor_user_id=str(investor.pk), currency="CHF")
+    assert profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+    assert balance.total_available_minor == 180_000
+    assert (
+        OutboxMessage.objects.filter(topic="email.originator_subscription_cancelled").count() == 1
+    )
+    assert (
+        OriginatorClaimEvent.objects.filter(
+            loan_id=result.loan.id, event_type=OriginatorClaimEventType.OFFER_FAILED
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_a_close_cannot_be_backdated_before_the_due_date(
+    admin_user: Model, investor: Model
+) -> None:
+    """Audit S6-2: the close uses the server's business date. A date before it is refused in the
+    service, and the admin API ignores a date sent by the form."""
+    result, profile = _held_open_offer(admin_user, investor, suffix="F2")
+    due = cast(date, profile.price_next_due_date)
+    client = Client()
+    client.force_login(cast(Any, admin_user))
+    with _at(due):
+        with pytest.raises(OriginatorClaimsValidationError, match="earlier date"):
+            close_originator_subscription_round(
+                CloseOriginatorSubscriptionRoundCommand(
+                    actor=admin_user,
+                    loan_id=str(result.loan.id),
+                    as_of_date=due - timedelta(days=1),
+                    close_reason="Backdated",
+                    idempotency_key="f2-backdated",
+                    admin_decision=True,
+                )
+            )
+        response = client.post(
+            f"/api/v1/originator-claims/admin/loans/{result.loan.id}/funding-close/",
+            {
+                "as_of_date": (due - timedelta(days=1)).isoformat(),
+                "close_reason": "Backdated form",
+                "idempotency_key": "f2-api",
+            },
+            content_type="application/json",
+        )
+
+    profile.refresh_from_db()
+    assert response.status_code == 400
+    assert "offer failed" in response.json()["detail"]
+    assert profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+
+
+def test_a_new_offer_cannot_use_the_removed_boundary_rule() -> None:
+    """Audit S6-4: the create API offers only the accrued-interest rule; the service gives the
+    boundary rule only to a draft that already has it or an explicit historical import."""
+    from backend.apps.originator_claims.api.serializers import (
+        OriginatorLoanCreateSerializer,
+        OriginatorLoanReplaceSerializer,
+    )
+    from backend.apps.originator_claims.services import _resolve_pricing_rule
+
+    created = OriginatorLoanCreateSerializer(data={"pricing_rule": "boundary_installment"})
+    assert not created.is_valid()
+    assert "pricing_rule" in created.errors
+    replaced = OriginatorLoanReplaceSerializer(data={"pricing_rule": "boundary_installment"})
+    assert not replaced.is_valid()
+    assert "pricing_rule" not in replaced.errors
+
+    def command(**values: Any) -> Any:
+        return cast(Any, type("Command", (), {"historical_boundary_offer": False, **values})())
+
+    assert (
+        _resolve_pricing_rule(command(pricing_rule=None)) == OriginatorPricingRule.ACCRUED_INTEREST
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="only kept for offers created"):
+        _resolve_pricing_rule(command(pricing_rule="boundary_installment"))
+    assert (
+        _resolve_pricing_rule(
+            command(pricing_rule="boundary_installment"), existing_rule="boundary_installment"
+        )
+        == OriginatorPricingRule.BOUNDARY_INSTALLMENT
+    )
+    assert (
+        _resolve_pricing_rule(
+            command(pricing_rule="boundary_installment", historical_boundary_offer=True)
+        )
+        == OriginatorPricingRule.BOUNDARY_INSTALLMENT
     )

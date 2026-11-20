@@ -23,6 +23,9 @@ from backend.apps.originator_claims.tests.test_originator_claims import (  # noq
 )
 from backend.apps.platform_core.models import OutboxMessage
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 T0 = date(2026, 6, 1)
 
 

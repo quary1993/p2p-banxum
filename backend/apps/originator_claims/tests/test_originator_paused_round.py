@@ -46,6 +46,9 @@ from backend.apps.platform_core.services.scheduled_jobs import (
     run_scheduled_jobs,
 )
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 T0 = date(2026, 6, 1)
 
 

@@ -87,6 +87,9 @@ from backend.apps.platform_core.tests.factories import (
 )
 from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 EXAMPLES_DIR = Path(__file__).resolve().parents[4] / "imports_examples"
 
 

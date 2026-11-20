@@ -38,6 +38,9 @@ from backend.apps.reporting.services import (
     generate_report,
 )
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 
 @pytest.fixture
 def admin_user() -> Model:

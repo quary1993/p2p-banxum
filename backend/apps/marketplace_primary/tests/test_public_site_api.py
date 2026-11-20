@@ -35,6 +35,9 @@ from backend.apps.marketplace_primary.tests.test_primary_marketplace import (
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.models import Currency
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 PROJECTS_URL = "/api/v1/marketplace/primary/public/projects/"
 STATISTICS_URL = "/api/v1/marketplace/primary/public/statistics/"
 ORIGINATORS_URL = "/api/v1/marketplace/primary/public/originators/"

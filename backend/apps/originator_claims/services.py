@@ -181,9 +181,35 @@ class CreateOriginatorLoanCommand:
     investor_penalty_participation_bps: int | None = None
     distribution_model: str = OriginatorDistributionModel.PAR_COMPONENT_V2
     # 18.7: the price rule of a subscription offer and the claim contract's convention (F03).
-    # The admin API creates ``accrued_interest`` offers; the boundary rule stays for older offers.
-    pricing_rule: str = OriginatorPricingRule.BOUNDARY_INSTALLMENT
+    # Audit S6-4: a new offer is priced with accrued interest (None = that rule). The boundary
+    # rule was removed by 18.7; it stays readable for the offers created before, and a new one
+    # needs ``historical_boundary_offer`` (a controlled import of such an older offer).
+    pricing_rule: str | None = None
     interest_convention: str = ""
+    historical_boundary_offer: bool = False
+
+
+def _resolve_pricing_rule(
+    command: CreateOriginatorLoanCommand, *, existing_rule: str | None = None
+) -> OriginatorPricingRule:
+    """Audit S6-4: accrued interest for new offers; the removed boundary rule only for a draft
+    that already uses it or an explicit historical import."""
+    if not command.pricing_rule:
+        return OriginatorPricingRule.ACCRUED_INTEREST
+    try:
+        rule = OriginatorPricingRule(command.pricing_rule)
+    except ValueError as exc:
+        raise OriginatorClaimsValidationError("Unsupported originator price rule.") from exc
+    if (
+        rule == OriginatorPricingRule.BOUNDARY_INSTALLMENT
+        and not command.historical_boundary_offer
+        and existing_rule != OriginatorPricingRule.BOUNDARY_INSTALLMENT
+    ):
+        raise OriginatorClaimsValidationError(
+            "New Loan Originator offers are priced as principal plus accrued interest; the "
+            "boundary-installment rule is only kept for offers created before 18.7."
+        )
+    return rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -1464,10 +1490,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         distribution_model = OriginatorDistributionModel(command.distribution_model)
     except ValueError as exc:
         raise OriginatorClaimsValidationError("Unsupported originator distribution model.") from exc
-    try:
-        pricing_rule = OriginatorPricingRule(command.pricing_rule)
-    except ValueError as exc:
-        raise OriginatorClaimsValidationError("Unsupported originator price rule.") from exc
+    pricing_rule = _resolve_pricing_rule(command)
     accrued_terms: AccruedPriceTerms | None = None
     if (
         distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -1954,10 +1977,7 @@ def replace_originator_loan_draft(
         raise OriginatorClaimsValidationError(
             "A draft cannot change its originator distribution model."
         )
-    try:
-        pricing_rule = OriginatorPricingRule(command.pricing_rule)
-    except ValueError as exc:
-        raise OriginatorClaimsValidationError("Unsupported originator price rule.") from exc
+    pricing_rule = _resolve_pricing_rule(command, existing_rule=str(profile.pricing_rule))
     accrued_terms: AccruedPriceTerms | None = None
     if (
         distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
@@ -2483,26 +2503,82 @@ def _existing_round_close(
     return cast(OriginatorFundingRoundClose, existing)
 
 
-@transaction.atomic
+class OriginatorOfferFailedError(OriginatorClaimsValidationError):
+    """Audit S6-1: the close found the offer failed (F04); the failure is committed."""
+
+
 def close_originator_subscription_round(
     command: CloseOriginatorSubscriptionRoundCommand,
 ) -> OriginatorFundingRoundClose:
-    if command.as_of_date > business_date(now_utc()):
+    """Close a Loan Originator funding round on today's business date.
+
+    Audit S6-2: the eligibility (F04 due date, deadline, Swiss creditor checks) uses the server's
+    business date; an earlier date cannot be given (a replay of a recorded close is still
+    answered). Audit S6-1: when a due date before the settlement is reached, the close fails the
+    offer in its own committed transaction (participations cancelled, reservations released,
+    investors told once) and then answers with OriginatorOfferFailedError."""
+    today = business_date(now_utc())
+    if command.as_of_date > today:
         raise OriginatorClaimsValidationError(
             "Funding resolution cannot run for a future date. Use the QA clock to advance time."
         )
     idempotency_key = _required(command.idempotency_key, "Idempotency key")
-    if len(idempotency_key) > 160:
-        raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
-    close_reason = _required(command.close_reason, "Close reason")
-    fingerprint = _request_fingerprint(
+    existing = _existing_round_close(
+        idempotency_key=idempotency_key,
+        fingerprint=_round_close_fingerprint(command, idempotency_key=idempotency_key),
+    )
+    if existing is not None:
+        return existing
+    if command.as_of_date < today:
+        raise OriginatorClaimsValidationError(
+            f"A funding round closes on today's business date ({today.isoformat()}); an "
+            "earlier date cannot be used."
+        )
+    profile = OriginatorLoanProfile.objects.filter(loan_id=command.loan_id).first()
+    # An investor's automatic close cannot cancel other participations; the locked close below
+    # refuses it and the daily scan fails the offer the same day.
+    if (
+        profile is not None
+        and is_admin_actor(command.actor)
+        and _accrued_offer_due_date_reached(profile, today)
+    ):
+        with transaction.atomic():
+            cancellation = fail_originator_offer_if_needed(
+                actor=command.actor,
+                loan_id=str(command.loan_id),
+                cause=OFFER_FAILED_DUE_DATE,
+                as_of_date=today,
+            )
+        if cancellation is not None:
+            raise OriginatorOfferFailedError(
+                "An installment fell due before the settlement: the offer failed. Every "
+                "participation is cancelled and the reserved money is available again."
+            )
+    return _close_originator_subscription_round_locked(command)
+
+
+def _round_close_fingerprint(
+    command: CloseOriginatorSubscriptionRoundCommand, *, idempotency_key: str
+) -> str:
+    return _request_fingerprint(
         {
             "loan_id": str(command.loan_id),
             "as_of_date": command.as_of_date.isoformat(),
-            "close_reason": close_reason,
+            "close_reason": _required(command.close_reason, "Close reason"),
             "idempotency_key": idempotency_key,
         }
     )
+
+
+@transaction.atomic
+def _close_originator_subscription_round_locked(
+    command: CloseOriginatorSubscriptionRoundCommand,
+) -> OriginatorFundingRoundClose:
+    idempotency_key = _required(command.idempotency_key, "Idempotency key")
+    if len(idempotency_key) > 160:
+        raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
+    close_reason = _required(command.close_reason, "Close reason")
+    fingerprint = _round_close_fingerprint(command, idempotency_key=idempotency_key)
     existing = _existing_round_close(
         idempotency_key=idempotency_key,
         fingerprint=fingerprint,
@@ -2538,7 +2614,7 @@ def close_originator_subscription_round(
         lambda regimes: regimes.check_before_close(cast(Model, loan), on=command.as_of_date)
     )
     if _accrued_offer_due_date_reached(profile, command.as_of_date):
-        # 18.7 (F04): re-checked at the close; the daily scan or the admin fails the offer.
+        # 18.7 (F04): re-checked under the lock; the caller above fails the offer first.
         raise OriginatorClaimsValidationError(
             "An installment fell due before the settlement: this offer failed and cannot close."
         )

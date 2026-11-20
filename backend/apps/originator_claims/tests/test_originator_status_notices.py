@@ -22,6 +22,9 @@ from backend.apps.originator_claims.tests.test_originator_claims import (  # noq
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.tests.notices import assert_renders_to, investor_notices
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 
 @pytest.mark.django_db
 def test_originator_loan_late_and_default_notify_the_current_holder_once_each(
