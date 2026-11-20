@@ -14,7 +14,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Model, Sum
+from django.db.models import F, Max, Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -3369,37 +3369,38 @@ def list_active_secondary_market_listings(
 ) -> list[SecondaryMarketListing]:
     _require_investor_financial_access(actor)
     safe_limit = min(max(int(limit), 1), 250)
+    offered = SecondaryMarketListing.objects.filter(
+        status=SecondaryMarketListingStatus.ACTIVE,
+        loan__status=F("loan_status_at_listing"),
+    ).filter(
+        # Rule C18: only performing loans are offered, Direct and Loan Originator alike.
+        loan__status=PERFORMING_LOAN_STATUS
+    )
+    # Audit S2-4: C03 is applied before the limit, so hidden listings do not use up the page.
+    as_of_date = business_date(now_utc())
+    loan_model = SecondaryMarketListing._meta.get_field("loan").related_model
+    closed_loan_ids = loan_ids_closed_to_new_buyers(
+        loans=list(
+            cast(Any, loan_model).objects.filter(pk__in=offered.values("loan_id").distinct())
+        ),
+        as_of_date=as_of_date,
+    )
     listings = list(
-        SecondaryMarketListing.objects.select_related(
+        offered.select_related(
             "holding",
             "loan",
             "loan__borrower",
             "loan__originator_profile__originator",
             "currency",
         )
-        .filter(
-            status=SecondaryMarketListingStatus.ACTIVE,
-            loan__status=F("loan_status_at_listing"),
-        )
-        # Rule C18: only performing loans are offered, Direct and Loan Originator alike.
-        .filter(loan__status=PERFORMING_LOAN_STATUS)
+        # C03: other sellers' listings of a loan with a due installment leave the market.
+        .exclude(Q(loan_id__in=list(closed_loan_ids)) & ~Q(seller_user_id=actor.pk))
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
-    as_of_date = business_date(now_utc())
-    listed_loans = {str(listing.loan_id): cast(Model, listing.loan) for listing in listings}
-    closed_loan_ids = loan_ids_closed_to_new_buyers(
-        loans=list(listed_loans.values()), as_of_date=as_of_date
-    )
-    visible: list[SecondaryMarketListing] = []
     for listing in listings:
         # The viewer's own listing is shown as "Your listing", without a Buy action.
         listing.is_own_listing = str(listing.seller_user_id) == str(actor.pk)  # type: ignore[attr-defined]
         listing.paused_for_due_installment = str(listing.loan_id) in closed_loan_ids  # type: ignore[attr-defined]
-        # C03: other sellers' listings of a loan with a due installment leave the market.
-        if listing.paused_for_due_installment and not listing.is_own_listing:  # type: ignore[attr-defined]
-            continue
-        visible.append(listing)
-    listings = visible
     if not listings:
         return listings
 

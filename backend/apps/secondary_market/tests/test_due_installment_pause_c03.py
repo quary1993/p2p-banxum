@@ -110,9 +110,7 @@ def test_listings_pause_from_the_due_date_until_the_payment_is_recorded(
     _set_clock(monkeypatch, DUE_DATE)
     assert list_active_secondary_market_listings(actor=other_investor) == []
     with pytest.raises(SecondaryMarketValidationError, match="not available"):
-        get_active_secondary_market_listing_detail(
-            actor=other_investor, listing_id=str(listing.pk)
-        )
+        get_active_secondary_market_listing_detail(actor=other_investor, listing_id=str(listing.pk))
     with pytest.raises(SecondaryMarketValidationError) as refused:
         purchase_secondary_market_listing(
             PurchaseSecondaryMarketListingCommand(
@@ -150,3 +148,41 @@ def test_listings_pause_from_the_due_date_until_the_payment_is_recorded(
     assert cast(Any, buyer_view[0]).paused_for_due_installment is False
     activity = portal.get_secondary_market_activity(actor=investor)
     assert activity["listings"][0]["paused_for_due_installment"] is False
+
+
+@pytest.mark.django_db
+def test_a_hidden_newer_listing_does_not_use_up_the_buyer_page(
+    admin_user: Model,
+    investor: Model,  # noqa: F811
+    other_investor: Model,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit S2-4: C03 is applied before the limit; with limit=1 the buyer gets the eligible
+    older listing, not an empty page."""
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    eligible_loan = _create_funded_loan(admin_user)
+    _create_current_installment(eligible_loan, due_date=date(2026, 2, 16))
+    due_loan = _create_funded_loan(admin_user)
+    _create_current_installment(due_loan, due_date=DUE_DATE)
+    eligible_holding = _create_holding(
+        admin_user, investor, eligible_loan, idempotency_key="c03-page-holding-1"
+    )
+    due_holding = _create_holding(
+        admin_user, investor, due_loan, idempotency_key="c03-page-holding-2"
+    )
+    _set_clock(monkeypatch, date(2026, 1, 19))
+    older = _list_holding_for_sale(investor, eligible_holding, price_bps=10_000, key="c03-page-1")
+    newer = _list_holding_for_sale(investor, due_holding, price_bps=10_000, key="c03-page-2")
+    assert [str(row.pk) for row in list_active_secondary_market_listings(actor=other_investor)] == [
+        str(newer.pk),
+        str(older.pk),
+    ]
+
+    _set_clock(monkeypatch, DUE_DATE)
+    page = list_active_secondary_market_listings(actor=other_investor, limit=1)
+    assert [str(row.pk) for row in page] == [str(older.pk)]
+    # The seller still sees both, the newer one paused.
+    seller_view = list_active_secondary_market_listings(actor=investor, limit=1)
+    assert [str(row.pk) for row in seller_view] == [str(newer.pk)]
+    assert cast(Any, seller_view[0]).paused_for_due_installment is True
