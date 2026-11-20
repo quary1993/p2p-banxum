@@ -2715,13 +2715,29 @@ def _annual_tax_information_dataset(
             bump(line.currency.code, "information_only", "principal_repaid", line.principal_minor)
             if line.fee_minor:
                 bump(line.currency.code, "tax_summary", "lender_payment_fees_paid", line.fee_minor)
-        for line in list(originator_repayment_queryset):
+        originator_lines = list(originator_repayment_queryset)
+        # Audit S6-3: the part of the interest that gives back the accrued interest paid in the
+        # price of a Loan Originator offer is not income; it is reported for information.
+        returned_by_line: dict[str, int] = import_module(
+            "backend.apps.originator_claims.services"
+        ).bought_interest_returned_by_line(
+            sorted({str(line.holding_id) for line in originator_lines})
+        )
+        for line in originator_lines:
+            returned = returned_by_line.get(str(line.pk), 0)
             bump(
                 line.currency.code,
                 "tax_summary",
                 "originator_claim_interest_received_or_credited",
-                line.interest_minor,
+                line.interest_minor - returned,
             )
+            if returned:
+                bump(
+                    line.currency.code,
+                    "information_only",
+                    "originator_claim_bought_accrued_interest_returned",
+                    returned,
+                )
             bump(
                 line.currency.code,
                 "tax_summary",

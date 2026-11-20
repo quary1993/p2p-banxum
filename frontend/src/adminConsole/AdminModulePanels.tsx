@@ -188,7 +188,7 @@ import {
   type OriginatorSettlementQueueRow,
   type OriginatorSettlementRequest,
   type PatchedLoanOriginatorUpdate,
-  type PatchedOriginatorLoanCreate,
+  type PatchedOriginatorLoanReplace,
   type PatchedBorrowerEntityUpdateRequest,
   type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
@@ -3525,7 +3525,7 @@ function OriginatorLoanCreateForm({
         interest_rate_bps: intValue(couponBps),
         minimum_investment_minor: intValue(minimumInvestment),
         funding_deadline: fundingDeadline,
-        pricing_rule: pricingRule,
+        pricing_rule: "accrued_interest",
         interest_convention: (boundaryRule ? "" : interestConvention) as OriginatorLoanCreate["interest_convention"],
         entitlement_start_date: boundaryRule ? entitlementStartDate : null,
         activation_outstanding_principal_minor: boundaryRule ? intValue(activationOutstandingPrincipal) : null,
@@ -3581,7 +3581,7 @@ function OriginatorLoanCreateForm({
         return;
       }
       if (loanId) {
-        updateMutation.mutate({ loanId, data: data as PatchedOriginatorLoanCreate });
+        updateMutation.mutate({ loanId, data: { ...data, pricing_rule: pricingRule } as PatchedOriginatorLoanReplace });
       } else {
         createMutation.mutate({ data });
       }

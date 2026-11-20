@@ -581,3 +581,100 @@ def test_a_new_offer_cannot_use_the_removed_boundary_rule() -> None:
         )
         == OriginatorPricingRule.BOUNDARY_INSTALLMENT
     )
+
+
+@pytest.mark.django_db
+def test_bought_accrued_interest_is_not_reported_as_interest_earned(
+    admin_user: Model, investor: Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S6-3: the first payment gives back the accrued interest paid in the price. The
+    portfolio, the activity, the income report and the tax summary show it apart; only the
+    rest is interest earned. The cash received still adds up."""
+    from backend.apps.originator_claims.models import InvestorOriginatorRepaymentDistributionLine
+    from backend.apps.originator_claims.services import (
+        RecordOriginatorBorrowerRepaymentCommand,
+        bought_interest_returned_by_line,
+        record_originator_borrower_repayment,
+    )
+    from backend.apps.platform_core.tests.qa_clock import wall_clock
+
+    today = business_date(now_utc())
+    result = _create(admin_user, today=today, suffix="B1")
+    profile = OriginatorLoanProfile.objects.get(pk=result.profile.pk)
+    bought = accrued_interest_for_principal(profile, 200_000)
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=200_000,
+        deposit_minor=250_000,
+        suffix="B1",
+    )
+    _close_originator_at_as_of(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="accrued-B1-close",
+        )
+    )
+    due = today + timedelta(days=30)
+    receipt = f"payment,B1-PAY,,,,{due.isoformat()},regular,,200000,10000,0,0,210000,,800000"
+    with wall_clock(datetime.combine(due, time(12), UTC)):
+        record_originator_borrower_repayment(
+            RecordOriginatorBorrowerRepaymentCommand(
+                actor=admin_user,
+                loan_id=str(result.loan.id),
+                csv_content=_csv(today) + receipt + "\n",
+                source_filename="b1.csv",
+                as_of_date=due,
+                payment_reference="B1-PAY",
+                booking_date=due,
+                value_date=due,
+                collection_account_identifier="CH11 83019 GARANTAFI001",
+                payer_name="Accrued borrower",
+                payer_account_identifier="CH9300762011623852957",
+                bank_reference="BANK-B1",
+                bank_payment_reference="B1-PAY",
+                evidence_reference="STMT-B1",
+                notes="First payment.",
+                idempotency_key="b1-pay",
+            )
+        )
+    line = InvestorOriginatorRepaymentDistributionLine.objects.get(investor_user_id=investor.pk)
+    received = int(line.interest_minor)
+    assert bought > 0 and received > bought
+    assert bought_interest_returned_by_line([str(line.holding_id)]) == {str(line.pk): bought}
+
+    portal: Any = import_module("backend.apps.investor_portal.services")
+    monkeypatch.setattr(portal, "_require_financial_access", lambda actor: str(actor.pk))
+    portfolio = portal.get_investor_portfolio(actor=investor, include_inactive=True)
+    realized = portfolio["summary"]["realized_interest_by_currency"]
+    activity = [
+        entry
+        for entry in portal.get_investor_activity(actor=investor)["entries"]
+        if entry["activity_type"] == "originator_repayment_distribution"
+    ][0]
+    assert realized == [{"currency": "CHF", "amount_minor": received - bought}]
+    assert activity["metadata"]["interest_minor"] == received - bought
+    assert activity["metadata"]["bought_interest_returned_minor"] == bought
+
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    payments = reports._payments(
+        investor_user_id=str(investor.pk), start_date=today, end_date=due, currency=""
+    )
+    kinds = {payment.kind: payment for payment in payments}
+    assert kinds["Repayment"].interest == received - bought
+    assert kinds["Accrued interest paid back"].principal == bought
+    assert sum(payment.credited for payment in payments) == int(line.amount_minor)
+    tax = import_module("backend.apps.reporting.services")._annual_tax_information_dataset(
+        start_date=today,
+        end_date=due,
+        redaction_mode="full",
+        filters={"participant_type": "lender", "participant_id": str(investor.pk)},
+    )
+    by_category = {row["category"]: row["amount_minor"] for row in tax.rows}
+    assert by_category["originator_claim_interest_received_or_credited"] == received - bought
+    assert by_category["originator_claim_bought_accrued_interest_returned"] == bought

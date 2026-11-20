@@ -1602,6 +1602,13 @@ def _exposure_dimension(
     )
 
 
+def _earned_originator_interest(totals: dict[str, Any], bought_minor: int) -> int:
+    """Audit S6-3: Loan Originator interest received less the accrued interest paid in the
+    price (it comes back with the first payments and is not interest earned)."""
+    received = int(totals.get("interest_minor", 0) or 0)
+    return received - min(received, bought_minor)
+
+
 def get_investor_portfolio(
     *,
     actor: Model,
@@ -1649,6 +1656,9 @@ def get_investor_portfolio(
     recovery_events = _recovery_events_by_holding(
         investor_user_id=investor_user_id, holding_ids=all_holding_ids
     )
+    bought_interest: dict[str, int] = import_module(
+        "backend.apps.originator_claims.services"
+    ).bought_accrued_interest_by_holding(all_holding_ids)
     received_payments = _received_payments_by_holding(
         investor_user_id=investor_user_id, holding_ids=all_holding_ids
     )
@@ -1867,11 +1877,16 @@ def get_investor_portfolio(
             )
             for holding in all_holdings
         ),
+        # Audit S6-3: without the accrued interest paid in the price of a Loan Originator offer
+        # (it comes back with the first payments and is not interest earned).
         "realized_interest_by_currency": _currency_totals(
             (
                 _currency_code(holding.currency),
                 repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
-                + originator_repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
+                + _earned_originator_interest(
+                    originator_repayment_totals.get(str(holding.pk), {}),
+                    bought_interest.get(str(holding.pk), 0),
+                )
                 + recovery_totals.get(str(holding.pk), {}).get("contractual_interest_minor", 0)
                 + recovery_totals.get(str(holding.pk), {}).get("default_interest_minor", 0),
             )
@@ -2097,7 +2112,7 @@ def _investor_activity_entries(
                 },
             )
         )
-    for line in (
+    originator_lines = list(
         originator_repayment_line_model.objects.filter(investor_user_id=investor_user_id)
         .select_related(
             "currency",
@@ -2106,8 +2121,17 @@ def _investor_activity_entries(
             "repayment__loan_profile__originator",
         )
         .order_by("-created_at")[:limit_value]
-    ):
+    )
+    # Audit S6-3: the part of an interest payment that gives back the accrued interest paid in
+    # the price is shown apart, not as interest.
+    returned_by_line: dict[str, int] = import_module(
+        "backend.apps.originator_claims.services"
+    ).bought_interest_returned_by_line(
+        sorted({str(line.holding_id) for line in originator_lines})
+    )
+    for line in originator_lines:
         profile = line.repayment.loan_profile
+        price_returned = returned_by_line.get(str(line.pk), 0)
         entries.append(
             _activity(
                 activity_id=str(line.pk),
@@ -2122,7 +2146,8 @@ def _investor_activity_entries(
                 loan_title=str(profile.loan.title),
                 metadata={
                     "principal_minor": int(line.principal_minor),
-                    "interest_minor": int(line.interest_minor),
+                    "interest_minor": int(line.interest_minor) - price_returned,
+                    "bought_interest_returned_minor": price_returned,
                     "penalty_minor": int(line.penalty_minor),
                     "originator_name": str(profile.originator.public_name),
                 },

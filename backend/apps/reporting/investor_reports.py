@@ -175,6 +175,17 @@ def _interest_by_holding(investor_user_id: str, holding_ids: list[str]) -> dict[
         .values_list("holding_id", "contractual_interest_minor")
     ):
         totals[str(holding_id)] += int(interest or 0)
+    # Audit S6-3: less the accrued interest bought in a Loan Originator offer price.
+    originator: Any = import_module("backend.apps.originator_claims.services")
+    bought = originator.bought_accrued_interest_by_holding(holding_ids)
+    for holding_id, amount in bought.items():
+        received = sum(
+            int(value or 0)
+            for value in _model("originator_claims", "InvestorOriginatorRepaymentDistributionLine")
+            .objects.filter(investor_user_id=investor_user_id, holding_id=holding_id)
+            .values_list("interest_minor", flat=True)
+        )
+        totals[holding_id] = totals.get(holding_id, 0) - min(received, amount)
     return dict(totals)
 
 
@@ -350,7 +361,14 @@ def _payments(
             "currency", "repayment", "holding__loan__borrower", "holding__loan__originator_profile"
         )
     )
+    originator_lines = list(originator_lines)
+    # Audit S6-3: interest that only gives back the accrued interest paid in the price of a Loan
+    # Originator offer is a return of the price, shown on its own row, never as interest.
+    returned_by_line: dict[str, int] = import_module(
+        "backend.apps.originator_claims.services"
+    ).bought_interest_returned_by_line(sorted({str(line.holding_id) for line in originator_lines}))
     for line in originator_lines:
+        returned = returned_by_line.get(str(line.pk), 0)
         payments.append(
             _Payment(
                 value_date=line.repayment.value_date,
@@ -358,12 +376,26 @@ def _payments(
                 currency=str(line.currency.code),
                 kind="Repayment",
                 principal=int(line.principal_minor),
-                interest=int(line.interest_minor),
+                interest=int(line.interest_minor) - returned,
                 late=int(line.penalty_minor),
                 fees=0,
-                credited=int(line.amount_minor),
+                credited=int(line.amount_minor) - returned,
             )
         )
+        if returned:
+            payments.append(
+                _Payment(
+                    value_date=line.repayment.value_date,
+                    loan=line.holding.loan,
+                    currency=str(line.currency.code),
+                    kind="Accrued interest paid back",
+                    principal=returned,
+                    interest=0,
+                    late=0,
+                    fees=0,
+                    credited=returned,
+                )
+            )
     recovery_lines = (
         _model("servicing", "InvestorRecoveryDistributionLine")
         .objects.filter(

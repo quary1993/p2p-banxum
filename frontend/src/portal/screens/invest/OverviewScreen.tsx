@@ -34,6 +34,7 @@ import {
   PageHead,
   PortalLink
 } from "../../components";
+import { earnedPaymentInterestMinor } from "../portfolio/parts/investmentModel";
 import { isOpenLoan, projectIcon } from "./loanFacts";
 import { SavedReviews } from "./parts/SavedReviews";
 import { readStored, writeStored } from "./storage";
@@ -170,7 +171,10 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
   const rulePaused = smartInvest?.rule?.state === "paused";
   const matches = (smartInvest?.matches ?? []).filter((match) => isOpenLoan(match));
 
-  const interestHoldings = holdings.filter((holding) => holding.received_interest_minor > 0).sort((a, b) => b.received_interest_minor - a.received_interest_minor);
+  // Audit S6-3: interest earned, without the accrued interest bought in a Loan Originator price.
+  const interestHoldings = holdings
+    .filter((holding) => earnedPaymentInterestMinor(holding) > 0)
+    .sort((a, b) => earnedPaymentInterestMinor(b) - earnedPaymentInterestMinor(a));
   const name = firstName(investorName);
 
   return (
@@ -493,7 +497,7 @@ export function OverviewScreen({ demoState, investorName }: { demoState: DemoAcc
                 {interestHoldings.map((holding) => (
                   <tr key={holding.id}>
                     <td><PortalLink params={{ holdingId: holding.id }} to="investment">{holding.loan.loan_title}</PortalLink></td>
-                    <td className="text-end">{formatMoneyLabel(currency, holding.received_interest_minor)}</td>
+                    <td className="text-end">{formatMoneyLabel(currency, earnedPaymentInterestMinor(holding))}</td>
                   </tr>
                 ))}
               </tbody>

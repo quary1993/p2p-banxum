@@ -44,8 +44,13 @@ export function isCurrentHolding(holding: Pick<Holding, "status" | "current_prin
  * the first payment and is not interest earned.
  */
 export function interestReceivedMinor(holding: Holding) {
+  return earnedPaymentInterestMinor(holding) + holding.recovered_contractual_interest_minor + holding.recovered_default_interest_minor;
+}
+
+/** Interest of the payments received, less the accrued interest bought in a Loan Originator price (audit S6-3). */
+export function earnedPaymentInterestMinor(holding: Pick<Holding, "received_interest_minor" | "bought_accrued_interest_minor">) {
   const bought = Math.min(holding.received_interest_minor, holding.bought_accrued_interest_minor ?? 0);
-  return holding.received_interest_minor - bought + holding.recovered_contractual_interest_minor + holding.recovered_default_interest_minor;
+  return holding.received_interest_minor - bought;
 }
 
 /** Principal paid back so far: scheduled repayments and recovered principal. */

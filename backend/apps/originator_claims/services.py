@@ -4781,6 +4781,45 @@ def originator_marketplace_payload(
     return payload
 
 
+def bought_accrued_interest_by_holding(holding_ids: list[str]) -> dict[str, int]:
+    """Audit S6-3: the accrued interest each holding paid in the price of an accrued-interest
+    offer (price less principal); holdings without one are not in the result."""
+    if not holding_ids:
+        return {}
+    rows = OriginatorClaimPurchase.objects.filter(
+        holding_id__in=holding_ids,
+        loan_profile__pricing_rule=OriginatorPricingRule.ACCRUED_INTEREST,
+    ).values_list("holding_id", "cash_consideration_minor", "assigned_principal_minor")
+    return {
+        str(holding_id): max(0, int(cash) - int(principal))
+        for holding_id, cash, principal in rows
+        if int(cash) > int(principal)
+    }
+
+
+def bought_interest_returned_by_line(holding_ids: list[str]) -> dict[str, int]:
+    """Audit S6-3: per Loan Originator distribution line, the part of its interest that only
+    gives back the accrued interest the investor paid in the price (oldest payments first,
+    until that amount is back). It is a return of the purchase price, not interest earned."""
+    bought = bought_accrued_interest_by_holding(holding_ids)
+    if not bought:
+        return {}
+    remaining = dict(bought)
+    returned: dict[str, int] = {}
+    lines = (
+        InvestorOriginatorRepaymentDistributionLine.objects.filter(holding_id__in=list(bought))
+        .order_by("repayment__value_date", "created_at", "id")
+        .values_list("id", "holding_id", "interest_minor")
+    )
+    for line_id, holding_id, interest in lines:
+        key = str(holding_id)
+        part = min(remaining.get(key, 0), max(0, int(interest)))
+        if part:
+            returned[str(line_id)] = part
+            remaining[key] -= part
+    return returned
+
+
 def list_open_originator_marketplace_payloads(
     *,
     limit: int = 100,
@@ -5712,7 +5751,11 @@ def _boundary_components_remaining(profile: OriginatorLoanProfile) -> dict[str, 
     activation = OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).first()
     if activation is None or activation.metadata.get("activation_mode") != "funding_close":
         return components
-    boundary = activation.metadata["boundary_installment"]
+    boundary = activation.metadata.get("boundary_installment")
+    if not boundary:
+        # 18.7: an offer priced with accrued interest has no boundary installment (found with
+        # the audit S6-3 test: its first payment failed here).
+        return components
     paid = list(
         OriginatorBorrowerRepayment.objects.filter(loan_profile=profile).values_list(
             "metadata", flat=True
