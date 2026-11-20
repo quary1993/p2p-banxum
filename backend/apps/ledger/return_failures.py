@@ -16,6 +16,7 @@ from datetime import date, datetime
 from importlib import import_module
 from typing import Any, cast
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -972,9 +973,63 @@ class VerifyPayoutAccountFromDepositCommand:
     notes: str = ""
 
 
-def _verified_identity_name(investor: Model) -> str:
-    """The investor's name from the identity check (read-only after it, U33-DEC-26)."""
-    return str(getattr(investor, "full_name", "") or "").strip()
+@dataclass(frozen=True, slots=True)
+class IdentityReference:
+    """Audit S3-6: the name an admin compares the paying account's holder with.
+
+    ``verified_name`` is the legal name on the identity document, from the approved Didit
+    decision. The registration name is typed by the investor; it is shown for information and
+    is never the reference.
+    """
+
+    verified_name: str
+    registration_name: str
+    kyc_case_id: str = ""
+    provider: str = ""
+    provider_session_id: str = ""
+    provider_verification_id: str = ""
+    decision_at: str = ""
+
+    def as_evidence(self) -> dict[str, str]:
+        return {
+            "verified_identity_name": self.verified_name,
+            "identity_name_source": "identity_check" if self.verified_name else "",
+            "registration_name": self.registration_name,
+            "kyc_case_id": self.kyc_case_id,
+            "kyc_provider": self.provider,
+            "kyc_provider_session_id": self.provider_session_id,
+            "kyc_provider_verification_id": self.provider_verification_id,
+            "kyc_decision_at": self.decision_at,
+        }
+
+
+def identity_reference(investor: Model) -> IdentityReference:
+    """The investor's name from the approved identity check, with the provider references."""
+    registration_name = str(getattr(investor, "full_name", "") or "").strip()
+    case = (
+        apps.get_model("kyc_compliance", "KycVerificationCase")
+        .objects.filter(user_id=investor.pk, status="approved")
+        .exclude(verified_full_name="")
+        .order_by("-decision_at", "-created_at")
+        .first()
+    )
+    if case is None:
+        return IdentityReference(verified_name="", registration_name=registration_name)
+    return IdentityReference(
+        verified_name=str(case.verified_full_name),
+        registration_name=registration_name,
+        kyc_case_id=str(case.pk),
+        provider="didit",
+        provider_session_id=str(case.provider_session_id or ""),
+        provider_verification_id=str(case.provider_verification_id or ""),
+        decision_at=case.decision_at.isoformat() if case.decision_at else "",
+    )
+
+
+NO_VERIFIED_NAME_MESSAGE = (
+    "This investor has no name from an approved identity check, so a deposit cannot prove the "
+    "account. Verify the account with a bank statement or bank confirmation."
+)
 
 
 @transaction.atomic
@@ -1038,14 +1093,18 @@ def verify_payout_account_from_deposit(
             "This IBAN is a verified bank account of another investor. Check who owns it.",
             code=ledger.PAYOUT_IBAN_OWNERSHIP_CONFLICT_CODE,
         )
-    identity_name = _verified_identity_name(investor)
+    identity = identity_reference(investor)
+    if not identity.verified_name:
+        # The registration name is typed by the investor; it is not identity evidence.
+        raise ledger.LedgerValidationError(NO_VERIFIED_NAME_MESSAGE)
+    identity_name = identity.verified_name
     evidence = {
         "method": "deposit",
         "deposit_bank_operation_id": str(deposit.id),
         "deposit_value_date": deposit.value_date.isoformat(),
         "payer_name": str(deposit.payer_name or ""),
         "payer_iban": source_iban,
-        "verified_identity_name": identity_name,
+        **identity.as_evidence(),
         "holder_matches_identity": True,
         "not_intermediary_account": True,
         "evidence_reference": evidence_reference,

@@ -201,13 +201,6 @@ class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
             "a second identical transfer."
         ),
     )
-    payer_is_account_holder = serializers.BooleanField(
-        help_text=(
-            "U33-DEC-05: the admin checked by hand that the paying account is in the "
-            "investor's own name. Only then does the source IBAN become a verified return "
-            "account. A reference, name or email match alone is not enough."
-        ),
-    )
     idempotency_key = serializers.CharField(max_length=160)
 
 
@@ -736,5 +729,16 @@ class DepositVerificationCandidateSerializer(serializers.Serializer[Any]):
 
 class DepositVerificationCandidateListSerializer(serializers.Serializer[Any]):
     investor_user_id = serializers.UUIDField()
-    verified_identity_name = serializers.CharField()
+    verified_identity_name = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The legal name from the approved identity check (Didit). Empty when there is "
+            "none: a deposit then cannot verify an account."
+        ),
+    )
+    registration_name = serializers.CharField(
+        allow_blank=True,
+        help_text="The name the investor typed at registration. Not identity evidence.",
+    )
+    identity_decision_at = serializers.DateTimeField(allow_null=True)
     results = DepositVerificationCandidateSerializer(many=True)

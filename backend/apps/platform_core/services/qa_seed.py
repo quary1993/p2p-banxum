@@ -39,6 +39,26 @@ def seed_qa_starting_point(*, actor: Any) -> dict[str, Any]:
         return _seed(actor=actor)
 
 
+def _verify_seed_account(*, actor: Any, investor: Any, deposit: Any) -> None:
+    """Audit S3-1 and S3-6: a deposit verifies no account. The synthetic investor gets a
+    synthetic name "from the identity check", then the account is verified from the deposit
+    like an admin does (both checks, evidence)."""
+    returns = import_module("backend.apps.ledger.return_failures")
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.filter(
+        user_id=investor.pk, status="approved", verified_full_name=""
+    ).update(verified_full_name=str(investor.full_name))
+    returns.verify_payout_account_from_deposit(
+        returns.VerifyPayoutAccountFromDepositCommand(
+            actor=actor,
+            deposit_bank_operation_id=str(deposit.bank_operation.pk),
+            holder_matches_identity=True,
+            not_intermediary_account=True,
+            evidence_reference=SEED_KEY,
+            notes="Synthetic QA account, not a real verification.",
+        )
+    )
+
+
 def _seed(*, actor: Any) -> dict[str, Any]:
     entities = import_module("backend.apps.entities.services")
     loans = import_module("backend.apps.loans.services")
@@ -84,7 +104,7 @@ def _seed(*, actor: Any) -> dict[str, Any]:
             .objects.filter(idempotency_key=key)
             .exists()
         ):
-            ledger.declare_lender_deposit(
+            deposit = ledger.declare_lender_deposit(
                 ledger.DeclareLenderDepositCommand(
                     actor=actor,
                     investor_user_id=str(investor.pk),
@@ -101,6 +121,8 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                     idempotency_key=key,
                 )
             )
+            if deposit.payout_instruction is None:
+                _verify_seed_account(actor=actor, investor=investor, deposit=deposit)
     borrowers = []
     for index, name in enumerate(("QA Alpine Equipment AG", "QA Lake Trading SA")):
         registration = f"{SEED_KEY}:borrower:{index}"

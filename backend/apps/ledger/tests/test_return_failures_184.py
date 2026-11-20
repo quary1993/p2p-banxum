@@ -16,6 +16,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from backend.apps.ledger import return_failures
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BalanceReturnFailure,
@@ -32,7 +33,6 @@ from backend.apps.ledger.services import (
     LedgerValidationError,
     RequestInvestorWithdrawalCommand,
     RunBalanceAgeingScanCommand,
-    declare_lender_deposit,
     finalize_investor_withdrawal,
     investor_balance_integrity_breaks,
     request_investor_withdrawal,
@@ -44,6 +44,12 @@ from backend.apps.platform_core.models import Currency, OutboxMessage
 from backend.apps.platform_core.services.settings import (
     SetPlatformSettingCommand,
     set_platform_setting,
+)
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
 )
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 
@@ -108,8 +114,9 @@ def _deposit(
     value_date: date = DAY_ZERO,
     amount_minor: int = 1000_00,
     iban: str = IBAN,
-    payer_is_account_holder: bool = True,
+    verify_account: bool = True,
 ) -> Any:
+    """A deposit; by default the admin also verifies its paying account (audit S3-1)."""
     Currency.objects.filter(code="CHF").update(is_enabled=True)
     with freeze_time(_at(value_date, 9)):
         return _declare(
@@ -119,7 +126,7 @@ def _deposit(
             value_date=value_date,
             amount_minor=amount_minor,
             iban=iban,
-            payer_is_account_holder=payer_is_account_holder,
+            verify_account=verify_account,
         )
 
 
@@ -131,9 +138,10 @@ def _declare(
     value_date: date,
     amount_minor: int,
     iban: str,
-    payer_is_account_holder: bool,
+    verify_account: bool,
 ) -> Any:
-    return declare_lender_deposit(
+    declare = declare_lender_deposit if verify_account else ledger_services.declare_lender_deposit
+    return declare(
         DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -148,7 +156,6 @@ def _declare(
             payment_reference=f"INV-{key}",
             evidence_reference=f"statement:{key}",
             idempotency_key=key,
-            payer_is_account_holder=payer_is_account_holder,
         )
     )
 
@@ -500,9 +507,9 @@ def test_verify_a_return_account_from_the_deposit_with_evidence(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    deposit = _deposit(
-        admin_user, investor, key="unverified", iban=NEW_IBAN, payer_is_account_holder=False
-    )
+    deposit = _deposit(admin_user, investor, key="unverified", iban=NEW_IBAN, verify_account=False)
+    # Audit S3-1: the deposit alone verified nothing.
+    assert deposit.payout_instruction is None
     candidates = return_failures.deposit_verification_candidates(str(investor.pk))
     assert [row["payer_iban"] for row in candidates] == [NEW_IBAN]
 
@@ -521,16 +528,39 @@ def test_verify_a_return_account_from_the_deposit_with_evidence(
             )
         )
 
+    # Audit S3-6: the registration name ("Return Investor") is typed by the investor. Without
+    # the name from the approved identity check a deposit proves no account.
+    assert return_failures.identity_reference(investor).verified_name == ""
+    with pytest.raises(LedgerValidationError, match="no name from an approved identity check"):
+        verify()
+    case_model = apps.get_model("kyc_compliance", "KycVerificationCase")
+    case_model.objects.filter(user_id=investor.pk).update(
+        verified_full_name="Renate Maria Investor-Keller", provider_session_id="didit-session-1"
+    )
+    # A name on a case that is not approved is not a reference either.
+    case_model.objects.filter(user_id=investor.pk).update(status="manual_review")
+    with pytest.raises(LedgerValidationError, match="no name from an approved identity check"):
+        verify()
+    case_model.objects.filter(user_id=investor.pk).update(status="approved")
+
     with pytest.raises(LedgerValidationError, match="matches the investor's verified identity"):
         verify(holder_matches_identity=False)
     with pytest.raises(LedgerValidationError, match="collecting or intermediary"):
         verify(not_intermediary_account=False)
+    with pytest.raises(LedgerValidationError, match="Evidence reference"):
+        verify(evidence_reference=" ")
     instruction = verify()
     assert instruction.is_verified_usable and instruction.is_default_return
     evidence = instruction.metadata["verification"]
     assert evidence["method"] == "deposit"
     assert evidence["payer_iban"] == NEW_IBAN
-    assert evidence["verified_identity_name"] == "Return Investor"
+    # The reference is the Didit name; the registration name is kept for information only.
+    assert evidence["verified_identity_name"] == "Renate Maria Investor-Keller"
+    assert evidence["identity_name_source"] == "identity_check"
+    assert evidence["registration_name"] == "Return Investor"
+    assert evidence["kyc_provider"] == "didit"
+    assert evidence["kyc_provider_session_id"] == "didit-session-1"
+    assert evidence["kyc_case_id"] == str(case_model.objects.get(user_id=investor.pk).pk)
     with pytest.raises(LedgerConflictError, match="already a verified bank account"):
         verify()
     assert return_failures.deposit_verification_candidates(str(investor.pk)) == []
@@ -540,5 +570,7 @@ def test_verify_a_return_account_from_the_deposit_with_evidence(
         f"/api/v1/ledger/admin/investors/{investor.pk}/deposit-verification-candidates/"
     )
     assert listed.status_code == 200
-    assert listed.json()["verified_identity_name"] == "Return Investor"
+    assert listed.json()["verified_identity_name"] == "Renate Maria Investor-Keller"
+    assert listed.json()["registration_name"] == "Return Investor"
+    assert listed.json()["identity_decision_at"] is not None
     assert listed.json()["results"] == []

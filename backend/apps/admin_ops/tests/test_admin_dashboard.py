@@ -34,6 +34,7 @@ from backend.apps.platform_core.models import (
     DomainEvent,
     OutboxMessage,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -127,7 +128,7 @@ def _installment(loan: Model, *, due_date: date, amount_minor: int = 1_100_00) -
 
 def _declare_old_deposit(admin_user: Model, investor: Model, *, value_date: date) -> None:
     ledger_services = import_module("backend.apps.ledger.services")
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -367,7 +368,7 @@ def test_admin_dashboard_balance_buckets_follow_the_56_day_return(
         (date(2026, 1, 6), 200_00),
         (date(2026, 1, 7), 300_00),
     ):
-        ledger_services.declare_lender_deposit(
+        declare_deposit_and_verify_account(
             ledger_services.DeclareLenderDepositCommand(
                 actor=admin_user,
                 investor_user_id=str(investor.pk),

@@ -21,6 +21,7 @@ from backend.apps.platform_core.services.impersonation import (
     READONLY_IMPERSONATION_HEADER,
     issue_readonly_impersonation_token,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -369,7 +370,7 @@ def _declare_deposit(
     idempotency_key: str = "secondary-buyer-deposit-1",
 ) -> Any:
     ledger = import_module("backend.apps.ledger.services")
-    return ledger.declare_lender_deposit(
+    return declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

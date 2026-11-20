@@ -14,7 +14,6 @@ from backend.apps.ledger.services import (
     FinalizeInvestorWithdrawalCommand,
     LedgerValidationError,
     RequestInvestorWithdrawalCommand,
-    declare_lender_deposit,
     finalize_investor_withdrawal,
     request_investor_withdrawal,
 )
@@ -27,6 +26,12 @@ from backend.apps.ledger.tests.test_ledger_foundation import (  # noqa: F401
     investor,
 )
 from backend.apps.platform_core.domain.time import business_date
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 
 
 @pytest.mark.django_db

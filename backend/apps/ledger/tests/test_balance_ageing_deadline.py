@@ -28,7 +28,6 @@ from backend.apps.ledger.services import (
     FinalizeBorrowerDisbursementCommand,
     LedgerValidationError,
     RunBalanceAgeingScanCommand,
-    declare_lender_deposit,
     execute_investor_fx_exchange_ledger,
     finalize_borrower_disbursement,
     plan_investment_balance_consumption,
@@ -42,6 +41,12 @@ from backend.apps.platform_core.models import Currency, DomainEvent, OutboxMessa
 from backend.apps.platform_core.services.settings import (
     SetPlatformSettingCommand,
     set_platform_setting,
+)
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
 )
 
 
@@ -572,7 +577,6 @@ def test_lender_deposit_refuses_future_value_and_booking_dates(
                 "collection_account_identifier": "CH00GARANTALEDGER",
                 "payer_name": "Ageing Investor",
                 "payer_account_identifier": "CH9300762011623852957",
-                "payer_is_account_holder": True,
                 "idempotency_key": "deposit-future-api",
             },
             content_type="application/json",

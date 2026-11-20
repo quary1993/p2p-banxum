@@ -80,6 +80,7 @@ from backend.apps.originator_claims.services import (
 from backend.apps.platform_core.domain.time import business_date, business_timezone
 from backend.apps.platform_core.models import Currency, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
@@ -328,7 +329,7 @@ def _declare_originator_test_deposit(
     suffix: str,
 ) -> None:
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -1116,7 +1117,7 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -1277,7 +1278,7 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -1774,7 +1775,7 @@ def test_originator_settlement_task_appears_after_three_calendar_days(
         suffix="TASK",
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -3883,7 +3884,7 @@ def test_originator_claim_purchase_endpoint_needs_the_pin(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

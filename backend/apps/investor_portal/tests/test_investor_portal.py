@@ -33,6 +33,7 @@ from backend.apps.platform_core.services.settings import (
     seed_default_platform_settings,
     set_platform_setting,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -128,7 +129,7 @@ def _declare_deposit(
     currency: str = "CHF",
 ) -> Model:
     ledger_services = import_module("backend.apps.ledger.services")
-    result = ledger_services.declare_lender_deposit(
+    result = declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

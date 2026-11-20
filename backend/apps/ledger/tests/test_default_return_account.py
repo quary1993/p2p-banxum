@@ -4,7 +4,6 @@ hand check of the paying account before a deposit's IBAN becomes a return accoun
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date
 from importlib import import_module
 from typing import Any, cast
@@ -14,11 +13,11 @@ from django.apps import apps
 from django.db.models import Model
 from django.test import Client
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import BankOperation, InvestorPayoutInstruction
 from backend.apps.ledger.services import (
     RevokeInvestorPayoutInstructionCommand,
     RunBalanceAgeingScanCommand,
-    declare_lender_deposit,
     revoke_investor_payout_instruction,
     run_balance_ageing_scan,
 )
@@ -39,6 +38,13 @@ from backend.apps.ledger.tests.test_money_ops_controls import (
     other_investor,
 )
 from backend.apps.platform_core.models import AuditEvent, OutboxMessage
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
+from backend.apps.platform_core.tests.deposit_accounts import verify_account_from_deposit
 
 __all__ = ["admin_user", "investor", "other_investor"]
 
@@ -172,30 +178,34 @@ def test_revoking_the_default_moves_it_to_another_verified_account(
 
 
 @pytest.mark.django_db
-def test_deposit_from_an_account_not_in_the_investors_name_is_not_a_return_account(
-    admin_user: Model, investor: Model
-) -> None:
+def test_a_deposit_alone_never_makes_a_return_account(admin_user: Model, investor: Model) -> None:
+    """Audit S3-1 (U33-DEC-05): the money is credited, but no account is verified, also when the
+    payer name equals the investor's name. Only "verify from deposit" does that."""
     _approve_financial_access(investor)
-    result = declare_lender_deposit(
-        replace(
-            _deposit_command(admin_user, investor),
-            payer_name="Someone Else",
-            payer_is_account_holder=False,
-        )
-    )
-    # The money is credited (the admin matched it by hand), but the IBAN is not used to send
-    # money back: the holder is not verified.
+    result = ledger_services.declare_lender_deposit(_deposit_command(admin_user, investor))
     assert result.balance_lot.available_amount_minor == 100_00
     assert result.payout_instruction is None
     assert not InvestorPayoutInstruction.objects.filter(investor_user_id=investor.pk).exists()
     operation = BankOperation.objects.get(pk=result.bank_operation.pk)
-    assert operation.metadata["payer_is_account_holder"] is False
+    assert "payer_is_account_holder" not in operation.metadata
+    declared = AuditEvent.objects.get(action="ledger.lender_deposit_declared")
+    assert "verified_payout_instruction_id" not in declared.metadata
+    # A later deposit from an account that is verified by then reports that account.
+    verified = verify_account_from_deposit(admin_user, result)
+    again = ledger_services.declare_lender_deposit(
+        _deposit_command(
+            admin_user, investor, idempotency_key="deposit-2", value_date=date(2026, 1, 2)
+        )
+    )
+    assert again.payout_instruction is not None
+    assert again.payout_instruction.pk == verified.pk
 
 
 @pytest.mark.django_db
-def test_admin_deposit_api_needs_the_holder_check_answer(
+def test_admin_deposit_api_cannot_verify_the_paying_account(
     admin_user: Model, investor: Model
 ) -> None:
+    """Audit S3-1: the old one-checkbox shortcut is gone; the flag is ignored when sent."""
     client = Client()
     client.force_login(cast(Any, admin_user))
     payload = {
@@ -209,19 +219,14 @@ def test_admin_deposit_api_needs_the_holder_check_answer(
         "payer_account_identifier": DEPOSIT_IBAN,
         "idempotency_key": "deposit-holder-check",
     }
-    missing = client.post(
-        "/api/v1/ledger/admin/lender-deposits/", data=payload, content_type="application/json"
-    )
-    assert missing.status_code == 400
-    assert "payer_is_account_holder" in missing.json()
-
     created = client.post(
         "/api/v1/ledger/admin/lender-deposits/",
-        data={**payload, "payer_is_account_holder": False},
+        data={**payload, "payer_is_account_holder": True},
         content_type="application/json",
     )
     assert created.status_code == 201
     assert created.json()["payout_instruction"] is None
+    assert not InvestorPayoutInstruction.objects.filter(investor_user_id=investor.pk).exists()
 
 
 @pytest.mark.django_db

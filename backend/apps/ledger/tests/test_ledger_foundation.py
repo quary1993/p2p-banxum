@@ -16,6 +16,7 @@ from django.test import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
@@ -53,7 +54,6 @@ from backend.apps.ledger.services import (
     cancel_investor_withdrawal,
     close_primary_loan_funding,
     create_reconciliation_snapshot,
-    declare_lender_deposit,
     execute_investor_fx_exchange_ledger,
     finalize_borrower_disbursement,
     finalize_investor_withdrawal,
@@ -72,6 +72,12 @@ from backend.apps.ledger.services import (
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -866,7 +872,6 @@ def test_lender_deposit_admin_api_reports_duplicate_and_accepts_confirmation(
         "collection_account_identifier": "QA-EUR-COLLECTION",
         "payer_name": "Ledger Investor",
         "payer_account_identifier": "DE89 3704 0044 0532 0130 00",
-        "payer_is_account_holder": True,
         "payment_reference": "BX-EUR-LFFJWK27G",
     }
 
@@ -1127,7 +1132,7 @@ def test_register_payout_instruction_adds_another_active_verified_instruction(
 
 
 @pytest.mark.django_db
-def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
+def test_lender_deposit_requires_valid_source_iban_and_verifies_no_account(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -1139,7 +1144,7 @@ def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
         declare_lender_deposit(invalid)
     assert BankOperation.objects.filter(idempotency_key="deposit-invalid-iban").count() == 0
 
-    result = declare_lender_deposit(
+    result = ledger_services.declare_lender_deposit(
         replace(
             _deposit_command(admin_user, investor, idempotency_key="deposit-valid-iban"),
             payer_account_identifier="CH93 0076 2011 6238 5295 7",
@@ -1147,11 +1152,9 @@ def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
     )
 
     assert result.bank_operation.payer_account_identifier == "CH9300762011623852957"
-    assert result.payout_instruction is not None
-    assert result.payout_instruction.destination_iban == "CH9300762011623852957"
-    assert result.payout_instruction.is_verified_usable is True
-    assert result.payout_instruction.verified_by_admin_id == admin_user.pk
-    assert result.payout_instruction.metadata["source"] == "lender_deposit"
+    # Audit S3-1: the deposit keeps the normalized source IBAN but verifies no account.
+    assert result.payout_instruction is None
+    assert not InvestorPayoutInstruction.objects.filter(investor_user_id=investor.pk).exists()
 
 
 @pytest.mark.django_db
@@ -2695,8 +2698,7 @@ def test_lender_deposit_admin_api_and_balance_summary(
             "collection_account_identifier": "CH00GARANTALEDGER",
             "payer_name": "Ledger Investor",
             "payer_account_identifier": "CH9300762011623852957",
-            "payer_is_account_holder": True,
-            "bank_reference": "BANK-API",
+                "bank_reference": "BANK-API",
             "payment_reference": f"INV-{investor.pk}",
             "evidence_reference": "statement:api",
             "idempotency_key": "deposit-api",
@@ -2710,10 +2712,8 @@ def test_lender_deposit_admin_api_and_balance_summary(
 
     assert deposit_response.status_code == 201
     assert deposit_response.json()["balance_lot"]["available_amount_minor"] == 250_00
-    assert deposit_response.json()["payout_instruction"]["destination_iban"] == (
-        "CH9300762011623852957"
-    )
-    assert deposit_response.json()["payout_instruction"]["is_verified_usable"] is True
+    # Audit S3-1: a deposit through the API verifies no account.
+    assert deposit_response.json()["payout_instruction"] is None
     assert summary_response.status_code == 200
     assert summary_response.json()["total_available_minor"] == 250_00
 

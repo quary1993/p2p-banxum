@@ -248,11 +248,9 @@ class DeclareLenderDepositCommand:
     # identical to one already credited (same bank-movement key, see
     # _matching_lender_deposits). Without it such a deposit is rejected.
     confirm_repeat_deposit: bool = False
-    # U33-DEC-05: the admin checked by hand that the paying account is in the investor's own
-    # name (a reference, name or email match alone is not enough). Only then does the source
-    # IBAN become a verified return account; otherwise the money is credited but the IBAN is
-    # not used to send money back.
-    payer_is_account_holder: bool = True
+    # U33-DEC-05, audit S3-1: a deposit never verifies its paying account. The one way is
+    # "verify from deposit" (``return_failures.verify_payout_account_from_deposit``): both
+    # checks against the name from the identity check, with evidence.
 
 
 @dataclass(frozen=True, slots=True)
@@ -1359,8 +1357,6 @@ def _deposit_request_fingerprint(
             "evidence_reference": command.evidence_reference.strip(),
             "notes": command.notes.strip(),
             "idempotency_key": idempotency_key,
-            # Only when not the default, so replays of earlier requests keep their fingerprint.
-            **({} if command.payer_is_account_holder else {"payer_is_account_holder": False}),
         }
     )
 
@@ -1878,22 +1874,29 @@ def _existing_lender_deposit_result(
     existing_lot = existing_journal.balance_lots.first()
     if existing_lot is None:
         raise LedgerValidationError("Existing lender deposit has no balance lot.")
-    payout_instruction = (
+    return LenderDepositResult(
+        cast(BankOperation, existing_operation),
+        cast(LedgerJournalEntry, existing_journal),
+        cast(InvestorBalanceLot, existing_lot),
+        _verified_instruction_of_deposit(cast(BankOperation, existing_operation)),
+    )
+
+
+def _verified_instruction_of_deposit(deposit: BankOperation) -> InvestorPayoutInstruction | None:
+    """The investor's verified bank account with the deposit's paying IBAN, when there is one.
+
+    Read only: a deposit never verifies an account (audit S3-1).
+    """
+    return (
         InvestorPayoutInstruction.objects.filter(
-            investor_user_id=existing_operation.linked_object_id,
-            currency=existing_operation.currency,
-            destination_iban=existing_operation.payer_account_identifier,
+            investor_user_id=deposit.linked_object_id,
+            currency=deposit.currency,
+            destination_iban=deposit.payer_account_identifier,
             status=InvestorPayoutInstructionStatus.ACTIVE,
             is_verified_usable=True,
         )
         .order_by("-verified_at", "-created_at", "-id")
         .first()
-    )
-    return LenderDepositResult(
-        cast(BankOperation, existing_operation),
-        cast(LedgerJournalEntry, existing_journal),
-        cast(InvestorBalanceLot, existing_lot),
-        payout_instruction,
     )
 
 
@@ -2808,7 +2811,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         bank_operation_metadata["confirmed_repeat_of_bank_operation_ids"] = (
             repeat_of_bank_operation_ids
         )
-    bank_operation_metadata["payer_is_account_holder"] = bool(command.payer_is_account_holder)
     try:
         with transaction.atomic():
             bank_operation = BankOperation.objects.create(
@@ -2906,31 +2908,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         lineage=[{"source_type": "bank_operation", "source_id": str(bank_operation.id)}],
         return_after_days=balance_auto_return_after_days(),
     )
-    payout_instruction: InvestorPayoutInstruction | None = None
-    if command.payer_is_account_holder:
-        payout_instruction = _create_investor_payout_instruction(
-            actor=command.actor,
-            investor=investor,
-            currency=currency,
-            destination_iban=source_iban,
-            destination_account_name=(
-                command.payer_name.strip()
-                or str(getattr(investor, "full_name", "")).strip()
-                or str(getattr(investor, "email", "")).strip()
-            ),
-            is_verified_usable=True,
-            notes="Verified from a matched incoming lender deposit.",
-            metadata={
-                "source": "lender_deposit",
-                "deposit_bank_operation_id": str(bank_operation.id),
-            },
-        )
-        _resolve_payout_instruction_verification_task(
-            actor=command.actor,
-            instruction=payout_instruction,
-            completion_note="IBAN was verified from a matched incoming lender deposit.",
-        )
-    verified_payout_instruction_id = str(payout_instruction.id) if payout_instruction else ""
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
         AuditCommand(
@@ -2943,8 +2920,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "currency": currency.code,
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
-                "verified_payout_instruction_id": verified_payout_instruction_id,
-                "payer_is_account_holder": bool(command.payer_is_account_holder),
                 "confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids,
             },
         )
@@ -2960,7 +2935,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
                 "journal_entry_id": str(journal_entry.id),
-                "verified_payout_instruction_id": verified_payout_instruction_id,
             },
             idempotency_key=f"bank-operation:{bank_operation.id}:lender-deposit-declared",
         )
@@ -2970,7 +2944,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         bank_operation,
         journal_entry,
         balance_lot,
-        payout_instruction,
+        _verified_instruction_of_deposit(bank_operation),
     )
 
 

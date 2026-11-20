@@ -13,10 +13,15 @@ from django.utils import timezone
 from backend.apps.ledger.models import BankOperation, InvestorBalanceLot
 from backend.apps.ledger.services import (
     DeclareLenderDepositCommand,
-    declare_lender_deposit,
 )
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.models.audit import AuditEvent
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 

@@ -125,7 +125,10 @@ test("a return account is verified from a deposit only with both checks and evid
     http.get("*/api/v1/ledger/admin/investors/:id/deposit-verification-candidates/", () =>
       HttpResponse.json({
         investor_user_id: failure.investor_user_id,
-        verified_identity_name: "Una Investor",
+        // Audit S3-6: the legal name from Didit, not the name typed at registration.
+        verified_identity_name: "Una Maria Investor",
+        registration_name: "Una Investor",
+        identity_decision_at: "2026-02-10T09:00:00Z",
         results: [
           { id: "66666666-6666-4666-8666-666666666666", currency: "CHF", amount_minor: 50_000, value_date: "2026-03-01", payer_name: "Una Investor", payer_iban: "CH5604835012345678009" }
         ]
@@ -140,9 +143,11 @@ test("a return account is verified from a deposit only with both checks and evid
   fireEvent.change(screen.getByLabelText("Investor ID"), { target: { value: failure.investor_user_id } });
   fireEvent.click(screen.getByRole("button", { name: "Show deposits" }));
   const verify = await screen.findByRole("button", { name: "Verify from this deposit" });
-  expect(screen.getByText(/Verified identity/)).toHaveTextContent("Verified identity: Una Investor");
+  const names = screen.getByText(/Name from the identity check/);
+  expect(names).toHaveTextContent("Name from the identity check: Una Maria Investor (decision of");
+  expect(names).toHaveTextContent("Name at registration (not evidence): Una Investor");
   expect(verify).toBeDisabled();
-  fireEvent.click(screen.getByLabelText("The holder of the transfer matches the verified identity"));
+  fireEvent.click(screen.getByLabelText("The holder of the transfer matches the name from the identity check"));
   fireEvent.click(screen.getByLabelText("Not a collecting or intermediary account"));
   fireEvent.change(screen.getByLabelText("Evidence reference"), { target: { value: "statement 2026-03-01" } });
   expect(verify).toBeEnabled();
@@ -150,6 +155,30 @@ test("a return account is verified from a deposit only with both checks and evid
   await waitFor(() =>
     expect(body).toEqual({ holder_matches_identity: true, not_intermediary_account: true, evidence_reference: "statement 2026-03-01" })
   );
+});
+
+test("without a name from the identity check a deposit cannot verify an account", async () => {
+  server.use(
+    http.get("*/api/v1/ledger/admin/investors/:id/deposit-verification-candidates/", () =>
+      HttpResponse.json({
+        investor_user_id: failure.investor_user_id,
+        verified_identity_name: "",
+        registration_name: "Una Investor",
+        identity_decision_at: null,
+        results: [
+          { id: "66666666-6666-4666-8666-666666666666", currency: "CHF", amount_minor: 50_000, value_date: "2026-03-01", payer_name: "Una Investor", payer_iban: "CH5604835012345678009" }
+        ]
+      })
+    )
+  );
+  // Opened by the deposit form with the investor of the deposit.
+  renderLive(<cards.DepositAccountVerificationCard investorUserId={failure.investor_user_id} />);
+  const verify = await screen.findByRole("button", { name: "Verify from this deposit" });
+  expect(screen.getByText("No name from an identity check")).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("The holder of the transfer matches the name from the identity check"));
+  fireEvent.click(screen.getByLabelText("Not a collecting or intermediary account"));
+  fireEvent.change(screen.getByLabelText("Evidence reference"), { target: { value: "statement 2026-03-01" } });
+  expect(verify).toBeDisabled();
 });
 
 test("the settlement calendar shows the year, closes a day and confirms the year", async () => {

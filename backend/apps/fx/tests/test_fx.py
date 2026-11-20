@@ -49,6 +49,7 @@ from backend.apps.fx.services import (
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -155,7 +156,7 @@ def _deposit(
     idempotency_key: str = "fx-deposit-1",
 ) -> Model:
     ledger = import_module("backend.apps.ledger.services")
-    result = ledger.declare_lender_deposit(
+    result = declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

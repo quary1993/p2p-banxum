@@ -104,6 +104,9 @@ class KycVerificationCase(TimestampedModel):
     verified_address = models.TextField(blank=True)
     verified_birth_date = models.DateField(null=True, blank=True)
     verified_nationality = models.CharField(max_length=3, blank=True)
+    # Audit S3-6 (U33-DEC-05): the legal name on the identity document, from the Didit decision.
+    # The registration name (User.full_name) is typed by the investor and is not this evidence.
+    verified_full_name = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

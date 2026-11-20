@@ -2055,21 +2055,24 @@ export function DepositForm() {
   const [payerName, setPayerName] = useState("");
   const [sourceIban, setSourceIban] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
-  // U33-DEC-05: ticked only after a hand check that the paying account is the investor's own.
-  const [payerIsHolder, setPayerIsHolder] = useState(false);
+  // Audit S3-1 (U33-DEC-05): a deposit never verifies its paying account. After the deposit the
+  // form offers the one verification action, with both checks and the evidence.
+  const [verifyInvestorId, setVerifyInvestorId] = useState<string | null>(null);
   const [duplicateMovementKey, setDuplicateMovementKey] = useState<string | null>(null);
   const [confirmRepeat, setConfirmRepeat] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminLenderDepositsCreate({
     mutation: {
-      onSuccess: (_result, variables) => {
+      onSuccess: (result, variables) => {
         setDuplicateMovementKey(null);
         setConfirmRepeat(false);
+        const alreadyVerified = Boolean(result.payout_instruction);
+        setVerifyInvestorId(alreadyVerified ? null : variables.data.investor_user_id);
         setSuccess(
-          variables.data.payer_is_account_holder
-            ? "Deposit was ledgered and its source IBAN was added as a verified payout account."
-            : "Deposit was ledgered. Its source IBAN was not added as a payout account, because the paying account is not confirmed as the investor's own."
+          alreadyVerified
+            ? "Deposit was ledgered. Its source IBAN is already a verified bank account of the investor."
+            : "Deposit was ledgered. Its source IBAN is not a return account yet: verify it below, with both checks and the evidence."
         );
       },
       onError: (error, variables) => {
@@ -2118,7 +2121,6 @@ export function DepositForm() {
       payer_name: payerName || undefined,
       payer_account_identifier: sourceIban,
       payment_reference: paymentReference || undefined,
-      payer_is_account_holder: payerIsHolder,
       confirm_repeat_deposit: duplicatePending && confirmRepeat ? true : undefined
     });
     if (isFixturePreview) {
@@ -2131,7 +2133,7 @@ export function DepositForm() {
   return (
     <Card padded>
       <h2>Lender deposit</h2>
-      <p>Declare only a transfer you have matched to the investor. Unidentified or unclear transfers stay out of the investor's balance until you have checked them by hand. The source IBAN becomes a verified payout account only when you confirm below that the paying account is in the investor's own name.</p>
+      <p>Declare only a transfer you have matched to the investor. Unidentified or unclear transfers stay out of the investor's balance until you have checked them by hand. A deposit does not make its source IBAN a return account: after the deposit, verify the account from the deposit (holder compared with the name from the identity check, no collecting account, evidence).</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <InvestorLookupInput
@@ -2160,10 +2162,6 @@ export function DepositForm() {
           />
           <TextInput label="Payment reference" onChange={updatePaymentReference} value={paymentReference} />
         </FieldGrid>
-        <label className="check-row">
-          <input checked={payerIsHolder} onChange={(event) => setPayerIsHolder(event.target.checked)} type="checkbox" />
-          I checked by hand that the paying account is in the investor's own name. The payment reference, name or email alone is not enough.
-        </label>
         {duplicatePending ? (
           <Banner tone="warn" title="Possible duplicate deposit">
             {errorMessage(mutation.error)}
@@ -2180,6 +2178,7 @@ export function DepositForm() {
           submitLabel={duplicatePending && confirmRepeat ? "Declare repeat deposit" : "Declare deposit"}
         />
       </form>
+      {verifyInvestorId ? <DepositAccountVerificationCard investorUserId={verifyInvestorId} key={verifyInvestorId} /> : null}
     </Card>
   );
 }

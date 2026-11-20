@@ -21,6 +21,7 @@ from pypdf import PdfReader
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.reporting.models import (
     ReportEvent,
     ReportOutputFormat,
@@ -280,7 +281,7 @@ def _declare_deposit(
     bank_reference: str | None = None,
 ) -> None:
     ledger_services: Any = import_module("backend.apps.ledger.services")
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

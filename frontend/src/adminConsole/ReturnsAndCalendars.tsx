@@ -289,9 +289,9 @@ export function ReturnedTransferForm() {
 
 // --- Q02.5: verify a return account from a deposit -----------------------------------------------
 
-export function DepositAccountVerificationCard() {
-  const [investorId, setInvestorId] = useState("");
-  const [lookup, setLookup] = useState("");
+export function DepositAccountVerificationCard({ investorUserId = "" }: { investorUserId?: string }) {
+  const [investorId, setInvestorId] = useState(investorUserId);
+  const [lookup, setLookup] = useState(investorUserId);
   const query = useV1LedgerAdminInvestorsDepositVerificationCandidatesRetrieve(lookup, {
     query: { enabled: !isFixturePreview && /^[0-9a-f-]{36}$/i.test(lookup), retry: false }
   });
@@ -299,8 +299,9 @@ export function DepositAccountVerificationCard() {
     <Card padded>
       <h2>Verify a return account from a deposit</h2>
       <p>
-        Compare the holder and IBAN of the incoming transfer with the investor's verified identity. A collecting or intermediary
-        account, or a holder that differs or is unclear, needs a bank statement or bank confirmation first.
+        Compare the holder and IBAN of the incoming transfer with the investor's name from the identity check (the legal name on
+        the identity document, from Didit). The name typed at registration is not evidence. A collecting or intermediary account,
+        or a holder that differs or is unclear, needs a bank statement or bank confirmation first.
       </p>
       <form
         className="row gap-8 wrap"
@@ -317,11 +318,23 @@ export function DepositAccountVerificationCard() {
       {query.error ? <Banner tone="bad" title="Could not load deposits">{errorMessage(query.error)}</Banner> : null}
       {query.data ? (
         <>
-          <p>
-            Verified identity: <strong>{query.data.verified_identity_name || "-"}</strong>
-          </p>
+          {query.data.verified_identity_name ? (
+            <p>
+              Name from the identity check: <strong>{query.data.verified_identity_name}</strong>
+              {query.data.identity_decision_at ? <> (decision of {formatDate(query.data.identity_decision_at)})</> : null}
+              <br />
+              Name at registration (not evidence): {query.data.registration_name || "-"}
+            </p>
+          ) : (
+            <Banner tone="warn" title="No name from an identity check">
+              This investor has no name from an approved identity check, so a deposit cannot prove the account. Verify the account
+              with a bank statement or bank confirmation. Name at registration (not evidence): {query.data.registration_name || "-"}
+            </Banner>
+          )}
           {query.data.results.length ? (
-            query.data.results.map((deposit) => <DepositVerificationRow deposit={deposit} key={deposit.id} />)
+            query.data.results.map((deposit) => (
+              <DepositVerificationRow canVerify={Boolean(query.data.verified_identity_name)} deposit={deposit} key={deposit.id} />
+            ))
           ) : (
             <Empty icon="checkCircle" title="No deposit to verify">Every paying account of this investor is already verified.</Empty>
           )}
@@ -331,7 +344,7 @@ export function DepositAccountVerificationCard() {
   );
 }
 
-function DepositVerificationRow({ deposit }: { deposit: DepositVerificationCandidate }) {
+function DepositVerificationRow({ deposit, canVerify }: { deposit: DepositVerificationCandidate; canVerify: boolean }) {
   const queryClient = useQueryClient();
   const [holderMatches, setHolderMatches] = useState(false);
   const [notIntermediary, setNotIntermediary] = useState(false);
@@ -355,7 +368,7 @@ function DepositVerificationRow({ deposit }: { deposit: DepositVerificationCandi
       </div>
       <label className="row gap-8">
         <input checked={holderMatches} onChange={(event) => setHolderMatches(event.target.checked)} type="checkbox" />
-        The holder of the transfer matches the verified identity
+        The holder of the transfer matches the name from the identity check
       </label>
       <label className="row gap-8">
         <input checked={notIntermediary} onChange={(event) => setNotIntermediary(event.target.checked)} type="checkbox" />
@@ -365,7 +378,7 @@ function DepositVerificationRow({ deposit }: { deposit: DepositVerificationCandi
         <input aria-label="Evidence reference" onChange={(event) => setEvidence(event.target.value)} value={evidence} />
       </Field>
       <Button
-        disabled={!holderMatches || !notIntermediary || !evidence.trim() || mutation.isPending}
+        disabled={!canVerify || !holderMatches || !notIntermediary || !evidence.trim() || mutation.isPending}
         onClick={() => {
           if (isFixturePreview) return setResult("Preview: the account would be verified.");
           mutation.mutate({

@@ -57,7 +57,6 @@ test("a duplicate lender deposit asks for explicit confirmation of a repeat tran
     value_date: fieldValue("Value date"),
     collection_account_identifier: fieldValue("Collection account"),
     payer_account_identifier: "CH9300762011623852957",
-    payer_is_account_holder: false,
     idempotency_key: "deposit-test"
   };
   const conflict = new ApiClientError(

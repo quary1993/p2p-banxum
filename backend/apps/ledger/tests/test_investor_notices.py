@@ -13,6 +13,7 @@ from django.db.models import Model
 from django.test import override_settings
 from django.utils import timezone
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import InvestorPayoutInstruction
 from backend.apps.ledger.notices import notify_payout_instruction_saved
 from backend.apps.ledger.services import (
@@ -25,7 +26,6 @@ from backend.apps.ledger.services import (
     RunBalanceAgeingScanCommand,
     VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
-    declare_lender_deposit,
     finalize_investor_withdrawal,
     register_investor_self_service_payout_instruction,
     request_investor_withdrawal,
@@ -34,6 +34,12 @@ from backend.apps.ledger.services import (
     verify_investor_payout_instruction,
 )
 from backend.apps.platform_core.domain.time import business_timezone
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.platform_core.tests.notices import (
     assert_renders_to,
@@ -112,6 +118,29 @@ def _code(user: Model, action: str) -> dict[str, str]:
         "sensitive_action_code": code.raw_code,
         "pin": code.pin,
     }
+
+
+def _deposit_only(
+    admin_user: Model, investor: Model, *, key: str, amount_minor: int, day: date
+) -> Any:
+    """A deposit whose paying account nobody verified (no return account)."""
+    return ledger_services.declare_lender_deposit(
+        DeclareLenderDepositCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            amount_minor=amount_minor,
+            currency="CHF",
+            booking_date=day,
+            value_date=day,
+            collection_account_identifier="CH00GARANTALEDGER",
+            payer_name="Notice Investor",
+            payer_account_identifier="CH5604835012345678009",
+            bank_reference=f"BANK-{key}",
+            payment_reference=f"BX-CHF-{key}",
+            evidence_reference=f"statement:{key}",
+            idempotency_key=key,
+        )
+    )
 
 
 def _deposit(
@@ -266,14 +295,12 @@ def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
 ) -> None:
     other = _investor("notice-penalty@example.test")
     _deposit(admin_user, investor, key="forced", amount_minor=1_000_00, value_date=date(2026, 1, 1))
-    first = _deposit(
-        admin_user, other, key="pen-1", amount_minor=600_00, value_date=date(2026, 1, 1)
-    )
-    _deposit(admin_user, other, key="pen-2", amount_minor=400_00, value_date=date(2026, 1, 2))
-    # No usable IBAN for the second investor: day 59 cannot return it; after the 60-day
-    # legal limit it stays on the balance with no penalty (U33-DEC-04).
-    InvestorPayoutInstruction.objects.filter(investor_user_id=other.pk).update(status="disabled")
-    assert first.payout_instruction is not None
+    # No verified IBAN for the second investor (his deposits come from another account that
+    # nobody verified, audit S3-1): day 59 cannot return it; after the 60-day legal limit it
+    # stays on the balance with no penalty (U33-DEC-04).
+    first = _deposit_only(admin_user, other, key="pen-1", amount_minor=600_00, day=date(2026, 1, 1))
+    _deposit_only(admin_user, other, key="pen-2", amount_minor=400_00, day=date(2026, 1, 2))
+    assert first.payout_instruction is None
 
     # 18.4: value date 2026-01-01 -> day 57 is Friday 02-27, but the debit must come by day 59
     # (Sunday -> Friday), so the return is requested on Thursday 02-26 (day 56). The lot of

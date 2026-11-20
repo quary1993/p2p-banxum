@@ -29,6 +29,7 @@ from backend.apps.accounts_auth.tests.signin_helpers import TEST_PASSWORD, ready
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.services.currencies import seed_launch_currencies
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -180,7 +181,7 @@ def test_close_account_rejects_nonzero_investor_balance(
     ledger_services = import_module("backend.apps.ledger.services")
 
     seed_launch_currencies()
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.id),

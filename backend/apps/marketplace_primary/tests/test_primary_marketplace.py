@@ -49,6 +49,7 @@ from backend.apps.platform_core.services.impersonation import (
     READONLY_IMPERSONATION_HEADER,
     issue_readonly_impersonation_token,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -249,7 +250,7 @@ def _declare_deposit(
     if value_date > business_date(clock):
         clock = datetime.combine(value_date, time(12), UTC)
     with patch("backend.apps.ledger.services.now_utc", return_value=clock):
-        return ledger.declare_lender_deposit(
+        return declare_deposit_and_verify_account(
             ledger.DeclareLenderDepositCommand(
                 actor=admin_user,
                 investor_user_id=str(investor.pk),

@@ -150,7 +150,6 @@ class LenderDepositDeclareView(APIView):
                     notes=data.get("notes", ""),
                     idempotency_key=data["idempotency_key"],
                     confirm_repeat_deposit=data["confirm_repeat_deposit"],
-                    payer_is_account_holder=data["payer_is_account_holder"],
                 )
             )
         except LedgerAuthorizationError as exc:
@@ -874,11 +873,14 @@ class AdminDepositVerificationCandidatesView(APIView):
         investor = get_user_model().objects.filter(id=investor_user_id).first()
         if investor is None:
             return Response({"detail": "Investor does not exist."}, status=404)
+        identity = return_failures.identity_reference(cast(Model, investor))
         return Response(
             DepositVerificationCandidateListSerializer(
                 {
                     "investor_user_id": investor.pk,
-                    "verified_identity_name": str(getattr(investor, "full_name", "") or ""),
+                    "verified_identity_name": identity.verified_name,
+                    "registration_name": identity.registration_name,
+                    "identity_decision_at": identity.decision_at or None,
                     "results": return_failures.deposit_verification_candidates(
                         str(investor_user_id)
                     ),

@@ -419,7 +419,38 @@ def _verified_identity(payload: dict[str, Any]) -> dict[str, Any]:
     nationality = first("nationality").upper()
     if nationality.isalpha() and len(nationality) in {2, 3}:
         identity["verified_nationality"] = nationality
+    name = verified_document_name(payload)
+    if name:
+        identity["verified_full_name"] = name
     return identity
+
+
+def verified_document_name(payload: dict[str, Any]) -> str:
+    """Audit S3-6: the legal name on the identity document of a Didit decision, or "".
+
+    Only the ID verification gives it (Didit v3: ``id_verifications[].full_name``, or the first
+    and last name); a proof of address or the registration data never does.
+    """
+    for container in (payload, _decision_payload(payload)):
+        items: list[Any] = []
+        many = container.get("id_verifications")
+        if isinstance(many, list):
+            items.extend(many)
+        items.append(container.get("id_verification"))
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            full_name = item.get("full_name")
+            if isinstance(full_name, str) and full_name.strip():
+                return " ".join(full_name.split())[:255]
+            parts = [
+                str(item.get(key)).strip()
+                for key in ("first_name", "last_name")
+                if isinstance(item.get(key), str) and str(item.get(key)).strip()
+            ]
+            if len(parts) == 2:
+                return " ".join(" ".join(parts).split())[:255]
+    return ""
 
 
 def _iter_text_values(value: Any) -> list[str]:

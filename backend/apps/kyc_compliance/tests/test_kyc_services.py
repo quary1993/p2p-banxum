@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
@@ -191,8 +192,13 @@ def test_didit_decision_keeps_the_verified_address_birth_date_and_nationality() 
                     "date_of_birth": "1984-05-17",
                     "nationality": "che",
                     "formatted_address": "Bahnhofstrasse 1, 8001 Zürich, Switzerland",
+                    # Audit S3-6: the legal name on the identity document.
+                    "first_name": "Anna  Maria",
+                    "last_name": "Müller-Keller",
                 }
-            ]
+            ],
+            # A proof of address never gives the name.
+            "poa_verifications": [{"full_name": "A. Mueller", "poa_address": "Other 2"}],
         },
     }
     result = process_didit_event(
@@ -210,6 +216,9 @@ def test_didit_decision_keeps_the_verified_address_birth_date_and_nationality() 
     assert case.verified_address == "Bahnhofstrasse 1, 8001 Zürich, Switzerland"
     assert str(case.verified_birth_date) == "1984-05-17"
     assert case.verified_nationality == "CHE"
+    # The registration name stays what the investor typed; the verified name is Didit's.
+    assert case.verified_full_name == "Anna Maria Müller-Keller"
+    assert cast(Any, user).full_name != case.verified_full_name
     status = serialize_kyc_status(user=user, case=case, latest_session=None)
     assert status["verified_nationality"] == "CHE"
     # A later event without these fields keeps them.
@@ -225,6 +234,66 @@ def test_didit_decision_keeps_the_verified_address_birth_date_and_nationality() 
     )
     case.refresh_from_db()
     assert case.verified_address.startswith("Bahnhofstrasse 1")
+    assert case.verified_full_name == "Anna Maria Müller-Keller"
+
+
+def test_the_document_name_comes_only_from_the_id_verification() -> None:
+    """Audit S3-6: ``full_name`` first, else first and last name; v3 list or single object."""
+    from backend.apps.kyc_compliance.services import verified_document_name
+
+    assert verified_document_name({"id_verifications": [{"full_name": " Jean  Dupont "}]}) == (
+        "Jean Dupont"
+    )
+    assert (
+        verified_document_name(
+            {"decision": {"id_verification": {"first_name": "Jean", "last_name": "Dupont"}}}
+        )
+        == "Jean Dupont"
+    )
+    # One part alone, a proof of address or expected details are not the legal name.
+    assert verified_document_name({"id_verifications": [{"first_name": "Jean"}]}) == ""
+    assert verified_document_name({"poa_verifications": [{"full_name": "Jean Dupont"}]}) == ""
+    assert verified_document_name({"expected_details": {"first_name": "J", "last_name": "D"}}) == ""
+
+
+@pytest.mark.django_db
+def test_migration_takes_the_name_from_the_newest_stored_didit_event() -> None:
+    """Audit S3-6: cases decided before the field existed get the name from their events."""
+    from importlib import import_module
+
+    from django.apps import apps
+
+    from backend.apps.kyc_compliance.models import KycProviderEvent, KycVerificationCase
+
+    migration = import_module("backend.apps.kyc_compliance.migrations.0008_verified_full_name")
+    user = create_lender(email="backfill-name@example.test")
+    case = KycVerificationCase.objects.create(
+        user_id=user.pk,
+        subject_reference=f"user:{user.pk}",
+        provider_environment="test",
+        workflow_id="wf",
+        vendor_data=f"user:{user.pk}",
+        status="approved",
+    )
+    for number, payload in enumerate(
+        (
+            {"decision": {"id_verifications": [{"full_name": "Old Name"}]}},
+            {"decision": {"id_verifications": [{"full_name": "Newest Name"}]}},
+            {"status": "approved"},
+        )
+    ):
+        KycProviderEvent.objects.create(
+            case=case,
+            provider_environment="test",
+            provider_event_id=f"backfill-{number}",
+            provider_event_type="status.updated",
+            normalized_status="approved",
+            raw_payload=payload,
+            processed_at=timezone.now() + timedelta(minutes=number),
+        )
+    migration.backfill_names(apps, None)
+    case.refresh_from_db()
+    assert case.verified_full_name == "Newest Name"
 
 
 @pytest.mark.django_db

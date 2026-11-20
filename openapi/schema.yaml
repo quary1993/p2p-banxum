@@ -12636,12 +12636,23 @@ components:
           format: uuid
         verified_identity_name:
           type: string
+          description: 'The legal name from the approved identity check (Didit). Empty
+            when there is none: a deposit then cannot verify an account.'
+        registration_name:
+          type: string
+          description: The name the investor typed at registration. Not identity evidence.
+        identity_decision_at:
+          type: string
+          format: date-time
+          nullable: true
         results:
           type: array
           items:
             $ref: '#/components/schemas/DepositVerificationCandidate'
       required:
+      - identity_decision_at
       - investor_user_id
+      - registration_name
       - results
       - verified_identity_name
     DiditWebhookResponse:
@@ -15954,12 +15965,6 @@ components:
           default: false
           description: Set only after a duplicate-deposit rejection, when the investor
             really sent a second identical transfer.
-        payer_is_account_holder:
-          type: boolean
-          description: 'U33-DEC-05: the admin checked by hand that the paying account
-            is in the investor''s own name. Only then does the source IBAN become
-            a verified return account. A reference, name or email match alone is not
-            enough.'
         idempotency_key:
           type: string
           maxLength: 160
@@ -15970,7 +15975,6 @@ components:
       - idempotency_key
       - investor_user_id
       - payer_account_identifier
-      - payer_is_account_holder
       - value_date
     LenderDepositDeclareResponse:
       type: object

@@ -21,6 +21,7 @@ from pypdf import PdfReader
 
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.reporting.models import (
     InvestorReportDocument,
@@ -102,7 +103,7 @@ def _approve_lender(investor: Model) -> None:
 
 def _deposit(admin_user: Model, investor: Model, *, amount_minor: int, value_date: date) -> None:
     ledger: Any = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),

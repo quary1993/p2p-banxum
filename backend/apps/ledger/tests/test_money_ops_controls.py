@@ -18,6 +18,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Model
 from django.test import Client
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
@@ -42,7 +43,6 @@ from backend.apps.ledger.services import (
     VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
-    declare_lender_deposit,
     execute_investor_fx_exchange_ledger,
     finalize_investor_withdrawal,
     register_investor_payout_instruction,
@@ -65,6 +65,12 @@ from backend.apps.platform_core.models import (
     DomainEvent,
     OutboxMessage,
     PlatformSetting,
+)
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
 )
 
 DEPOSIT_IBAN = "CH9300762011623852957"
@@ -461,11 +467,9 @@ def test_no_investment_without_a_verified_bank_account_in_the_currency(
 ) -> None:
     """U33-DEC-04: a verified bank account comes before the first investment."""
     _approve_financial_access(investor)
-    deposit = declare_lender_deposit(
-        replace(
-            _deposit_command(admin_user, investor, amount_minor=1_000_00),
-            payer_is_account_holder=False,
-        )
+    # A deposit alone verifies no account (audit S3-1).
+    deposit = ledger_services.declare_lender_deposit(
+        _deposit_command(admin_user, investor, amount_minor=1_000_00)
     )
     with pytest.raises(LedgerValidationError, match="verified bank account in your name for CHF"):
         _reserve(admin_user, investor, "no-account", day=date(2026, 1, 10))
