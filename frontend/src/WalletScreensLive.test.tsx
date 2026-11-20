@@ -12,7 +12,7 @@ import { renderLiveApp, shellHandlers } from "./test/liveHarness";
 
 // No canvas in jsdom: the reader's engine is replaced by two blank pages.
 vi.mock("./portal/components/pdf/pdfEngine", () => ({
-  openPdf: async () => ({ numPages: 2, renderPage: async () => undefined, destroy: () => undefined })
+  openPdf: async () => ({ numPages: 2, renderPage: () => ({ promise: Promise.resolve(), cancel: () => undefined }), destroy: () => undefined })
 }));
 
 vi.stubEnv("MODE", "development");

@@ -33,7 +33,17 @@ function PdfPage({ handle, pageNumber, scale, onError }: { handle: PdfDocumentHa
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (!canvasRef.current) return;
-    handle.renderPage(pageNumber, canvasRef.current, scale).catch(onError);
+    // Audit S2-6: a new zoom (or closing) cancels the drawing in progress; only the current
+    // drawing can show the error.
+    let current = true;
+    const job = handle.renderPage(pageNumber, canvasRef.current, scale);
+    job.promise.catch(() => {
+      if (current) onError();
+    });
+    return () => {
+      current = false;
+      job.cancel();
+    };
   }, [handle, pageNumber, scale, onError]);
   return <canvas aria-label={t("Page {page}", { page: pageNumber })} className="u33-pdf-page" ref={canvasRef} role="img" />;
 }
