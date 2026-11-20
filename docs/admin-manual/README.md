@@ -16,6 +16,8 @@ rule, no penalty and no penalty mode, failed returns, settlement calendars, and 
 account from a deposit (a deposit does not verify its source IBAN). They were also updated for Phase 18.5: admins
 sign in with email, password and an authenticator app (no email code), the password rules for a new admin, the
 authenticator reset by a superadmin, and investor sign-in with a password and a second factor (no magic links).
+Audit step 5 added the flow "Service a direct loan on the 18.6 interest engine" (payments, expenses, Default
+declaration and cancellation); the earlier repayment flow is marked as the flow for loans before the engine.
 `manual.html` was rendered again from this content (`node scripts/render.mjs`). `manual-print.html` and the PDF
 were built before these changes and still show the old sign-in: rebuild them with `bash scripts/build.sh` on a
 Mac with Google Chrome (a build on Linux uses other fonts and changes the layout). The figures are older captures: Finance Operations has

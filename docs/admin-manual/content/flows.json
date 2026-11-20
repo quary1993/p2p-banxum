@@ -121,8 +121,8 @@
       ]
     },
     {
-      "title": "Record a borrower repayment, run servicing, and handle a late loan",
-      "goal": "Book the money a borrower pays back, keep the loan's status accurate, and act when a loan falls behind.",
+      "title": "Record a borrower repayment, run servicing, and handle a late loan (loans before the 18.6 engine)",
+      "goal": "Book the money a borrower pays back, keep the loan's status accurate, and act when a loan falls behind. This flow is for loans created before 19 November 2026 (earlier schedule). For newer direct loans use the next flow.",
       "actor": "Operations admin (servicing).",
       "preconditions": [
         "Jargon: 'servicing' = ongoing management of a live loan (collecting installments, tracking lateness). 'Installment' = a scheduled repayment. 'late' = at least 5 days past a due date. 'defaulted' = at least 16 days past due. 'status scan' = a job that re-checks each loan's due dates and moves it to late/defaulted as appropriate. 'recovery' = collecting money on a defaulted loan. 'risk note' = a public update to affected investors. Every payment uses the same order: Garanta legal costs/recovery fee, penalty, contractual interest, then principal.",
@@ -142,6 +142,53 @@
         "Always read the repayment-in-advance preview before confirming: it shows the interest/principal allocation and the regenerated schedule side by side with the old one. Nothing is written until you confirm.",
         "Do not try to record a repayment on a defaulted loan - it is refused. Switch to 'Record a recovery payment' in Manage.",
         "Run the status scan regularly; lateness/default is driven by it, not by the repayment form."
+      ]
+    },
+    {
+      "title": "Service a direct loan on the 18.6 interest engine",
+      "goal": "Record borrower payments and recovery expenses, follow the Pending, Due and Late states, and declare (or cancel) a Default on a direct loan created since 19 November 2026.",
+      "actor": "Operations admin (servicing); a super admin to cancel a Default.",
+      "preconditions": [
+        "Jargon: 'engine loan' = a direct loan on the 18.6 interest engine (Actual/365 Fixed from the payout day). Every direct loan created since 19 November 2026 is one; a Loan Originator claim never is. 'Pending' = the due date to 2 business days after it. 'Due' = unpaid after Pending. 'Late' = unpaid for the Late days of the loan. 'Penalty X' = the daily penalty rate of the loan on what is overdue. 'Value date' = the bank's value date of the money.",
+        "The loan is active (disbursed), late or in Default. At the disbursement the schedule is calculated again from the real payout day; the loan history shows 'Schedule confirmed'."
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "screen": "Loans > Manage (loan row) > Record a borrower payment",
+          "action": "Enter the amount received and its value date. Read the preview, then confirm.",
+          "detail": "Any amount is accepted up to everything the borrower owes on that value date. The server pays expenses first, then the oldest installment (penalty X, interest, principal), then the next one. Money beyond what is due repays principal early: interest to the day before the value date, the rest principal, and the later rows are recalculated with the same final date. A second early payment pays only the interest not yet paid."
+        },
+        {
+          "n": 2,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "To record a recovery expense (for example a lawyer's letter), enter the amount, the value date, what it is for and the invoice reference or a document of the borrower, then confirm.",
+          "detail": "On the expense's value date an installment must have been Due, Late or in Default (not in the Pending days). Penalty X runs on the expense from the next day. After an expense, a payment cannot have an earlier value date: record the payments in the order of their value dates. The same idempotency key with other details is refused."
+        },
+        {
+          "n": 3,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "When the panel says 'Default can be declared', write a note and click 'Declare Default'.",
+          "detail": "Default is never automatic. It is possible once the oldest unpaid installment is late by the Default days of the loan. The whole amount becomes due on the declaration day; penalty X then runs on the whole amount. The holders get a notice."
+        },
+        {
+          "n": 4,
+          "screen": "Loans > Manage > Record a borrower payment",
+          "action": "After a Default, record recovered money with the same 'Record a borrower payment' action.",
+          "detail": "The earlier 'Record a recovery payment' form is refused for engine loans: the server works out expenses, penalties, interest and principal."
+        },
+        {
+          "n": 5,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "A super admin can cancel a Default declared by mistake: write the reason and click 'Cancel the Default declaration'.",
+          "detail": "Only while no money was recorded after the declaration (no payment, recovery receipt, expense, write-off or Loan Originator repayment). After that, a correction needs a compensating accounting entry; ask the finance lead."
+        }
+      ],
+      "outcome": "The loan's position, status and schedule follow the engine; the investors receive whole cents (fractions are carried and paid at the end of the loan, also at a final write-off) and see their share of each installment the receipt paid.",
+      "pitfalls": [
+        "Enter value dates from the bank statement: they decide interest and penalty X.",
+        "Record payments and expenses in the order of their value dates; an older value date after a newer event is refused.",
+        "Garanta's part of penalty X and repaid recovery expenses go to two different Garanta ledger accounts."
       ]
     },
     {

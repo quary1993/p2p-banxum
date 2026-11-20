@@ -1078,6 +1078,8 @@ Choices made in this step (for the audit): loans created before the engine keep 
 
 Vlad (2026-11-19, after the step 5 brief): every loan may be reseeded when Phase 18 is done. Choice: no migration of the old loans; the QA and demo seeds move to the engine, and all QA and demo loans are reseeded at the end of Phase 18.
 
+Audit step 5 fixes (2026-11-20): carried cents that reach a whole cent are paid out of the fractions account; an expense fixes the position at its value date (no earlier payment, no expense in the Pending days); a second early payment pays only the interest not yet paid; engine loans cannot use the earlier recovery form; a Default cannot be cancelled after any money was recorded after it; every new direct loan uses the engine (the earlier schedule only for a contract signed before 19 November 2026; a Loan Originator claim is never an engine loan); expense keys bound to their request; interest and penalty cents kept apart to the end, Garanta's part of X rounded down and posted to its own account; the investor's share recorded per installment; a confirmed schedule version at every payout; the kept cents paid at a final write-off. Details in `IMPLEMENTATION_PLAN.md` 18.6 ("Audit step 5 fixes").
+
 ### Implemented In Audit Step 6 (2026-11-19, Phases 18.7 and 18.9)
 
 Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.7 and 18.9 ("Status 2026-11-19").

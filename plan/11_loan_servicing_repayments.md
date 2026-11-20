@@ -2,6 +2,19 @@
 
 Status: Draft. Updated with payment, balance, servicing, and recovery decisions on 2026-06-01, with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08, with disbursement activation, ACT/365 interest, and canonical schedule-history rules on 2026-07-27, and with the universal non-overridable payment waterfall on 2026-08-05.
 
+## Current Rules For Direct Loans On The 18.6 Engine (2026-11-20)
+
+Every direct loan created since 19 November 2026 uses the 18.6 interest engine (`interest_convention = act_365_fixed`). The decisions below describe the earlier model; they still apply to the loans that existed then (`legacy_monthly`, migration `loans` 0029) and to Loan Originator claims, unless a rule here says otherwise. Sources: `plan/22_u33_redesign_decisions.md` (Q07, Q08, F10-F14, F17), the validated note "BANXUM: Interest, Late Payments, Penalties And Default" (2026-11-18) and `IMPLEMENTATION_PLAN.md` 18.6 (with "Audit step 5 fixes").
+
+- **New loans:** the model, the service and the admin API create engine loans. The earlier schedule is only for an import of a contract signed before 19 November 2026 (`pre_cutover_contract_signed_on`). A Loan Originator claim is never an engine loan.
+- **Schedule:** Actual/365 Fixed from the payout day; due dates from the payout day by frequency, moved to the previous settlement day, plus grace business days. Estimated before funding; at the payout a confirmed schedule version is always written from the real payout day.
+- **Status:** the oldest unpaid installment decides: Pending (to t + 2 business days), Due, Late from the Late days. Default is never automatic: an admin declares it once the Default days are reached. A super admin can cancel a declaration made by mistake only while no money was recorded after it (borrower payment, expense, recovery receipt, write-off, Loan Originator repayment); after that a correction needs a compensating, audited accounting entry.
+- **Penalty X:** per day from t + 1 on each unpaid installment and on each expense from the day after its value date; after Default on the whole amount. Garanta's part is rounded down to the cent; the investors get the rest. Garanta's part is booked on its own ledger account, apart from repaid recovery expenses.
+- **Expenses:** recorded only when the loan was Due, Late or in Default on the expense's value date. An expense fixes the loan's position at its value date: no later recorded payment can have an earlier value date, and a payment never pays an expense dated after it.
+- **Payments:** any amount with a value date, allocated by the server (expenses, then the oldest installment: X, interest, principal; after Default: expenses, penalties, interest, principal). The earlier recovery form is not used for engine loans.
+- **Early payments:** interest to the day before the value date, then principal; the later rows are recalculated with the same maturity. A second early payment (same day or later) owes only the interest not yet paid: no interest is paid twice and no future interest is collected.
+- **Investors:** whole cents; interest and penalty fractions are carried per investor and loan as two pools. When the carried fractions reach a whole cent, the cent comes out of the fractions account. The final payment, or a final write-off, pays the rest by largest remainder per pool. A receipt that pays several installments records each investor's share under each installment.
+
 ## Purpose
 
 Define how active loans are serviced after drawdown, including schedules, repayment collection, allocations, investor distributions, borrower notices, arrears, operational loan changes, and closure.
