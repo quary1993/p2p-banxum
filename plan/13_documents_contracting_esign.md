@@ -389,6 +389,8 @@ Launch checkbox/clickwrap evidence should record:
 - Acceptance context, such as primary investment or secondary-market purchase.
 - IP address and user-agent where available.
 
+Decided 2026-11-20 (audit step 4, S4-1; decided by Claude on Vlad's request): the clickwrap evidence (`documents.DocumentAcceptanceEvidence`) keeps the raw IP address. It is evidence that a contract was concluded: a court or an investigator must be able to read it and compare it with the records of an internet provider, and a keyed hash cannot be read back. It is the only place where the platform keeps a raw IP address; the account tables keep keyed hashes only. The address stays with the contract evidence for the financial-record retention (at least 10 years, SEC-DEC-003), is shown only to authorized staff in evidence views and exports, and must be listed in the privacy notice (18.12).
+
 Future e-signature requirements, if introduced later:
 
 - Identify signer and signing authority.
