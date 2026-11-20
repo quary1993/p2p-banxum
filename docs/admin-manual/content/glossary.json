@@ -254,7 +254,7 @@
     },
     {
       "term": "Originator claim",
-      "definition": "Participation in an existing loan offered by a Loan Originator through a finite funding round. Cash reserves at par during funding. Funding close creates an active holding automatically; the boundary installment remains wholly payable to the LO and investor component rights start after it."
+      "definition": "Participation in an existing loan offered by a Loan Originator through a finite funding round (18.7). Investors pay the principal at the planned settlement day plus the accrued interest of the rights they buy; the price is reserved during funding and paid to the LO at the close, and the investor receives the whole next payment. The accrued interest paid in the price comes back with the first payment and is not interest earned. A due date or a borrower payment before the settlement makes the offer fail. Offers created before 18.7 used the older boundary-installment model (bought at par after an LO-owned installment)."
     },
     {
       "term": "Coupon versus participating yield",
@@ -262,7 +262,7 @@
     },
     {
       "term": "Dated entitlement",
-      "definition": "The immutable post-boundary principal and component rights recorded when the investment activates at funding close. No investor interest accrues during funding; the boundary installment belongs entirely to the LO."
+      "definition": "The principal and component rights recorded when the investment activates at funding close. For 18.7 offers, the rights start at the planned settlement day; for offers created before 18.7 (boundary model), after the LO-owned boundary installment."
     },
     {
       "term": "Originator payable",

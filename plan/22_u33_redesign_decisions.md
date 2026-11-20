@@ -1096,6 +1096,8 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.7 and 18.9 ("Status 20
 
 Choices made in this step (for the audit): the accrued-interest rule is the default for new offers in the API and the admin console, and older offers keep the boundary-installment rule; the reference day is fixed when the offer is created and does not move with an early close or a late settlement; holdings still start at the close until 18.8 (settlement on the debit day); the sandbox mode is confirmed by the admin who publishes the first financing of a UID (the publish action is the confirmation); the SNB rate is entered by hand; the sandbox notice is asked for primary orders only; P of the dynamic minimum is 0 for Loan Originator offers (no subscription threshold); the 10/20 limits are lowered in tests only.
 
+Audit step 6 fixes (2026-11-20): a Loan Originator close after a due date fails the offer at once and uses the server's date; new offers cannot use the boundary rule; the accrued interest bought in the price is shown as a return of the price, not as interest, in every total, report and tax line; a manual payment failure needs its bank evidence; Swiss financings without a valid UID stop; failed closes count; external debts count on their dates; one regime lock for every legal change and financing action, with a task on a breach; one live offer per underlying originator financing; the order quotes its minimum under the lock. Details in `IMPLEMENTATION_PLAN.md` 18.7 and 18.9 ("Audit step 6 fixes").
+
 ### Implemented In Audit Step 7 (2026-11-20, Phases 18.10 and 18.11)
 
 Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.10 and 18.11 ("Status 2026-11-20").

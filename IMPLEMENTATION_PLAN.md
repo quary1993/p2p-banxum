@@ -2606,7 +2606,7 @@ Waits for: the first-assignment form (legal). The originator-agreement rule on e
 
 Status 2026-11-19 (audit step 6, branch `u33-17-2`): done, except the settlement on the debit day (18.8); the limits are at the end of this list.
 
-- Price rule (`originator_claims` migration 0017): new offers use `accrued_interest` (the API and admin default). Offers created before keep `boundary_installment` (and the Python command keeps it as its default for the older tests and seeds).
+- Price rule (`originator_claims` migration 0017): new offers use `accrued_interest` (the API and admin default). Offers created before keep `boundary_installment`. Since audit S6-4 the boundary rule cannot be chosen for a new offer (API, admin form and service default); it stays for a draft created with it and an explicit historical import (`historical_boundary_offer`, used by the demo seed until the reseed).
 - Reference day: planned settlement = 1 settlement day of the currency calendar after the funding deadline. It is fixed when the offer is created, from the funding deadline, and is the same for all investors (an early close or a late settlement does not change the price).
 - Price for a principal P: `P + A`, with `A = round half up(next interest x P / opening principal x accrued units / period units x investor interest share)` in exact integers. Units come from the claim's day-count convention (`platform_core/domain/day_count.py`: Actual/365 Fixed, Actual/360, Actual/Actual ISDA, 30/360 Bond Basis, 30E/360; required at import for the new rule).
 - Publication is refused when the planned settlement day is not before the next due date, when an installment is due and unpaid, or when the convention is missing.
@@ -2615,6 +2615,15 @@ Status 2026-11-19 (audit step 6, branch `u33-17-2`): done, except the settlement
 - Q17: Coming soon for Loan Originator offers, with the opening emails at publication.
 - Investor screens: Review & sign shows the principal, the accrued interest in the price, the total, the first estimated payment and the investor and originator shares; the boundary-installment texts are removed for the new rule.
 - Limits: the holdings still start at the close (the settlement on the debit day with signed assignments waits for 18.8 / D-12); a payment on the claim is known to the platform only when an admin records it; the first-assignment form and the extra-days clause wait for legal.
+
+Audit step 6 fixes for 18.7 (2026-11-20):
+
+- S6-1: a close after a due date before the settlement fails the offer in its own committed transaction (participations cancelled, reservations released, one email per investor) and answers with an error; the offer never reopens. An investor's automatic close is refused instead, and the daily scan fails the offer the same day.
+- S6-2: the close uses the server's business date; an earlier date is refused, the admin API ignores a date from the form and the form has no date field.
+- S6-3: the accrued interest paid in the price is a return of the price: the portfolio totals, the activity and the transactions CSV, the income report (row "Accrued interest paid back") and the tax summary (information-only line) show it apart; only the rest is interest earned. Found with the new test: the first payment of an accrued-interest offer failed in the boundary-component code; fixed.
+- S6-4: see the price rule above.
+- D3: a borrower payment that fails an offer is recorded with its reference, value date, amount and evidence reference (on the cancellation record).
+- Not done (follow-ups): a second-person check on the manual payment failure; the "awaiting originator settlement" state before the debit (with 18.8).
 
 #### 18.8 Qualified signature and settlement (Q10, F01, F05, D7)
 
@@ -2646,11 +2655,22 @@ Status 2026-11-19 (audit step 6, branch `u33-17-2`): done; the limits are at the
 - Mode: a UID without a record is in the pre-selected sandbox mode; the first publication records it, confirmed by the publishing admin. An admin changes it in the admin console (Swiss creditor mode panel, `GET/POST /api/v1/entities/admin/creditor-modes/<uid>/`): never while a financing of the UID is in funding; to 10/20 only with at most 20 creditors and at most 10 per open financing; to sandbox only with a total below CHF 500,000.
 - Total per UID in CHF: amounts of its loans in funding or running (Direct loans and Loan Originator claims) and of its external debts; EUR at the SNB rate of the day (refused when no rate is entered).
 - Creditors per UID (F07): the investors of its loans counted once, a Loan Originator while it keeps part of a claim, and external non-bank creditors (banks count in the total only).
-- Checks: at publication (UID, total in sandbox mode, places in 10/20 mode), at every investment path (order, allocation, claim purchase, resale) under a lock on the borrower's regime row (created in the pre-selected sandbox mode when a UID has none yet, for loans published before this step), and before the close (a failure stops the close; the admin decides). A resale buyer takes the seller's place in the financing when the seller sells his last holding of it, and in the borrower count only when the seller has no holding left in any financing of the borrower.
+- Checks: at publication (UID, total in sandbox mode, places in 10/20 mode), at every investment path (order, allocation, claim purchase, resale; the order since audit S6-10) under a lock on the borrower's regime row (created in the pre-selected sandbox mode when a UID has none yet, for loans published before this step; a Swiss financing without a valid UID is refused since audit S6-5), and before the close (a failure stops the close; the admin decides). A resale buyer takes the seller's place in the financing when the seller sells his last holding of it, and in the borrower count only when the seller has no holding left in any financing of the borrower.
 - Dynamic minimum in 10/20 mode: `min(R, max(minimum, round up to whole units of max(0, P - F) / N))`, with P = principal x minimum subscription for Direct loans and 0 for Loan Originator offers; an investor already in the financing keeps the usual minimum.
 - Sandbox notice: settings `swiss.sandbox_notice_text` (the E-03 placeholder) and `swiss.sandbox_notice_approved`; a short text on the offer page and a separate unchecked confirmation in Review & sign; the allocation needs the confirmation and the text version (first 16 characters of its SHA-256), stored in the order metadata. Production refuses to publish a sandbox-mode financing while the text is not approved.
 - Seeds: QA and demo Swiss borrowers get synthetic UIDs (`CHE-9xx...`, never real companies) and the 10/20 mode.
 - Limits: the SNB rate is entered by hand (no automatic source); the notice is asked for primary orders only (not for resales or legacy claim purchases); the old setting `marketplace.swiss_borrower_max_investors` stays in the database unused; the re-check at the debit day comes with 18.8; WW validation of the counts and the notice is still open.
+
+Audit step 6 fixes for 18.9 (2026-11-20):
+
+- S6-5: a Swiss financing without a valid UID takes no order, allocation, claim purchase, resale or close (the UID is never guessed). `python backend/manage.py open_missing_swiss_uid_tasks --actor-email ...` opens one compliance task per such financing.
+- S6-6: one status set for the totals, the counts and the mode change: "in funding" is `published` and `funding_close_failed` (a failed close keeps its reservations until it is closed again or cancelled).
+- S6-7: an external debt counts on the dates it runs: started on or before the date and not ended (`ended_on` is the first day without the debt). The same rule for the non-bank creditor counts.
+- S6-8: the UID's regime row is the one lock: mode changes, external debts, publication, order, allocation, claim purchase, resale and close take it (after the loan row). A new SNB rate locks every regime row. A true debt or rate is always recorded; when it breaks the mode, a compliance task opens and the financing actions stop at their own checks.
+- S6-9: `OriginatorLoanProfile.underlying_financing_id` (migration `originator_claims` 0019): the originator's number of the underlying financing; one live offer per number and originator (a cancelled offer frees it); required before a Swiss claim is published; the borrower total counts each underlying financing once.
+- S6-10: an order quotes the minimum under the regime lock and stores the inputs (`quoted_minimum_minor`, `quoted_creditor_mode`, `quoted_places_left`); the allocation checks again.
+- Open for legal: whether a written-off claim that is still legally outstanding counts; the identity rule for external creditors (a registry identifier such as UID or LEI); the sandbox notice on resales; binding the notice approval to a text version.
+- Not run here: PostgreSQL concurrency tests for these locks.
 
 #### 18.10 Compliance (Q12, Q13)
 

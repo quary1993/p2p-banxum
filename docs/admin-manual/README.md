@@ -18,6 +18,8 @@ sign in with email, password and an authenticator app (no email code), the passw
 authenticator reset by a superadmin, and investor sign-in with a password and a second factor (no magic links).
 Audit step 5 added the flow "Service a direct loan on the 18.6 interest engine" (payments, expenses, Default
 declaration and cancellation); the earlier repayment flow is marked as the flow for loans before the engine.
+Audit step 6 replaced the boundary-installment description of Loan Originator offers with the 18.7 price
+(principal plus accrued interest, F04 failure, underlying financing ID).
 `manual.html` was rendered again from this content (`node scripts/render.mjs`). `manual-print.html` and the PDF
 were built before these changes and still show the old sign-in: rebuild them with `bash scripts/build.sh` on a
 Mac with Google Chrome (a build on Linux uses other fonts and changes the layout). The figures are older captures: Finance Operations has

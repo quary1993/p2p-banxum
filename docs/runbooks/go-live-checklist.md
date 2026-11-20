@@ -126,9 +126,14 @@ Use this as the daily operating checklist once the environment is live.
   - Record borrower repayments with exact value date and warning acknowledgement for irregular payments.
   - Record recoveries only for defaulted loans and use final loss recognition only after Garanta/legal/accounting approval.
   - For a current originator claim, verify originator status/settlement instructions,
-    anonymized borrower disclosure, funding deadline, boundary installment and
-    resulting principal, coupon, interest/penalty participation, minimum investment,
-    retention, current outstanding principal, import as-of date, and maturity.
+    anonymized borrower disclosure, the underlying financing ID (and the Swiss UID for a
+    Swiss borrower), funding deadline, the day-count convention, the planned settlement day
+    (before the next due date) and the accrued-interest price, coupon, interest/penalty
+    participation, minimum investment, retention, current outstanding principal, import
+    as-of date, and maturity. Test an F04 failure in QA (a due date before the settlement
+    and a recorded borrower payment with its evidence): every reservation is released.
+  - Run `python backend/manage.py open_missing_swiss_uid_tasks --actor-email ...` and record
+    the UID of every Swiss financing it lists before go-live.
   - Put an originator opportunity on hold for any contract/import/bank discrepancy.
     Do not edit amounts merely to make an import validate.
   - Record an originator repayment only with a replacement CSV that preserves every
