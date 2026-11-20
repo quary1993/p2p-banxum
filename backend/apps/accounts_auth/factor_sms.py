@@ -32,6 +32,7 @@ from backend.apps.accounts_auth.services import (
     PhoneVerificationThrottleError,
 )
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
 
 
 class FactorSmsError(ValueError):
@@ -108,7 +109,7 @@ def send_code(
         encrypted_code=encrypted_code,
         expires_at=now + ttl,
         max_attempts=int(settings.AUTH_PHONE_VERIFICATION_MAX_ATTEMPTS),
-        requested_ip=ip_address,
+        requested_ip_hash=ip_hash(ip_address),
         requested_user_agent=user_agent,
     )
     if provider == TWILIO_VERIFY_PROVIDER:
@@ -189,7 +190,7 @@ def check_code(
                 if valid:
                     challenge.status = PhoneVerificationStatus.VERIFIED
                     challenge.verified_at = now
-                    challenge.confirmed_ip = ip_address
+                    challenge.confirmed_ip_hash = ip_hash(ip_address)
                     challenge.confirmed_user_agent = user_agent
                 elif challenge.attempts >= challenge.max_attempts:
                     challenge.status = PhoneVerificationStatus.FAILED

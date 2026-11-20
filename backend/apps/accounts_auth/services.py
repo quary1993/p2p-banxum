@@ -12,10 +12,8 @@ from typing import Any, cast
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher, make_password
-from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -72,6 +70,7 @@ from backend.apps.platform_core.services.events import (
     enqueue_outbox_message,
     record_domain_event,
 )
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
 
 
 class AccountsAuthError(ValueError):
@@ -574,7 +573,8 @@ def _record_repeated_registration(
             target_id=str(user.id),
             metadata={
                 "outcome": outcome,
-                "requested_ip": command.ip_address or "",
+                # Audit S4-1: the keyed hash, never the address.
+                "requested_ip_hash": ip_hash(command.ip_address),
                 "profile_changed": False,
             },
         )
@@ -623,7 +623,7 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         user=user,
         terms_version=terms_version,
         terms_hash=terms_hash,
-        ip_address=command.ip_address,
+        ip_hash=ip_hash(command.ip_address),
         user_agent=command.user_agent,
     )
     _accept_registration_document_terms(
@@ -1028,7 +1028,7 @@ def _issue_magic_link_for_user(
         token_digest=digest_secret(raw_token),
         encrypted_token=encrypt_delivery_secret(raw_token),
         expires_at=now + command.ttl,
-        requested_ip=command.ip_address,
+        requested_ip_hash=ip_hash(command.ip_address),
         requested_user_agent=command.user_agent,
         purpose=REGISTRATION_LINK_PURPOSE,
     )
@@ -1131,10 +1131,10 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                 failure = InvalidOrExpiredTokenError("Account cannot log in.")
         else:
             token.used_at = now
-            token.consumed_ip = command.ip_address
+            token.consumed_ip_hash = ip_hash(command.ip_address)
             token.consumed_user_agent = command.user_agent
             token.save(
-                update_fields=["used_at", "consumed_ip", "consumed_user_agent", "updated_at"]
+                update_fields=["used_at", "consumed_ip_hash", "consumed_user_agent", "updated_at"]
             )
             record_audit_event(
                 AuditCommand(
@@ -1151,12 +1151,12 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
     return token.user
 
 
-@transaction.atomic
 def _check_sensitive_code_volume(user: User, now: datetime, ttl: timedelta) -> None:
     """18.5: at most AUTH_SENSITIVE_CODE_HOURLY_LIMIT / _DAILY_LIMIT codes per account.
 
     Changed operation details skip the cooldown, so this cap stops a loop of new amounts from
     sending unlimited emails. Real time from expires_at (created_at follows the QA clock).
+    The caller holds the account's row lock (audit S4-3).
     """
     codes = SensitiveActionCode.objects.filter(user=user)
     for window, limit in (
@@ -1199,77 +1199,85 @@ def issue_sensitive_action_code(
     elif command.operation:
         raise OperationDetailsError("This code is not for an operation.")
 
-    now = timezone.now()
-    _check_sensitive_code_volume(command.user, now, command.ttl)
-    cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
-    latest_active = (
-        SensitiveActionCode.objects.filter(
+    # Audit S4-3: the caps, the cooldown, the supersession of the older code and the new code
+    # are one transaction under the account's row lock. Two requests at the same time are
+    # served one after the other: the second one sees the first one's code, so the cooldown and
+    # the caps hold and only one active code per action is left.
+    with transaction.atomic():
+        User.objects.select_for_update().filter(pk=command.user.pk).first()
+        now = timezone.now()
+        _check_sensitive_code_volume(command.user, now, command.ttl)
+        cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
+        latest_active = (
+            SensitiveActionCode.objects.filter(
+                user=command.user,
+                action=command.action,
+                consumed_at__isnull=True,
+                superseded_at__isnull=True,
+                expires_at__gt=now,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_active is not None:
+            # created_at follows the platform (QA) clock, expires_at real time. Measure the
+            # cooldown in real time: after a QA clock advance the QA-time created_at lies in
+            # the future, and no new code could be sent until the old one expired.
+            elapsed = now - (latest_active.expires_at - command.ttl)
+            # 18.5: changed operation details (a new amount, or a price that moved) need a new
+            # code at once; the cooldown holds only a repeated request for the same details.
+            same_operation = latest_active.operation_fingerprint == fingerprint
+            if same_operation and elapsed < timedelta(seconds=cooldown_seconds):
+                raise SensitiveActionCodeThrottleError(
+                    "Sensitive-action code requested too recently."
+                )
+
+            SensitiveActionCode.objects.filter(
+                user=command.user,
+                action=command.action,
+                consumed_at__isnull=True,
+                superseded_at__isnull=True,
+                expires_at__gt=now,
+            ).update(superseded_at=now)
+
+        raw_code = f"{secrets.randbelow(1_000_000):06d}"
+        code_record = SensitiveActionCode.objects.create(
             user=command.user,
             action=command.action,
-            consumed_at__isnull=True,
-            superseded_at__isnull=True,
-            expires_at__gt=now,
+            code_digest=digest_secret(raw_code),
+            encrypted_code=encrypt_delivery_secret(raw_code),
+            expires_at=now + command.ttl,
+            max_attempts=max_attempts,
+            requested_ip_hash=ip_hash(command.ip_address),
+            requested_user_agent=command.user_agent,
+            operation_fingerprint=fingerprint,
+            operation_summary=summary[:255],
         )
-        .order_by("-created_at")
-        .first()
-    )
-    if latest_active is not None:
-        # created_at follows the platform (QA) clock, expires_at real time. Measure the
-        # cooldown in real time: after a QA clock advance the QA-time created_at lies in
-        # the future, and no new code could be sent until the old one expired.
-        elapsed = now - (latest_active.expires_at - command.ttl)
-        # 18.5: changed operation details (a new amount, or a price that moved) need a new
-        # code at once; the cooldown holds only a repeated request for the same details.
-        same_operation = latest_active.operation_fingerprint == fingerprint
-        if same_operation and elapsed < timedelta(seconds=cooldown_seconds):
-            raise SensitiveActionCodeThrottleError("Sensitive-action code requested too recently.")
-
-        SensitiveActionCode.objects.filter(
-            user=command.user,
-            action=command.action,
-            consumed_at__isnull=True,
-            superseded_at__isnull=True,
-            expires_at__gt=now,
-        ).update(superseded_at=now)
-
-    raw_code = f"{secrets.randbelow(1_000_000):06d}"
-    code_record = SensitiveActionCode.objects.create(
-        user=command.user,
-        action=command.action,
-        code_digest=digest_secret(raw_code),
-        encrypted_code=encrypt_delivery_secret(raw_code),
-        expires_at=now + command.ttl,
-        max_attempts=max_attempts,
-        requested_ip=command.ip_address,
-        requested_user_agent=command.user_agent,
-        operation_fingerprint=fingerprint,
-        operation_summary=summary[:255],
-    )
-    outbox_message = enqueue_outbox_message(
-        OutboxCommand(
-            idempotency_key=f"sensitive-action-code:{code_record.id}",
-            topic="email.sensitive_action_code_requested",
-            payload={
-                "user_id": str(command.user.id),
-                "email": command.user.email,
-                "action": command.action,
-                "delivery_secret_type": "sensitive_action_code",
-                "delivery_secret_ref": str(code_record.id),
-                "secret_redacted": True,
-                "expires_at": code_record.expires_at.isoformat(),
-            },
+        outbox_message = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"sensitive-action-code:{code_record.id}",
+                topic="email.sensitive_action_code_requested",
+                payload={
+                    "user_id": str(command.user.id),
+                    "email": command.user.email,
+                    "action": command.action,
+                    "delivery_secret_type": "sensitive_action_code",
+                    "delivery_secret_ref": str(code_record.id),
+                    "secret_redacted": True,
+                    "expires_at": code_record.expires_at.isoformat(),
+                },
+            )
         )
-    )
-    _dispatch_auth_email_after_commit(outbox_message.id)
-    record_audit_event(
-        AuditCommand(
-            actor=actor_for_user(command.user),
-            action="auth.sensitive_action_code_requested",
-            target_type="User",
-            target_id=str(command.user.id),
-            metadata={"action": command.action, "operation_summary": summary},
+        _dispatch_auth_email_after_commit(outbox_message.id)
+        record_audit_event(
+            AuditCommand(
+                actor=actor_for_user(command.user),
+                action="auth.sensitive_action_code_requested",
+                target_type="User",
+                target_id=str(command.user.id),
+                metadata={"action": command.action, "operation_summary": summary},
+            )
         )
-    )
     return SensitiveActionCodeIssueResult(code_record=code_record, raw_code=raw_code)
 
 
@@ -1397,7 +1405,7 @@ def request_phone_verification(
         encrypted_code=encrypted_code,
         expires_at=now + ttl,
         max_attempts=max_attempts,
-        requested_ip=command.ip_address,
+        requested_ip_hash=ip_hash(command.ip_address),
         requested_user_agent=command.user_agent,
     )
     if provider == TWILIO_VERIFY_PROVIDER:
@@ -1535,7 +1543,7 @@ def confirm_phone_verification(
                 challenge.attempts += 1
                 challenge.status = PhoneVerificationStatus.VERIFIED
                 challenge.verified_at = now
-                challenge.confirmed_ip = command.ip_address
+                challenge.confirmed_ip_hash = ip_hash(command.ip_address)
                 challenge.confirmed_user_agent = command.user_agent
                 challenge.save(
                     update_fields=[
@@ -1543,7 +1551,7 @@ def confirm_phone_verification(
                         "provider_reference",
                         "status",
                         "verified_at",
-                        "confirmed_ip",
+                        "confirmed_ip_hash",
                         "confirmed_user_agent",
                         "updated_at",
                     ]
@@ -1672,13 +1680,13 @@ def consume_sensitive_action_code(
         elif failure is None and command.consume:
             code_record.attempts += 1
             code_record.consumed_at = now
-            code_record.consumed_ip = command.ip_address
+            code_record.consumed_ip_hash = ip_hash(command.ip_address)
             code_record.consumed_user_agent = command.user_agent
             code_record.save(
                 update_fields=[
                     "attempts",
                     "consumed_at",
-                    "consumed_ip",
+                    "consumed_ip_hash",
                     "consumed_user_agent",
                     "updated_at",
                 ]
@@ -1828,11 +1836,13 @@ def create_admin_user(command: CreateAdminUserCommand) -> User:
         is_superuser=False,
         is_active=True,
     )
+    # Audit S4-5: the one password policy (length, common list, breach check), as for investors.
     try:
-        validate_password(command.password, user=user)
-    except DjangoValidationError as exc:
-        raise InvalidPasswordError("; ".join(exc.messages)) from exc
+        validate_new_password(command.password, email=email)
+    except PasswordPolicyError as exc:
+        raise InvalidPasswordError(str(exc)) from exc
     user.set_password(command.password)
+    user.password_changed_at = timezone.now()
     user.save()
     record_audit_event(
         AuditCommand(

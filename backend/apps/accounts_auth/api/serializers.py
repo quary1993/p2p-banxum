@@ -190,7 +190,10 @@ class SensitiveActionCodeRequestResponseSerializer(serializers.Serializer[Any]):
 
 class AdminUserCreateRequestSerializer(serializers.Serializer[Any]):
     email = serializers.EmailField()
-    password = serializers.CharField(trim_whitespace=False, min_length=1, write_only=True)
+    # Audit S4-5: the length bounds of the one password policy; the service checks the rest.
+    password = serializers.CharField(
+        trim_whitespace=False, min_length=12, max_length=128, write_only=True
+    )
     full_name = serializers.CharField(max_length=255)
 
 

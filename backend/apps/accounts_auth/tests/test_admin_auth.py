@@ -310,9 +310,36 @@ def test_a_super_admin_resets_another_admins_app(
     assert start_admin_sign_in(email=admin_user.email, password="AdminPass123!").status == (
         "enrollment_required"
     )
+    # Audit S4-6 (D3): the admin is told at once, by email and by a task in the console.
+    [notice] = OutboxMessage.objects.filter(
+        topic="email.security_change", payload__user_id=str(admin_user.pk)
+    )
+    payload = notice.payload
+    assert payload["email"] == admin_user.email
+    assert payload["template_key"] == "security.admin_authenticator_reset.v1"
+    assert superadmin.email in payload["body_text"] and "This was not me" in payload["body_text"]
+    assert ["Reset by", f"{superadmin.full_name} ({superadmin.email})"] in payload["data_rows"]
+    assert any(row[0] == "Time" and "Europe/Zurich" in row[1] for row in payload["data_rows"])
+    assert any(row[0] == "Contact" and "@" in row[1] for row in payload["data_rows"])
+    # No secret, code or link is in the notice.
+    text = str(payload).lower()
+    for forbidden in ("otpauth", "secret=", "action_url", "delivery_secret", "token"):
+        assert forbidden not in text
+    reset = AuditEvent.objects.get(action="auth.admin_authenticator_reset")
+    assert notice.idempotency_key == f"security:admin-authenticator-reset:{reset.pk}"
+    task = apps.get_model("admin_ops", "AdminTask").objects.get(
+        related_object_type="AdminAuthenticatorReset"
+    )
+    assert (str(task.assigned_admin_id), task.status, task.priority) == (
+        str(admin_user.pk),
+        "open",
+        "high",
+    )
+    assert "This was not me" in task.notes
     # Nobody resets their own app.
     own = client.post(f"/api/v1/auth/admin/users/{superadmin.id}/authenticator/reset/")
     assert own.status_code == 403
+    assert OutboxMessage.objects.filter(topic="email.security_change").count() == 1
 
 
 @pytest.mark.django_db
@@ -361,6 +388,8 @@ def test_superadmin_create_admin_api_rejects_weak_password(
     [
         ("Short-Pass1", "at least 12 characters"),
         ("password1234", "too common"),
+        # Audit S4-5: the same upper bound as for investors.
+        ("x" * 129, "at most 128 characters"),
     ],
 )
 def test_admin_passwords_need_twelve_characters_and_no_common_password(
@@ -395,3 +424,85 @@ def test_regular_admin_cannot_use_create_admin_api(client: Client, admin_user: U
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_creation_uses_the_one_password_policy(
+    superadmin: User, settings: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S4-5: no forced mix of character types, the breach check, and the same behavior
+    when the breach service cannot be reached (the common list still applies; logged)."""
+    import hashlib
+    import urllib.error
+    import urllib.request
+
+    from backend.apps.accounts_auth import passwords
+
+    def create(email: str, password: str) -> User:
+        return create_admin_user(
+            CreateAdminUserCommand(
+                actor=superadmin, email=email, password=password, full_name="Ops Admin"
+            )
+        )
+
+    # A long numeric password that is in no list is valid: no composition rule.
+    numeric = create("numeric-admin@example.test", "730194862517")
+    assert numeric.check_password("730194862517") and numeric.password_changed_at is not None
+
+    settings.AUTH_PASSWORD_BREACH_CHECK_ENABLED = True
+    breached = "violet-orchard-ladder-31"
+    digest = hashlib.sha1(breached.encode()).hexdigest().upper()  # noqa: S324 - test of HIBP
+
+    class _Response:
+        def __enter__(self) -> _Response:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return f"{digest[5:]}:42".encode()
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response())
+    with pytest.raises(InvalidPasswordError, match="known data breaches"):
+        create("breached-admin@example.test", breached)
+    assert not User.objects.filter(email="breached-admin@example.test").exists()
+
+    def offline(request: Any, timeout: float) -> Any:
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    with pytest.raises(InvalidPasswordError, match="too common"):
+        create("common-admin@example.test", "password1234")
+    assert create("offline-admin@example.test", breached).check_password(breached)
+    assert passwords.MIN_LENGTH == 12 and passwords.MAX_LENGTH == 128
+
+
+@pytest.mark.django_db
+def test_django_password_paths_use_the_same_policy(settings: Any) -> None:
+    """Audit S4-5: AUTH_PASSWORD_VALIDATORS holds only the platform validator."""
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError
+
+    assert [item["NAME"] for item in settings.AUTH_PASSWORD_VALIDATORS] == [
+        "backend.apps.accounts_auth.passwords.PlatformPasswordValidator"
+    ]
+    validate_password("730194862517")
+    for bad in ("Short-Pass1", "x" * 129, "password1234"):
+        with pytest.raises(ValidationError):
+            validate_password(bad)
+
+
+@pytest.mark.django_db
+def test_admin_create_api_refuses_a_password_outside_the_length_bounds(
+    client: Client, superadmin: User
+) -> None:
+    client.force_login(superadmin)
+    for password in ("Short-Pass1", "x" * 129):
+        response = client.post(
+            "/api/v1/auth/admin/users/",
+            data={"email": "len-admin@example.test", "password": password, "full_name": "Len"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.json()
+    assert not User.objects.filter(email="len-admin@example.test").exists()

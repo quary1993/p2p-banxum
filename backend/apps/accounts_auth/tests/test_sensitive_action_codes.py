@@ -499,3 +499,69 @@ def test_sensitive_action_code_request_api_enforces_issue_cooldown(
 
     assert first.status_code == 202
     assert second.status_code == 429
+
+
+@pytest.mark.django_db
+def test_code_issuance_runs_under_the_account_lock_in_one_transaction(
+    investor: User, monkeypatch: pytest.MonkeyPatch, row_locks_need_a_transaction: None
+) -> None:
+    """Audit S4-3: the caps, the cooldown, the supersession and the new code are one
+    transaction, and the account's row is locked before any code is read. (The race itself is
+    tested on PostgreSQL in test_postgres_auth_races.py.)"""
+    from django.db import connection
+    from django.db.models.query import QuerySet
+    from django.test.utils import CaptureQueriesContext
+
+    locked: list[str] = []
+    checked = QuerySet.select_for_update
+
+    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
+        locked.append(self.model._meta.label)
+        return checked(self, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", spy)
+    with CaptureQueriesContext(connection) as queries:
+        issue_sensitive_action_code(
+            SensitiveActionCodeCommand(
+                user=investor,
+                action=SensitiveAction.WITHDRAWAL,
+                operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+            )
+        )
+    assert locked[0] == "accounts_auth.User"
+    statements = [query["sql"] for query in queries]
+    code_table = SensitiveActionCode._meta.db_table
+    first_code_query = next(i for i, sql in enumerate(statements) if code_table in sql)
+    lock_query = next(
+        i for i, sql in enumerate(statements) if User._meta.db_table in sql and "SELECT" in sql
+    )
+    opened = next(i for i, sql in enumerate(statements) if sql.startswith("SAVEPOINT"))
+    released = max(i for i, sql in enumerate(statements) if sql.startswith("RELEASE SAVEPOINT"))
+    insert = next(
+        i for i, sql in enumerate(statements) if sql.startswith("INSERT") and code_table in sql
+    )
+    assert opened < lock_query < first_code_query < insert < released
+
+
+@pytest.mark.django_db
+def test_a_code_for_changed_details_leaves_one_active_code(investor: User) -> None:
+    """Audit S4-3: a new fingerprint supersedes the older code of the action; one stays."""
+    first = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(
+            user=investor,
+            action=SensitiveAction.WITHDRAWAL,
+            operation=OPERATIONS[SensitiveAction.WITHDRAWAL],
+        )
+    )
+    changed = {**OPERATIONS[SensitiveAction.WITHDRAWAL], "amount_minor": 123_45}
+    second = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(
+            user=investor, action=SensitiveAction.WITHDRAWAL, operation=changed
+        )
+    )
+    active = SensitiveActionCode.objects.filter(
+        user=investor, consumed_at__isnull=True, superseded_at__isnull=True
+    )
+    assert [code.pk for code in active] == [second.code_record.pk]
+    first.code_record.refresh_from_db()
+    assert first.code_record.superseded_at is not None

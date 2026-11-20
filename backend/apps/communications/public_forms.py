@@ -9,8 +9,6 @@ Input is validated by the API serializers; this module stores, numbers and rende
 from __future__ import annotations
 
 import calendar
-import hashlib
-import hmac
 import logging
 import secrets
 from dataclasses import dataclass
@@ -46,6 +44,7 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import PUBLIC_IP_PURPOSE, keyed_ip_hash
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +114,7 @@ def public_ip_hash(ip_address: str) -> str:
     """Keyed SHA-256 of an IP: a pepper derived from SECRET_KEY, so it cannot be reversed
     by hashing the IPv4 space without the server secret."""
 
-    if not ip_address:
-        return ""
-    pepper = hashlib.sha256(f"{settings.SECRET_KEY}:communications-public-ip:v1".encode()).digest()
-    return hmac.new(pepper, ip_address.encode("utf-8"), hashlib.sha256).hexdigest()
+    return keyed_ip_hash(ip_address, purpose=PUBLIC_IP_PURPOSE)
 
 
 def _reference_year() -> int:

@@ -78,3 +78,21 @@ def validate_new_password(password: str, *, email: str = "") -> None:
             "This password appears in known data breaches. Choose another one.",
             code="password_breached",
         )
+
+
+class PlatformPasswordValidator:
+    """Audit S4-5: the same rules for every Django password path (admin creation,
+    ``createsuperuser``, forms). It is the only entry of ``AUTH_PASSWORD_VALIDATORS``, so no
+    path can use other rules, such as a forced mix of character types."""
+
+    def validate(self, password: str, user: object | None = None) -> None:
+        try:
+            validate_new_password(password, email=str(getattr(user, "email", "") or ""))
+        except PasswordPolicyError as exc:
+            raise ValidationError(str(exc), code=exc.code) from exc
+
+    def get_help_text(self) -> str:
+        return (
+            f"Use {MIN_LENGTH} to {MAX_LENGTH} characters. Very common passwords and "
+            "passwords from known data breaches are refused."
+        )

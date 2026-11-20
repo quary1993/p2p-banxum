@@ -160,7 +160,8 @@ class RegistrationTermsAcceptance(TimestampedModel):
     terms_version = models.CharField(max_length=64)
     terms_hash = models.CharField(max_length=128)
     accepted_at = PlatformDateTimeField(auto_now_add=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    # Audit S4-1 (Q06): never the IP itself, only its keyed hash (platform_core ip_privacy).
+    ip_hash = models.CharField(max_length=64, blank=True)
     user_agent = models.TextField(blank=True)
 
     class Meta:
@@ -182,9 +183,9 @@ class EmailLoginToken(TimestampedModel):
     # Set when a newer link for the same account is sent; a superseded link no longer
     # logs in. Real (wall) clock, like expires_at and used_at.
     superseded_at = models.DateTimeField(null=True, blank=True)
-    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_ip_hash = models.CharField(max_length=64, blank=True)
     requested_user_agent = models.TextField(blank=True)
-    consumed_ip = models.GenericIPAddressField(null=True, blank=True)
+    consumed_ip_hash = models.CharField(max_length=64, blank=True)
     consumed_user_agent = models.TextField(blank=True)
     # 18.5 (U33-DEC-01): no sign-in by email link. A link now only confirms the email of a
     # new account ("registration") and continues its registration in the browser, while the
@@ -248,9 +249,9 @@ class PhoneVerificationChallenge(TimestampedModel):
     superseded_at = models.DateTimeField(null=True, blank=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     max_attempts = models.PositiveSmallIntegerField(default=3)
-    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_ip_hash = models.CharField(max_length=64, blank=True)
     requested_user_agent = models.TextField(blank=True)
-    confirmed_ip = models.GenericIPAddressField(null=True, blank=True)
+    confirmed_ip_hash = models.CharField(max_length=64, blank=True)
     confirmed_user_agent = models.TextField(blank=True)
 
     class Meta:
@@ -290,9 +291,9 @@ class SensitiveActionCode(TimestampedModel):
     superseded_at = models.DateTimeField(null=True, blank=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     max_attempts = models.PositiveSmallIntegerField(default=3)
-    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_ip_hash = models.CharField(max_length=64, blank=True)
     requested_user_agent = models.TextField(blank=True)
-    consumed_ip = models.GenericIPAddressField(null=True, blank=True)
+    consumed_ip_hash = models.CharField(max_length=64, blank=True)
     consumed_user_agent = models.TextField(blank=True)
     # 18.5: the operation the code was asked for (amount, currency, destination...), as a
     # keyed fingerprint; the operation that uses the code must have the same one. Empty for a
@@ -551,7 +552,7 @@ class LoginChallenge(TimestampedModel):
     max_attempts = models.PositiveSmallIntegerField(default=5)
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
-    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_ip_hash = models.CharField(max_length=64, blank=True)
     requested_user_agent = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
 
@@ -572,7 +573,7 @@ class PasswordResetToken(TimestampedModel):
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
-    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_ip_hash = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

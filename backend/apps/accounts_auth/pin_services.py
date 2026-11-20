@@ -60,6 +60,7 @@ from backend.apps.accounts_auth.services import (
 from backend.apps.platform_core.domain.time import to_business_time
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
 
 PIN_LENGTH = 6
 _PIN_PATTERN = re.compile(r"\d{6}")
@@ -575,7 +576,7 @@ def _send_pin_reset_sms(user: User, command: StartPinResetCommand) -> StartPinRe
         encrypted_code=encrypted_code,
         expires_at=now + ttl,
         max_attempts=int(settings.AUTH_PHONE_VERIFICATION_MAX_ATTEMPTS),
-        requested_ip=command.ip_address,
+        requested_ip_hash=ip_hash(command.ip_address),
         requested_user_agent=command.user_agent,
     )
     if provider == TWILIO_VERIFY_PROVIDER:
@@ -661,7 +662,7 @@ def _verify_reset_sms(
                 if code_is_valid:
                     challenge.status = PhoneVerificationStatus.VERIFIED
                     challenge.verified_at = now
-                    challenge.confirmed_ip = ip_address
+                    challenge.confirmed_ip_hash = ip_hash(ip_address)
                     challenge.confirmed_user_agent = user_agent
                 elif challenge.attempts >= challenge.max_attempts:
                     challenge.status = PhoneVerificationStatus.FAILED

@@ -31,6 +31,7 @@ from backend.apps.accounts_auth.services import (
     request_phone_verification,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash
 
 # 18.5: a password that meets the policy (not real data).
 REGISTRATION_TEST_PASSWORD = "quiet-harbour-lantern-47"
@@ -299,7 +300,9 @@ def test_repeated_registration_never_changes_an_unfinished_account(settings: Any
     assert RegistrationTermsAcceptance.objects.filter(user=user).count() == 1
     audit = AuditEvent.objects.get(action="account.registration_repeated", target_id=str(user.id))
     assert audit.metadata["profile_changed"] is False
-    assert audit.metadata["requested_ip"] == "203.0.113.9"
+    # Audit S4-1: the keyed hash of the address, never the address.
+    assert audit.metadata["requested_ip_hash"] == keyed_ip_hash("203.0.113.9")
+    assert "203.0.113.9" not in str(audit.metadata)
 
 
 @pytest.mark.django_db

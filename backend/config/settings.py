@@ -44,7 +44,7 @@ PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173"
 # Where emails load their public images (the logo). Blank uses PUBLIC_APP_BASE_URL, whose
 # web server serves frontend/public (for example /brand/banxum-email-logo.png).
 EMAIL_ASSET_BASE_URL = env("EMAIL_ASSET_BASE_URL", default="")
-# The Django admin has a password-only login (no admin email code, no throttle), so it
+# The Django admin has a password-only login (no authenticator code, no throttle), so it
 # is never mounted outside local development, whatever the variable says (audit A-52).
 DJANGO_ADMIN_ENABLED = IS_LOCAL and env.bool("DJANGO_ADMIN_ENABLED", default=True)
 API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=ENVIRONMENT == "local")
@@ -130,17 +130,12 @@ DEFAULT_EXCEPTION_REPORTER_FILTER = (
     "backend.config.error_reporting.SettingsMaskingExceptionReporterFilter"
 )
 
-# Only admin accounts have passwords (investors use login links). Admin passwords need
-# 12+ characters and must not be on Django's offline list of 20,000 common/breached
-# passwords (audit SECCODE-17).
+# 18.5 and audit S4-5: one password policy for investors and admins, on every path
+# (accounts_auth.passwords: 12 to 128 characters, no forced mix of character types, not a very
+# common password, not in known data breaches). No other validator is listed, so Django's own
+# paths (createsuperuser, forms) cannot apply other rules.
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-        "OPTIONS": {"min_length": 12},
-    },
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {"NAME": "backend.apps.accounts_auth.passwords.PlatformPasswordValidator"},
 ]
 
 LANGUAGE_CODE = "en-us"

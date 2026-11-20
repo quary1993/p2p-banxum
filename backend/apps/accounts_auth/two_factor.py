@@ -20,6 +20,7 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+from importlib import import_module
 from typing import Any
 
 from django.conf import settings
@@ -63,6 +64,7 @@ from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admi
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
 
 CHALLENGE_TTL = timedelta(minutes=10)
 SECURITY_CONFIRMATION_TTL = timedelta(minutes=10)
@@ -433,7 +435,7 @@ def _start_challenge(
         method=kind,
         phone_challenge_id=phone_challenge_id,
         expires_at=_now() + CHALLENGE_TTL,
-        requested_ip=ip_address,
+        requested_ip_hash=ip_hash(ip_address),
         requested_user_agent=user_agent,
         metadata=metadata or {},
     )
@@ -808,7 +810,7 @@ def start_admin_sign_in(
             purpose=LoginChallenge.Purpose.ADMIN_SIGN_IN,
             method=FACTOR_APP,
             expires_at=_now() + CHALLENGE_TTL,
-            requested_ip=ip_address,
+            requested_ip_hash=ip_hash(ip_address),
             requested_user_agent=user_agent,
         )
         return AdminSignInStep(user=user, status="factor_required", challenge_id=str(challenge.id))
@@ -906,17 +908,79 @@ def reset_admin_authenticator(*, actor: Any, admin_user_id: str) -> None:
             code="second_person_required",
             http_status=403,
         )
+    now = _now()
     AuthenticatorApp.objects.filter(user=target, disabled_at__isnull=True).update(
-        disabled_at=_now(), disabled_reason="reset_by_super_admin"
+        disabled_at=now, disabled_reason="reset_by_super_admin"
     )
     end_sessions(target, reason="authenticator_reset")
-    record_audit_event(
+    event = record_audit_event(
         AuditCommand(
             actor=actor_ref_for_user(actor),
             action="auth.admin_authenticator_reset",
             target_type="User",
             target_id=str(target.pk),
         )
+    )
+    _notify_admin_authenticator_reset(actor=actor, target=target, at=now, event_id=str(event.pk))
+
+
+def _notify_admin_authenticator_reset(*, actor: Any, target: User, at: Any, event_id: str) -> None:
+    """Audit S4-6 (D3: every reset is notified): the admin whose app was reset gets an email at
+    once and a task in the admin console. One notice per reset; no code or link in it."""
+    from backend.apps.platform_core.domain.time import to_business_time
+
+    when = to_business_time(at).strftime("%d %b %Y, %H:%M")
+    who = str(getattr(actor, "full_name", "") or "").strip() or "A super admin"
+    who_email = str(getattr(actor, "email", "") or "")
+    support = str(getattr(settings, "OPERATIONS_ALERT_EMAIL", "") or "hq@banxum.com")
+    brand = str(getattr(settings, "PLATFORM_BRAND_NAME", "") or "BANXUM")
+    what = (
+        f"{who} ({who_email}) reset the authenticator app of your {brand} admin account on "
+        f"{when} (Europe/Zurich). You are signed out on all devices. At your next sign-in you "
+        "set up a new authenticator app with a code that we send to this email address."
+    )
+    not_me = (
+        "This was not me: if you did not ask for this reset, do not set up a new app. Tell "
+        f"another super admin at once and write to {support}."
+    )
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"security:admin-authenticator-reset:{event_id}",
+            topic="email.security_change",
+            payload={
+                "user_id": str(target.pk),
+                "email": str(target.email),
+                "subject": f"The authenticator app of your {brand} admin account was reset",
+                "notice_label": "Security",
+                "headline": "Authenticator app reset",
+                "status_label": "Security change",
+                "status_tone": "warning",
+                "body_text": f"{what}\n\n{not_me}",
+                "data_rows": [
+                    ["Reset by", f"{who} ({who_email})"],
+                    ["Time", f"{when} (Europe/Zurich)"],
+                    ["Contact", support],
+                ],
+                "template_key": "security.admin_authenticator_reset.v1",
+                "metadata": {
+                    "navigation_target": "none",
+                    "audit_event_id": event_id,
+                    "reset_by_admin_id": str(actor.pk),
+                },
+            },
+        )
+    )
+    # The notice inside the admin console: a task for the admin, seen after the next sign-in.
+    admin_ops: Any = import_module("backend.apps.admin_ops.services")
+    admin_ops.ensure_related_admin_task(
+        actor=actor,
+        task_type="account_access_review",
+        related_object_type="AdminAuthenticatorReset",
+        related_object_id=event_id,
+        title="Your authenticator app was reset",
+        priority="high",
+        notes=f"{what}\n\n{not_me}\n\nClose this task when you have read it.",
+        assigned_admin_id=str(target.pk),
     )
 
 
@@ -1085,7 +1149,7 @@ def request_password_reset(*, email: str, ip_address: str | None = None) -> str:
         token_digest=digest_secret(raw),
         encrypted_token=encrypt_delivery_secret(raw),
         expires_at=now + PASSWORD_RESET_TTL,
-        requested_ip=ip_address,
+        requested_ip_hash=ip_hash(ip_address),
     )
     enqueue_outbox_message(
         OutboxCommand(

@@ -616,6 +616,7 @@ def ensure_related_admin_task(
     notes: str = "",
     due_at: datetime | None = None,
     reopen_closed: bool = False,
+    assigned_admin_id: str | None = None,
 ) -> tuple[AdminTask, bool]:
     """The single task for one object and one task type; created once (18.4).
 
@@ -657,6 +658,7 @@ def ensure_related_admin_task(
                     notes=notes,
                     related_object_type=related_object_type,
                     related_object_id=related_object_id,
+                    assigned_admin_id=assigned_admin_id,
                 )
             )
     except IntegrityError:

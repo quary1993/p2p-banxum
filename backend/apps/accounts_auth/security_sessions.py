@@ -42,6 +42,7 @@ from backend.apps.platform_core.domain.time import to_business_time
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash
 
 SESSION_RECORD_KEY = "banxum_user_session_id"
 ACTIVITY_WRITE_INTERVAL = timedelta(minutes=5)
@@ -102,11 +103,9 @@ def request_country(request: HttpRequest | None) -> str:
     return value
 
 
-def ip_hash(ip_address: str) -> str:
-    if not ip_address:
-        return ""
-    pepper = hashlib.sha256(f"{settings.SECRET_KEY}:accounts-sign-in-ip:v1".encode()).digest()
-    return hmac.new(pepper, ip_address.encode("utf-8"), hashlib.sha256).hexdigest()
+def ip_hash(ip_address: str | None) -> str:
+    """The keyed hash every authentication record stores in place of the IP (audit S4-1)."""
+    return keyed_ip_hash(ip_address)
 
 
 # Audit G-03: a random value in a long-lived, HTTP-only cookie names the browser, so a second
