@@ -2,7 +2,8 @@
 
 The bank name on the investor's bank card comes from here for CH and LI IBANs (the IID is part of
 the IBAN). The platform team imports the official SIX file (``import_six_bank_master``); it is
-reference data and is kept across QA resets.
+reference data and is kept across QA resets. Each import replaces the whole master; an IID that
+SIX has concatenated to a new IID keeps a row with the new institution's name (audit S2-7).
 """
 
 from __future__ import annotations

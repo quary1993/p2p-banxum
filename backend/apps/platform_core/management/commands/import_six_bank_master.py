@@ -30,5 +30,7 @@ class Command(BaseCommand):
         except BankMasterError as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(
-            f"Banks: {result.rows} (created {result.created}, updated {result.updated})."
+            f"Banks: {result.rows} (created {result.created}, updated {result.updated}, "
+            f"old IIDs concatenated {result.concatenated}, removed {result.removed}). "
+            f"Valid on {result.valid_on or 'not given'}; SHA-256 {result.sha256}."
         )
