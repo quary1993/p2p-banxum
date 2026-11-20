@@ -21,8 +21,10 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
 
+from backend.apps.loans import loan_documents
 from backend.apps.loans.models import (
     Loan,
+    LoanDocument,
     LoanSecurity,
     LoanSecurityStatus,
     LoanSecurityVerification,
@@ -31,6 +33,7 @@ from backend.apps.platform_core.domain import declarations as roles
 from backend.apps.platform_core.domain import security_proofs as rules
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.time import now_utc
+from backend.apps.platform_core.models.files import FileScanStatus
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
@@ -64,15 +67,32 @@ def _required(security: LoanSecurity) -> tuple[str, ...]:
 
 
 def _documents(loan_id: Any, document_ids: list[str]) -> dict[str, Any]:
-    """The borrower documents with these ids that still exist for the loan's borrower."""
+    """The documents with these ids that still exist for the loan: the borrower's documents and
+    the documents uploaded to the loan (re-audit: Loan Originator claims have no borrower)."""
     if not document_ids:
         return {}
-    document_model = apps.get_model("entities", "BorrowerDocument")
     loan = Loan.objects.filter(id=loan_id).only("borrower_id").first()
-    queryset = document_model.objects.filter(id__in=document_ids)
+    found: dict[str, Any] = {}
     if loan is not None and loan.borrower_id is not None:
-        queryset = queryset.filter(borrower_id=loan.borrower_id)
-    return {str(document.id): document for document in queryset}
+        document_model = apps.get_model("entities", "BorrowerDocument")
+        found.update(
+            (str(document.id), document)
+            for document in document_model.objects.select_related("stored_file").filter(
+                id__in=document_ids, borrower_id=loan.borrower_id
+            )
+        )
+    found.update(
+        (str(document.id), document)
+        for document in LoanDocument.objects.select_related("stored_file").filter(
+            id__in=document_ids, loan_id=loan_id
+        )
+    )
+    return found
+
+
+def _checked(document: Any) -> bool:
+    """G-1: a proof counts only when its file passed the check (scan or audited manual check)."""
+    return str(document.stored_file.scan_status) == FileScanStatus.CLEAN
 
 
 def _latest(security: LoanSecurity) -> LoanSecurityVerification | None:
@@ -119,14 +139,23 @@ def _document_payload(document_id: str, document: Any | None) -> dict[str, Any]:
             "document_date": None,
             "uploaded_at": None,
             "available": False,
+            "checked": False,
+            "source": "",
         }
+    on_loan = isinstance(document, LoanDocument)
     return {
         "id": document_id,
         "title": str(document.display_name or ""),
-        "document_type": str(document.get_document_type_display()),
+        "document_type": (
+            loan_documents.document_type_label(document.document_type)
+            if on_loan
+            else str(document.get_document_type_display())
+        ),
         "document_date": document.document_date.isoformat() if document.document_date else None,
         "uploaded_at": document.created_at.isoformat() if document.created_at else None,
         "available": True,
+        "checked": _checked(document),
+        "source": "loan" if on_loan else "borrower",
     }
 
 
@@ -289,6 +318,10 @@ def record_security_verification(
         existing = _documents(security.loan_id, [proofs[key] for key in required])
         if any(proofs[key] not in existing for key in required):
             raise SecurityProofError("A linked proof document no longer exists.")
+        if not all(_checked(existing[proofs[key]]) for key in required):
+            raise SecurityProofError(
+                "A proof document waits for its check. Confirm the check of each file first."
+            )
         verification = LoanSecurityVerification.objects.create(
             security=security,
             verifier_user_id=actor.pk,
@@ -311,6 +344,16 @@ def record_security_verification(
     return cast(LoanSecurityVerification, verification)
 
 
+@dataclass(frozen=True)
+class _OpenedFile:
+    document_id: str
+    display_name: str
+    filename: str
+    content_type: str
+    content: bytes
+    checksum_sha256: str
+
+
 def open_proof_document(*, actor: Model, security_id: str, document_id: str) -> dict[str, Any]:
     """Audit S7-8: an admin opens a document linked to the security (or used in one of its
     verifications) to check it before the verification. Each opening is audited."""
@@ -326,14 +369,36 @@ def open_proof_document(*, actor: Model, security_id: str, document_id: str) -> 
         allowed.update(str(value) for value in (proofs or {}).values())
     if str(document_id) not in allowed:
         raise SecurityProofError("Document not found.")
-    entities: Any = import_module("backend.apps.entities.services")
-    borrower_id = security.loan.borrower_id
-    try:
-        document_file = entities.read_borrower_document_for_staff(
-            borrower_id=str(borrower_id) if borrower_id else None, document_id=str(document_id)
+    loan_document = (
+        LoanDocument.objects.select_related("stored_file")
+        .filter(id=document_id, loan_id=security.loan_id)
+        .first()
+    )
+    if loan_document is not None:
+        try:
+            content, filename, content_type, checksum = loan_documents.read_loan_document(
+                loan_document
+            )
+        except (loan_documents.LoanDocumentError, OSError) as exc:
+            raise SecurityProofError(str(exc)) from exc
+        document_file: Any = _OpenedFile(
+            document_id=str(loan_document.id),
+            display_name=loan_document.display_name,
+            filename=filename,
+            content_type=content_type,
+            content=content,
+            checksum_sha256=checksum,
         )
-    except entities.BorrowerValidationError as exc:
-        raise SecurityProofError(str(exc)) from exc
+    else:
+        entities: Any = import_module("backend.apps.entities.services")
+        borrower_id = security.loan.borrower_id
+        try:
+            document_file = entities.read_borrower_document_for_staff(
+                borrower_id=str(borrower_id) if borrower_id else None,
+                document_id=str(document_id),
+            )
+        except entities.BorrowerValidationError as exc:
+            raise SecurityProofError(str(exc)) from exc
     record_audit_event(
         AuditCommand(
             actor=actor_ref_for_user(actor),
@@ -357,3 +422,59 @@ def open_proof_document(*, actor: Model, security_id: str, document_id: str) -> 
         "content": base64.b64encode(document_file.content).decode("ascii"),
         "content_sha256": document_file.checksum_sha256,
     }
+
+
+SEED_VERIFIER_NAME = "Synthetic seed data (no real check)"
+
+
+@transaction.atomic
+def seed_verified_securities(*, actor: Model, loan_id: str) -> int:
+    """QA and demo seeds only (re-audit P-2): give each security of a seeded loan that is not
+    released one placeholder document per required proof (uploaded to the loan, marked as
+    checked) and a verification named "Synthetic seed data (no real check)", so the always-on
+    proof rule lets the seeded catalogue publish. Never call it for a real loan.
+    Returns the number of securities verified now (0 when all were already current)."""
+    if not is_admin_actor(actor):
+        raise SecurityProofPermissionError("Only an admin can seed verifications.")
+    Loan.objects.select_for_update().filter(id=loan_id).first()
+    verified = 0
+    for security in LoanSecurity.objects.select_for_update().filter(loan_id=loan_id):
+        if str(security.status) == LoanSecurityStatus.RELEASED or current_verification(security):
+            continue
+        required = _required(security)
+        proofs: dict[str, str] = {}
+        for key in required:
+            document = loan_documents.upload_loan_document(
+                loan_documents.UploadLoanDocumentCommand(
+                    actor=actor,
+                    loan_id=str(loan_id),
+                    filename=f"seed-{key}.pdf",
+                    content=f"%PDF-1.4 Synthetic seed placeholder: {key}".encode(),
+                    display_name=f"Seed placeholder: {rules.PROOF_LABELS.get(key, key)}",
+                    document_type=key,
+                )
+            )
+            loan_documents.confirm_loan_document_check(
+                actor=actor,
+                document_id=str(document.id),
+                note="Synthetic seed data; generated placeholder, no real document.",
+            )
+            proofs[key] = str(document.id)
+        security.document_ids = [
+            *[str(item) for item in security.document_ids or []],
+            *proofs.values(),
+        ]
+        security.save(update_fields=["document_ids", "updated_at"])
+        security.refresh_from_db()
+        LoanSecurityVerification.objects.create(
+            security=security,
+            verifier_user_id=actor.pk,
+            verifier_name=SEED_VERIFIER_NAME,
+            verified_at=now_utc(),
+            proofs=proofs,
+            required_proofs=list(required),
+            essential_fingerprint=rules.essential_fingerprint(_security_values(security)),
+            note="QA or demo seed: placeholder documents, no real verification.",
+        )
+        verified += 1
+    return verified

@@ -31,6 +31,7 @@ from backend.apps.loans.models import (
     LTV_ASSET_SECURITY_TYPES,
     CollateralType,
     Loan,
+    LoanDocument,
     LoanSecurity,
     LoanSecurityStatus,
     LoanStatus,
@@ -166,13 +167,20 @@ def security_payload(
 
 
 def _borrower_documents(loan: Loan) -> dict[str, str]:
-    if loan.borrower_id is None:
-        return {}
-    document_model = apps.get_model("entities", "BorrowerDocument")
-    return {
-        str(document.id): str(getattr(document, "display_name", "") or "")
-        for document in document_model.objects.filter(borrower_id=loan.borrower_id)
-    }
+    """The documents a security of this loan can link: the borrower's documents and the
+    documents uploaded to the loan (re-audit: a Loan Originator claim has no borrower)."""
+    documents: dict[str, str] = {}
+    if loan.borrower_id is not None:
+        document_model = apps.get_model("entities", "BorrowerDocument")
+        documents.update(
+            (str(document.id), str(getattr(document, "display_name", "") or ""))
+            for document in document_model.objects.filter(borrower_id=loan.borrower_id)
+        )
+    documents.update(
+        (str(document.id), str(document.display_name))
+        for document in LoanDocument.objects.filter(loan_id=loan.pk)
+    )
+    return documents
 
 
 def borrower_documents_for_securities(*, actor: Model, loan_id: str) -> list[dict[str, str]]:

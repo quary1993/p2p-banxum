@@ -535,6 +535,31 @@ class LoanSecurity(TimestampedModel):
         ]
 
 
+class LoanDocument(TimestampedModel):
+    """A document an admin uploads to a loan as proof for its securities (re-audit, owner's
+    choice of 2026-11-20). A Loan Originator claim has no borrower record, so its proofs live
+    here; a Direct loan can use these and the borrower's documents. Internal: investors never
+    see these documents. The file opens only after an admin confirmed its check (scan)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(Loan, on_delete=models.PROTECT, related_name="documents")
+    stored_file = models.ForeignKey(
+        "platform_core.StoredFile", on_delete=models.PROTECT, related_name="loan_documents"
+    )
+    document_type = models.CharField(max_length=64)
+    display_name = models.CharField(max_length=200)
+    document_date = models.DateField(null=True, blank=True)
+    created_by_admin_id = models.UUIDField()
+    scan_confirmed_by_admin_id = models.UUIDField(null=True, blank=True)
+    scan_confirmed_at = models.DateTimeField(null=True, blank=True)
+    scan_note = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.display_name} ({self.loan_id})"
+
 
 class LoanSecurityVerification(AppendOnlyModel, TimestampedModel):
     """18.10 (Q13): a named verification that a security's documents are complete.
@@ -557,6 +582,7 @@ class LoanSecurityVerification(AppendOnlyModel, TimestampedModel):
     class Meta:
         ordering = ["-verified_at"]
         indexes = [models.Index(fields=["security", "verified_at"])]
+
 
 class LoanCreditCheck(TimestampedModel):
     """U33-DEC-20: a check made on the loan or the borrower, with its source, date and result."""

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
 from backend.apps.originator_claims.domain.imports import CSV_COLUMNS
 from backend.apps.originator_claims.models import (
@@ -38,8 +39,10 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 
 SEED_NAME = "seed_originator_demo_loans"
-SEED_VERSION = "v2"
-LEGACY_SEED_VERSION = "v1"
+# Re-audit P-2: v3 = accrued-interest offers (18.7) with placeholder proofs; v1 and v2 offers
+# that are still open are retired (put on hold) when the seed runs.
+SEED_VERSION = "v3"
+LEGACY_SEED_VERSIONS = ("v1", "v2")
 DEMO_SETTLEMENT_IBAN = "CH9300762011623852957"
 
 
@@ -394,13 +397,21 @@ def _funding_deadline(today: date) -> date:
     return today + timedelta(days=29)
 
 
-def _boundary_due_date(today: date) -> date:
-    return _funding_deadline(today) + timedelta(days=1)
+def _next_due_date(today: date) -> date:
+    """Re-audit P-2 (18.7): the next due date comes well after the planned settlement (one
+    settlement day after the funding deadline), so the accrued-interest offer can publish."""
+    return _funding_deadline(today) + timedelta(days=20)
+
+
+def _accrual_start(today: date) -> date:
+    """The current interest period started before publication: the price includes accrued
+    interest from this date to the planned settlement."""
+    return today - timedelta(days=10)
 
 
 def _schedule_drafts(spec: DemoOriginatorLoanSpec, *, today: date) -> list[Any]:
     schedules = import_module("backend.apps.loans.domain.schedules")
-    first_due_date = _boundary_due_date(today)
+    first_due_date = _next_due_date(today)
     common = {
         "principal_minor": spec.principal_minor,
         "currency": spec.currency,
@@ -429,7 +440,7 @@ def _csv_content(spec: DemoOriginatorLoanSpec, *, today: date) -> str:
     writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, lineterminator="\n")
     writer.writeheader()
     opening = spec.principal_minor
-    accrual_start = today
+    accrual_start = _accrual_start(today)
     for draft in _schedule_drafts(spec, today=today):
         closing = opening - int(draft.principal_minor)
         writer.writerow(
@@ -450,17 +461,6 @@ def _csv_content(spec: DemoOriginatorLoanSpec, *, today: date) -> str:
         opening = closing
         accrual_start = draft.due_date
     return output.getvalue()
-
-
-def _activation_outstanding_principal_minor(
-    spec: DemoOriginatorLoanSpec,
-    *,
-    today: date,
-) -> int:
-    schedule = _schedule_drafts(spec, today=today)
-    if len(schedule) < 2:
-        raise CommandError("Demo subscription loans require a boundary and a later installment.")
-    return spec.principal_minor - int(schedule[0].principal_minor)
 
 
 def _demo_uid(spec: DemoOriginatorLoanSpec) -> str:
@@ -601,10 +601,13 @@ class Command(BaseCommand):
                     )
                     created_originators += 1
 
+                legacy_filter = Q()
+                for legacy_version in LEGACY_SEED_VERSIONS:
+                    legacy_filter |= Q(source_filename__startswith=f"{SEED_NAME}:{legacy_version}:")
                 legacy_profiles = list(
                     OriginatorLoanImport.objects.select_related("loan__originator_profile")
                     .filter(
-                        source_filename__startswith=(f"{SEED_NAME}:{LEGACY_SEED_VERSION}:"),
+                        legacy_filter,
                         revision=1,
                         loan__originator_profile__opportunity_status=(
                             OriginatorOpportunityStatus.OPEN
@@ -668,13 +671,6 @@ class Command(BaseCommand):
                             interest_rate_bps=loan_spec.coupon_bps,
                             minimum_investment_minor=loan_spec.minimum_investment_minor,
                             funding_deadline=_funding_deadline(today),
-                            entitlement_start_date=_boundary_due_date(today),
-                            activation_outstanding_principal_minor=(
-                                _activation_outstanding_principal_minor(
-                                    loan_spec,
-                                    today=today,
-                                )
-                            ),
                             investor_interest_participation_bps=(
                                 loan_spec.investor_interest_participation_bps
                             ),
@@ -693,11 +689,14 @@ class Command(BaseCommand):
                             borrower_snapshot=_borrower_snapshot(loan_spec),
                             premium_fee_bps=0,
                             skin_in_the_game_bps=loan_spec.skin_in_the_game_bps,
-                            # Audit S6-4: the demo still models offers from before 18.7; it
-                            # moves to accrued-interest offers with the reseed at the end of 18.
-                            pricing_rule="boundary_installment",
-                            historical_boundary_offer=True,
+                            # Re-audit P-2: accrued-interest offers (18.7, Actual/365 Fixed).
+                            pricing_rule="accrued_interest",
+                            interest_convention="act_365_fixed",
                         )
+                    )
+                    # The placeholder proofs let the always-on proof rule publish the offer.
+                    import_module("backend.apps.loans.security_proofs").seed_verified_securities(
+                        actor=actor, loan_id=str(result.loan.id)
                     )
                     if _demo_uid(loan_spec):
                         # 18.9: demo Swiss borrowers in the 10/20 mode (no CHF total needed).
@@ -719,8 +718,7 @@ class Command(BaseCommand):
                     )
                     if (
                         profile.opportunity_status != OriginatorOpportunityStatus.OPEN
-                        or profile.unsold_principal_minor
-                        != _activation_outstanding_principal_minor(loan_spec, today=today)
+                        or profile.unsold_principal_minor != loan_spec.principal_minor
                     ):
                         raise CommandError(
                             f"Demo originator claim did not reach the expected open state: "

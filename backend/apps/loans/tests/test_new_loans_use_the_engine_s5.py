@@ -100,9 +100,9 @@ def test_the_admin_api_cannot_choose_the_earlier_schedule(admin_user: Model) -> 
 
 
 @pytest.mark.django_db
-def test_the_qa_catalogue_states_the_earlier_schedule_explicitly(settings: Any) -> None:
-    """The QA seed still models contracts from before the engine (until the reseed at the end
-    of Phase 18) and records that on every direct loan it creates."""
+def test_the_qa_catalogue_uses_the_interest_engine(settings: Any) -> None:
+    """Re-audit P-2: the reseed at the end of Phase 18 is done; the QA seed creates its direct
+    loans on the interest engine (no contract date before the switch)."""
     from django.contrib.auth import get_user_model
 
     from backend.apps.platform_core.services.qa_seed import seed_qa_starting_point
@@ -118,10 +118,9 @@ def test_the_qa_catalogue_states_the_earlier_schedule_explicitly(settings: Any) 
     direct = apps.get_model("loans", "Loan").objects.filter(product_type="direct")
     assert direct.exists()
     for loan in direct:
-        assert cast(Any, loan).interest_convention == InterestConvention.LEGACY_MONTHLY
+        assert cast(Any, loan).interest_convention == InterestConvention.ACT_365_FIXED
         created = cast(Any, loan).events.get(event_type="created")
-        signed_on = date.fromisoformat(created.metadata["pre_cutover_contract_signed_on"])
-        assert signed_on < ENGINE_CUTOVER_DATE
+        assert not created.metadata.get("pre_cutover_contract_signed_on")
 
 
 @pytest.mark.django_db

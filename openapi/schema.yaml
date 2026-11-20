@@ -5835,6 +5835,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorWithdrawalRequestCreateResponse'
           description: ''
+  /api/v1/loans/admin/loan-documents/{document_id}/check/:
+    post:
+      operationId: v1_loans_admin_loan_documents_check_create
+      description: 'G-1: an admin confirms that the file was checked before it counts
+        as proof.'
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanDocumentCheck'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanDocumentCheck'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanDocumentCheck'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanDocument'
+          description: ''
   /api/v1/loans/admin/loans/:
     get:
       operationId: v1_loans_admin_loans_list
@@ -6301,6 +6336,62 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoanCreditChecks'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/documents/:
+    get:
+      operationId: v1_loans_admin_loans_documents_list
+      description: 'Re-audit (owner''s choice of 2026-11-20): proof documents uploaded
+        to a loan.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoanDocument'
+          description: ''
+    post:
+      operationId: v1_loans_admin_loans_documents_create
+      description: 'Re-audit (owner''s choice of 2026-11-20): proof documents uploaded
+        to a loan.'
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanDocumentUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanDocumentUpload'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanDocument'
           description: ''
   /api/v1/loans/admin/loans/{loan_id}/events/:
     get:
@@ -16670,6 +16761,102 @@ components:
       - monitoring_frequency
       - reporting_milestones
       - reporting_plan_status
+    LoanDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        document_type:
+          type: string
+        document_type_label:
+          type: string
+        document_date:
+          type: string
+          format: date
+          nullable: true
+        uploaded_at:
+          type: string
+          format: date-time
+        checked:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        check_note:
+          type: string
+        size_bytes:
+          type: integer
+      required:
+      - check_note
+      - checked
+      - checked_at
+      - display_name
+      - document_date
+      - document_type
+      - document_type_label
+      - id
+      - size_bytes
+      - uploaded_at
+    LoanDocumentCheck:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 500
+      required:
+      - note
+    LoanDocumentUpload:
+      type: object
+      properties:
+        file:
+          type: string
+          format: uri
+        display_name:
+          type: string
+          maxLength: 200
+        document_type:
+          $ref: '#/components/schemas/LoanDocumentUploadDocumentTypeEnum'
+        document_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - display_name
+      - document_type
+      - file
+    LoanDocumentUploadDocumentTypeEnum:
+      enum:
+      - land_register_extract
+      - mortgage_note_or_pledge
+      - guarantee_agreement
+      - pledge_or_assignment_agreement
+      - third_party_debtor_notice
+      - security_transfer_agreement
+      - asset_list
+      - pledge_agreement
+      - certificates_or_custody_confirmation
+      - blocked_account_confirmation
+      - vehicle_registration
+      - agreement
+      - other
+      type: string
+      description: |-
+        * `land_register_extract` - Land register extract
+        * `mortgage_note_or_pledge` - Mortgage note or pledge agreement
+        * `guarantee_agreement` - Signed guarantee agreement
+        * `pledge_or_assignment_agreement` - Pledge or assignment agreement
+        * `third_party_debtor_notice` - Notice to the third-party debtor (where the law requires it)
+        * `security_transfer_agreement` - Pledge or security transfer agreement
+        * `asset_list` - List of the assets
+        * `pledge_agreement` - Pledge agreement
+        * `certificates_or_custody_confirmation` - Share certificates or custody confirmation
+        * `blocked_account_confirmation` - Blocked account confirmation
+        * `vehicle_registration` - Vehicle registration document
+        * `agreement` - The security agreement
+        * `other` - Other document
     LoanEvent:
       type: object
       properties:
@@ -22082,11 +22269,17 @@ components:
           nullable: true
         available:
           type: boolean
+        checked:
+          type: boolean
+        source:
+          type: string
       required:
       - available
+      - checked
       - document_date
       - document_type
       - id
+      - source
       - title
       - uploaded_at
     PublicDocumentTemplateVersion:

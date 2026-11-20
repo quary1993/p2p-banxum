@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Any
+from datetime import date, timedelta
+from importlib import import_module
+from typing import Any, cast
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -83,11 +84,18 @@ def test_seed_originator_demo_loans_publishes_varied_open_catalogue(
         profile.funding_deadline == business_date(now_utc()) + timedelta(days=29)
         for profile in profiles
     )
+    # Re-audit P-2: accrued-interest offers (18.7). The settlement is planned after the funding
+    # deadline and before the next due date; every security has a (synthetic) verification.
+    assert all(profile.pricing_rule == "accrued_interest" for profile in profiles)
     assert all(
-        profile.entitlement_start_date == profile.funding_deadline + timedelta(days=1)
+        profile.funding_deadline
+        < cast(date, profile.price_reference_date)
+        < cast(date, profile.price_next_due_date)
         for profile in profiles
         if profile.funding_deadline is not None
     )
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    assert all(proofs.publication_problems(profile.loan) == [] for profile in profiles)
     assert all(
         profile.unsold_principal_minor == profile.current_outstanding_principal_minor
         for profile in profiles

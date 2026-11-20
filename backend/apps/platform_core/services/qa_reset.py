@@ -314,11 +314,11 @@ def _seed_catalogue(*, actor: Any) -> None:
                 loan_start_date=deadline,
                 minimum_subscription_bps=5000,
                 note="Synthetic QA reset catalogue.",
-                # Audit S5-7: earlier schedule until the reseed at the end of Phase 18.
-                interest_convention="legacy_monthly",
-                pre_cutover_contract_signed_on=loan_services.ENGINE_CUTOVER_DATE
-                - timedelta(days=1),
             )
+        )
+        # Re-audit P-2: engine loans (18.6) with placeholder proofs (always-on proof rule).
+        import_module("backend.apps.loans.security_proofs").seed_verified_securities(
+            actor=actor, loan_id=str(loan.pk)
         )
         loan_services.publish_loan(
             loan_services.PublishLoanCommand(actor=actor, loan_id=str(loan.pk))

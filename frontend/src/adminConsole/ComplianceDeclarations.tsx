@@ -17,9 +17,14 @@ import {
   useV1KycAdminComplianceReviewsList,
   useV1KycAdminStaffRolesCreate,
   useV1LoansAdminLoansSecurityProofsList,
+  useV1LoansAdminLoanDocumentsCheckCreate,
+  useV1LoansAdminLoansDocumentsCreate,
+  useV1LoansAdminLoansDocumentsList,
   useV1LoansAdminSecuritiesVerificationCreate,
   v1LoansAdminSecuritiesDocumentsRetrieve,
   type ComplianceReview,
+  LoanDocumentUploadDocumentTypeEnum,
+  type LoanDocument,
   type ProofDocument,
   type SecurityProofStatus
 } from "../api/generated/banxumApi";
@@ -307,6 +312,7 @@ export function SecurityProofsPanel({ loanId }: { loanId: string }) {
       <h4>Proof of securities</h4>
       <p className="muted">Publication needs, for each security that is not released, one linked document per required proof and a verification by a security verifier. An essential change needs a new verification.</p>
       {query.error ? <Banner tone="bad" title="Could not load the proofs">{errorMessage(query.error)}</Banner> : null}
+      <LoanDocumentsSection loanId={loanId} />
       {securities.map((security) => (
         <SecurityProofRow key={security.security_id} security={security} />
       ))}
@@ -314,10 +320,121 @@ export function SecurityProofsPanel({ loanId }: { loanId: string }) {
   );
 }
 
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  land_register_extract: "Land register extract",
+  mortgage_note_or_pledge: "Mortgage note or pledge agreement",
+  guarantee_agreement: "Signed guarantee agreement",
+  pledge_or_assignment_agreement: "Pledge or assignment agreement",
+  third_party_debtor_notice: "Notice to the third-party debtor",
+  security_transfer_agreement: "Pledge or security transfer agreement",
+  asset_list: "List of the assets",
+  pledge_agreement: "Pledge agreement",
+  certificates_or_custody_confirmation: "Share certificates or custody confirmation",
+  blocked_account_confirmation: "Blocked account confirmation",
+  vehicle_registration: "Vehicle registration document",
+  agreement: "The security agreement",
+  other: "Other document"
+};
+
+/** Re-audit (owner's choice of 2026-11-20): proof files uploaded to the loan. A Loan Originator
+ * claim has no borrower record, so its proofs are uploaded here; a file counts as proof only
+ * after an admin confirmed its check (security review G-1, until a scanner exists). */
+function LoanDocumentsSection({ loanId }: { loanId: string }) {
+  const queryClient = useQueryClient();
+  const list = useV1LoansAdminLoansDocumentsList(loanId, { query: { retry: false } });
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<string>("other");
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const refresh = () => void queryClient.invalidateQueries();
+  const upload = useV1LoansAdminLoansDocumentsCreate({
+    mutation: {
+      onSuccess: () => {
+        setFile(null);
+        setName("");
+        refresh();
+      }
+    }
+  });
+  const check = useV1LoansAdminLoanDocumentsCheckCreate({ mutation: { onSuccess: refresh } });
+  const documents: LoanDocument[] = list.data ?? [];
+  return (
+    <div className="admin-review-list" style={{ marginTop: 12 }}>
+      <h5>Documents uploaded to this loan</h5>
+      <p className="muted">PDF, PNG or JPEG, up to 20 MB. Link them to a security under Securities. A file counts as proof after you confirm that it was checked (scan).</p>
+      {documents.length ? (
+        <ul aria-label="Loan documents" className="admin-review-list">
+          {documents.map((document) => (
+            <li className="admin-review-row" key={document.id}>
+              <span>
+                {document.display_name} · {document.document_type_label}
+                {document.document_date ? ` · ${formatDate(document.document_date)}` : ""}
+                <span className="muted small"> · ID {document.id}</span>
+              </span>
+              {document.checked ? (
+                <Chip tone="ok">Checked{document.checked_at ? ` ${formatDate(document.checked_at)}` : ""}</Chip>
+              ) : (
+                <span className="row gap-8 wrap">
+                  <input aria-label={`How ${document.display_name} was checked`} onChange={(event) => setNotes({ ...notes, [document.id]: event.target.value })} placeholder="How was it checked?" value={notes[document.id] ?? ""} />
+                  <Button disabled={(notes[document.id] ?? "").trim().length < 5 || check.isPending} onClick={() => check.mutate({ documentId: document.id, data: { note: notes[document.id] ?? "" } })}>
+                    Confirm check
+                  </Button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form
+        aria-label="Upload a loan document"
+        className="admin-action-form"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault();
+          if (!file) return;
+          upload.mutate({
+            loanId,
+            data: {
+              // The schema types a binary upload as a string; the client sends it as form data.
+              file: file as unknown as string,
+              display_name: name,
+              document_type: type as LoanDocumentUploadDocumentTypeEnum,
+              document_date: date || null
+            }
+          });
+        }}
+      >
+        <div className="row gap-8 wrap">
+          <Field label="File">
+            <input accept="application/pdf,image/png,image/jpeg" aria-label="File" onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
+          </Field>
+          <Field label="Name">
+            <input aria-label="Document name" onChange={(event) => setName(event.target.value)} value={name} />
+          </Field>
+          <Field label="Type">
+            <select aria-label="Document type" onChange={(event) => setType(event.target.value)} value={type}>
+              {Object.values(LoanDocumentUploadDocumentTypeEnum).map((value) => (
+                <option key={value} value={value}>
+                  {DOCUMENT_TYPE_LABELS[value] ?? value}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Document date">
+            <input aria-label="Document date" onChange={(event) => setDate(event.target.value)} type="date" value={date} />
+          </Field>
+        </div>
+        <Button disabled={!file || !name.trim() || upload.isPending} type="submit">Upload</Button>
+      </form>
+      {upload.error || check.error || list.error ? <Banner tone="bad" title="Document action failed">{errorMessage(upload.error || check.error || list.error)}</Banner> : null}
+    </div>
+  );
+}
+
 function documentLabel(document: ProofDocument) {
   if (!document.available) return `Document no longer available (${document.id})`;
   const date = document.document_date ? formatDate(document.document_date) : document.uploaded_at ? `uploaded ${formatDate(document.uploaded_at)}` : "no date";
-  return `${document.title} · ${document.document_type} · ${date}`;
+  return `${document.title} · ${document.document_type} · ${date}${document.checked ? "" : " · waits for its check"}`;
 }
 
 async function openDocument(securityId: string, documentId: string) {
@@ -376,7 +493,7 @@ function SecurityProofRow({ security }: { security: SecurityProofStatus }) {
               <select aria-label={proof.label} onChange={(event) => setProofs({ ...proofs, [proof.key]: event.target.value })} value={proofs[proof.key] ?? ""}>
                 <option value="">Choose a linked document</option>
                 {security.documents
-                  .filter((document) => document.available)
+                  .filter((document) => document.available && document.checked)
                   .map((document) => (
                     <option key={document.id} value={document.id}>
                       {documentLabel(document)}

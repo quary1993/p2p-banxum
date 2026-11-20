@@ -3,6 +3,8 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.loans.api.security_proof_views import (
+    LoanDocumentCheckView,
+    LoanDocumentListView,
     LoanSecurityProofsView,
     LoanSecurityVerificationView,
     SecurityProofDocumentView,
@@ -42,6 +44,16 @@ urlpatterns = [
         "admin/securities/<uuid:security_id>/verification/",
         LoanSecurityVerificationView.as_view(),
         name="loan-security-verification",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/documents/",
+        LoanDocumentListView.as_view(),
+        name="loan-documents",
+    ),
+    path(
+        "admin/loan-documents/<uuid:document_id>/check/",
+        LoanDocumentCheckView.as_view(),
+        name="loan-document-check",
     ),
     path(
         "admin/securities/<uuid:security_id>/documents/<uuid:document_id>/",

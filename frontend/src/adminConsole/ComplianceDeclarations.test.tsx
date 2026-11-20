@@ -80,8 +80,8 @@ test("S7-8: the proof panel names the documents, opens one and shows the history
     configuration_error: "",
     document_ids: [DOC_A, DOC_B],
     documents: [
-      { id: DOC_A, title: "Land register extract 2026", document_type: "Other", document_date: "2026-11-02", uploaded_at: "2026-11-03T08:00:00Z", available: true },
-      { id: DOC_B, title: "Mortgage note", document_type: "Other", document_date: null, uploaded_at: "2026-11-03T08:00:00Z", available: true }
+      { id: DOC_A, title: "Land register extract 2026", document_type: "Other", document_date: "2026-11-02", uploaded_at: "2026-11-03T08:00:00Z", available: true, checked: true, source: "borrower" },
+      { id: DOC_B, title: "Mortgage note", document_type: "Other", document_date: null, uploaded_at: "2026-11-03T08:00:00Z", available: true, checked: true, source: "borrower" }
     ],
     verified: false,
     verified_by: "",
@@ -95,12 +95,13 @@ test("S7-8: the proof panel names the documents, opens one and shows the history
         verified_at: "2026-11-04T09:00:00Z",
         note: "",
         required_proofs: ["land_register_extract"],
-        proofs: [{ key: "land_register_extract", label: "Land register extract", document: { id: DOC_A, title: "Land register extract 2026", document_type: "Other", document_date: "2026-11-02", uploaded_at: null, available: true } }]
+        proofs: [{ key: "land_register_extract", label: "Land register extract", document: { id: DOC_A, title: "Land register extract 2026", document_type: "Other", document_date: "2026-11-02", uploaded_at: null, available: true, checked: true, source: "borrower" } }]
       }
     ]
   };
   server.use(
     http.get("*/api/v1/loans/admin/loans/:loanId/security-proofs/", () => HttpResponse.json([status])),
+    http.get("*/api/v1/loans/admin/loans/:loanId/documents/", () => HttpResponse.json([])),
     http.get(`*/api/v1/loans/admin/securities/${SECURITY_ID}/documents/:documentId/`, ({ params }) => {
       opened.push(String(params.documentId));
       return HttpResponse.json({ document_id: DOC_A, display_name: "Land register extract 2026", filename: "extract.pdf", content_type: "application/pdf", content_encoding: "base64", content: "JVBERg==", content_sha256: "x" });
@@ -124,4 +125,54 @@ test("S7-8: the proof panel names the documents, opens one and shows the history
   expect(opened).toEqual([DOC_A]);
   expect(screen.getByText("Verification history (1)")).toBeInTheDocument();
   openWindow.mockRestore();
+});
+
+test("re-audit: a proof file is uploaded to the loan, then its check is confirmed", async () => {
+  const uploads: FormData[] = [];
+  const checks: Array<Record<string, unknown>> = [];
+  let checked = false;
+  const document = () => ({
+    id: DOC_A,
+    display_name: "Assignment agreement 2026",
+    document_type: "pledge_or_assignment_agreement",
+    document_type_label: "Pledge or assignment agreement",
+    document_date: null,
+    uploaded_at: "2026-11-20T08:00:00Z",
+    checked,
+    checked_at: checked ? "2026-11-20T09:00:00Z" : null,
+    check_note: checked ? "Scanned." : "",
+    size_bytes: 1200
+  });
+  server.use(
+    http.get("*/api/v1/loans/admin/loans/:loanId/security-proofs/", () => HttpResponse.json([])),
+    http.get("*/api/v1/loans/admin/loans/:loanId/documents/", () => HttpResponse.json(uploads.length ? [document()] : [])),
+    http.post("*/api/v1/loans/admin/loans/:loanId/documents/", async ({ request }) => {
+      uploads.push(await request.formData());
+      return HttpResponse.json(document(), { status: 201 });
+    }),
+    http.post(`*/api/v1/loans/admin/loan-documents/${DOC_A}/check/`, async ({ request }) => {
+      checks.push((await request.json()) as Record<string, unknown>);
+      checked = true;
+      return HttpResponse.json(document());
+    })
+  );
+  renderLive(<cards.SecurityProofsPanel loanId="11111111-1111-4111-8111-111111111111" />);
+  const form = await screen.findByRole("form", { name: "Upload a loan document" });
+  const file = new File(["%PDF-1.4 x"], "assignment.pdf", { type: "application/pdf" });
+  fireEvent.change(within(form).getByLabelText("File"), { target: { files: [file] } });
+  fireEvent.change(within(form).getByRole("textbox", { name: "Document name" }), { target: { value: "Assignment agreement 2026" } });
+  fireEvent.change(within(form).getByRole("combobox", { name: "Document type" }), { target: { value: "pledge_or_assignment_agreement" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Upload" }));
+  await waitFor(() => expect(uploads).toHaveLength(1));
+  expect(uploads[0].get("display_name")).toBe("Assignment agreement 2026");
+  expect(uploads[0].get("document_type")).toBe("pledge_or_assignment_agreement");
+  expect(uploads[0].get("file")).toMatchObject({ type: "application/pdf", size: 10 });
+
+  const list = await screen.findByRole("list", { name: "Loan documents" });
+  const confirm = within(list).getByRole("button", { name: "Confirm check" });
+  expect(confirm).toBeDisabled();
+  fireEvent.change(within(list).getByRole("textbox", { name: "How Assignment agreement 2026 was checked" }), { target: { value: "Scanned with the office antivirus." } });
+  fireEvent.click(confirm);
+  await waitFor(() => expect(checks).toEqual([{ note: "Scanned with the office antivirus." }]));
+  expect(await screen.findByText(/^Checked/)).toBeInTheDocument();
 });

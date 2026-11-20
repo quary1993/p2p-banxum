@@ -59,6 +59,30 @@ def _verify_seed_account(*, actor: Any, investor: Any, deposit: Any) -> None:
     )
 
 
+# Re-audit P-2: the always-on declarations rule (18.10) needs a declaration before investing.
+SEED_DECLARATION = {
+    "beneficial_owner_is_self": True,
+    "sources_of_funds": ["salary"],
+    "pep_status": "no",
+    "yearly_volume_band": "10k_50k",
+}
+
+
+def declare_synthetic_investor(investor: Any) -> None:
+    """A clean declaration for a synthetic QA investor (once; later runs keep it)."""
+    declaration_model = apps.get_model("kyc_compliance", "InvestorDeclaration")
+    if declaration_model.objects.filter(user=investor).exists():
+        return
+    declarations = import_module("backend.apps.kyc_compliance.declarations")
+    declarations.submit_declaration(
+        declarations.SubmitDeclarationCommand(actor=investor, data=dict(SEED_DECLARATION))
+    )
+
+
+def _declare_seed_investor(investor: Any) -> None:
+    declare_synthetic_investor(investor)
+
+
 def _seed(*, actor: Any) -> dict[str, Any]:
     entities = import_module("backend.apps.entities.services")
     loans = import_module("backend.apps.loans.services")
@@ -97,6 +121,7 @@ def _seed(*, actor: Any) -> dict[str, Any]:
         raise ValueError("QA investor identifier is occupied by a non-seed account.")
     pins = import_module("backend.apps.accounts_auth.pin_services")
     pins.assign_known_qa_pin(investor, pin=QA_INVESTOR_PIN, source=SEED_KEY, replace=True)
+    _declare_seed_investor(investor)
     for currency in ("CHF", "EUR"):
         key = f"{SEED_KEY}:deposit:{currency}"
         if (
@@ -180,12 +205,12 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 title=title,
                 funding_deadline=today + timedelta(days=days),
                 note=SEED_KEY,
-                # Audit S5-7: the QA catalogue still models contracts from before the 18.6 engine;
-                # it moves to the engine with the reseed at the end of Phase 18.
-                interest_convention="legacy_monthly",
-                pre_cutover_contract_signed_on=loans.ENGINE_CUTOVER_DATE - timedelta(days=1),
             )
+            # Re-audit P-2: engine loans (18.6) with placeholder proofs (always-on proof rule).
             loan = loans.create_loan(loans.CreateLoanCommand(**values))
+            import_module("backend.apps.loans.security_proofs").seed_verified_securities(
+                actor=actor, loan_id=str(loan.pk)
+            )
             loans.publish_loan(loans.PublishLoanCommand(actor=actor, loan_id=str(loan.pk)))
         direct_loans.append(loan)
     call_command("seed_originator_demo_loans", actor_email=actor.email, verbosity=0)
