@@ -302,6 +302,17 @@ AUTH_SIGN_IN_BACKOFF_BASE_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_BASE_SECONDS",
 AUTH_SIGN_IN_BACKOFF_MAX_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_MAX_SECONDS", default=900)
 AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT", default=30)
 AUTH_SIGN_IN_VERIFY_DAILY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_DAILY_LIMIT", default=200)
+# Audit S4-2: account-wide limits, from all IP addresses together (investors and admins).
+# Wrong passwords: at the limit the password step answers "too many attempts" to every browser
+# that never signed in to the account; a browser that did (device cookie) is not held by it.
+AUTH_SIGN_IN_ACCOUNT_FAILURES_HOURLY = env.int("AUTH_SIGN_IN_ACCOUNT_FAILURES_HOURLY", default=20)
+AUTH_SIGN_IN_ACCOUNT_FAILURES_DAILY = env.int("AUTH_SIGN_IN_ACCOUNT_FAILURES_DAILY", default=60)
+# Wrong second-factor codes (SMS, app or recovery code) per account.
+AUTH_FACTOR_ACCOUNT_FAILURES_HOURLY = env.int("AUTH_FACTOR_ACCOUNT_FAILURES_HOURLY", default=10)
+AUTH_FACTOR_ACCOUNT_FAILURES_DAILY = env.int("AUTH_FACTOR_ACCOUNT_FAILURES_DAILY", default=30)
+# SMS codes sent to one account (sign-in, security and phone verification together).
+AUTH_SMS_ACCOUNT_HOURLY_LIMIT = env.int("AUTH_SMS_ACCOUNT_HOURLY_LIMIT", default=10)
+AUTH_SMS_ACCOUNT_DAILY_LIMIT = env.int("AUTH_SMS_ACCOUNT_DAILY_LIMIT", default=30)
 AUTH_PASSWORD_RESET_COOLDOWN_SECONDS = env.int("AUTH_PASSWORD_RESET_COOLDOWN_SECONDS", default=60)
 AUTH_PASSWORD_RESET_HOURLY_LIMIT = env.int("AUTH_PASSWORD_RESET_HOURLY_LIMIT", default=5)
 AUTH_PASSWORD_RESET_DAILY_LIMIT = env.int("AUTH_PASSWORD_RESET_DAILY_LIMIT", default=20)

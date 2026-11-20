@@ -30,7 +30,12 @@ from backend.apps.accounts_auth.services import (
     consume_magic_link,
     issue_magic_link,
 )
-from backend.apps.accounts_auth.tests.signin_helpers import TEST_PASSWORD, ready_investor
+from backend.apps.accounts_auth.tests.signin_helpers import (
+    TEST_PASSWORD,
+    admin_sign_in,
+    ready_investor,
+    sign_in,
+)
 from backend.apps.accounts_auth.two_factor import TwoFactorError, start_sign_in
 
 ADMIN_PASSWORD = "Correct-Horse-Battery-42"
@@ -158,15 +163,137 @@ def test_failed_admin_passwords_from_other_ips_do_not_lock_the_admin_out(
     client: Client,
     admin_user: User,
 ) -> None:
-    # Before the fix 20 wrong passwords for the admin email, from any IPs, blocked the
-    # admin's correct password for up to an hour.
-    for index in range(25):
-        response = _admin_start(client, admin_user.email, "wrong-password", f"203.0.113.{index}")
-        assert response.status_code == 400
+    """Audit A-47 with audit S4-2: guesses from many addresses are counted together for the
+    account and stop at the account limit, but the admin's own browser (its device cookie from
+    an earlier sign-in) still signs in."""
+    own = Client()
+    admin_sign_in(own, admin_user, ADMIN_PASSWORD, REMOTE_ADDR="198.51.100.8")
+    own.post("/api/v1/auth/logout/")
 
-    own = _admin_start(client, admin_user.email, ADMIN_PASSWORD, "198.51.100.8")
+    statuses = [
+        _admin_start(client, admin_user.email, "wrong-password", f"203.0.113.{index}").status_code
+        for index in range(25)
+    ]
+    # 20 wrong passwords per hour for the account, whatever the address; then no more guesses.
+    assert statuses == [400] * 20 + [429] * 5
 
-    assert own.status_code == 202
+    # A browser that never signed in to the account is held, also with the right password.
+    stranger = _admin_start(Client(), admin_user.email, ADMIN_PASSWORD, "192.0.2.50")
+    assert stranger.status_code == 429
+    assert stranger.json()["code"] == "admin_login_throttled"
+    # The admin's own browser is not, from a new address too.
+    assert _admin_start(own, admin_user.email, ADMIN_PASSWORD, "198.51.100.99").status_code == 202
+
+
+@pytest.mark.django_db
+def test_wrong_investor_passwords_are_limited_per_account_across_addresses(
+    investor: User,
+) -> None:
+    """Audit S4-2: an account-wide limit beside the per-address limits; the answer is the same
+    for an email without an account; the owner's known browser is not locked out."""
+    ready_investor(investor)
+    own = Client()
+    assert sign_in(own, investor, REMOTE_ADDR="198.51.100.8").status_code == 200
+    own.post("/api/v1/auth/logout/")
+
+    def attempts(email: str) -> list[int]:
+        return [
+            _sign_in(Client(), email, "a wrong password 1", f"203.0.113.{index}").status_code
+            for index in range(23)
+        ]
+
+    known = attempts(investor.email)
+    unknown = attempts("nobody@example.test")
+    assert known == unknown == [400] * 20 + [429] * 3
+
+    throttled = _sign_in(Client(), investor.email, TEST_PASSWORD, "192.0.2.50")
+    ghost = _sign_in(Client(), "nobody@example.test", TEST_PASSWORD, "192.0.2.51")
+    assert throttled.status_code == ghost.status_code == 429
+    assert throttled.json()["code"] == ghost.json()["code"] == "sign_in_throttled"
+    assert set(throttled.json()) == set(ghost.json())
+    # The investor's own browser still reaches the second-factor step.
+    again = _sign_in(own, investor.email, TEST_PASSWORD, "198.51.100.77")
+    assert again.status_code == 200 and again.json()["status"] == "factor_required"
+    # Another account is not affected.
+    other = User.objects.create_user(
+        email="other-victim@example.test",
+        full_name="Other Investor",
+        account_type=AccountType.NATURAL_PERSON_LENDER,
+        status=AccountStatus.ACTIVE,
+    )
+    ready_investor(other)
+    assert _sign_in(Client(), other.email, TEST_PASSWORD, "192.0.2.60").status_code == 200
+
+
+def test_a_burst_of_requests_cannot_pass_a_limit_together() -> None:
+    """Audit S4-2: the counters count first and compare after, in one atomic cache operation.
+    40 requests released at the same moment: exactly the limit passes."""
+    import threading
+
+    from backend.apps.accounts_auth import rate_limits
+
+    cache.clear()
+    limit, callers = 7, 40
+    barrier = threading.Barrier(callers)
+    passed: list[bool] = []
+    lock = threading.Lock()
+
+    def call() -> None:
+        barrier.wait()
+        allowed = rate_limits.take_window("throttle:test:burst", 3600, limit, now=1_000_000) is None
+        with lock:
+            passed.append(allowed)
+
+    threads = [threading.Thread(target=call) for _ in range(callers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert passed.count(True) == limit and len(passed) == callers
+
+    # A cooldown: one of the simultaneous callers starts it.
+    barrier = threading.Barrier(callers)
+    started: list[bool] = []
+
+    def cool() -> None:
+        barrier.wait()
+        value = rate_limits.take_cooldown("throttle:test:cooldown", 60)
+        with lock:
+            started.append(value)
+
+    threads = [threading.Thread(target=cool) for _ in range(callers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert started.count(True) == 1
+
+
+def test_the_request_throttle_counts_with_the_atomic_counters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit S4-2: the DRF throttle classes use the same counters (no read-then-write)."""
+    from rest_framework.test import APIRequestFactory
+
+    from backend.apps.accounts_auth.api import throttles
+
+    cache.clear()
+    monkeypatch.setattr(
+        throttles.SignInVerifyThrottle,
+        "window_rules",
+        (throttles.WindowRule("hour", 3600, 3),),
+    )
+
+    def read_only(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the throttle must not read a counter and write it back")
+
+    monkeypatch.setattr(cache, "get", read_only)
+    request = APIRequestFactory().post("/api/v1/auth/login/verify/", REMOTE_ADDR="203.0.113.5")
+    results = [
+        throttles.SignInVerifyThrottle().allow_request(request, None)  # type: ignore[arg-type]
+        for _ in range(5)
+    ]
+    assert results == [True, True, True, False, False]
 
 
 @pytest.mark.django_db

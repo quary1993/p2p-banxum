@@ -56,6 +56,7 @@ from backend.apps.accounts_auth.services import (
     _support_email,
     actor_for_user,
     consume_sensitive_action_code,
+    lock_account_for_sms,
 )
 from backend.apps.platform_core.domain.time import to_business_time
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -531,8 +532,9 @@ def _send_pin_reset_sms(user: User, command: StartPinResetCommand) -> StartPinRe
             "We cannot send an SMS code because your account has no verified phone number. "
             f"Contact support at {_support_email()}."
         )
-    User.objects.select_for_update().filter(pk=user.pk).first()
     now = timezone.now()
+    # Audit S4-2: the account lock and the account-wide SMS limits.
+    lock_account_for_sms(user, now=now)
     ttl = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS))
     cooldown = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS))
     pending = PhoneVerificationChallenge.objects.filter(

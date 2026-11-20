@@ -122,13 +122,44 @@ class SensitiveActionCodeThrottleError(AccountsAuthError):
 
 
 class PhoneVerificationThrottleError(AccountsAuthError):
-    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int | None = None,
+        account_limit: bool = False,
+    ) -> None:
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        # True for the account's hourly or daily SMS limit (not the short cooldown).
+        self.account_limit = account_limit
 
 
 class PhoneVerificationProviderError(AccountsAuthError):
     pass
+
+
+def lock_account_for_sms(user: User, *, now: datetime) -> None:
+    """Audit S4-2: the account-wide SMS limits. Call it first in the transaction that sends a
+    code. It locks the account's row, so two requests at the same time are served one after the
+    other (the cooldown that follows is then exact too), and refuses when the account already
+    got its hourly or daily number of SMS codes, for all purposes together.
+
+    Real time from expires_at (created_at follows the QA clock).
+    """
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    ttl = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS))
+    sent = PhoneVerificationChallenge.objects.filter(user=user)
+    for window, limit in (
+        (timedelta(hours=1), int(settings.AUTH_SMS_ACCOUNT_HOURLY_LIMIT)),
+        (timedelta(days=1), int(settings.AUTH_SMS_ACCOUNT_DAILY_LIMIT)),
+    ):
+        if limit > 0 and sent.filter(expires_at__gt=now - window + ttl).count() >= limit:
+            raise PhoneVerificationThrottleError(
+                "Too many SMS codes were sent to this account. Try again later.",
+                retry_after_seconds=int(window.total_seconds()),
+                account_limit=True,
+            )
 
 
 class PhoneAlreadyVerifiedError(AccountsAuthError):
@@ -1343,6 +1374,7 @@ def request_phone_verification(
         raise AccountsAuthError("Phone number is required.")
 
     now = timezone.now()
+    lock_account_for_sms(user, now=now)
     cooldown_seconds = settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS
     latest_active = (
         PhoneVerificationChallenge.objects.filter(

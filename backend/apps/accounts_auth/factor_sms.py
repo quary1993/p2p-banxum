@@ -30,6 +30,7 @@ from backend.apps.accounts_auth.services import (
     TWILIO_VERIFY_PROVIDER,
     PhoneVerificationProviderError,
     PhoneVerificationThrottleError,
+    lock_account_for_sms,
 )
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
 from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
@@ -70,6 +71,8 @@ def send_code(
             "Your account has no verified phone number for an SMS code.", code="no_verified_phone"
         )
     now = timezone.now()
+    # Audit S4-2: the account lock and the account-wide SMS limits (hour and day).
+    lock_account_for_sms(user, now=now)
     ttl = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS))
     cooldown = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS))
     pending = PhoneVerificationChallenge.objects.filter(

@@ -17,7 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from backend.apps.accounts_auth import factor_sms, two_factor
+from backend.apps.accounts_auth import factor_sms, rate_limits, two_factor
 from backend.apps.accounts_auth.api.origin import SameSiteRequestOnly
 from backend.apps.accounts_auth.api.permissions import IsAdminPortalUser, IsSuperAdminUser
 from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
@@ -75,6 +75,7 @@ from backend.apps.accounts_auth.models import (
 from backend.apps.accounts_auth.security_sessions import (
     SESSION_RECORD_KEY,
     describe_user_agent,
+    is_known_device,
 )
 from backend.apps.accounts_auth.services import (
     AdminLoginInvalidCredentialsError,
@@ -152,6 +153,17 @@ def _factor_step(step: two_factor.SignInStep) -> dict[str, Any]:
 # --- Investor sign-in ------------------------------------------------------------------------
 
 
+def _account_wait(
+    request: Request, limit: rate_limits.FailureLimit, account: str
+) -> int | None:
+    """Seconds to wait when the account is at its limit of wrong passwords, unless this browser
+    already signed in to the account (its device cookie)."""
+    wait = limit.retry_after(account)
+    if wait is None or is_known_device(request._request, account):  # noqa: SLF001
+        return None
+    return wait
+
+
 class SignInView(APIView):
     """Step 1: email and password. Answers ``signed_in`` (remembered browser),
     ``factor_required`` (type the app or SMS code next) or ``enrollment_required`` (signed in;
@@ -171,6 +183,11 @@ class SignInView(APIView):
         backoff = sign_in_failure_backoff()
         backoff_key = email_ip_identifier(request, str(data["email"]))
         wait = backoff.retry_after(backoff_key)
+        # Audit S4-2: wrong passwords of the account from all addresses together. The answer
+        # is the same for an email without an account.
+        account_failures = rate_limits.sign_in_account_failures()
+        account = rate_limits.account_subject(str(data["email"]))
+        wait = wait or _account_wait(request, account_failures, account)
         if wait is not None:
             return Response(
                 {
@@ -192,6 +209,7 @@ class SignInView(APIView):
         except _HANDLED as exc:
             if isinstance(exc, two_factor.TwoFactorError) and exc.code == "invalid_credentials":
                 backoff.record_failure(backoff_key)
+                account_failures.record_failure(account)
             return _error(exc)
         backoff.reset(backoff_key)
         if step.status in {"signed_in", "enrollment_required"}:
@@ -652,6 +670,11 @@ class AdminSignInStartView(APIView):
         backoff = admin_login_failure_backoff()
         backoff_key = email_ip_identifier(request, str(data["email"]))
         wait = backoff.retry_after(backoff_key)
+        # Audit S4-2: and all addresses together; a browser that already signed in to the
+        # account is not held by that limit, so guesses from elsewhere cannot lock the admin out.
+        account_failures = rate_limits.admin_login_account_failures()
+        account = rate_limits.account_subject(str(data["email"]))
+        wait = wait or _account_wait(request, account_failures, account)
         if wait is not None:
             return Response(
                 {
@@ -671,6 +694,7 @@ class AdminSignInStartView(APIView):
             )
         except AdminLoginInvalidCredentialsError as exc:
             backoff.record_failure(backoff_key)
+            account_failures.record_failure(account)
             return Response(
                 {"detail": str(exc), "code": "invalid_credentials"},
                 status=status.HTTP_400_BAD_REQUEST,

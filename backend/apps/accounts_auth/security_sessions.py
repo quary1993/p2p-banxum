@@ -134,6 +134,23 @@ def device_token_for_request(request: HttpRequest) -> str:
     return token
 
 
+def is_known_device(request: HttpRequest, email: str) -> bool:
+    """Audit S4-2: True when this browser's device cookie already signed in to the account.
+
+    The cookie value is random and HTTP-only, and only its keyed hash is stored, so an attacker
+    cannot make one. Used to keep the owner's own browser out of the account-wide limit on wrong
+    passwords, so that other people's guesses cannot lock the owner out.
+    """
+    token = str(request.COOKIES.get(DEVICE_COOKIE_NAME, "") or "")
+    if not _DEVICE_TOKEN_PATTERN.fullmatch(token) or not str(email or "").strip():
+        return False
+    return SignInEvent.objects.filter(
+        user__email__iexact=str(email).strip(),
+        device_hash=device_hash(token),
+        result=SignInResult.SIGNED_IN,
+    ).exists()
+
+
 def set_device_cookie(request: HttpRequest, response: Any) -> None:
     """Called by the middleware: store a device value made during this request."""
     token = getattr(request, NEW_DEVICE_TOKEN_ATTRIBUTE, None)

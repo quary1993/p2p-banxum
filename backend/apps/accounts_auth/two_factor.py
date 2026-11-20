@@ -28,7 +28,7 @@ from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.utils import timezone
 
-from backend.apps.accounts_auth import factor_sms, totp
+from backend.apps.accounts_auth import factor_sms, rate_limits, totp
 from backend.apps.accounts_auth import services as accounts_services
 from backend.apps.accounts_auth.crypto import (
     decrypt_delivery_secret,
@@ -490,6 +490,17 @@ def _check_challenge(
     with transaction.atomic():
         challenge = _locked_challenge(challenge_id, purpose, user)
     owner = challenge.user
+    # Audit S4-2: wrong codes of one account are counted together (SMS, app and recovery codes,
+    # every step and address), on top of the limits of each challenge and each factor.
+    account_failures = rate_limits.factor_account_failures()
+    wait = account_failures.retry_after(str(owner.pk))
+    if wait is not None:
+        raise TwoFactorError(
+            "Too many wrong codes for this account. Try again later.",
+            code="factor_attempts_account",
+            http_status=429,
+            extra={"retry_after_seconds": wait},
+        )
     exhausted = False
     if recovery_code.strip():
         used = "recovery_code"
@@ -531,6 +542,7 @@ def _check_challenge(
         )
         challenge.save(update_fields=["attempts", "updated_at"])
         left = challenge.max_attempts - challenge.attempts
+    account_failures.record_failure(str(owner.pk))
     if left > 0:
         raise TwoFactorError(
             "The code is wrong. Check it and try again.",

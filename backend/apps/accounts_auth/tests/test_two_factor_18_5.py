@@ -9,10 +9,12 @@ from importlib import import_module
 from typing import Any
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from django.utils import timezone
 
-from backend.apps.accounts_auth import geoip, passwords, totp, two_factor
+from backend.apps.accounts_auth import factor_sms, geoip, passwords, totp, two_factor
+from backend.apps.accounts_auth import services as accounts_services
 from backend.apps.accounts_auth.crypto import digest_secret
 from backend.apps.accounts_auth.models import (
     AccountStatus,
@@ -22,6 +24,7 @@ from backend.apps.accounts_auth.models import (
     EmailLoginToken,
     LoginChallenge,
     PasswordResetToken,
+    PhoneVerificationChallenge,
     RecoveryCode,
     SecurityRestriction,
     SensitiveAction,
@@ -236,6 +239,73 @@ def test_wrong_codes_end_the_step_after_five_attempts(client: Client) -> None:
     assert 429 in statuses
     assert client.get("/api/v1/auth/me/").status_code == 403
     assert LoginChallenge.objects.get(id=body["challenge_id"]).completed_at is None
+
+
+@pytest.mark.django_db
+def test_wrong_codes_are_limited_per_account_across_steps_and_addresses(settings: Any) -> None:
+    """Audit S4-2: wrong recovery codes in several sign-in steps from several addresses count
+    together for the account; at the limit also the right code waits."""
+    settings.AUTH_FACTOR_ACCOUNT_FAILURES_HOURLY = 4
+    user = ready_investor(_investor())
+    codes = two_factor.issue_recovery_codes(user=user)
+
+    def verify(index: int, recovery_code: str) -> Any:
+        client = Client()
+        address = f"203.0.113.{index}"
+        body = post_json(
+            client,
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": TEST_PASSWORD},
+            REMOTE_ADDR=address,
+        ).json()
+        return post_json(
+            client,
+            "/api/v1/auth/login/verify/",
+            {"challenge_id": body["challenge_id"], "recovery_code": recovery_code},
+            REMOTE_ADDR=address,
+        )
+
+    assert [verify(index, "AAAA-BBBB-CCCC").status_code for index in range(4)] == [400] * 4
+    held = verify(9, codes[0])
+    assert held.status_code == 429
+    assert held.json()["code"] == "factor_attempts_account"
+    assert held.json()["retry_after_seconds"] > 0
+    # The recovery code was not used up by the refused step.
+    assert two_factor.recovery_codes_remaining(user) == 10
+    cache.clear()
+    assert verify(10, codes[0]).status_code == 200
+
+
+@pytest.mark.django_db
+def test_sms_codes_are_limited_per_account_per_hour_and_day(
+    settings: Any, row_locks_need_a_transaction: None
+) -> None:
+    """Audit S4-2: SMS codes of one account are counted for all purposes together, under the
+    account's row lock; a pending code still works for a new step."""
+    settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS = 0
+    settings.AUTH_SMS_ACCOUNT_HOURLY_LIMIT = 3
+    user = ready_investor(_investor())
+    for purpose in ("sign_in", "security", "sign_in"):
+        factor_sms.send_code(user, purpose=purpose, ip_address="203.0.113.5")
+    with pytest.raises(accounts_services.PhoneVerificationThrottleError) as refused:
+        factor_sms.send_code(user, purpose="security", ip_address="203.0.113.6")
+    assert refused.value.account_limit is True
+    assert "Too many SMS codes" in str(refused.value)
+    assert PhoneVerificationChallenge.objects.filter(user=user).count() == 3
+    # A sign-in step now reuses the code that is still pending; no fourth SMS.
+    step = two_factor.start_sign_in(
+        email=user.email, password=TEST_PASSWORD, trusted_token="", ip_address="203.0.113.7"
+    )
+    assert step.status == "factor_required"
+    assert PhoneVerificationChallenge.objects.filter(user=user).count() == 3
+    # The older codes leave the hour window: a new code is sent again (the day limit stays).
+    PhoneVerificationChallenge.objects.filter(user=user).update(
+        expires_at=timezone.now() - timedelta(minutes=55)
+    )
+    factor_sms.send_code(user, purpose="sign_in")
+    settings.AUTH_SMS_ACCOUNT_DAILY_LIMIT = 4
+    with pytest.raises(accounts_services.PhoneVerificationThrottleError):
+        factor_sms.send_code(user, purpose="sign_in")
 
 
 @pytest.mark.django_db
