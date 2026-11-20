@@ -4878,6 +4878,15 @@ def cancel_investor_withdrawal(
         )
     )
     investor_notices.notify_withdrawal_cancelled(withdrawal_request)
+    if withdrawal_request.is_forced:
+        # Audit S3-3: the money is on the balance again. A cancelled "send again" opens its
+        # failed return again (no automatic retry); any other forced return is requested again
+        # by the next scan, also on the same day (new attempt key).
+        from backend.apps.ledger import return_failures
+
+        return_failures.reopen_failure_after_cancelled_resend(
+            actor=command.actor, withdrawal_request=withdrawal_request
+        )
     return InvestorWithdrawalCancelResult(withdrawal_request, journal_entry)
 
 
@@ -5304,28 +5313,39 @@ def _create_forced_withdrawal_request(
     key_suffix: str = "",
 ) -> InvestorWithdrawalRequest:
     amount_minor = _validate_money(amount_minor, currency.code, "Forced withdrawal amount")
-    idempotency_key = _derived_idempotency_key(
-        "forced-withdrawal",
-        f"{investor_user_id}:{currency.code}:{business_date(as_of).isoformat()}:"
-        f"{':'.join(lot_ids)}{key_suffix}",
-    )
     destination_iban = _clean_iban(payout_instruction.destination_iban)
-    request_fingerprint = _forced_withdrawal_request_fingerprint(
-        actor_id=str(actor.pk),
-        investor_user_id=investor_user_id,
-        currency_code=currency.code,
-        amount_minor=amount_minor,
-        destination_iban=destination_iban,
-        payout_instruction_id=str(payout_instruction.id),
-        lot_ids=lot_ids,
-        idempotency_key=idempotency_key,
+    key_material = (
+        f"{investor_user_id}:{currency.code}:{business_date(as_of).isoformat()}:"
+        f"{':'.join(lot_ids)}{key_suffix}"
     )
-    existing = _existing_withdrawal_request_for_idempotency(
-        idempotency_key,
-        expected_fingerprint=request_fingerprint,
-    )
-    if existing is not None:
-        return existing
+    attempt = 0
+    while True:
+        idempotency_key = _derived_idempotency_key(
+            "forced-withdrawal",
+            key_material if attempt == 0 else f"{key_material}:attempt:{attempt}",
+        )
+        request_fingerprint = _forced_withdrawal_request_fingerprint(
+            actor_id=str(actor.pk),
+            investor_user_id=investor_user_id,
+            currency_code=currency.code,
+            amount_minor=amount_minor,
+            destination_iban=destination_iban,
+            payout_instruction_id=str(payout_instruction.id),
+            lot_ids=lot_ids,
+            idempotency_key=idempotency_key,
+        )
+        existing = InvestorWithdrawalRequest.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is None:
+            break
+        if existing.status != InvestorWithdrawalRequestStatus.CANCELLED:
+            _assert_fingerprint_matches(
+                stored_metadata=cast(dict[str, Any], existing.metadata),
+                expected_fingerprint=request_fingerprint,
+            )
+            return existing
+        # Audit S3-3: a cancelled return gave its lots back, so it is not the result of this
+        # day's return. The money due back gets a new request under the next attempt key.
+        attempt += 1
     # A forced return takes exactly the lots due back, never the investor's other money.
     lots = _forced_withdrawal_lots_for_update(
         investor_user_id=investor_user_id,
@@ -5346,6 +5366,7 @@ def _create_forced_withdrawal_request(
         "destination_selection": destination_selection,
         "forced_withdrawal_lot_ids": lot_ids,
         "generated_by": "balance_ageing_scan",
+        **({"return_attempt": attempt + 1} if attempt else {}),
         "auto_return_after_days": return_after_days,
         "return_timing": timing,
         **(extra_metadata or {}),

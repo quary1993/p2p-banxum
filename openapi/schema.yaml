@@ -10819,6 +10819,12 @@ components:
         note:
           type: string
           maxLength: 2000
+        cause_cleared:
+          type: boolean
+          default: false
+          description: 'Needed to send again to the same account after a bank restriction
+            or a technical error: the cause is cleared, and the note says who confirmed
+            it.'
       required:
       - payout_instruction_id
     BalanceReturnFailureResendResponse:
@@ -24628,6 +24634,12 @@ components:
           nullable: true
         confirmation_note:
           type: string
+        revision:
+          type: integer
+        reconfirmation_needed_since:
+          type: string
+          format: date-time
+          nullable: true
         days:
           type: array
           items:
@@ -24639,6 +24651,8 @@ components:
       - currency
       - days
       - preloaded_at
+      - reconfirmation_needed_since
+      - revision
       - stored
       - year
     SignInEvent:

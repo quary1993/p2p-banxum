@@ -163,6 +163,11 @@ def calendar_year_payload(currency: str, year: int) -> dict[str, Any]:
             else None
         ),
         "confirmation_note": calendar_year.confirmation_note if calendar_year else "",
+        "revision": calendar_year.revision if calendar_year else 0,
+        # Audit S3-4: a day changed after the year was confirmed; confirm it again.
+        "reconfirmation_needed_since": (
+            calendar_year.reconfirmation_needed_since if calendar_year else None
+        ),
         "days": [
             {
                 "id": str(row.id),
@@ -268,6 +273,12 @@ def add_settlement_holiday(command: AddSettlementHolidayCommand) -> dict[str, An
             metadata={"currency": code, "date": command.date.isoformat(), "name": name},
         )
     )
+    _calendar_year_changed(
+        actor=command.actor,
+        currency=code,
+        year=command.date.year,
+        change=f"{command.date.isoformat()} closed ({name})",
+    )
     return calendar_year_payload(code, command.date.year)
 
 
@@ -311,7 +322,73 @@ def remove_settlement_holiday(command: RemoveSettlementHolidayCommand) -> dict[s
             metadata={"currency": code, "date": command.date.isoformat(), "reason": reason},
         )
     )
+    _calendar_year_changed(
+        actor=command.actor,
+        currency=code,
+        year=command.date.year,
+        change=f"{command.date.isoformat()} opened ({reason})",
+    )
     return calendar_year_payload(code, command.date.year)
+
+
+def _calendar_year_changed(*, actor: Model, currency: str, year: int, change: str) -> None:
+    """Audit S3-4: a changed day gives the year a new revision. A confirmation was given for
+    the days as they were, so it is cleared and the confirmation task opens again."""
+    calendar_year = SettlementCalendarYear.objects.select_for_update().get(
+        currency=currency, year=year
+    )
+    was_confirmed = calendar_year.confirmed_at is not None
+    calendar_year.revision += 1
+    update_fields = ["revision", "updated_at"]
+    if was_confirmed:
+        previous = {
+            "confirmed_at": calendar_year.confirmed_at.isoformat()
+            if calendar_year.confirmed_at
+            else "",
+            "confirmed_by_admin_id": str(calendar_year.confirmed_by_admin_id or ""),
+            "confirmation_note": calendar_year.confirmation_note,
+        }
+        calendar_year.confirmed_at = None
+        calendar_year.confirmed_by_admin_id = None
+        calendar_year.confirmation_note = ""
+        calendar_year.reconfirmation_needed_since = now_utc()
+        update_fields += [
+            "confirmed_at",
+            "confirmed_by_admin_id",
+            "confirmation_note",
+            "reconfirmation_needed_since",
+        ]
+    calendar_year.save(update_fields=update_fields)
+    if not was_confirmed:
+        return
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="settlement_calendar.confirmation_cleared",
+            target_type="SettlementCalendarYear",
+            target_id=str(calendar_year.id),
+            metadata={
+                "currency": currency,
+                "year": year,
+                "revision": calendar_year.revision,
+                "change": change,
+                "previous_confirmation": previous,
+            },
+        )
+    )
+    _open_calendar_alert(actor=actor, calendar_year=calendar_year, change=change)
+
+
+def calendar_year_is_confirmed(task_object_id: str) -> bool:
+    """For the confirmation task ("CHF:2027"): True when its year is confirmed. An id that
+    names no stored year blocks nothing."""
+    currency, _, year = str(task_object_id).partition(":")
+    if not year.isdigit():
+        return True
+    calendar_year = SettlementCalendarYear.objects.filter(
+        currency=currency.upper(), year=int(year)
+    ).first()
+    return calendar_year is None or calendar_year.confirmed_at is not None
 
 
 @transaction.atomic
@@ -326,8 +403,15 @@ def confirm_settlement_calendar_year(
     calendar_year.confirmed_at = now_utc()
     calendar_year.confirmed_by_admin_id = command.actor.pk
     calendar_year.confirmation_note = command.note.strip()
+    calendar_year.reconfirmation_needed_since = None
     calendar_year.save(
-        update_fields=["confirmed_at", "confirmed_by_admin_id", "confirmation_note", "updated_at"]
+        update_fields=[
+            "confirmed_at",
+            "confirmed_by_admin_id",
+            "confirmation_note",
+            "reconfirmation_needed_since",
+            "updated_at",
+        ]
     )
     record_audit_event(
         AuditCommand(
@@ -335,7 +419,12 @@ def confirm_settlement_calendar_year(
             action="settlement_calendar.confirmed",
             target_type="SettlementCalendarYear",
             target_id=str(calendar_year.id),
-            metadata={"currency": code, "year": command.year, "note": command.note.strip()},
+            metadata={
+                "currency": code,
+                "year": command.year,
+                "note": command.note.strip(),
+                "revision": calendar_year.revision,
+            },
         )
     )
     admin_ops: Any = import_module("backend.apps.admin_ops.services")
@@ -349,48 +438,71 @@ def confirm_settlement_calendar_year(
 
 
 def check_settlement_calendars(*, actor: Model, as_of: datetime) -> dict[str, Any]:
-    """Daily: preload this year and the next; from 1 November alert while next year is open."""
+    """Daily: preload this year and the next. Alert from 1 November while next year is not
+    confirmed, and at any time while a year waits to be confirmed again after a change."""
     today = business_date(as_of)
     actor_ref = actor_ref_for_user(actor)
     preloaded: list[str] = []
     alerts: list[str] = []
     for code in SETTLEMENT_CURRENCIES:
         for year in (today.year, today.year + 1):
-            _calendar_year, created = ensure_calendar_year(code, year, actor=actor_ref)
+            calendar_year, created = ensure_calendar_year(code, year, actor=actor_ref)
             if created:
                 preloaded.append(f"{code}:{year}")
-        if (today.month, today.day) < NEXT_YEAR_CONFIRMATION_FROM:
-            continue
-        next_year = SettlementCalendarYear.objects.get(currency=code, year=today.year + 1)
-        if next_year.confirmed_at is not None:
-            continue
-        if _open_calendar_alert(actor=actor, currency=code, year=today.year + 1):
-            alerts.append(f"{code}:{today.year + 1}")
+            if calendar_year.confirmed_at is not None:
+                continue
+            next_year_due = (
+                year == today.year + 1 and (today.month, today.day) >= NEXT_YEAR_CONFIRMATION_FROM
+            )
+            if not next_year_due and calendar_year.reconfirmation_needed_since is None:
+                continue
+            if _open_calendar_alert(actor=actor, calendar_year=calendar_year):
+                alerts.append(f"{code}:{year}")
     return {"as_of_date": today.isoformat(), "preloaded": preloaded, "alerts": alerts}
 
 
-def _open_calendar_alert(*, actor: Model, currency: str, year: int) -> bool:
-    """One operations task and one email per currency and year. True when newly opened."""
+def _open_calendar_alert(
+    *, actor: Model, calendar_year: SettlementCalendarYear, change: str = ""
+) -> bool:
+    """One operations task per currency and year, open while the year is not confirmed, and one
+    email per revision of the year. True when the task was opened (new, or opened again)."""
+    currency, year = str(calendar_year.currency), int(calendar_year.year)
     admin_ops: Any = import_module("backend.apps.admin_ops.services")
-    task, created = admin_ops.ensure_related_admin_task(
+    changed = calendar_year.reconfirmation_needed_since is not None
+    notes = (
+        (
+            f"The {currency} settlement calendar for {year} changed after it was confirmed"
+            + (f" ({change})" if change else "")
+            + ". Check the year again and confirm it. "
+            if changed
+            else f"The {currency} settlement calendar for {year} is preloaded from the rule "
+            "list but not confirmed. "
+        )
+        + "Check it against the bank and the published calendar "
+        f"({'SIX SIC' if currency == 'CHF' else 'TARGET'}), change any day in Settlement "
+        "calendars, then confirm the year. Return dates and due dates use it. This task "
+        "closes when the year is confirmed."
+    )
+    task, opened = admin_ops.ensure_related_admin_task(
         actor=actor,
         task_type="settlement_calendar",
         related_object_type=CALENDAR_TASK_RELATED_TYPE,
         related_object_id=f"{currency}:{year}",
         title=f"Confirm the {currency} settlement calendar for {year}",
         priority="high",
-        notes=(
-            f"The {currency} settlement calendar for {year} is preloaded from the rule list but "
-            "not confirmed. Check it against the bank and the published calendar "
-            f"({'SIX SIC' if currency == 'CHF' else 'TARGET'}), change any day in Settlement "
-            "calendars, then confirm the year. Return dates and due dates use it."
-        ),
+        notes=notes,
+        # Audit S3-4: a task closed while the year is not confirmed opens again.
+        reopen_closed=True,
     )
-    if not created:
+    if not opened:
         return False
+    revision = int(calendar_year.revision)
     enqueue_outbox_message(
         OutboxCommand(
-            idempotency_key=f"email:settlement-calendar-unconfirmed:{currency}:{year}",
+            idempotency_key=(
+                f"email:settlement-calendar-unconfirmed:{currency}:{year}"
+                + (f":r{revision}" if revision else "")
+            ),
             topic="email.operations_alert",
             payload={
                 "email": str(getattr(settings, "OPERATIONS_ALERT_EMAIL", "") or "hq@banxum.com"),
@@ -400,13 +512,25 @@ def _open_calendar_alert(*, actor: Model, currency: str, year: int) -> bool:
                 "status_label": "Action needed",
                 "status_tone": "warning",
                 "body_text": (
-                    f"The {currency} settlement calendar for {year} is not confirmed. The "
-                    "platform uses the preloaded rule days until then. Check the days and "
-                    "confirm the year in the admin console (Settlement calendars)."
+                    (
+                        f"The {currency} settlement calendar for {year} changed after it was "
+                        "confirmed, so it is not confirmed now. The platform uses the stored "
+                        "days. "
+                        if changed
+                        else f"The {currency} settlement calendar for {year} is not confirmed. "
+                        "The platform uses the preloaded rule days until then. "
+                    )
+                    + "Check the days and confirm the year in the admin console (Settlement "
+                    "calendars)."
                 ),
                 "template_key": "ops.settlement_calendar_unconfirmed.v1",
                 "data_rows": [["Currency", currency], ["Year", str(year)]],
-                "metadata": {"currency": currency, "year": year, "admin_task_id": str(task.id)},
+                "metadata": {
+                    "currency": currency,
+                    "year": year,
+                    "revision": revision,
+                    "admin_task_id": str(task.id),
+                },
             },
         )
     )

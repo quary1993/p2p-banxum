@@ -615,11 +615,14 @@ def ensure_related_admin_task(
     priority: str = AdminTaskPriority.NORMAL,
     notes: str = "",
     due_at: datetime | None = None,
+    reopen_closed: bool = False,
 ) -> tuple[AdminTask, bool]:
     """The single task for one object and one task type; created once (18.4).
 
-    Returns (task, created). An existing task, open or closed, is returned unchanged: callers
-    that need a new task for a new occurrence use a new related object id.
+    Returns (task, opened). An existing task, open or closed, is returned unchanged with
+    ``opened=False``: callers that need a new task for a new occurrence use a new related
+    object id. With ``reopen_closed`` (audit S3-3, S3-4) a closed task is opened again with the
+    new notes, because its object needs work again; then ``opened`` is True.
     """
     task_filter = {
         "task_type": _task_type(task_type),
@@ -628,6 +631,19 @@ def ensure_related_admin_task(
     }
     existing = AdminTask.objects.select_for_update().filter(**task_filter).first()
     if existing is not None:
+        if reopen_closed and existing.status in TERMINAL_ADMIN_TASK_STATUSES:
+            reopened = update_admin_task(
+                UpdateAdminTaskCommand(
+                    actor=actor,
+                    task_id=str(existing.id),
+                    status=AdminTaskStatus.OPEN,
+                    title=title[:255],
+                    priority=priority,
+                    notes=notes,
+                    due_at=due_at or now_utc(),
+                )
+            )
+            return reopened, True
         return existing, False
     try:
         with transaction.atomic():
@@ -1328,6 +1344,10 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
             "Verify or reject the IBAN first. This task closes when the IBAN is verified "
             "or rejected."
         )
+    if "status" in changes and task.status in TERMINAL_ADMIN_TASK_STATUSES:
+        blocker = _task_close_blocker(task)
+        if blocker:
+            raise AdminTaskValidationError(blocker)
 
     task.save(
         update_fields=[
@@ -1383,6 +1403,38 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
     # An IBAN request is rejected only through the ledger reject action, which sends the
     # investor notice; the verification task cannot be closed while the request is pending.
     return task
+
+
+def _task_close_blocker(task: AdminTask) -> str:
+    """Audit S3-2, S3-4: a task that mirrors an open state closes with that state, not alone."""
+    if (
+        task.task_type == AdminTaskType.SETTLEMENT_CALENDAR
+        and task.related_object_type == "SettlementCalendarYear"
+    ):
+        calendars: Any = import_module("backend.apps.platform_core.services.settlement_calendar")
+        if not calendars.calendar_year_is_confirmed(task.related_object_id):
+            return (
+                "Confirm the year in Settlement calendars first. This task closes when the "
+                "calendar is confirmed."
+            )
+    if (
+        task.task_type == AdminTaskType.RETURN_FAILED
+        and task.related_object_type == "BalanceReturnFailure"
+    ):
+        try:
+            failure_open = bool(
+                _model("ledger", "BalanceReturnFailure")
+                .objects.filter(pk=task.related_object_id, status="open")
+                .exists()
+            )
+        except (ValueError, DjangoValidationError):
+            failure_open = False
+        if failure_open:
+            return (
+                "The failed return is still open. Send the money again to a verified account; "
+                "this task closes when no money of the failed return is left on the balance."
+            )
+    return ""
 
 
 def _payout_instruction_is_pending(instruction_id: str) -> bool:

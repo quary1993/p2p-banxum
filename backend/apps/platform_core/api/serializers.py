@@ -136,6 +136,8 @@ class SettlementCalendarYearSerializer(serializers.Serializer[Any]):
     confirmed_at = serializers.DateTimeField(allow_null=True)
     confirmed_by_admin_id = serializers.CharField(allow_null=True)
     confirmation_note = serializers.CharField()
+    revision = serializers.IntegerField()
+    reconfirmation_needed_since = serializers.DateTimeField(allow_null=True)
     days = SettlementCalendarDaySerializer(many=True)
 
 

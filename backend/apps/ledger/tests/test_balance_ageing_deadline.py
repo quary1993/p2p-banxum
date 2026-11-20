@@ -5,6 +5,7 @@ at day 59, F01 for direct loans, FX lot inheritance and future-date guards."""
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from importlib import import_module
 from typing import Any, cast
 
 import pytest
@@ -353,6 +354,25 @@ def test_lots_from_before_the_switch_keep_their_58_days(admin_user: Model, inves
     result = _scan(admin_user, _at(date(2026, 3, 5), 0, 30))
     assert [request.amount_minor for request in result.forced_withdrawal_requests] == [400_00]
     assert result.forced_withdrawal_requests[0].metadata["auto_return_after_days"] == 58
+
+
+@pytest.mark.django_db
+def test_a_deposit_recorded_after_the_switch_follows_56_days_also_with_an_old_value_date(
+    admin_user: Model, investor: Model
+) -> None:
+    """Audit S3-7, U33-DEC-03 transition: only lots that existed at the switch keep 58 days
+    (their dates were announced). A deposit recorded later was never announced with the 58-day
+    dates, so it follows 56 days from its value date, also when that date is before the switch."""
+    with freeze_time(_at(date(2026, 11, 25))):
+        # Value date long before the switch (migration ledger 0015, November 2026).
+        backdated = _deposit(
+            admin_user, investor, amount_minor=300_00, value_date=date(2026, 10, 1), key="back"
+        )
+    assert backdated.balance_lot.return_after_days == 56
+    # Day 0 is the value date: day 56 is 2026-11-26, one day after the deposit was recorded.
+    scheduler: Any = import_module("backend.apps.platform_core.services.balance_schedule")
+    schedule = scheduler.BalanceScheduler().schedule(backdated.balance_lot)
+    assert schedule.holding_day(date(2026, 11, 26)) == 56
 
 
 @pytest.mark.django_db

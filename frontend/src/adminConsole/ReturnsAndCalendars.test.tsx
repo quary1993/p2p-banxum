@@ -101,6 +101,66 @@ test("a failed return is sent again to a verified account chosen by the admin", 
   await waitFor(() => expect(resendBody).toEqual({ payout_instruction_id: "55555555-5555-4555-8555-555555555555" }));
 });
 
+test("the same account is used again only with the recorded cleared cause", async () => {
+  // Audit S3-8: a technical failure leaves the account valid; a guess is still not enough.
+  let resendBody: Record<string, unknown> | null = null;
+  const technical = { ...failure, reason_code: "technical" as const, reason_label: "Technical error" };
+  server.use(
+    http.get("*/api/v1/ledger/admin/return-failures/", () => HttpResponse.json({ results: [technical] })),
+    http.get("*/api/v1/ledger/admin/payout-instructions/", () =>
+      HttpResponse.json({
+        count: 1,
+        limit: 50,
+        offset: 0,
+        results: [
+          {
+            id: "77777777-7777-4777-8777-777777777777",
+            investor_user_id: failure.investor_user_id,
+            investor_name: "Una Investor",
+            investor_email: "una@example.test",
+            investor_reference: "INV-1",
+            currency: "CHF",
+            destination_iban: failure.failed_destination_iban,
+            destination_account_name: "Una Investor",
+            state: "verified",
+            is_default_return: true,
+            origin: "investor_request",
+            verified_at: "2026-01-06T09:00:00Z",
+            verified_by_admin_id: null,
+            evidence_reference: "",
+            other_investor_count: 0,
+            open_withdrawal_count: 0,
+            revocation_reason: "",
+            revoked_at: null,
+            created_at: "2026-01-06T08:00:00Z"
+          }
+        ]
+      })
+    ),
+    http.post("*/api/v1/ledger/admin/return-failures/:id/resend/", async ({ request }) => {
+      resendBody = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({ withdrawal_request: {} });
+    })
+  );
+  renderLive(<cards.ReturnFailuresCard />);
+  const row = (await screen.findByText("Technical error")).closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Act" }));
+  const select = await screen.findByLabelText("Send again to");
+  await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2));
+  fireEvent.change(select, { target: { value: "77777777-7777-4777-8777-777777777777" } });
+  const send = screen.getByRole("button", { name: "Send again" });
+  expect(send).toBeDisabled();
+  fireEvent.click(screen.getByLabelText(/The cause is cleared/));
+  expect(send).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Bank confirmed by phone." } });
+  expect(send).toBeEnabled();
+  expect(screen.getByText(/A note closes the case only when no money/)).toBeInTheDocument();
+  fireEvent.click(send);
+  await waitFor(() =>
+    expect(resendBody).toEqual({ payout_instruction_id: "77777777-7777-4777-8777-777777777777", note: "Bank confirmed by phone.", cause_cleared: true })
+  );
+});
+
 test("a returned transfer is recorded with the bank's reason", async () => {
   let body: Record<string, unknown> | null = null;
   server.use(
@@ -190,14 +250,21 @@ test("the settlement calendar shows the year, closes a day and confirms the year
     confirmed_at: null,
     confirmed_by_admin_id: null,
     confirmation_note: "",
+    revision: 0,
+    reconfirmation_needed_since: null,
     days: [{ id: "d1", date: "2027-01-01", name: "New Year's Day", origin: "rule", is_active: true, removal_reason: "" }]
   };
   let added: Record<string, unknown> | null = null;
   let confirmed: Record<string, unknown> | null = null;
+  let changed = false;
   server.use(
-    http.get("*/api/v1/admin/settlement-calendars/", () => HttpResponse.json(year)),
+    http.get("*/api/v1/admin/settlement-calendars/", () =>
+      HttpResponse.json(changed ? { ...year, revision: 1, reconfirmation_needed_since: "2026-11-02T08:00:00Z" } : year)
+    ),
     http.post("*/api/v1/admin/settlement-calendars/days/", async ({ request }) => {
       added = (await request.json()) as Record<string, unknown>;
+      // Audit S3-4: a changed day in a confirmed year removes the confirmation.
+      changed = true;
       return HttpResponse.json(year);
     }),
     http.post("*/api/v1/admin/settlement-calendars/confirm/", async ({ request }) => {
@@ -213,6 +280,7 @@ test("the settlement calendar shows the year, closes a day and confirms the year
   fireEvent.change(screen.getByLabelText("Name of the closed day"), { target: { value: "Bank closed" } });
   fireEvent.click(screen.getByRole("button", { name: "Close this day" }));
   await waitFor(() => expect(added).toEqual({ currency: "CHF", date: "2027-12-24", name: "Bank closed" }));
+  expect(await screen.findByText("Changed after confirmation: confirm again")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Confirm CHF 2027" }));
   await waitFor(() => expect(confirmed).toEqual({ currency: "CHF", year: 2027 }));
 });

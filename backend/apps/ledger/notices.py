@@ -161,14 +161,16 @@ def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
                 + f"\n\nOur team sends the transfer by hand on {send_on}. You cannot "
                 f"{_invest_or_exchange()} this amount now. We tell you when the transfer is made."
             ),
-            template_key="ledger.forced_return_created.v2",
+            template_key="ledger.forced_return_created.v3",
             notice_label="Balance notice",
             status_label="Action taken",
             status_tone="warning",
             data_rows=(
                 ("Amount", amount),
                 ("To", destination),
-                ("Transfer sent on", send_on),
+                # Audit S3-5: at this stage the transfer is planned, not made. "Transfer sent
+                # on" is only in the notice after the transfer (notify_withdrawal_finalized).
+                ("Planned transfer date", send_on),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",
@@ -206,7 +208,10 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
             data_rows=(
                 ("Amount", amount),
                 ("To", destination),
-                ("Value date", notice_date(value_date) if value_date else ""),
+                (
+                    "Transfer sent on" if request.is_forced else "Value date",
+                    notice_date(value_date) if value_date else "",
+                ),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",

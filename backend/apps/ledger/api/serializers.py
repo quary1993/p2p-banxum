@@ -697,6 +697,14 @@ class BalanceReturnFailureListQuerySerializer(serializers.Serializer[Any]):
 class BalanceReturnFailureResendRequestSerializer(serializers.Serializer[Any]):
     payout_instruction_id = serializers.UUIDField()
     note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    cause_cleared = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Needed to send again to the same account after a bank restriction or a "
+            "technical error: the cause is cleared, and the note says who confirmed it."
+        ),
+    )
 
 
 class BalanceReturnFailureResolveRequestSerializer(serializers.Serializer[Any]):

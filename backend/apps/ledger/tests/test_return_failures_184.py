@@ -27,12 +27,14 @@ from backend.apps.ledger.models import (
     LedgerJournalEntry,
 )
 from backend.apps.ledger.services import (
+    CancelInvestorWithdrawalCommand,
     DeclareLenderDepositCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerConflictError,
     LedgerValidationError,
     RequestInvestorWithdrawalCommand,
     RunBalanceAgeingScanCommand,
+    cancel_investor_withdrawal,
     finalize_investor_withdrawal,
     investor_balance_integrity_breaks,
     request_investor_withdrawal,
@@ -40,7 +42,7 @@ from backend.apps.ledger.services import (
 )
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import business_timezone
-from backend.apps.platform_core.models import Currency, OutboxMessage
+from backend.apps.platform_core.models import AuditEvent, Currency, OutboxMessage
 from backend.apps.platform_core.services.settings import (
     SetPlatformSettingCommand,
     set_platform_setting,
@@ -420,6 +422,193 @@ def test_a_failure_closes_when_no_money_is_left_or_with_a_note(
 
 
 @pytest.mark.django_db
+def test_a_note_cannot_close_a_failure_and_restart_automatic_returns(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Audit S3-2: with the money still on the balance the case stays open, its task cannot be
+    closed alone, and no scan sends the money by itself."""
+    deposit, forced = _forced_and_sent(admin_user, investor)
+    failure = _returned(admin_user, forced, date(2026, 3, 4), reason="technical")
+    with pytest.raises(LedgerConflictError, match="a note cannot close the case") as refused:
+        return_failures.resolve_return_failure(
+            return_failures.ResolveReturnFailureCommand(
+                actor=admin_user, failure_id=str(failure.id), note="Handled with the lawyer."
+            )
+        )
+    assert refused.value.code == "return_failure_money_on_balance"
+    admin_ops: Any = import_module("backend.apps.admin_ops.services")
+    [task] = _tasks("return_failed")
+    with pytest.raises(admin_ops.AdminTaskValidationError, match="failed return is still open"):
+        admin_ops.update_admin_task(
+            admin_ops.UpdateAdminTaskCommand(
+                actor=admin_user, task_id=str(task.id), status="resolved", completion_note="Done."
+            )
+        )
+    for day in (date(2026, 3, 5), date(2026, 3, 6), date(2026, 3, 9)):
+        assert _scan(admin_user, day).forced_withdrawal_requests == []
+    failure.refresh_from_db()
+    deposit.balance_lot.refresh_from_db()
+    assert failure.status == "open"
+    assert deposit.balance_lot.available_amount_minor == 1000_00
+    assert InvestorWithdrawalRequest.objects.filter(status="requested").count() == 0
+
+
+@pytest.mark.django_db
+def test_a_cancelled_forced_return_is_requested_again_on_the_same_day(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Audit S3-3: the cancelled request is not the day's result; the next scan reserves the
+    lots in one new request, also on the same business day."""
+    deposit = _deposit(admin_user, investor, key="dep")
+    day = date(2026, 3, 3)
+    forced = _scan(admin_user, day).forced_withdrawal_requests[0]
+    with freeze_time(_at(day, 11)):
+        cancel_investor_withdrawal(
+            CancelInvestorWithdrawalCommand(
+                actor=admin_user,
+                withdrawal_request_id=str(forced.id),
+                reason="Wrong bank data, corrected.",
+                idempotency_key="cancel-forced-1",
+            )
+        )
+    deposit.balance_lot.refresh_from_db()
+    assert deposit.balance_lot.available_amount_minor == 1000_00
+
+    [replacement] = _scan(admin_user, day).forced_withdrawal_requests
+    assert replacement.id != forced.id
+    assert (replacement.status, replacement.is_forced) == ("requested", True)
+    assert replacement.metadata["return_attempt"] == 2
+    assert [item["lot_id"] for item in replacement.lot_allocations] == [str(deposit.balance_lot.id)]
+    deposit.balance_lot.refresh_from_db()
+    assert deposit.balance_lot.available_amount_minor == 0
+    # A further scan on the day finds nothing due: the lots are reserved; nothing is doubled.
+    assert _scan(admin_user, day).forced_withdrawal_requests == []
+    assert InvestorWithdrawalRequest.objects.filter(status="requested").count() == 1
+    assert InvestorWithdrawalRequest.objects.filter(status="cancelled").count() == 1
+
+
+@pytest.mark.django_db
+def test_a_cancelled_send_again_opens_the_failed_return_again(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Audit S3-3: after the cancellation the money is back, the failure and its task are open
+    again, and the scan sends nothing by itself."""
+    deposit, forced = _forced_and_sent(admin_user, investor)
+    failure = _returned(admin_user, forced, date(2026, 3, 4), reason="account_closed")
+    new_account = InvestorPayoutInstruction.objects.create(
+        investor_user_id=investor.pk,
+        currency_id="CHF",
+        destination_iban=NEW_IBAN,
+        destination_account_name="Return Investor",
+        is_verified_usable=True,
+        verified_at=timezone.now(),
+        verified_by_admin_id=admin_user.pk,
+        created_by_admin_id=admin_user.pk,
+    )
+
+    def resend(key: str) -> InvestorWithdrawalRequest:
+        with freeze_time(_at(date(2026, 3, 5), 12)):
+            return return_failures.resend_failed_return(
+                return_failures.ResendFailedReturnCommand(
+                    actor=admin_user,
+                    failure_id=str(failure.id),
+                    payout_instruction_id=str(new_account.id),
+                    note=key,
+                )
+            )
+
+    first = resend("first")
+    with freeze_time(_at(date(2026, 3, 5), 13)):
+        cancel_investor_withdrawal(
+            CancelInvestorWithdrawalCommand(
+                actor=admin_user,
+                withdrawal_request_id=str(first.id),
+                reason="Stopped before the transfer.",
+                idempotency_key="cancel-resend-1",
+            )
+        )
+    failure.refresh_from_db()
+    assert (failure.status, failure.resolution, failure.resend_withdrawal_request_id) == (
+        "open",
+        "",
+        None,
+    )
+    assert [task.status for task in _tasks("return_failed")] == ["open"]
+    assert AuditEvent.objects.filter(action="ledger.balance_return_failure_reopened").count() == 1
+    assert _scan(admin_user, date(2026, 3, 5)).forced_withdrawal_requests == []
+    deposit.balance_lot.refresh_from_db()
+    assert deposit.balance_lot.available_amount_minor == 1000_00
+
+    # The team sends it again on the same day: a new request, the failure closes again.
+    second = resend("second")
+    failure.refresh_from_db()
+    assert second.id != first.id and second.status == "requested"
+    assert (failure.status, failure.resend_withdrawal_request_id) == ("resolved", second.id)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("reason", "same_account_after_cleared_cause"),
+    [
+        ("bank_restriction", True),
+        ("technical", True),
+        ("account_closed", False),
+        ("account_unknown", False),
+        ("name_mismatch", False),
+        ("account_blocked", False),
+        ("other", False),
+    ],
+)
+def test_the_same_account_is_used_again_only_after_a_recorded_cleared_cause(
+    admin_user: Model,
+    investor: Model,
+    reason: str,
+    same_account_after_cleared_cause: bool,
+) -> None:
+    """Audit S3-8, one case per bank reason: a bank-side failure needs the recorded statement
+    that the cause is cleared; an account or holder failure always needs a new verification."""
+    _deposit_, forced = _forced_and_sent(admin_user, investor)
+    failure = _returned(admin_user, forced, date(2026, 3, 4), reason=reason)
+    account = InvestorPayoutInstruction.objects.get(destination_iban=IBAN)
+
+    def resend(**values: Any) -> InvestorWithdrawalRequest:
+        with freeze_time(_at(date(2026, 3, 4), 12)):
+            return return_failures.resend_failed_return(
+                return_failures.ResendFailedReturnCommand(
+                    actor=admin_user,
+                    failure_id=str(failure.id),
+                    payout_instruction_id=str(account.id),
+                    **values,
+                )
+            )
+
+    if not same_account_after_cleared_cause:
+        expected = (
+            "Choose a verified bank account"
+            if account.status != "active" or reason != "other"
+            else "corrected or newly verified account"
+        )
+        with pytest.raises((LedgerConflictError, LedgerValidationError), match=expected):
+            resend(cause_cleared=True, note="The bank says it works again.")
+        assert InvestorWithdrawalRequest.objects.filter(status="requested").count() == 0
+        return
+    # The account stays valid, but a guess is not enough.
+    with pytest.raises(LedgerConflictError, match="confirm that the cause is cleared") as refused:
+        resend(note="Try again.")
+    assert refused.value.code == "return_failure_cause_not_cleared"
+    with pytest.raises(LedgerConflictError, match="confirm that the cause is cleared"):
+        resend(cause_cleared=True, note="  ")
+    again = resend(cause_cleared=True, note="Bank X confirmed by phone: restriction lifted.")
+    assert again.metadata["destination_selection"]["same_account_cause_cleared"] is True
+    cleared = AuditEvent.objects.get(action="ledger.balance_return_failure_cause_cleared")
+    assert cleared.metadata["note"] == "Bank X confirmed by phone: restriction lifted."
+    assert cleared.metadata["reason_code"] == reason
+
+
+@pytest.mark.django_db
 def test_a_returned_voluntary_withdrawal_puts_the_money_back_without_a_failure_case(
     admin_user: Model,
     investor: Model,
@@ -486,9 +675,21 @@ def test_admin_api_records_lists_and_resolves_failed_returns(
         listed = client.get("/api/v1/ledger/admin/return-failures/?status=open")
         assert listed.status_code == 200, listed.json()
         assert [row["id"] for row in listed.json()["results"]] == [failure_id]
-        resolved = client.post(
+        # Audit S3-2: a note cannot close the case while the money is on the balance.
+        refused = client.post(
             f"/api/v1/ledger/admin/return-failures/{failure_id}/resolve/",
             data={"note": "Court deposit agreed with the lawyer."},
+            content_type="application/json",
+        )
+        assert refused.status_code == 409, refused.json()
+        assert refused.json()["code"] == "return_failure_money_on_balance"
+        # The money left the balance (shown here directly on the lot): the note closes it.
+        InvestorBalanceLot.objects.filter(id=_deposit_.balance_lot.id).update(
+            available_amount_minor=0, withdrawn_amount_minor=1000_00, status="consumed"
+        )
+        resolved = client.post(
+            f"/api/v1/ledger/admin/return-failures/{failure_id}/resolve/",
+            data={"note": "The investor withdrew the money to a new account."},
             content_type="application/json",
         )
         assert resolved.status_code == 200

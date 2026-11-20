@@ -826,6 +826,7 @@ class AdminReturnFailureResendView(APIView):
                     failure_id=str(failure_id),
                     payout_instruction_id=str(data["payout_instruction_id"]),
                     note=data.get("note", ""),
+                    cause_cleared=bool(data.get("cause_cleared", False)),
                 )
             )
         except (LedgerValidationError, LedgerAuthorizationError) as exc:

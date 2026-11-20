@@ -113,7 +113,11 @@ def _admin_ops() -> Any:
 
 
 def open_failure_lot_ids(*, currency: Currency | None = None) -> set[str]:
-    """Lots of open failed returns: the scan does not send them again by itself."""
+    """Lots of open failed returns: the scan does not send them again by itself.
+
+    Audit S3-2: a failed return stays open while its money is on the balance (a note cannot
+    close it), so this block holds until the money leaves through a recorded withdrawal.
+    """
     queryset = BalanceReturnFailure.objects.filter(status=BalanceReturnFailureStatus.OPEN)
     if currency is not None:
         queryset = queryset.filter(currency=currency)
@@ -840,6 +844,9 @@ class ResendFailedReturnCommand:
     failure_id: str
     payout_instruction_id: str
     note: str = ""
+    # Audit S3-8: to send again to the same account after a bank-side failure, the admin
+    # records that the cause is cleared (who confirmed it and how, in ``note``).
+    cause_cleared: bool = False
 
 
 @transaction.atomic
@@ -877,12 +884,25 @@ def resend_failed_return(command: ResendFailedReturnCommand) -> InvestorWithdraw
     reverified = (
         instruction.verified_at is not None and instruction.verified_at > failure.recorded_at
     )
-    if same_account and not reverified and failure.reason_code not in BANK_SIDE_REASONS:
-        raise ledger.LedgerConflictError(
-            "The bank returned the money from this account. Send again only to a corrected or "
-            "newly verified account.",
-            code="return_failure_same_account",
-        )
+    note = command.note.strip()
+    cause_cleared = False
+    if same_account and not reverified:
+        if failure.reason_code not in BANK_SIDE_REASONS:
+            raise ledger.LedgerConflictError(
+                "The bank returned the money from this account. Send again only to a corrected "
+                "or newly verified account.",
+                code="return_failure_same_account",
+            )
+        # A bank restriction or a technical error can still be there: never again to the same
+        # data on a guess.
+        if not command.cause_cleared or not note:
+            raise ledger.LedgerConflictError(
+                "The bank returned the money from this account. To send again to the same "
+                "account, confirm that the cause is cleared and write in the note who "
+                "confirmed it. Otherwise use another verified account.",
+                code="return_failure_cause_not_cleared",
+            )
+        cause_cleared = True
     lots = [
         lot
         for lot in InvestorBalanceLot.objects.select_for_update().filter(
@@ -896,12 +916,12 @@ def resend_failed_return(command: ResendFailedReturnCommand) -> InvestorWithdraw
             "No money of this failed return is left on the balance.",
             code="return_failure_no_money_left",
         )
-    note = command.note.strip()
     destination_selection = {
         "rule": "resend_after_failed_return",
         "payout_instruction_id": str(instruction.id),
         "destination_iban": instruction.destination_iban,
         "reason": note or "Sent again after a failed return.",
+        **({"same_account_cause_cleared": True} if cause_cleared else {}),
     }
     withdrawal_request = ledger._create_forced_withdrawal_request(
         actor=command.actor,
@@ -916,6 +936,21 @@ def resend_failed_return(command: ResendFailedReturnCommand) -> InvestorWithdraw
         extra_metadata={"resent_after_failure_id": str(failure.id)},
         key_suffix=f":resend:{failure.id}",
     )
+    if cause_cleared:
+        record_audit_event(
+            AuditCommand(
+                actor=actor_ref_for_user(command.actor),
+                action="ledger.balance_return_failure_cause_cleared",
+                target_type="BalanceReturnFailure",
+                target_id=str(failure.id),
+                metadata={
+                    "reason_code": str(failure.reason_code),
+                    "payout_instruction_id": str(instruction.id),
+                    "note": note,
+                    "resend_withdrawal_request_id": str(withdrawal_request.id),
+                },
+            )
+        )
     _close_failure(
         failure,
         actor=command.actor,
@@ -927,6 +962,70 @@ def resend_failed_return(command: ResendFailedReturnCommand) -> InvestorWithdraw
     return withdrawal_request
 
 
+def reopen_failure_after_cancelled_resend(
+    *, actor: Model, withdrawal_request: InvestorWithdrawalRequest
+) -> BalanceReturnFailure | None:
+    """Audit S3-3: a cancelled "send again" puts the money back, so its failed return is open
+    again. Without this the scan would send the money by itself to the default account."""
+    failure_id = str(dict(withdrawal_request.metadata or {}).get("resent_after_failure_id") or "")
+    if not failure_id:
+        return None
+    failure = (
+        BalanceReturnFailure.objects.select_for_update()
+        .select_related("currency")
+        .filter(id=failure_id, resend_withdrawal_request=withdrawal_request)
+        .first()
+    )
+    if failure is None or failure.status == BalanceReturnFailureStatus.OPEN:
+        return failure
+    failure.status = BalanceReturnFailureStatus.OPEN
+    failure.resolved_at = None
+    failure.resolved_by_admin_id = None
+    failure.resolution = ""
+    failure.resolution_note = ""
+    failure.resend_withdrawal_request = None
+    failure.save(
+        update_fields=[
+            "status",
+            "resolved_at",
+            "resolved_by_admin_id",
+            "resolution",
+            "resolution_note",
+            "resend_withdrawal_request",
+            "updated_at",
+        ]
+    )
+    amount = format_amount_minor(failure.amount_minor, str(failure.currency_id))
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="ledger.balance_return_failure_reopened",
+            target_type="BalanceReturnFailure",
+            target_id=str(failure.id),
+            metadata={
+                "investor_user_id": str(failure.investor_user_id),
+                "cancelled_withdrawal_request_id": str(withdrawal_request.id),
+            },
+        )
+    )
+    _admin_ops().ensure_related_admin_task(
+        actor=actor,
+        task_type="return_failed",
+        related_object_type=RETURN_FAILURE_TASK_TYPE,
+        related_object_id=str(failure.id),
+        title=f"Return failed: {amount} for {_investor_label(str(failure.investor_user_id))}",
+        priority="urgent",
+        notes=(
+            "The transfer that sent this failed return again was cancelled before it was made. "
+            "The money is on the balance again and the failed return is open. Send it again "
+            "only to a corrected or newly verified account. The platform does not retry by "
+            "itself."
+        ),
+        reopen_closed=True,
+    )
+    return failure
+
+
 @dataclass(frozen=True, slots=True)
 class ResolveReturnFailureCommand:
     actor: Model
@@ -936,7 +1035,13 @@ class ResolveReturnFailureCommand:
 
 @transaction.atomic
 def resolve_return_failure(command: ResolveReturnFailureCommand) -> BalanceReturnFailure:
-    """Close a failed return that the team handled outside the platform (with a note)."""
+    """Close a failed return with a note, only when none of its money is on the balance.
+
+    Audit S3-2: a note records no payment. While money of the failed return is on the balance
+    the case stays open (and the scan sends nothing by itself); it closes when the money leaves
+    through a recorded withdrawal or is sent again. A resolution outside the platform (for
+    example a court deposit) needs its own journaled service; a note cannot stand for it.
+    """
     ledger._require_admin_actor(command.actor)
     note = ledger._clean_required(command.note, "Note")
     failure = BalanceReturnFailure.objects.select_for_update().filter(id=command.failure_id).first()
@@ -945,6 +1050,16 @@ def resolve_return_failure(command: ResolveReturnFailureCommand) -> BalanceRetur
     if failure.status != BalanceReturnFailureStatus.OPEN:
         raise ledger.LedgerConflictError(
             "This failed return is already resolved.", code="return_failure_not_open"
+        )
+    if any(
+        lot.available_amount_minor > 0 and lot.status == BalanceLotStatus.AVAILABLE
+        for lot in _failure_lots(failure)
+    ):
+        raise ledger.LedgerConflictError(
+            "The money of this failed return is still on the balance, so a note cannot close "
+            "the case. Send it again to a verified account. The case closes by itself when no "
+            "money of it is left on the balance.",
+            code="return_failure_money_on_balance",
         )
     return _close_failure(
         failure, actor=command.actor, resolution=BalanceReturnFailureResolution.OTHER, note=note

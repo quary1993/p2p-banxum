@@ -16,6 +16,7 @@ from freezegun import freeze_time
 
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import (
+    AuditEvent,
     OutboxMessage,
     SettlementCalendarYear,
     SettlementHoliday,
@@ -238,3 +239,111 @@ def test_the_scheduled_job_runs_the_check(admin_user: Model) -> None:
     assert result.results[0].status == "succeeded", result.results[0].error
     assert sorted(summary["alerts"]) == ["CHF:2027", "EUR:2027"]
     assert summary["as_of_date"] == date(2026, 11, 20).isoformat()
+
+
+@pytest.mark.django_db
+def test_a_changed_day_clears_the_confirmation_and_opens_the_task_again(
+    admin_user: Model,
+) -> None:
+    """Audit S3-4: a confirmation covers the days as they were. A later change removes it, opens
+    the task again at once and sends one new alert for the new revision."""
+    tasks = apps.get_model("admin_ops", "AdminTask").objects.filter(
+        task_type="settlement_calendar", related_object_id="CHF:2027"
+    )
+    check_settlement_calendars(actor=admin_user, as_of=_at(date(2026, 11, 2)))
+    confirm_settlement_calendar_year(
+        ConfirmSettlementCalendarYearCommand(actor=admin_user, currency="CHF", year=2027)
+    )
+    assert tasks.get().status == "resolved"
+    alerts_before = OutboxMessage.objects.filter(topic="email.operations_alert").count()
+
+    changed = add_settlement_holiday(
+        AddSettlementHolidayCommand(
+            actor=admin_user, currency="CHF", date=date(2027, 12, 24), name="Bank closed"
+        )
+    )
+    assert changed["confirmed_at"] is None
+    assert (changed["revision"], changed["reconfirmation_needed_since"] is not None) == (1, True)
+    assert tasks.get().status == "open"
+    assert "changed after it was confirmed" in tasks.get().notes
+    assert OutboxMessage.objects.filter(topic="email.operations_alert").count() == alerts_before + 1
+    cleared = AuditEvent.objects.get(action="settlement_calendar.confirmation_cleared")
+    assert cleared.metadata["previous_confirmation"]["confirmed_by_admin_id"] == str(admin_user.pk)
+    # The day's check finds the open task: no second alert for the same revision.
+    assert (
+        check_settlement_calendars(actor=admin_user, as_of=_at(date(2026, 11, 3)))["alerts"] == []
+    )
+
+    confirmed = confirm_settlement_calendar_year(
+        ConfirmSettlementCalendarYearCommand(actor=admin_user, currency="CHF", year=2027)
+    )
+    assert confirmed["confirmed_at"] is not None
+    assert confirmed["reconfirmation_needed_since"] is None
+    assert tasks.get().status == "resolved"
+    # Removing the day again changes the confirmed year once more.
+    reopened = remove_settlement_holiday(
+        RemoveSettlementHolidayCommand(
+            actor=admin_user, currency="CHF", date=date(2027, 12, 24), reason="The bank is open."
+        )
+    )
+    assert (reopened["confirmed_at"], reopened["revision"]) == (None, 2)
+    assert tasks.count() == 1 and tasks.get().status == "open"
+    assert OutboxMessage.objects.filter(topic="email.operations_alert").count() == alerts_before + 2
+
+
+@pytest.mark.django_db
+def test_a_change_in_the_current_year_is_alerted_outside_the_november_window(
+    admin_user: Model,
+) -> None:
+    """Audit S3-4: a year that was confirmed and then changed is followed at any date."""
+    ensure_calendar_year("EUR", 2026)
+    confirm_settlement_calendar_year(
+        ConfirmSettlementCalendarYearCommand(actor=admin_user, currency="EUR", year=2026)
+    )
+    # A year that was never confirmed and only changes is not an alert before November.
+    add_settlement_holiday(
+        AddSettlementHolidayCommand(
+            actor=admin_user, currency="CHF", date=date(2026, 6, 1), name="Local closing"
+        )
+    )
+    with freeze_time(_at(date(2026, 3, 2))):
+        add_settlement_holiday(
+            AddSettlementHolidayCommand(
+                actor=admin_user, currency="EUR", date=date(2026, 6, 1), name="TARGET closed"
+            )
+        )
+    tasks = apps.get_model("admin_ops", "AdminTask").objects.filter(task_type="settlement_calendar")
+    assert [(task.related_object_id, task.status) for task in tasks] == [("EUR:2026", "open")]
+    # The task was closed in the database by an older path: the March check opens it again.
+    tasks.update(status="resolved")
+    march = check_settlement_calendars(actor=admin_user, as_of=_at(date(2026, 3, 3)))
+    assert march["alerts"] == ["EUR:2026"]
+    assert tasks.get().status == "open"
+
+
+@pytest.mark.django_db
+def test_the_calendar_task_cannot_be_closed_without_the_confirmation(admin_user: Model) -> None:
+    """Audit S3-4: the generic task action does not close the task of an unconfirmed year."""
+    admin_ops: Any = import_module("backend.apps.admin_ops.services")
+    check_settlement_calendars(actor=admin_user, as_of=_at(date(2026, 11, 2)))
+    task = apps.get_model("admin_ops", "AdminTask").objects.get(
+        task_type="settlement_calendar", related_object_id="CHF:2027"
+    )
+    for status in ("resolved", "cancelled"):
+        with pytest.raises(admin_ops.AdminTaskValidationError, match="Confirm the year"):
+            admin_ops.update_admin_task(
+                admin_ops.UpdateAdminTaskCommand(
+                    actor=admin_user, task_id=str(task.id), status=status, completion_note="Done."
+                )
+            )
+    # Work on the task stays possible.
+    admin_ops.update_admin_task(
+        admin_ops.UpdateAdminTaskCommand(
+            actor=admin_user, task_id=str(task.id), status="in_progress"
+        )
+    )
+    confirm_settlement_calendar_year(
+        ConfirmSettlementCalendarYearCommand(actor=admin_user, currency="CHF", year=2027)
+    )
+    task.refresh_from_db()
+    assert task.status == "resolved"

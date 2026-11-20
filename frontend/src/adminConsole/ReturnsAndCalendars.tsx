@@ -135,6 +135,9 @@ function ReturnFailureActions({ failure, onDone }: { failure: BalanceReturnFailu
   const options = accounts.data?.results ?? [];
   const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
+  // Audit S3-8: the same account again needs the recorded statement that the cause is cleared.
+  const [causeCleared, setCauseCleared] = useState(false);
+  const sameAccount = options.some((account) => account.id === accountId && account.destination_iban === failure.failed_destination_iban);
   const [result, setResult] = useState<string | null>(null);
   const done = (message: string) => {
     setResult(message);
@@ -161,7 +164,10 @@ function ReturnFailureActions({ failure, onDone }: { failure: BalanceReturnFailu
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
           if (isFixturePreview) return setResult("Preview: the return would be sent again.");
-          resend.mutate({ failureId: failure.id, data: { payout_instruction_id: accountId, note: note || undefined } });
+          resend.mutate({
+            failureId: failure.id,
+            data: { payout_instruction_id: accountId, note: note || undefined, cause_cleared: sameAccount && causeCleared ? true : undefined }
+          });
         }}
       >
         <Field hint="Only a verified account of the investor in the same currency." label="Send again to">
@@ -178,8 +184,19 @@ function ReturnFailureActions({ failure, onDone }: { failure: BalanceReturnFailu
         <Field label="Note">
           <textarea aria-label="Note" onChange={(event) => setNote(event.target.value)} rows={2} value={note} />
         </Field>
+        {sameAccount ? (
+          <label className="check-row">
+            <input checked={causeCleared} onChange={(event) => setCauseCleared(event.target.checked)} type="checkbox" />
+            This is the account the bank returned the money from. The cause is cleared; the note says who confirmed it. (Only after
+            a bank restriction or a technical error. After an account or holder error the account must be verified again.)
+          </label>
+        ) : null}
+        <p className="muted">
+          A note closes the case only when no money of this failed return is left on the balance. While the money is there, send it
+          again; the platform does not retry by itself.
+        </p>
         <div className="row gap-8 wrap">
-          <Button disabled={!accountId || resend.isPending} type="submit" variant="primary">
+          <Button disabled={!accountId || resend.isPending || (sameAccount && (!causeCleared || !note.trim()))} type="submit" variant="primary">
             Send again
           </Button>
           <Button
@@ -425,7 +442,8 @@ export function SettlementCalendarsCard() {
       <h2>Settlement calendars</h2>
       <p>
         Closed days of the CHF (SIX SIC) and EUR (TARGET) payment systems, besides weekends. Return dates and due dates use them.
-        Check each year against the bank and confirm it.
+        Check each year against the bank and confirm it. If you close or open a day in a confirmed year, the confirmation is
+        removed: confirm the year again.
       </p>
       <div className="row gap-8 wrap">
         <Field label="Currency">
@@ -442,6 +460,8 @@ export function SettlementCalendarsCard() {
         <p>
           {calendar.confirmed_at ? (
             <Chip tone="ok">Confirmed {formatDateTime(calendar.confirmed_at)}</Chip>
+          ) : calendar.reconfirmation_needed_since ? (
+            <Chip tone="warn">Changed after confirmation: confirm again</Chip>
           ) : calendar.stored ? (
             <Chip tone="warn">Preloaded, not confirmed</Chip>
           ) : (

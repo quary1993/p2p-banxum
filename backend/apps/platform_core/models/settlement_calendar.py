@@ -33,6 +33,11 @@ class SettlementCalendarYear(TimestampedModel):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     confirmed_by_admin_id = models.UUIDField(null=True, blank=True)
     confirmation_note = models.TextField(blank=True)
+    # Audit S3-4: every added or removed day gives the year a new revision and clears its
+    # confirmation. ``reconfirmation_needed_since`` is set while a year that was confirmed
+    # waits to be confirmed again after such a change.
+    revision = models.PositiveIntegerField(default=0)
+    reconfirmation_needed_since = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["currency", "year"]

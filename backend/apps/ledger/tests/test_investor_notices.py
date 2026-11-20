@@ -14,7 +14,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from backend.apps.ledger import services as ledger_services
-from backend.apps.ledger.models import InvestorPayoutInstruction
+from backend.apps.ledger.models import InvestorPayoutInstruction, InvestorWithdrawalRequest
 from backend.apps.ledger.notices import notify_payout_instruction_saved
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
@@ -321,7 +321,10 @@ def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
     assert forced.payload["headline"] == "Your money goes back to your bank"
     assert "was not invested in time" in forced.payload["body_text"]
     assert "IBAN ending 2957" in forced.payload["body_text"]
-    assert ["Transfer sent on", "2026-02-26"] in forced.payload["data_rows"]
+    # Audit S3-5: at the request the transfer is planned; "sent" comes only after the transfer.
+    assert ["Planned transfer date", "2026-02-26"] in forced.payload["data_rows"]
+    assert not [row for row in forced.payload["data_rows"] if row[0] == "Transfer sent on"]
+    assert forced.payload["template_key"] == "ledger.forced_return_created.v3"
     # Without IBAN: one urgent notice when the money is due back, one on day 60, per lot.
     blocked = [
         (notice.payload["metadata"]["lot_id"], notice.payload["metadata"]["day"])
@@ -336,6 +339,27 @@ def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
     # No penalty-mode notice any more, and no notice after day 60.
     assert not investor_notices(other, "email.balance_penalty_mode")
     assert not investor_notices(other, "email.balance_forced_return")
+
+    # The second stage: the team made the transfer.
+    request = InvestorWithdrawalRequest.objects.get(investor_user_id=investor.pk, is_forced=True)
+    finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(request.id),
+            booking_date=date(2026, 2, 26),
+            value_date=date(2026, 2, 26),
+            collection_account_identifier="CH00GARANTALEDGER",
+            bank_reference="OUT-FORCED",
+            idempotency_key="finalize-forced",
+        )
+    )
+    [sent] = [
+        notice
+        for notice in investor_notices(investor, "email.withdrawal_status")
+        if notice.payload["metadata"]["withdrawal_event"] == "finalized"
+    ]
+    assert ["Transfer sent on", "2026-02-26"] in sent.payload["data_rows"]
+    assert "This confirms that we made the transfer" in sent.payload["body_text"]
 
 
 def test_payout_iban_added_rejected_verified_and_revoked_notices(
