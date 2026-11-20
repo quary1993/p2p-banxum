@@ -576,7 +576,7 @@ function CookieNotice({
       </div>
       <p>
         {t(
-          "We use necessary cookies to run the site and keep you signed in. With your consent, we also measure visits to improve the site. No advertising cookies."
+          "We use necessary cookies and site data to run the site and keep you signed in. Measurement of visits is not active today; your choice applies if we add it. No advertising cookies."
         )}{" "}
         <PublicLink href="/legal/cookies">{t("Cookie policy")}</PublicLink>
       </p>
@@ -588,7 +588,7 @@ function CookieNotice({
           </label>
           <label className="bxp-switch">
             <input checked={measure} onChange={(event) => setMeasure(event.target.checked)} type="checkbox" />
-            <span>{t("Measurement of visits")}</span>
+            <span>{t("Measurement of visits (not active today)")}</span>
           </label>
           <div className="bxp-cookie-actions">
             <button className="bxp-button is-primary" onClick={() => save(measure)} type="button">

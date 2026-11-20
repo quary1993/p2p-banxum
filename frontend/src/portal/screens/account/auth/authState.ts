@@ -1,6 +1,6 @@
 // IP of Webby-Soft SRL.
 // State of the sign-in and registration flows that survives a reload or the magic-link round trip:
-// the localStorage keys (unchanged, App.tsx clears them on sign-out), the registration form, the
+// the sessionStorage keys (App.tsx clears them on sign-out), the registration form, the
 // resume step of a signed-in account that has not finished onboarding, and small request helpers.
 import { ApiClientError } from "../../../../api/client/httpClient";
 import type { UserSummary } from "../../../../api/generated/banxumApi";
@@ -9,10 +9,27 @@ import { onboardingStepForUser } from "../../../../onboarding";
 export const loginFlowStorageKey = "banxum:login-flow:v1";
 export const registerFlowStorageKey = "banxum:register-flow:v3";
 
-export function readStoredObject<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+// Audit S8-3: the flow state holds personal data (name, email, phone, country), so it lives in
+// sessionStorage: it survives a reload of the tab and is gone when the tab closes. Values that an
+// older version left in localStorage are removed on the first read.
+function flowStorage(): Storage | null {
+  return typeof window === "undefined" ? null : window.sessionStorage;
+}
+
+function removeLegacy(key: string) {
   try {
-    const raw = window.localStorage.getItem(key);
+    window.localStorage.removeItem(key);
+  } catch {
+    // Storage blocked: nothing kept there either.
+  }
+}
+
+export function readStoredObject<T>(key: string, fallback: T): T {
+  const storage = flowStorage();
+  if (!storage) return fallback;
+  removeLegacy(key);
+  try {
+    const raw = storage.getItem(key);
     return raw ? ({ ...fallback, ...JSON.parse(raw) } as T) : fallback;
   } catch {
     return fallback;
@@ -20,21 +37,30 @@ export function readStoredObject<T>(key: string, fallback: T): T {
 }
 
 export function writeStoredObject(key: string, value: unknown) {
-  if (typeof window === "undefined") return;
+  const storage = flowStorage();
+  if (!storage) return;
   try {
-    window.localStorage.setItem(key, JSON.stringify(value));
+    storage.setItem(key, JSON.stringify(value));
   } catch {
     // Storage can be full or blocked (private mode); the flow still works for this visit.
   }
 }
 
 export function removeStoredObject(key: string) {
-  if (typeof window === "undefined") return;
+  const storage = flowStorage();
+  if (!storage) return;
+  removeLegacy(key);
   try {
-    window.localStorage.removeItem(key);
+    storage.removeItem(key);
   } catch {
     // Nothing to remove.
   }
+}
+
+/** Sign-out: the sign-in and registration flow state goes (audit S8-3). */
+export function clearAuthFlowState() {
+  removeStoredObject(loginFlowStorageKey);
+  removeStoredObject(registerFlowStorageKey);
 }
 
 export type LoginFlowState = {

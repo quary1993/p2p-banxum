@@ -299,7 +299,7 @@ test("registration asks for the PIN after the phone and before identity verifica
       HttpResponse.json({ ...getV1KycStatusRetrieveResponseMock(), status: "not_started", financial_access_allowed: false })
     )
   );
-  window.localStorage.setItem(
+  window.sessionStorage.setItem(
     "banxum:register-flow:v3",
     JSON.stringify({ step: 2, email: user.email, firstName: "Una", lastName: "Investor", emailLoginSent: true })
   );

@@ -56,7 +56,7 @@ import { PreviewControls } from "./portal/shell/PreviewControls";
 import { FrozenAccountNotice, ShellNotice, ShellNotices } from "./portal/shell/ShellNotices";
 import { AccountBlockedScreen } from "./portal/screens/account/AccountBlockedScreen";
 import { AuthLoading } from "./portal/screens/account/auth/AuthLayout";
-import { loginFlowStorageKey, registerFlowStorageKey } from "./portal/screens/account/auth/authState";
+import { clearAuthFlowState } from "./portal/screens/account/auth/authState";
 import { KycReturnScreen } from "./portal/screens/account/auth/KycReturnScreen";
 import { LoginScreen } from "./portal/screens/account/auth/LoginScreen";
 import { FactorGateScreen } from "./portal/screens/account/auth/FactorGateScreen";
@@ -140,14 +140,6 @@ function writeStoredObject(key: string, value: unknown) {
   }
 }
 
-function removeStoredObject(key: string) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Nothing to remove.
-  }
-}
 
 const routeNames: RouteName[] = [
   "public",
@@ -497,8 +489,7 @@ function goTo(setRoute: (route: AppRoute) => void, name: RouteName, params?: Rec
 
 function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.clear();
-  removeStoredObject(loginFlowStorageKey);
-  removeStoredObject(registerFlowStorageKey);
+  clearAuthFlowState();
 }
 
 // In-app navigation from the public site (site/SitePages.tsx navigate()): site paths change the

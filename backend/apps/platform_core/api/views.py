@@ -7,7 +7,7 @@ from django.utils.crypto import constant_time_compare
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -80,7 +80,7 @@ from backend.apps.platform_core.services.story_images import (
 
 class HealthView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [AllowAny]
 
     @extend_schema(responses=HealthResponseSerializer)
     def get(self, request):  # type: ignore[no-untyped-def]

@@ -65,6 +65,18 @@ def test_no_authentication_model_has_an_ip_address_column() -> None:
                 assert field.name.endswith("ip_hash"), (model.__name__, field.name)
 
 
+def test_only_the_clickwrap_evidence_keeps_a_raw_ip_address() -> None:
+    """Audit S8-1: the privacy notice names one place with the IP address in clear (the
+    evidence of an accepted document). A new raw IP column anywhere must update the notice."""
+    raw = sorted(
+        f"{model._meta.label}.{field.name}"
+        for model in apps.get_models()
+        for field in model._meta.get_fields()
+        if isinstance(field, models.GenericIPAddressField)
+    )
+    assert raw == ["documents.DocumentAcceptanceEvidence.ip_address"]
+
+
 @pytest.mark.django_db
 def test_a_full_sign_in_and_code_flow_stores_no_raw_address(client: Client) -> None:
     """Registration terms, phone codes, sign-in challenges, operation codes, password reset and

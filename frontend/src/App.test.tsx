@@ -281,7 +281,7 @@ test("the cookie choice is stored and can be changed from the footer", () => {
   fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Cookie settings" }));
   const settings = screen.getByRole("dialog", { name: "Cookies" });
   expect(within(settings).getByLabelText("Necessary (always on)")).toBeDisabled();
-  fireEvent.click(within(settings).getByLabelText("Measurement of visits"));
+  fireEvent.click(within(settings).getByLabelText("Measurement of visits (not active today)"));
   fireEvent.click(within(settings).getByRole("button", { name: "Save choice" }));
   expect(JSON.parse(window.localStorage.getItem("bxm-site-cookies") ?? "{}")).toMatchObject({ measure: true });
 });

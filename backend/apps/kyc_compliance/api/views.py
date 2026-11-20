@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.db.models import Model
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -185,7 +185,7 @@ class KycAdminManualReviewDecisionView(APIView):
 
 class DiditWebhookView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [AllowAny]
 
     @extend_schema(request=None, responses={202: DiditWebhookResponseSerializer})
     def post(self, request: Request) -> Response:

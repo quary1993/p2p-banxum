@@ -364,8 +364,8 @@ function CookieNotice({ settings, onSaved, onSettings }: { settings: boolean; on
     <div aria-label="Cookies" aria-live="polite" className="site-cookie" role="dialog">
       <h6 className="site-h4">Cookies</h6>
       <p>
-        We use necessary cookies to run the site and keep you signed in. With your consent, we also measure visits to
-        improve the site. No advertising cookies. <SiteLink href="/legal/cookies">Cookie policy</SiteLink>
+        We use necessary cookies and site data to run the site and keep you signed in. Measurement of visits is not
+        active today; your choice applies if we add it. No advertising cookies. <SiteLink href="/legal/cookies">Cookie policy</SiteLink>
       </p>
       {settings ? (
         <>
@@ -384,7 +384,7 @@ function CookieNotice({ settings, onSaved, onSettings }: { settings: boolean; on
               type="checkbox"
             />
             <label className="form-check-label" htmlFor="ck-measure">
-              Measurement of visits
+              Measurement of visits (not active today)
             </label>
           </div>
           <div className="site-actions">

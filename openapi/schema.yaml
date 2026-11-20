@@ -1929,6 +1929,7 @@ paths:
       - v1
       security:
       - cookieAuth: []
+      - {}
       responses:
         '204':
           description: No response body
@@ -3169,6 +3170,8 @@ paths:
           minLength: 1
       tags:
       - v1
+      security:
+      - {}
       responses:
         '200':
           content:
@@ -3214,6 +3217,8 @@ paths:
           minLength: 1
       tags:
       - v1
+      security:
+      - {}
       responses:
         '200':
           content:
@@ -4132,6 +4137,8 @@ paths:
       operationId: v1_health_retrieve
       tags:
       - v1
+      security:
+      - {}
       responses:
         '200':
           content:
@@ -5097,6 +5104,8 @@ paths:
       operationId: v1_kyc_webhooks_didit_create
       tags:
       - v1
+      security:
+      - {}
       responses:
         '202':
           content:

@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.contrib.auth import logout
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -376,7 +376,7 @@ class MarketingConsentView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes: list[type] = []
+    permission_classes = [AllowAny]
 
     @extend_schema(request=None, responses={204: None})
     def post(self, request: Request) -> Response:

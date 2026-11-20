@@ -6,7 +6,7 @@ from django.db.models import CharField, Model, Q
 from django.db.models.functions import Cast
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -57,7 +57,7 @@ def _superadmin_forbidden_response() -> Response:
 
 class CurrentDocumentTemplateView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         parameters=[DocumentCurrentTemplateQuerySerializer],
@@ -80,7 +80,7 @@ class CurrentDocumentTemplateView(APIView):
 
 class CurrentDocumentTemplateArtifactView(APIView):
     authentication_classes: list[type] = []
-    permission_classes: list[type] = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         parameters=[DocumentCurrentTemplateQuerySerializer],

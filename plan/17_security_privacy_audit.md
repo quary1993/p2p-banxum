@@ -4,6 +4,8 @@ Status: Draft. Updated with document acceptance, balance, FX, reporting/export, 
 
 Implementation status (2026-09-07): closure-time reversible pseudonymization and offline-key recovery, protected provider-payload/evidence retention, and final private-storage/malware-scanning hardening remain outstanding launch controls. The descriptions below specify the target behavior; they are not claims that those controls are implemented. Company KYB is completed and retained by Garanta offline, so platform company files/references are optional. Natural-person lender KYC and its required evidence safeguards remain in scope.
 
+Current state (2026-11-20, Phase 18.5 and audit step 8): the sign-in text below is the older design. Today investors sign in with email, password and a second factor (SMS code or authenticator app), with trusted devices and recovery codes; there are no magic links. Admins sign in with email, password and an authenticator app; there is no admin email code. One password policy (12 to 128 characters, common-password list, breach check) applies to investors and admins. Account tables keep IP addresses as keyed hashes; only the clickwrap evidence keeps the raw IP address (plan 13). Automatic deletion exists for sign-in history (setting `security.sign_in_history_retention_days`, 365 days), public enquiries (24 months) and newsletter data (30 days after the end); every other record follows SEC-DEC-003 until a detailed schedule is approved. The privacy notice and the cookie policy (`frontend/src/site/content.ts`) state this. Details: `IMPLEMENTATION_PLAN.md` 18.5 and 18.12.
+
 ## Purpose
 
 Define platform-wide security, privacy, data protection, and auditability requirements for a regulated lending platform handling identity, financial, and contractual data.
@@ -33,8 +35,8 @@ Define platform-wide security, privacy, data protection, and auditability requir
 
 - Encryption in transit and at rest.
 - Production secrets stored as environment variables at launch, with restricted tech-team access and rotation procedures.
-- Investor magic-link authentication.
-- Admin email/password authentication with email-code verification.
+- Investor authentication with email, password and a second factor (18.5; earlier: magic links).
+- Admin authentication with email, password and an authenticator app (18.5; earlier: email code).
 - Least-privilege access.
 - Periodic access reviews.
 - Immutable audit logs for regulated actions.
@@ -120,6 +122,8 @@ A conservative retention baseline avoids premature deletion in a regulated finan
 
 Follow-ups:
 Legal/compliance should later define a granular retention schedule and whether any records must be deleted, archived, redacted, or retained permanently.
+
+Updated 2026-11-20 (audit step 8, S8-2): three automatic deletions exist and are published in the privacy notice: sign-in history and ended sessions after `security.sign_in_history_retention_days` (365 days; the setting allows 30 to 3,650 days, and the notice must change with it), public enquiries after 24 months, newsletter personal data 30 days after a subscription ends or was never confirmed. All other records follow this decision. The notice says so and marks the detailed schedule "to confirm". Before launch, legal approves the schedule (support and closure requests, declarations and reviews, KYC evidence, clickwrap evidence, contracts, reports, investor documents, audit records, delivery outbox, recovery records, authentication challenges, server logs, legal holds); then each period gets an idempotent deletion or anonymisation job with a boundary test, and the notice is updated.
 
 ### SEC-DEC-004: Account Closure and Reversible Personal-Data Pseudonymization
 
@@ -285,6 +289,8 @@ Examples:
 - Any re-identification mapping must remain outside staging.
 
 ## Authentication and Access Controls
+
+Updated 2026-11-20: the magic-link and admin email-code lines below are superseded by 18.5 (see "Current state" at the top). They stay as the record of the earlier decisions.
 
 - Investor/client portal uses magic-link login at launch.
 - Natural-person investor phone verification is mandatory at launch.
