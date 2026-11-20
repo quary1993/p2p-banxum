@@ -352,7 +352,7 @@ def record_returned_withdrawal(command: RecordReturnedWithdrawalCommand) -> Bala
     ledger._require_admin_actor(command.actor)
     idempotency_key = ledger._clean_idempotency_key(command.idempotency_key)
     withdrawal_request = (
-        InvestorWithdrawalRequest.objects.select_for_update()
+        InvestorWithdrawalRequest.objects.select_for_update(of=("self",))
         .select_related("currency", "bank_operation")
         .filter(id=command.withdrawal_request_id)
         .first()
