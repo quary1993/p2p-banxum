@@ -449,3 +449,42 @@ def test_partial_early_payments_then_the_payoff_reconcile() -> None:
     assert payoff.interest_minor == interest_due
     assert position.principal_owed == 0
     assert 3_00 + second.interest_minor + payoff.interest_minor == built + interest_due
+
+
+@pytest.mark.parametrize("kind", [engine.KIND_EQUAL_INSTALLMENTS, engine.KIND_PERIODIC_INTEREST])
+def test_rows_reconcile_across_the_supported_range(kind: str) -> None:
+    """Audit step 5 (D2): half-up rounding per row. For small and large principals, low and high
+    rates and every frequency, the principal parts add up to the loan, each row total is its
+    principal plus its interest, no part is negative, and nothing is left at the end."""
+    checked = 0
+    for principal in (1_00, 99_99, 1_000_00, 123_456_78, 5_000_000_00):
+        for rate in (1, 50, 1_200, 2_400):
+            for frequency, term in (
+                ("monthly", 12),
+                ("quarterly", 24),
+                ("half_yearly", 36),
+                ("annual", 60),
+            ):
+                rows = engine.generate_schedule(
+                    engine.ScheduleTerms(
+                        principal_minor=principal,
+                        annual_rate_bps=rate,
+                        payout_date=PAYOUT,
+                        term_months=term,
+                        frequency=frequency,
+                        kind=kind,
+                    ),
+                    CHF_DAYS,
+                )
+                assert sum(row.principal_minor for row in rows) == principal
+                assert all(row.principal_minor >= 0 and row.interest_minor >= 0 for row in rows)
+                assert all(
+                    row.total_minor == row.principal_minor + row.interest_minor for row in rows
+                )
+                outstanding = principal
+                for row in rows:
+                    outstanding -= row.principal_minor
+                    assert outstanding >= 0
+                assert outstanding == 0
+                checked += 1
+    assert checked == 80
