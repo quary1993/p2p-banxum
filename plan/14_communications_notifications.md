@@ -43,8 +43,8 @@ Define transactional notifications, operational messaging, support communication
 - Balance ageing reminder day 46.
 - Balance ageing reminder day 53.
 - Balance ageing reminders day 56 and 57 (2026-10-16, replacing day 59).
-- Balance ageing last-day reminder day 58: tomorrow the money goes back to the bank, or without a usable IBAN "add a bank account today".
-- Without a usable IBAN only: day-59 urgent notice (add a verified bank account so we can return your money) and day-60 notice that penalty mode starts tomorrow (2026-10-16, replacing the day-60 penalty notice).
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Balance ageing last-day reminder day 58: tomorrow the money goes back to the bank, or without a usable IBAN "add a bank account today".
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Without a usable IBAN only: day-59 urgent notice (add a verified bank account so we can return your money) and day-60 notice that penalty mode starts tomorrow (2026-10-16, replacing the day-60 penalty notice).
 - Automatic return started (forced return, from day 59).
 - Currency exchange quote accepted.
 - Currency exchange completed/failed.
@@ -436,7 +436,7 @@ The current backend queues idempotent transactional email outbox messages for:
 - Secondary-market listing lifecycle updates for sellers.
 - Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
 - Smart-Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
-- Balance events (audit 2026-10, A-18): deposit credited; withdrawal requested, sent and cancelled; day-61 forced return started; penalty mode entered; payout IBAN added (also when added again after a rejection), verified, not verified (the admin rejects the request) or no longer usable (the admin revokes it). The IBAN verification task cannot be closed while the request is pending; the reject action closes it.
+- Balance events (audit 2026-10, A-18): deposit credited; withdrawal requested, sent and cancelled; the forced return requested ("Planned transfer date") and sent ("Transfer sent on"; 18.4, before: day-61 forced return started; penalty mode entered, removed with U33-DEC-04); payout IBAN added (also when added again after a rejection), verified, not verified (the admin rejects the request) or no longer usable (the admin revokes it). The IBAN verification task cannot be closed while the request is pending; the reject action closes it.
 - Currency exchange completed, with amounts, rate, fee and date.
 - Primary market: order placed with the amount actually reserved (also a partial reservation); funding closed (holding active) or partly closed (new loan amount); funding cancelled, with the admin's investor message; order released by an admin.
 - Loan status: Direct and Loan Originator loans turned Late (day 5) or Defaulted (day 16), sent to current holders.
@@ -457,10 +457,10 @@ Local development uses the mock email provider. Staging and production use `COMM
 - Relevant monetary actions are communicated by email at launch.
 - Any secondary-market transaction involving a user must generate relevant transactional email.
 - Lender balance-credit emails state the credited amount and payment context, but internal distribution artifacts are not sent as files by default.
-- Balance ageing reminders must be sent on days 25, 46, 53, 56, 57, and 58 for remaining unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days; day 59 and 60 notices only without a usable IBAN).
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Balance ageing reminders must be sent on days 25, 46, 53, 56, 57, and 58 for remaining unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days; day 59 and 60 notices only without a usable IBAN).
 - Reminder emails must state that the regulatory/compliance requirement to avoid holding user funds beyond 60 days cannot be extended.
 - Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw before the deadline.
-- Day-60 notifications must state that missing usable IBAN causes penalty mode and freezes financial actions until a usable IBAN is declared, while read-only access to portfolio, documents, tax information statements, notices, and messages remains available.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Day-60 notifications must state that missing usable IBAN causes penalty mode and freezes financial actions until a usable IBAN is declared, while read-only access to portfolio, documents, tax information statements, notices, and messages remains available.
 - Primary investment and secondary-market purchase documents are generated at transaction time and sent by email.
 - Launch document communications are English-only.
 - Arrears/default investor updates are event-driven: admin sends a bulk email and/or publishes a public loan note when something material changes.

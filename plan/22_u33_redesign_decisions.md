@@ -711,7 +711,7 @@ How to read this section:
 - If the return day is not a settlement day of the relevant Swiss interbank system, the return moves to the **previous** settlement day. Operations keep the yearly calendar in the admin and confirm it for the CHF/EUR transfers and the bank used. The request and the blocking of the amount are prepared early enough; the date shown to the investor includes the adjustment.
 - Requirement (2026-11-11): the effective **debit of the Garanta account** happens within the 60 days. It is proven by the bank's debit confirmation, not by the request or the payment order. Day 57 is the normal start; it moves earlier when the calendar, cut-off times or the bank's processing time need it. To confirm before launch: the bank's processing time and cut-offs, and which bank event proves settlement (legal reading of BankV art. 5 para. 3 let. c and FINMA circular 2008/3 no. 16).
 - Notices 14, 10 and 3 days before the scheduled (adjusted) return date; a confirmation when the request is created; a second confirmation after the team made the transfer (not a claim that the beneficiary bank credited it). The old reminders on days 25/46/53/56/57/58 stop. Urgent notices for a missing usable account stay separate.
-- Transition: lots with a value date on or after the change follow 56 days; older lots, if any, keep 58 days and their announced dates.
+- Transition (one rule, stated 2026-11-20 after audit step 3, S3-7): a lot that existed at the switch keeps 58 days and its announced dates. Every lot recorded after the switch follows 56 days from its value date, also when the value date is before the switch: its dates were never announced under the 58-day rule, and 56 days is never later than 58. (Earlier wording: "lots with a value date on or after the change follow 56 days; older lots, if any, keep 58 days". The migration `ledger` 0015 implements the rule above.)
 
 **U33-DEC-04 (Q02).**
 
@@ -722,7 +722,7 @@ How to read this section:
 - Urgent notices every day while unresolved (saying the real action needed). Compliance takes the case after 5 calendar days at the latest, and **at once** when the 60-day limit is threatened or passed (the age of the money is tracked, not only the age of the task).
 - To validate before launch (Swiss lawyer and bank): the exception procedure when a return is impossible, and how settlement is proven after a rejected transfer. Keeping money after day 60 is not allowed only because the problem comes from the investor. Court deposit ("Hinterlegung", CO art. 91-92, 96) is an option to analyse, not an approved procedure.
 
-**U33-DEC-05 (Q02.5).** Returns go only to a verified account of the investor. The team can verify the account that sent the deposit from the bank's data (holder and IBAN against the verified identity), keeping the proof, when the proof is sufficient; no automatic micro-transfer or extra statement. If the holder is unclear, the data differ or the transfer came through a collecting/intermediary account, the team asks for a statement or bank confirmation first. This does not allow sending to any IBAN that once sent money.
+**U33-DEC-05 (Q02.5).** Returns go only to a verified account of the investor. The team can verify the account that sent the deposit from the bank's data (holder and IBAN against the verified identity), keeping the proof, when the proof is sufficient; no automatic micro-transfer or extra statement. (Audit step 3, 2026-11-20: "verified identity" means the legal name from the approved Didit decision, `KycVerificationCase.verified_full_name`, not the name typed at registration; without it the deposit proves no account. A deposit itself never verifies an account.) If the holder is unclear, the data differ or the transfer came through a collecting/intermediary account, the team asks for a statement or bank confirmation first. This does not allow sending to any IBAN that once sent money.
 
 **U33-DEC-33 (Q25).** The old currency exchange screen is removed from the investor area; the function code can stay. Vlad checks shared style files before removing them.
 
@@ -1033,13 +1033,15 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.4 ("Status 2026-11-19"
 | --- | --- |
 | F17 | CHF (SIX SIC) and EUR (TARGET) settlement calendars: rule preload per year, admin edits and yearly confirmation, operations alert from 1 November while next year is not confirmed. |
 | D9 | Settings: processing 1 business day, cut-off 12:00, payout margin 3 business days. |
-| Q01, U33-DEC-03 | Day 56 last day; return request on day 57, moved to the previous settlement day and earlier so that the debit is by day 59; notices 14/10/3 days before; confirmations at the request and after the transfer; lots from before the switch keep 58 days. |
+| Q01, U33-DEC-03 | Day 56 last day; return request on day 57, moved to the previous settlement day and earlier so that the debit is by day 59; notices 14/10/3 days before; confirmations at the request and after the transfer; lots that existed at the switch keep 58 days. |
 | Q01 (debit) | Compliance alert when money reaches day 59 without the transfer marked as made, or when a request comes too late. |
 | F01 | Direct loans: close + 3 business days by day 56 of each lot (reservations and the usable balance on the opportunity page and Review & sign). |
 | Q02, U33-DEC-04 | "Return failed": reconciled once to the original lots, no new period, no penalty, bank reason, daily notices, admin task, compliance after 5 days or at once from day 57, send again only to a corrected or newly verified account. |
 | Q02.5, U33-DEC-05 | Admin verification of a return account from the deposit, with the evidence. |
 
 Choices made in this step (for the audit): the debit is planned for day 59 at the latest (one day of margin before day 60); money of a lot keeps the days it got at creation, so a deposit recorded after the switch with an older value date gets 56 days (stricter, never later); a failed voluntary withdrawal whose money is not due back is closed at once (the money is simply available again).
+
+Audit step 3 fixes (2026-11-20): one verification path for return accounts (no shortcut in the deposit form) against the name from Didit; a note cannot close a failed return while its money is on the balance; a cancelled forced return is requested again (a cancelled "send again" opens the failed return again); a changed day clears the calendar confirmation and the calendar task cannot be closed without it; "Planned transfer date" in the request notice; the same account after a bank-side failure only with the recorded cleared cause. Details in `IMPLEMENTATION_PLAN.md` 18.4 ("Audit step 3 fixes").
 
 ### Implemented In Audit Step 4 (2026-11-19, Phase 18.5 and the S7 clean-up)
 

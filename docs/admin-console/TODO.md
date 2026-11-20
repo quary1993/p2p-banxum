@@ -61,6 +61,7 @@ Each entry should include:
 
 ## 2026-06-02: Ledger Balance Ageing Operations
 
+- Status (2026-11-20): historical entry. Penalty mode and the daily penalty are removed (U33-DEC-04) and the 56-day return rule with failed returns and settlement calendars is built (18.4; Finance: failed returns, record a returned transfer, verify a return account from a deposit, settlement calendars).
 - Screen or component: investor payout-instruction management, balance-ageing scan, forced-withdrawal queue, penalty-mode review.
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, payout-instruction model, ageing scan service, forced-withdrawal request generation, penalty-mode transition evidence, and tests exist.
 - Required admin-console improvement: Codex should implement operational screens for registering verified payout IBANs, reviewing active payout instructions by investor/currency, running or inspecting balance-ageing scans, seeing due reminders, identifying forced-withdrawal requests, reviewing lots moved into penalty mode because no usable IBAN exists, and linking each item to ledger evidence/audit events.
@@ -249,6 +250,7 @@ Each entry should include:
 
 ## 2026-07-27: Finance Queue, Source-IBAN Verification, And Withdrawal Actions
 
+- Status (2026-11-20, audit step 3, S3-1): a lender deposit does not verify its source IBAN any more. After a deposit the admin verifies the paying account in "Verify a return account from a deposit": the holder against the legal name from the identity check, no collecting or intermediary account, and an evidence reference. The text below about automatic verification is historical.
 - Screen or component: Finance Operations, lender-deposit and payout-instruction forms, Daily Dashboard withdrawal drawers.
 - Current first-version behavior: Finance Operations begins with a bounded pending-work table that combines unresolved finance tasks and actionable finance dashboard queues. Lender deposits require a checksum-valid source IBAN and automatically establish that exact investor/currency account as a verified payout instruction. Admin-entered payout instructions are additive and no longer disable verified deposit-source accounts. Investor requests for another IBAN create a linked payout-verification task automatically; verifying the exact instruction resolves that task. Requested and forced withdrawals can be finalized or cancelled directly from their dashboard drawer with the same backend-backed form used in Finance Operations; the old deferred-action message was removed.
 - Required admin-console improvement: add a dedicated payout-instruction review drawer that shows the requesting investor, masked and full-on-demand IBAN, account name, prior verified accounts, task event history, and verification evidence checklist. Add an explicit external-bank payment confirmation summary before finalizing a withdrawal, and server-backed pagination if the combined finance work table outgrows its bounded launch view.

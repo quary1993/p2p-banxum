@@ -9,6 +9,16 @@ badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 - **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (60 pages)
 - **On-screen version:** `manual.html` (same content; annotations are live SVG)
 
+## Status (2026-11-20)
+
+The content files in `content/` were updated for Phase 18.4 and the audit of 20 November 2026: the 56-day return
+rule, no penalty and no penalty mode, failed returns, settlement calendars, and the verification of a return
+account from a deposit (a deposit does not verify its source IBAN). `manual.html` was rendered again from this
+content (`node scripts/render.mjs`). `manual-print.html` and the PDF were built before these changes: rebuild
+them with `bash scripts/build.sh` (needs Google Chrome). The figures are older captures: Finance Operations has
+new cards (failed returns, returned transfer, verification from a deposit, settlement calendars) without figures
+yet, so a new capture is needed for them.
+
 ## What's inside the manual
 
 1. Part 1 — The BANXUM model in plain language (the P2P primer)
