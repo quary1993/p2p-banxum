@@ -37,6 +37,8 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
+# Audit step 7: a necessary compliance review emails this address (empty: the operations address).
+COMPLIANCE_ALERT_EMAIL = env("COMPLIANCE_ALERT_EMAIL", default="")
 # The public site forms (For borrowers, For loan originators, Contact) send one email to
 # this address. Nothing is sent to the person who filled the form (COMMS-DEC-009).
 PUBLIC_ENQUIRY_EMAIL = env("PUBLIC_ENQUIRY_EMAIL", default="hq@banxum.com")

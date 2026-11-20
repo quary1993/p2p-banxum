@@ -355,6 +355,49 @@
         "Holds and legacy repair exceptions preserve reservations. Investigate promptly. A subscribed expired or failed round requires repair and automatic retry, not discretionary cancellation; historical upgrade exceptions retain their reviewed legacy resolution path.",
         "Only performing originator holdings may be resold; late/defaulted transfers remain blocked."
       ]
+    },
+    {
+      "title": "Handle a declaration review (compliance)",
+      "goal": "Decide a review opened by an investor's declarations or by compliance, so that the investor can invest again or the file is explained.",
+      "actor": "An admin with the compliance or compliance deputy role.",
+      "preconditions": [
+        "A necessary review is open: you see the admin task \"Compliance review: <investor>\" and the team email, or the review in Compliance > Declaration reviews.",
+        "New investments of this investor are paused until you close the review."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Compliance > Declaration reviews", "action": "Choose Open and click the investor's row.", "detail": "The reasons show why the review opened (PEP, another beneficial owner, source \"Other\", volume over 250,000, or a manual reason). The file shows the latest declaration." },
+        { "n": 2, "screen": "Compliance > Declaration reviews", "action": "If you need more facts, write the message and click \"Ask for more information\".", "detail": "The investor gets an email. When the investor sends a new declaration, the review is open again and waits for you." },
+        { "n": 3, "screen": "Compliance > Declaration reviews", "action": "When the file is clear, write the outcome and click \"Close the review\".", "detail": "The outcome is recorded with your name. The admin task closes, and the investor can invest again (if no other block applies)." },
+        { "n": 4, "screen": "Compliance > Investor compliance file", "action": "If the investor needs a later check, set a re-verification date.", "detail": "The investor gets notices 30 and 7 days before. After the date, new investments pause until you mark the re-verification done." }
+      ]
+    },
+    {
+      "title": "Open a manual review or a re-verification date for any investor",
+      "goal": "Start a compliance check without a declaration trigger (for example, after adverse media).",
+      "actor": "An admin with the compliance or compliance deputy role.",
+      "preconditions": [
+        "You know the investor's name, email or account ID."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Compliance > Investor compliance file", "action": "Type at least two characters of the name, email or ID and click \"Open file\".", "detail": "Only investor accounts are found. The file shows the declarations and the current re-verification date." },
+        { "n": 2, "screen": "Compliance > Investor compliance file", "action": "Write the reason, keep \"Necessary review\" on to pause new investments, and click \"Open the review\".", "detail": "If a necessary review is already open, your reason joins it. The review then appears in Declaration reviews." },
+        { "n": 3, "screen": "Compliance > Investor compliance file", "action": "Optionally set a re-verification date with the internal reason.", "detail": "A new date replaces the current one; the history stays." }
+      ]
+    },
+    {
+      "title": "Verify the securities of a loan before publication",
+      "goal": "Record a named verification for each security, so that the loan can be published and stays open for investments.",
+      "actor": "An admin with the security verifier or security verifier deputy role.",
+      "preconditions": [
+        "The borrower's documents are uploaded and linked to each security (Loans > loan > Securities).",
+        "The required proofs per security type come from the setting loans.security_required_proofs (the Q13 list by default)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Loans > loan > Proof of securities", "action": "For each security, read the linked documents (title, type, date, full ID) and click \"Open\" to check each file.", "detail": "Each opening is in the audit log. Only documents linked to the security open." },
+        { "n": 2, "screen": "Loans > loan > Proof of securities", "action": "Choose one document per required proof, add a note and click \"Record the verification\".", "detail": "The verification records your name and the date. The history keeps every earlier verification." },
+        { "n": 3, "screen": "Loans > loan", "action": "Publish the loan when every security that is not released is verified.", "detail": "Publication is refused while one is missing." },
+        { "n": 4, "screen": "Loans > loan > Proof of securities", "action": "After an essential change (type, holder, value, valuation details, rank, prior debt, LTV counting, scope, limit, insurance or documents) or a change of the required proofs, verify the security again.", "detail": "Until then, new orders, allocations, Loan Originator purchases and resale purchases of this loan stop. Existing investments do not change. The panel shows why a new verification is needed." }
+      ]
     }
   ]
 }

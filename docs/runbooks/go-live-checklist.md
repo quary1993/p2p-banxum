@@ -85,6 +85,11 @@ Complete these before calling any environment production-like.
     a dry run must not satisfy successful execution coverage or suppress a real run.
   - Failed email/outbox queues are visible in the admin dashboard.
   - Operational mailbox owners are assigned for support, tech alerts, provider alerts, and DMARC reports.
+  - `COMPLIANCE_ALERT_EMAIL` is set to the compliance team's address (else necessary reviews email `OPERATIONS_ALERT_EMAIL`).
+- Compliance (18.10, audit step 7):
+  - A superadmin gives the compliance and security verifier roles (and deputies) to named admins.
+  - `loans.security_required_proofs` is the list approved by legal (the save refuses unknown, blank, duplicate or empty lists).
+  - The QA and demo seeds are run again with verified securities (the always-on proof rule refuses a loan without them).
 
 ## 2. Admin Operations Checklist
 
@@ -225,6 +230,10 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Repeat below the threshold and verify cancellation plus exact reservation restoration.
   - Exercise a controlled resolution failure and verify the non-public failure status, preserved reservations, urgent task, operations email, and successful retry.
   - Confirm the loan no longer accepts release/cancel actions after close.
+- Compliance and proof of securities (18.10):
+  - Give a declaration with PEP "Not sure": a necessary review, an admin task and a compliance email appear; an order is refused; close the review and the order goes through.
+  - Open a manual review for an investor from the Investor compliance file; a second one joins the first.
+  - Verify a security (open each document first), publish, then change its value: new orders stop until a new verification.
 - Loan Originator claim:
   - Import and publish one controlled loan for every enabled repayment type, plus a
     loan with a historical advance payment.

@@ -20,6 +20,9 @@ Audit step 5 added the flow "Service a direct loan on the 18.6 interest engine" 
 declaration and cancellation); the earlier repayment flow is marked as the flow for loans before the engine.
 Audit step 6 replaced the boundary-installment description of Loan Originator offers with the 18.7 price
 (principal plus accrued interest, F04 failure, underlying financing ID).
+Audit step 7 added the 18.10 compliance tools (declaration reviews, the investor compliance file, staff roles) and
+three flows: handle a declaration review, open a manual review or re-verification date, and verify the securities of
+a loan. These have no figures yet.
 `manual.html` was rendered again from this content (`node scripts/render.mjs`). `manual-print.html` and the PDF
 were built before these changes and still show the old sign-in: rebuild them with `bash scripts/build.sh` on a
 Mac with Google Chrome (a build on Linux uses other fonts and changes the layout). The figures are older captures: Finance Operations has
