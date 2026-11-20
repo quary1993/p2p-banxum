@@ -230,3 +230,42 @@ def test_sign_ins_from_before_the_device_cookie_still_count_as_known(investor: U
     _sign_in(investor, MAC_CHROME)
 
     assert not alerts.exists()
+
+
+@pytest.mark.django_db
+def test_taking_access_away_needs_no_new_confirmation_but_is_limited_and_audited(
+    investor: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S4-7, the documented exception: signing out a session and removing a trusted
+    device work with the signed-in session alone (they only take access away), are audited,
+    and share the security-change rate limit."""
+    from importlib import import_module
+
+    from backend.apps.accounts_auth.models import TrustedDevice
+    from backend.apps.platform_core.models import AuditEvent
+
+    two_factor: Any = import_module("backend.apps.accounts_auth.two_factor")
+    throttles: Any = import_module("backend.apps.accounts_auth.api.throttles")
+    monkeypatch.setattr(
+        throttles.SecurityChangeThrottle,
+        "window_rules",
+        (throttles.WindowRule("hour", 3600, 3),),
+    )
+    laptop = _sign_in(investor, MAC_CHROME)
+    phone = _sign_in(investor, IPHONE_SAFARI)
+    two_factor.trust_device(investor, device_label="Chrome on macOS")
+    device = TrustedDevice.objects.get(user=investor)
+    phone_session = UserSession.objects.filter(user=investor).order_by("-created_at").first()
+    assert phone_session is not None
+
+    # No password, no second factor, no confirmation id in the requests.
+    assert laptop.post(f"/api/v1/auth/sessions/{phone_session.id}/revoke/").status_code == 204
+    removed = laptop.post(f"/api/v1/auth/security/trusted-devices/{device.id}/revoke/")
+    assert removed.status_code == 200
+    device.refresh_from_db()
+    assert device.revoked_at is not None
+    assert phone.get("/api/v1/auth/me/").status_code in {401, 403}
+    assert AuditEvent.objects.filter(action="auth.trusted_devices_revoked").count() == 1
+    assert laptop.post("/api/v1/auth/sessions/revoke-others/").status_code == 200
+    # The fourth action of the hour is held by the shared limit.
+    assert laptop.post("/api/v1/auth/sessions/revoke-others/").status_code == 429

@@ -2834,6 +2834,11 @@ paths:
   /api/v1/auth/security/trusted-devices/{device_id}/revoke/:
     post:
       operationId: v1_auth_security_trusted_devices_revoke_create
+      description: |-
+        Remove a trusted device: the next sign-in there asks the second factor again.
+
+        Audit S4-7: like signing out a session, this only takes access away, so it needs no new
+        password and second factor (the documented exception); it is rate limited and audited.
       parameters:
       - in: path
         name: device_id
@@ -2896,8 +2901,13 @@ paths:
   /api/v1/auth/sessions/{session_id}/revoke/:
     post:
       operationId: v1_auth_sessions_revoke_create
-      description: End one other signed-in session; that browser is signed out on
-        its next request.
+      description: |-
+        End one other signed-in session; that browser is signed out on its next request.
+
+        Audit S4-7 (the documented exception to "every Security change asks the password and the
+        second factor"): signing out a session and removing a trusted device only take access
+        away, and the investor must be able to do it at once when he sees a device he does not
+        know. So they need the signed-in session only; they are rate limited and audited.
       parameters:
       - in: path
         name: session_id
@@ -2915,7 +2925,9 @@ paths:
   /api/v1/auth/sessions/revoke-others/:
     post:
       operationId: v1_auth_sessions_revoke_others_create
-      description: End every signed-in session of the account except this one.
+      description: |-
+        End every signed-in session of the account except this one (no new confirmation: see
+        UserSessionRevokeView).
       tags:
       - v1
       security:
@@ -24744,9 +24756,9 @@ components:
           type: string
           default: ''
         method:
-          type: string
+          $ref: '#/components/schemas/SignInMethodEnum'
         result:
-          type: string
+          $ref: '#/components/schemas/SignInResultEnum'
       required:
       - country_code
       - device_kind
@@ -24767,6 +24779,28 @@ components:
       required:
       - events
       - retention_days
+    SignInMethodEnum:
+      enum:
+      - email_link
+      - admin_password_code
+      - password_sms
+      - password_app
+      - password_recovery_code
+      - password_trusted_device
+      - password_only
+      - admin_password_app
+      - registration_link
+      type: string
+      description: |-
+        * `email_link` - Email link
+        * `admin_password_code` - Password and email code
+        * `password_sms` - Password and SMS code
+        * `password_app` - Password and authenticator app
+        * `password_recovery_code` - Password and recovery code
+        * `password_trusted_device` - Password on a trusted device
+        * `password_only` - Password (second factor not set up yet)
+        * `admin_password_app` - Password and authenticator app (admin)
+        * `registration_link` - Registration email link
     SignInRequest:
       type: object
       properties:
@@ -24800,6 +24834,18 @@ components:
       - method
       - phone_last_digits
       - status
+    SignInResultEnum:
+      enum:
+      - signed_in
+      - blocked
+      - failed
+      - failed_factor
+      type: string
+      description: |-
+        * `signed_in` - Signed in
+        * `blocked` - Account blocked
+        * `failed` - Wrong password
+        * `failed_factor` - Wrong second-factor code
     SignInVerifyRequest:
       type: object
       description: 'The second factor of a pending step: a 6-digit code, or one recovery
@@ -25631,7 +25677,9 @@ components:
           default: ''
           description: 'Q06: ''City, CC (approximate)'', the country alone, or empty.'
         method:
-          type: string
+          oneOf:
+          - $ref: '#/components/schemas/SignInMethodEnum'
+          - $ref: '#/components/schemas/BlankEnum'
         started_at:
           type: string
           format: date-time

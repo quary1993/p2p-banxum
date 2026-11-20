@@ -42,6 +42,7 @@ from backend.apps.accounts_auth.api.throttles import (
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
     RegistrationLinkThrottle,
+    SecurityChangeThrottle,
 )
 from backend.apps.accounts_auth.models import (
     AccountAccessReason,
@@ -491,9 +492,16 @@ class UserSessionsView(APIView):
 
 
 class UserSessionRevokeView(APIView):
-    """End one other signed-in session; that browser is signed out on its next request."""
+    """End one other signed-in session; that browser is signed out on its next request.
+
+    Audit S4-7 (the documented exception to "every Security change asks the password and the
+    second factor"): signing out a session and removing a trusted device only take access
+    away, and the investor must be able to do it at once when he sees a device he does not
+    know. So they need the signed-in session only; they are rate limited and audited.
+    """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [SecurityChangeThrottle]
 
     @extend_schema(request=None, responses={204: None})
     def post(self, request: Request, session_id: str) -> Response:
@@ -509,9 +517,11 @@ class UserSessionRevokeView(APIView):
 
 
 class UserSessionsRevokeOthersView(APIView):
-    """End every signed-in session of the account except this one."""
+    """End every signed-in session of the account except this one (no new confirmation: see
+    UserSessionRevokeView)."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [SecurityChangeThrottle]
 
     @extend_schema(request=None, responses={200: RevokeOtherSessionsResponseSerializer})
     def post(self, request: Request) -> Response:

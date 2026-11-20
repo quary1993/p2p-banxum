@@ -641,7 +641,14 @@ class RecoveryCodesView(APIView):
 
 
 class TrustedDeviceRevokeView(APIView):
+    """Remove a trusted device: the next sign-in there asks the second factor again.
+
+    Audit S4-7: like signing out a session, this only takes access away, so it needs no new
+    password and second factor (the documented exception); it is rate limited and audited.
+    """
+
     permission_classes = [IsAuthenticated]
+    throttle_classes = [SecurityChangeThrottle]
 
     @extend_schema(request=None, responses={200: SecurityOverviewSerializer})
     def post(self, request: Request, device_id: str) -> Response:

@@ -449,6 +449,8 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "ENUM_NAME_OVERRIDES": {
         "AdminTaskPriorityEnum": "backend.apps.admin_ops.models.AdminTaskPriority.choices",
+        "SignInMethodEnum": "backend.apps.accounts_auth.models.SignInMethod.choices",
+        "SignInResultEnum": "backend.apps.accounts_auth.models.SignInResult.choices",
         "AdminTaskStatusEnum": "backend.apps.admin_ops.models.AdminTaskStatus.choices",
         "AdminTaskTypeEnum": "backend.apps.admin_ops.models.AdminTaskType.choices",
         "BorrowerDocumentTypeEnum": ("backend.apps.entities.models.BorrowerDocumentType.choices"),

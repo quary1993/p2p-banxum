@@ -12,6 +12,8 @@ from backend.apps.accounts_auth.models import (
     AccountAccessReason,
     AccountStatus,
     SensitiveAction,
+    SignInMethod,
+    SignInResult,
     User,
 )
 from backend.apps.accounts_auth.phone_numbers import (
@@ -353,7 +355,7 @@ class UserSessionSerializer(serializers.Serializer[Any]):
         default="",
         help_text="Q06: 'City, CC (approximate)', the country alone, or empty.",
     )
-    method = serializers.CharField(allow_blank=True)
+    method = serializers.ChoiceField(choices=SignInMethod.choices, allow_blank=True)
     started_at = serializers.DateTimeField()
     last_activity_at = serializers.DateTimeField()
     current = serializers.BooleanField()
@@ -371,8 +373,9 @@ class SignInEventSerializer(serializers.Serializer[Any]):
     country_code = serializers.CharField(allow_blank=True)
     city = serializers.CharField(allow_blank=True, required=False, default="")
     place = serializers.CharField(allow_blank=True, required=False, default="")
-    method = serializers.CharField()
-    result = serializers.CharField()
+    # Audit S4-8: both are enums in the API, so the screen has one label for every value.
+    method = serializers.ChoiceField(choices=SignInMethod.choices)
+    result = serializers.ChoiceField(choices=SignInResult.choices)
 
 
 class SignInHistoryResponseSerializer(serializers.Serializer[Any]):

@@ -14,6 +14,8 @@ import {
   useV1AuthSessionsRevokeOthersCreate,
   useV1AuthSignInHistoryRetrieve,
   type SignInEvent,
+  type SignInMethodEnum,
+  type SignInResultEnum,
   type UserSession
 } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
@@ -27,12 +29,12 @@ import type { AccountData } from "./useAccountData";
 
 const PREVIEW_NOW = new Date().toISOString();
 const PREVIEW_SESSIONS: UserSession[] = [
-  { id: "s-1", device_label: "Chrome on macOS", device_kind: "desktop", country_code: "CH", method: "email_link", started_at: PREVIEW_NOW, last_activity_at: PREVIEW_NOW, current: true },
-  { id: "s-2", device_label: "Safari on iPhone", device_kind: "mobile", country_code: "CH", method: "email_link", started_at: PREVIEW_NOW, last_activity_at: PREVIEW_NOW, current: false }
+  { id: "s-1", device_label: "Chrome on macOS", device_kind: "desktop", country_code: "CH", method: "password_sms", started_at: PREVIEW_NOW, last_activity_at: PREVIEW_NOW, current: true },
+  { id: "s-2", device_label: "Safari on iPhone", device_kind: "mobile", country_code: "CH", method: "password_app", started_at: PREVIEW_NOW, last_activity_at: PREVIEW_NOW, current: false }
 ];
 const PREVIEW_HISTORY: SignInEvent[] = [
-  { id: "e-1", occurred_at: PREVIEW_NOW, device_label: "Chrome on macOS", device_kind: "desktop", country_code: "CH", method: "email_link", result: "signed_in" },
-  { id: "e-2", occurred_at: PREVIEW_NOW, device_label: "Safari on iPhone", device_kind: "mobile", country_code: "CH", method: "email_link", result: "signed_in" }
+  { id: "e-1", occurred_at: PREVIEW_NOW, device_label: "Chrome on macOS", device_kind: "desktop", country_code: "CH", method: "password_sms", result: "signed_in" },
+  { id: "e-2", occurred_at: PREVIEW_NOW, device_label: "Safari on iPhone", device_kind: "mobile", country_code: "CH", method: "password_app", result: "signed_in" }
 ];
 
 /** Design icons: ni-laptop for a computer, ni-mobile for a phone or tablet. */
@@ -44,16 +46,70 @@ function placeText(code: string, t: ReturnType<typeof useT>) {
   return code ? countryName(code) : t("Place not known");
 }
 
-function methodText(method: string, t: ReturnType<typeof useT>) {
-  if (method === "email_link") return t("Email link");
-  if (method === "admin_password_code") return t("Password and email code");
-  return t("Earlier sign-in");
+type Translate = ReturnType<typeof useT>;
+
+/** Audit S4-8: one label for every sign-in method of the API. The Record type makes the build fail
+ *  when the backend adds a method and this map does not have it. */
+function methodLabels(t: Translate): Record<SignInMethodEnum, string> {
+  return {
+    email_link: t("Email link"),
+    registration_link: t("Registration email link"),
+    password_sms: t("Password and SMS code"),
+    password_app: t("Password and authenticator app"),
+    password_recovery_code: t("Password and recovery code"),
+    password_trusted_device: t("Password on a trusted device"),
+    password_only: t("Password (second factor not set up yet)"),
+    admin_password_app: t("Password and authenticator app (administrator)"),
+    admin_password_code: t("Password and email code (administrator)")
+  };
 }
 
-function resultText(result: string, t: ReturnType<typeof useT>) {
-  if (result === "signed_in") return t("Signed in");
-  if (result === "blocked") return <span className="bxm-signal-text">{t("Account blocked")}</span>;
-  return <span className="bxm-signal-text">{t("Wrong password")}</span>;
+/** A failed attempt is shown in the signal colour, with its cause. */
+function resultLabels(t: Translate): Record<SignInResultEnum, { label: string; failed: boolean }> {
+  return {
+    signed_in: { label: t("Signed in"), failed: false },
+    blocked: { label: t("Account blocked"), failed: true },
+    failed: { label: t("Wrong password"), failed: true },
+    failed_factor: { label: t("Wrong second-factor code"), failed: true }
+  };
+}
+
+// A value this build does not know (an older build against a newer server) says so plainly.
+function methodText(method: string, t: Translate) {
+  return (methodLabels(t) as Record<string, string | undefined>)[method] ?? t("Other sign-in method");
+}
+
+function resultText(result: string, t: Translate) {
+  const known = (resultLabels(t) as Record<string, { label: string; failed: boolean } | undefined>)[result];
+  if (!known) return <span className="bxm-signal-text">{t("Sign-in not completed")}</span>;
+  return known.failed ? <span className="bxm-signal-text">{known.label}</span> : known.label;
+}
+
+/** The "Sign-in history" table (design .ps-history-table). */
+export function SignInHistoryTable({ events }: { events: SignInEvent[] }) {
+  const t = useT();
+  return (
+    <table className="ps-history-table">
+      <thead>
+        <tr>
+          <th>{t("Date")}</th>
+          <th>{t("Device and place")}</th>
+          <th>{t("Method")}</th>
+          <th>{t("Result")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((event) => (
+          <tr key={event.id}>
+            <td>{formatDateTime(event.occurred_at)}</td>
+            <td>{event.device_label}<small>{placeText(event.country_code, t)}</small></td>
+            <td>{methodText(event.method, t)}</td>
+            <td>{resultText(event.result, t)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 export function SecurityDevices({ account }: { account: AccountData }) {
@@ -150,26 +206,7 @@ export function SecurityDevices({ account }: { account: AccountData }) {
         </summary>
         <div className="ps-disclosure-body">
           {history.length > 0 ? (
-            <table className="ps-history-table">
-              <thead>
-                <tr>
-                  <th>{t("Date")}</th>
-                  <th>{t("Device and place")}</th>
-                  <th>{t("Method")}</th>
-                  <th>{t("Result")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((event) => (
-                  <tr key={event.id}>
-                    <td>{formatDateTime(event.occurred_at)}</td>
-                    <td>{event.device_label}<small>{placeText(event.country_code, t)}</small></td>
-                    <td>{methodText(event.method, t)}</td>
-                    <td>{resultText(event.result, t)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <SignInHistoryTable events={history} />
           ) : (
             <p className="u33-muted">{historyQuery.isError ? t("The sign-in history could not be loaded.") : t("No sign-ins recorded yet.")}</p>
           )}

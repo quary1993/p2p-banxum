@@ -7797,6 +7797,48 @@ export interface SettlementCalendarYear {
   days: SettlementCalendarDay[];
 }
 
+/**
+ * * `email_link` - Email link
+ * * `admin_password_code` - Password and email code
+ * * `password_sms` - Password and SMS code
+ * * `password_app` - Password and authenticator app
+ * * `password_recovery_code` - Password and recovery code
+ * * `password_trusted_device` - Password on a trusted device
+ * * `password_only` - Password (second factor not set up yet)
+ * * `admin_password_app` - Password and authenticator app (admin)
+ * * `registration_link` - Registration email link
+ */
+export type SignInMethodEnum = typeof SignInMethodEnum[keyof typeof SignInMethodEnum];
+
+
+export const SignInMethodEnum = {
+  email_link: 'email_link',
+  admin_password_code: 'admin_password_code',
+  password_sms: 'password_sms',
+  password_app: 'password_app',
+  password_recovery_code: 'password_recovery_code',
+  password_trusted_device: 'password_trusted_device',
+  password_only: 'password_only',
+  admin_password_app: 'admin_password_app',
+  registration_link: 'registration_link',
+} as const;
+
+/**
+ * * `signed_in` - Signed in
+ * * `blocked` - Account blocked
+ * * `failed` - Wrong password
+ * * `failed_factor` - Wrong second-factor code
+ */
+export type SignInResultEnum = typeof SignInResultEnum[keyof typeof SignInResultEnum];
+
+
+export const SignInResultEnum = {
+  signed_in: 'signed_in',
+  blocked: 'blocked',
+  failed: 'failed',
+  failed_factor: 'failed_factor',
+} as const;
+
 export interface SignInEvent {
   id: string;
   occurred_at: string;
@@ -7805,8 +7847,8 @@ export interface SignInEvent {
   country_code: string;
   city?: string;
   place?: string;
-  method: string;
-  result: string;
+  method: SignInMethodEnum;
+  result: SignInResultEnum;
 }
 
 export interface SignInHistoryResponse {
@@ -8213,6 +8255,7 @@ export interface TwoFactorError {
   locked_until?: string;
 }
 
+export const UserSessionMethod = {...SignInMethodEnum,...BlankEnum,} as const
 /**
  * U33-DEC-25: one signed-in browser. The place is a country code, never GPS.
  */
@@ -8224,7 +8267,7 @@ export interface UserSession {
   city?: string;
   /** Q06: 'City, CC (approximate)', the country alone, or empty. */
   place?: string;
-  method: string;
+  method: typeof UserSessionMethod[keyof typeof UserSessionMethod];
   started_at: string;
   last_activity_at: string;
   current: boolean;
@@ -15456,6 +15499,12 @@ export const getV1AuthSecurityTrustedDevicesRevokeCreateUrl = (deviceId: string,
   return `/api/v1/auth/security/trusted-devices/${deviceId}/revoke/`
 }
 
+/**
+ * Remove a trusted device: the next sign-in there asks the second factor again.
+ *
+ * Audit S4-7: like signing out a session, this only takes access away, so it needs no new
+ * password and second factor (the documented exception); it is rate limited and audited.
+ */
 export const v1AuthSecurityTrustedDevicesRevokeCreate = async (deviceId: string, options?: Parameters<typeof httpClient>[1]): Promise<SecurityOverview> => {
 
   return httpClient<SecurityOverview>(getV1AuthSecurityTrustedDevicesRevokeCreateUrl(deviceId),
@@ -15698,6 +15747,11 @@ export const getV1AuthSessionsRevokeCreateUrl = (sessionId: string,) => {
 
 /**
  * End one other signed-in session; that browser is signed out on its next request.
+ *
+ * Audit S4-7 (the documented exception to "every Security change asks the password and the
+ * second factor"): signing out a session and removing a trusted device only take access
+ * away, and the investor must be able to do it at once when he sees a device he does not
+ * know. So they need the signed-in session only; they are rate limited and audited.
  */
 export const v1AuthSessionsRevokeCreate = async (sessionId: string, options?: Parameters<typeof httpClient>[1]): Promise<void> => {
 
@@ -15768,7 +15822,8 @@ export const getV1AuthSessionsRevokeOthersCreateUrl = () => {
 }
 
 /**
- * End every signed-in session of the account except this one.
+ * End every signed-in session of the account except this one (no new confirmation: see
+ * UserSessionRevokeView).
  */
 export const v1AuthSessionsRevokeOthersCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<RevokeOtherSessionsResponse> => {
 
@@ -33593,11 +33648,11 @@ export const getV1AuthSecurityTrustedDevicesRevokeCreateResponseMock = (override
 
 export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial<Extract<SensitiveActionCodeRequestResponse, object>> = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', operation_summary: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1AuthSessionsRetrieveResponseMock = (overrideResponse: Partial<Extract<UserSessionsResponse, object>> = {}): UserSessionsResponse => ({sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_activity_at: faker.date.past().toISOString().slice(0, 19) + 'Z', current: faker.datatype.boolean()})), ...overrideResponse})
+export const getV1AuthSessionsRetrieveResponseMock = (overrideResponse: Partial<Extract<UserSessionsResponse, object>> = {}): UserSessionsResponse => ({sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(SignInMethodEnum)),faker.helpers.arrayElement(Object.values(BlankEnum)),]), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', last_activity_at: faker.date.past().toISOString().slice(0, 19) + 'Z', current: faker.datatype.boolean()})), ...overrideResponse})
 
 export const getV1AuthSessionsRevokeOthersCreateResponseMock = (overrideResponse: Partial<Extract<RevokeOtherSessionsResponse, object>> = {}): RevokeOtherSessionsResponse => ({sessions_ended: faker.number.int(), ...overrideResponse})
 
-export const getV1AuthSignInHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<SignInHistoryResponse, object>> = {}): SignInHistoryResponse => ({events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.string.alpha({length: {min: 10, max: 20}}), result: faker.string.alpha({length: {min: 10, max: 20}})})), retention_days: faker.number.int(), ...overrideResponse})
+export const getV1AuthSignInHistoryRetrieveResponseMock = (overrideResponse: Partial<Extract<SignInHistoryResponse, object>> = {}): SignInHistoryResponse => ({events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', device_label: faker.string.alpha({length: {min: 10, max: 20}}), device_kind: faker.string.alpha({length: {min: 10, max: 20}}), country_code: faker.string.alpha({length: {min: 10, max: 20}}), city: faker.string.alpha({length: {min: 10, max: 20}}), place: faker.string.alpha({length: {min: 10, max: 20}}), method: faker.helpers.arrayElement(Object.values(SignInMethodEnum)), result: faker.helpers.arrayElement(Object.values(SignInResultEnum))})), retention_days: faker.number.int(), ...overrideResponse})
 
 export const getV1DocumentsAcceptancesCreateResponseMock = (overrideResponse: Partial<Extract<DocumentAcceptanceEvidence, object>> = {}): DocumentAcceptanceEvidence => ({id: faker.string.uuid(), user_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_id: faker.string.uuid(), template_version_id: faker.string.uuid(), template_version_number: faker.number.int(), template_hash: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.string.alpha({length: {min: 10, max: 20}}), context_id: faker.string.alpha({length: {min: 10, max: 20}}), accepted_checkbox_labels: {}, data_snapshot: {
         [faker.string.alphanumeric(5)]: {}
