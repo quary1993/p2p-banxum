@@ -389,3 +389,82 @@ def test_balances_show_the_reserved_part_of_each_lot(
     assert [(lot["available_amount_minor"], lot["reserved_amount_minor"]) for lot in lots] == [
         (0, 3_000_00)
     ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("journal_delay_seconds", [1, 0], ids=["real-clock", "qa-clock-equal"])
+def test_a_currency_exchange_shows_the_source_balance_after_the_debit(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+    journal_delay_seconds: int,
+) -> None:
+    """Audit S2-2: the exchange journal is created after executed_at is chosen; the row still
+    shows the source balance after the debit (mapped to the source journal, not by time)."""
+    from datetime import UTC, datetime, timedelta
+    from importlib import import_module
+
+    from django.test import Client
+    from freezegun import freeze_time
+
+    fx: Any = import_module("backend.apps.fx.services")
+    fx_tests: Any = import_module("backend.apps.fx.tests.test_fx")
+    codes: Any = import_module("backend.apps.platform_core.tests.factories")
+    _approve_financial_access(investor)
+    _declare_deposit(admin_user, investor, amount_minor=5_000_00, idempotency_key="fx-dep")
+    import_module("backend.apps.fx.tests.factories").set_fx_enabled(True)
+    # After the deposit journal, so that only the exchange itself is in question.
+    executed_at = datetime.now(tz=UTC) + timedelta(seconds=1)
+    quote = fx.issue_fx_quote(
+        fx_tests._quote_command(
+            investor, amount_minor=1_000_00, idempotency_key="fx-avail-quote", as_of=executed_at
+        )
+    )
+    code = codes.issue_sensitive_action_test_code(investor, "fx")
+    # Real clock: the journal is written after the chosen execution time. QA clock: same time.
+    with freeze_time(executed_at + timedelta(seconds=journal_delay_seconds)):
+        fx.execute_fx_quote(
+            fx.ExecuteFxQuoteCommand(
+                actor=investor,
+                quote_id=str(quote.id),
+                idempotency_key="fx-avail",
+                as_of=executed_at,
+                sensitive_action_code_id=code.code_id,
+                sensitive_action_code=code.raw_code,
+                pin=code.pin,
+            )
+        )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    rows = client.get("/api/v1/investor/portal/transactions/").json()["entries"]
+    [exchange] = [row for row in rows if row["activity_type"] == "fx_exchange"]
+    assert exchange["currency"] == "CHF"
+    assert exchange["available_after_minor"] == 4_000_00
+
+
+@pytest.mark.django_db
+def test_the_transactions_page_and_its_csv_read_the_whole_history(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit S2-1: no row cap on the Transactions page or its CSV (the oldest rows stay)."""
+    from importlib import import_module
+
+    from django.test import Client
+
+    services: Any = import_module("backend.apps.investor_portal.services")
+    real_merge = services.merge_archived_activity
+    limits: list[int | None] = []
+
+    def spy(**kwargs: Any) -> Any:
+        limits.append(kwargs["limit"])
+        return real_merge(**kwargs)
+
+    monkeypatch.setattr(services, "merge_archived_activity", spy)
+    _approve_financial_access(investor)
+    _declare_deposit(admin_user, investor, amount_minor=1_000_00, idempotency_key="s21-dep")
+    client = Client()
+    client.force_login(cast(Any, investor))
+    assert client.get("/api/v1/investor/portal/transactions/").status_code == 200
+    assert client.get("/api/v1/investor/portal/transactions/export/").status_code == 200
+    assert limits == [None, None]

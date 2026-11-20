@@ -33,12 +33,14 @@ def archive_activity_entries(
 
 
 def archived_activity_entries(
-    *, investor_user_id: str, stream: str, limit: int
+    *, investor_user_id: str, stream: str, limit: int | None
 ) -> list[dict[str, Any]]:
+    """Archived rows of one investor, newest first; ``limit=None`` reads all of them."""
     entries = []
-    for row in ArchivedInvestorActivity.objects.filter(
+    rows = ArchivedInvestorActivity.objects.filter(
         investor_user_id=investor_user_id, stream=stream
-    )[:limit]:
+    ).order_by("-occurred_at", "-id")
+    for row in rows if limit is None else rows[:limit]:
         payload = dict(row.payload)
         date_key = "executed_at" if stream == "fx" else "occurred_at"
         payload[date_key] = row.occurred_at
@@ -48,8 +50,10 @@ def archived_activity_entries(
 
 
 def merge_archived_activity(
-    *, investor_user_id: str, stream: str, entries: list[dict[str, Any]], limit: int
+    *, investor_user_id: str, stream: str, entries: list[dict[str, Any]], limit: int | None
 ) -> list[dict[str, Any]]:
+    """Live and archived activity, newest first. ``limit=None`` keeps everything (the
+    Transactions page and its CSV need the whole history, audit S2-1)."""
     combined = {
         str(entry["id"]): entry
         for entry in archived_activity_entries(
@@ -63,4 +67,5 @@ def merge_archived_activity(
         value: datetime = entry[date_key]
         return value
 
-    return sorted(combined.values(), key=timestamp, reverse=True)[:limit]
+    ordered = sorted(combined.values(), key=timestamp, reverse=True)
+    return ordered if limit is None else ordered[:limit]

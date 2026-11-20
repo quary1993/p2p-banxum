@@ -204,6 +204,14 @@ def _journal_ids_by_entry(entries: list[dict[str, Any]]) -> dict[str, str]:
             .objects.filter(pk__in=purchase_ids)
             .values_list("pk", "ledger_journal_entry_id")
         )
+    if by_type.get("fx_exchange"):
+        # Audit S2-2: the exchange row shows the source currency after the debit. Its journal is
+        # created after executed_at is chosen, so the timestamp fallback would miss it.
+        add(
+            apps.get_model("fx", "FxExchange")
+            .objects.filter(pk__in=by_type["fx_exchange"])
+            .values_list("pk", "source_journal_entry_id")
+        )
     if by_type.get("balance_penalty_charge"):
         for eid in by_type["balance_penalty_charge"]:
             result[eid] = eid
@@ -229,6 +237,10 @@ def _journal_ids_by_entry(entries: list[dict[str, Any]]) -> dict[str, str]:
             if released:
                 result[eid] = str(released)
     return result
+
+
+# Activity rows that do not move money: their "Available balance" is not shown.
+NO_MONEY_MOVEMENT_TYPES = frozenset({"secondary_listing"})
 
 
 def annotate_available_after(investor_user_id: str, entries: list[dict[str, Any]]) -> None:
@@ -269,6 +281,10 @@ def annotate_available_after(investor_user_id: str, entries: list[dict[str, Any]
     for entry in entries:
         currency = str(entry.get("currency") or "").upper()
         value: int | None = None
+        if str(entry.get("activity_type")) in NO_MONEY_MOVEMENT_TYPES:
+            # A resale listing moves no money: no balance is derived from its time (audit D1).
+            entry["available_after_minor"] = None
+            continue
         entry_journal = journal_ids.get(str(entry["id"]))
         if currency and entry_journal and (currency, entry_journal) in balance_after:
             value = balance_after[(currency, entry_journal)]

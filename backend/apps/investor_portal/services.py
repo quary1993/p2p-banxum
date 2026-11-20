@@ -1984,7 +1984,8 @@ def get_investor_transactions(
         investor_user_id=investor_user_id,
         stream="portfolio",
         entries=_investor_activity_entries(investor_user_id, None),
-        limit=100_000,
+        # Audit S2-1: the whole history; no cap that would hide the oldest movements.
+        limit=None,
     )
     return cast(
         dict[str, Any],
@@ -2006,7 +2007,8 @@ def export_investor_transactions_csv(*, actor: Model, filters: Any) -> str:
         investor_user_id=investor_user_id,
         stream="portfolio",
         entries=_investor_activity_entries(investor_user_id, None),
-        limit=100_000,
+        # Audit S2-1: the whole history; no cap that would hide the oldest movements.
+        limit=None,
     )
     return cast(
         str,
