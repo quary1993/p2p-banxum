@@ -42,7 +42,8 @@ function adminMe() {
       language: "en",
       pin_set: false,
       pin_locked_until: null,
-      second_factor: "app"
+      second_factor: "app",
+      phone_number_masked: ""
     },
     platform_business_date: "2026-06-08"
   });

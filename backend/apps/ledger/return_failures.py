@@ -126,6 +126,88 @@ def open_failure_lot_ids(*, currency: Currency | None = None) -> set[str]:
     }
 
 
+def _lots_held_by_pending_withdrawals(failure: BalanceReturnFailure) -> bool:
+    """Re-audit R3-1: a withdrawal that is requested but not finalized can still be cancelled
+    and give the lots back, so the money has not left yet."""
+    failure_lots = {str(lot_id) for lot_id in failure.lot_ids}
+    pending = InvestorWithdrawalRequest.objects.filter(
+        investor_user_id=failure.investor_user_id,
+        currency=failure.currency,
+        status=InvestorWithdrawalRequestStatus.REQUESTED,
+    ).values_list("lot_allocations", flat=True)
+    return any(
+        str(allocation.get("lot_id") or "") in failure_lots
+        for allocations in pending
+        for allocation in allocations or []
+    )
+
+
+def reopen_failures_with_money_again(
+    *, actor: Model, currency: Currency | None = None
+) -> list[str]:
+    """Re-audit R3-1: a failed return closed because no money was left is open again when its
+    money comes back to the balance (a cancelled withdrawal, a released reservation). The scan
+    then never returns that money by itself; operations decide with "Send again"."""
+    queryset = BalanceReturnFailure.objects.select_for_update().filter(
+        status=BalanceReturnFailureStatus.RESOLVED,
+        resolution=BalanceReturnFailureResolution.NO_MONEY_LEFT,
+    )
+    if currency is not None:
+        queryset = queryset.filter(currency=currency)
+    reopened: list[str] = []
+    for failure in queryset.select_related("currency").order_by("recorded_at", "id"):
+        if not any(
+            lot.available_amount_minor > 0 and lot.status == BalanceLotStatus.AVAILABLE
+            for lot in _failure_lots(failure)
+        ):
+            continue
+        failure.status = BalanceReturnFailureStatus.OPEN
+        failure.resolved_at = None
+        failure.resolved_by_admin_id = None
+        failure.resolution = ""
+        failure.resolution_note = ""
+        failure.save(
+            update_fields=[
+                "status",
+                "resolved_at",
+                "resolved_by_admin_id",
+                "resolution",
+                "resolution_note",
+                "updated_at",
+            ]
+        )
+        record_audit_event(
+            AuditCommand(
+                actor=actor_ref_for_user(actor),
+                action="ledger.balance_return_failure_reopened",
+                target_type="BalanceReturnFailure",
+                target_id=str(failure.id),
+                metadata={
+                    "investor_user_id": str(failure.investor_user_id),
+                    "reason": "money_on_balance_again",
+                },
+            )
+        )
+        amount = format_amount_minor(failure.amount_minor, str(failure.currency_id))
+        _admin_ops().ensure_related_admin_task(
+            actor=actor,
+            task_type="return_failed",
+            related_object_type=RETURN_FAILURE_TASK_TYPE,
+            related_object_id=str(failure.id),
+            title=f"Return failed: {amount} for {_investor_label(str(failure.investor_user_id))}",
+            priority="urgent",
+            notes=(
+                "The money of this failed return is on the balance again (a withdrawal or a "
+                "reservation was cancelled), so the failed return is open again. Send it again "
+                "only to a corrected or newly verified account. The platform does not retry by "
+                "itself."
+            ),
+            reopen_closed=True,
+        )
+        reopened.append(str(failure.id))
+    return reopened
+
+
 # --- Compliance alerts -----------------------------------------------------------------------
 
 
@@ -820,6 +902,9 @@ def process_open_failures(
             lot.available_amount_minor > 0 and lot.status == BalanceLotStatus.AVAILABLE
             for lot in lots
         ):
+            if _lots_held_by_pending_withdrawals(failure):
+                # Re-audit R3-1: closed only after the transfer is finalized.
+                continue
             _close_failure(
                 failure,
                 actor=actor,

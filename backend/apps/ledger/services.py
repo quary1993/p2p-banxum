@@ -4200,6 +4200,40 @@ def release_loan_cent_fractions(
             metadata={"reason": command.reason, "line_count": len(lines)},
         )
     )
+    # Re-audit R5-2: a replay gets the journal of the first call (the journal fingerprint covers
+    # the lines); it must also get the lots of the first call, never new spendable lots.
+    LedgerJournalEntry.objects.select_for_update().filter(id=journal_entry.id).first()
+    existing_lots = list(
+        InvestorBalanceLot.objects.filter(
+            source_journal_entry=journal_entry, source_type=BalanceLotSourceType.INSTALLMENT
+        )
+    )
+    if existing_lots:
+        by_source = {str(lot.source_id): lot for lot in existing_lots}
+        replayed: list[InvestorBalanceCreditResult] = []
+        for index, line in enumerate(lines):
+            lot = by_source.get(f"{command.source_id}:fractions:{index}")
+            if (
+                lot is None
+                or str(lot.investor_user_id) != str(line.investor_user_id)
+                or int(lot.original_amount_minor) != line.amount_minor
+            ):
+                raise LedgerValidationError(
+                    "These carried cents were already released with other lines."
+                )
+            replayed.append(
+                InvestorBalanceCreditResult(
+                    line_index=index,
+                    investor_user_id=str(line.investor_user_id),
+                    amount_minor=line.amount_minor,
+                    balance_lot=lot,
+                )
+            )
+        if len(existing_lots) != len(lines):
+            raise LedgerValidationError(
+                "These carried cents were already released with other lines."
+            )
+        return replayed
     investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
     credits: list[InvestorBalanceCreditResult] = []
     for index, line in enumerate(lines):
@@ -4311,6 +4345,8 @@ def declare_borrower_repayment_distribution(
             garanta_minor=command.garanta_minor,
             fractions_withheld_minor=command.fractions_withheld_minor,
             fractions_released_minor=command.fractions_released_minor,
+            # Re-audit R5-1: the split between expenses and penalty income changes the postings.
+            garanta_penalty_minor=command.garanta_penalty_minor,
             idempotency_key=idempotency_key,
         ),
         currency_code=currency.code,
@@ -5713,6 +5749,10 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
     due_back_by_investor_currency: dict[tuple[str, str], list[InvestorBalanceLot]] = {}
     scheduler = BalanceScheduler()
     notice_days = balance_return_notice_days_before()
+    if not command.dry_run:
+        # Re-audit R3-1: first open again the failed returns whose money came back, so their
+        # lots are excluded below and never returned without a decision.
+        return_failures.reopen_failures_with_money_again(actor=command.actor, currency=currency)
     failed_lot_ids = return_failures.open_failure_lot_ids(currency=currency)
     destinations: dict[
         tuple[str, str], tuple[InvestorPayoutInstruction, dict[str, Any]] | None

@@ -776,3 +776,40 @@ def _second_offer_command(admin_user: Model, *, originator_id: str, today: date)
         investor_interest_participation_bps=7_000,
         investor_penalty_participation_bps=5_000,
     )
+
+
+@pytest.mark.django_db
+def test_the_automatic_close_after_the_last_allocation_applies_f04_at_once(
+    admin_user: Model, investor: Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-audit R6-1: when an investor's last allocation fills the round on the due date, the
+    automatic close fails the offer at once (operations account): participations cancelled,
+    money released, one email, and no "funding close failed" state left behind."""
+    result, profile = _held_open_offer(admin_user, investor, suffix="F9")
+    profile.is_on_hold = False
+    profile.hold_reason = ""
+    profile.save(update_fields=["is_on_hold", "hold_reason"])
+    due = cast(date, profile.price_next_due_date)
+    marketplace: Any = import_module("backend.apps.marketplace_primary.services")
+    monkeypatch.setattr(marketplace, "_loan_remaining_capacity_minor", lambda loan: 0)
+    with _at(due):
+        marketplace._resolve_fully_subscribed_originator_round(
+            actor=investor, loan_id=str(result.loan.id)
+        )
+
+    profile.refresh_from_db()
+    result.loan.refresh_from_db()
+    ledger = import_module("backend.apps.ledger.services")
+    balance = ledger.summarize_investor_balance(investor_user_id=str(investor.pk), currency="CHF")
+    assert profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+    assert str(result.loan.status) != "funding_close_failed"
+    assert balance.total_available_minor == 180_000
+    assert (
+        OutboxMessage.objects.filter(topic="email.originator_subscription_cancelled").count() == 1
+    )
+    assert (
+        OriginatorClaimEvent.objects.filter(
+            loan_id=result.loan.id, event_type=OriginatorClaimEventType.OFFER_FAILED
+        ).count()
+        == 1
+    )

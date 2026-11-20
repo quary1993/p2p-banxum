@@ -2591,16 +2591,14 @@ def close_originator_subscription_round(
             "earlier date cannot be used."
         )
     profile = OriginatorLoanProfile.objects.filter(loan_id=command.loan_id).first()
-    # An investor's automatic close cannot cancel other participations; the locked close below
-    # refuses it and the daily scan fails the offer the same day.
-    if (
-        profile is not None
-        and is_admin_actor(command.actor)
-        and _accrued_offer_due_date_reached(profile, today)
-    ):
+    if profile is not None and _accrued_offer_due_date_reached(profile, today):
+        # Re-audit R6-1: F04 is a rule, not an admin choice. When an investor's last allocation
+        # triggers the close, the failure runs at once under the operations account (the
+        # scheduled-job admin), so the reservations are released now, not at the next scan.
+        failure_actor = _operations_admin_actor(command.actor)
         with transaction.atomic():
             cancellation = fail_originator_offer_if_needed(
-                actor=command.actor,
+                actor=failure_actor,
                 loan_id=str(command.loan_id),
                 cause=OFFER_FAILED_DUE_DATE,
                 as_of_date=today,
@@ -4993,7 +4991,10 @@ def _cash_flow_payload(flow: Any) -> dict[str, Any]:
 
 
 @transaction.atomic
+@transaction.atomic
 def _close_mature_originator_opportunity(*, loan_id: str, as_of_date: date) -> bool:
+    # Re-audit R7-2: one lock order (loan, then profile) also for this short step.
+    apps.get_model("loans", "Loan").objects.select_for_update().filter(id=loan_id).first()
     profile = _locked_profile_for_loan(loan_id)
     if (
         profile.opportunity_status != OriginatorOpportunityStatus.OPEN
@@ -5050,6 +5051,9 @@ def _create_originator_claim_quote_locked(
     *,
     today: date,
 ) -> OriginatorClaimQuote:
+    # Re-audit R7-2: the loan row before the profile, so the security proof check below waits
+    # for a security change in progress.
+    apps.get_model("loans", "Loan").objects.select_for_update().filter(id=command.loan_id).first()
     profile = _locked_profile_for_loan(
         command.loan_id,
         "loan",
@@ -5327,6 +5331,19 @@ def _purchase_originator_claim_after_sensitive_code(
     idempotency_key: str,
     request_fingerprint: str,
 ) -> OriginatorClaimPurchase:
+    loan_id = (
+        OriginatorClaimQuote.objects.filter(id=command.quote_id, investor_user_id=command.actor.pk)
+        .values_list("loan_profile__loan_id", flat=True)
+        .first()
+    )
+    if loan_id is None:
+        raise OriginatorClaimsValidationError("Originator claim quote does not exist.")
+    # Re-audit R7-2: the loan row first on every claim (Swiss or not), so a security change,
+    # a publication or a close waits, and the security proof below is read under this lock.
+    # Order: loan -> regime -> quote -> profile -> investor -> money rows.
+    locked_loan = (
+        apps.get_model("loans", "Loan").objects.select_for_update().filter(id=loan_id).first()
+    )
     quote = (
         OriginatorClaimQuote.objects.select_for_update(of=("self",))
         .select_related(
@@ -5337,7 +5354,7 @@ def _purchase_originator_claim_after_sensitive_code(
         .filter(id=command.quote_id, investor_user_id=command.actor.pk)
         .first()
     )
-    if quote is None:
+    if quote is None or locked_loan is None:
         raise OriginatorClaimsValidationError("Originator claim quote does not exist.")
     swiss_limit_applies = (
         _investor_limit_selectors().max_investors_for_borrower_country(
@@ -5346,18 +5363,10 @@ def _purchase_originator_claim_after_sensitive_code(
         is not None
     )
     if swiss_limit_applies:
-        # Count the claim's investors under the loan lock, like every other investment
-        # path, so two new investors cannot both take the last place (MKT-DEC-028).
-        locked_loan = (
-            apps.get_model("loans", "Loan")
-            .objects.select_for_update()
-            .filter(id=quote.loan_profile.loan_id)
-            .first()
-        )
-        if locked_loan is not None:
-            # 18.9: and the borrower's regime row, so creditors of one UID queue (a Swiss
-            # claim without a valid UID is refused: audit S6-5).
-            _check_creditor_mode(lambda regimes: regimes.lock_borrower(locked_loan))
+        # 18.9: the borrower's regime row, so creditors of one UID queue (a Swiss claim
+        # without a valid UID is refused: audit S6-5); the investors are counted under the
+        # loan lock (MKT-DEC-028).
+        _check_creditor_mode(lambda regimes: regimes.lock_borrower(locked_loan))
     profile = (
         OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import", "loan__currency")

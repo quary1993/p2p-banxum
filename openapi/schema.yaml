@@ -12353,7 +12353,7 @@ components:
           description: Country of registration, as typed.
           maxLength: 200
         currency:
-          $ref: '#/components/schemas/PublicEnquiryCurrencyEnum'
+          $ref: '#/components/schemas/Currency064Enum'
         amount:
           type: string
           maxLength: 200
@@ -12530,6 +12530,14 @@ components:
           $ref: '#/components/schemas/DirectionEnum'
       required:
       - direction
+    Currency064Enum:
+      enum:
+      - EUR
+      - CHF
+      type: string
+      description: |-
+        * `EUR` - EUR
+        * `CHF` - CHF
     CurrentUserResponse:
       type: object
       properties:
@@ -15192,7 +15200,7 @@ components:
         currency:
           default: ''
           oneOf:
-          - $ref: '#/components/schemas/PublicEnquiryCurrencyEnum'
+          - $ref: '#/components/schemas/Currency064Enum'
           - $ref: '#/components/schemas/BlankEnum'
         output_format:
           allOf:
@@ -22134,14 +22142,6 @@ components:
           type: string
       required:
       - reference
-    PublicEnquiryCurrencyEnum:
-      enum:
-      - EUR
-      - CHF
-      type: string
-      description: |-
-        * `EUR` - EUR
-        * `CHF` - CHF
     PublicEnquiryOriginatorKindEnum:
       enum:
       - originator
@@ -25874,6 +25874,9 @@ components:
         second_factor:
           type: string
           readOnly: true
+        phone_number_masked:
+          type: string
+          readOnly: true
       required:
       - account_type
       - email
@@ -25883,6 +25886,7 @@ components:
       - language
       - marketing_consent
       - number_format
+      - phone_number_masked
       - phone_verified
       - pin_locked_until
       - pin_set

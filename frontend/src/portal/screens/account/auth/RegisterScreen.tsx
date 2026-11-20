@@ -439,7 +439,11 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
     nav.go("dashboard");
   };
 
-  const phoneLabel = formatPhone(phoneCountryCode, phoneNationalNumber) || t("Your registered mobile number");
+  // Re-audit R8-1: in a new tab (email link) the typed number is not here; the server sends the
+  // code to the registered number, shown masked.
+  const registeredPhone = hasMatchingSession ? (sessionUser?.phone_number_masked ?? "") : "";
+  const canSendSms = Boolean(phoneNumber || registeredPhone);
+  const phoneLabel = formatPhone(phoneCountryCode, phoneNationalNumber) || registeredPhone || t("Your registered mobile number");
   const phoneEditor = (
     <div className="ca-fields acc-phone-edit">
       <div className="ca-field ca-phone-field ca-wide">
@@ -590,7 +594,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
   } else if (step === 2 && securityStage === "choose") {
     content = (
       <AuthCard icon="shield" intro={t("Two-factor authentication is required. You need it to sign in, to invest and to change your bank account.")} title={t("Protect your account")}>
-        <FactorChoice onChoose={chooseFactor} phoneLabel={formatPhone(phoneCountryCode, phoneNationalNumber)} />
+        <FactorChoice onChoose={chooseFactor} phoneLabel={formatPhone(phoneCountryCode, phoneNationalNumber) || registeredPhone} />
         <p className="ca-quiet-note"><CaIcon name="check" /> {t("Email verified")}</p>
       </AuthCard>
     );
@@ -614,7 +618,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
       <AuthCard icon="phone" intro={t("We will send a six-digit code to your mobile.")} title={t("Verify your mobile number")}>
         {phoneRecipient}
         <CaError>{error || null}</CaError>
-        <button className="ca-primary" disabled={phoneRequestMutation.isPending || phoneCooldownSeconds > 0 || !phoneNumber} onClick={requestPhoneCode} type="button">
+        <button className="ca-primary" disabled={phoneRequestMutation.isPending || phoneCooldownSeconds > 0 || !canSendSms} onClick={requestPhoneCode} type="button">
           {phoneRequestMutation.isPending
             ? t("Sending...")
             : phoneCooldownSeconds > 0 ? t("Resend in {seconds}s", { seconds: phoneCooldownSeconds }) : t("Send SMS code")}

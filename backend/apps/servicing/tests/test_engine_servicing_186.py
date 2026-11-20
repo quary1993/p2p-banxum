@@ -936,3 +936,95 @@ def test_garanta_penalty_part_and_repaid_expenses_use_two_accounts(
     # fractions kept for them.
     assert credited("garanta_penalty_income") == 7_18
     assert investors_penalty <= penalty - 7_18
+
+
+@pytest.mark.django_db
+def test_a_repayment_key_is_bound_to_the_garanta_penalty_split(
+    admin_user: Model, investors: list[Model], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-audit R5-1: the same key with another split between Garanta's repaid expenses and
+    its part of penalty X is refused; the same request returns the first result."""
+    from dataclasses import replace
+
+    ledger: Any = import_module("backend.apps.ledger.services")
+    loan = _engine_loan(admin_user, investors)
+    cast(Any, loan).penalty_investor_share_bps = 5_000
+    loan.save(update_fields=["penalty_investor_share_bps"])
+    seen: list[Any] = []
+    real = ledger.declare_borrower_repayment_distribution
+
+    def spy(command: Any) -> Any:
+        seen.append(command)
+        return real(command)
+
+    monkeypatch.setattr(ledger, "declare_borrower_repayment_distribution", spy)
+    with at(date(2027, 2, 1)):
+        _expense(admin_user, loan, date(2027, 2, 1))
+    with at(date(2027, 2, 10)):
+        _pay(admin_user, loan, 1_316_29, date(2027, 2, 10), "garanta-key")
+    [command] = seen
+    assert command.garanta_penalty_minor > 0
+    journal_model = apps.get_model("ledger", "LedgerJournalEntry")
+    journals = journal_model.objects.count()
+
+    same = real(command)
+    assert journal_model.objects.count() == journals
+    assert same.bank_operation.id is not None
+    with pytest.raises(ledger.LedgerValidationError):
+        real(replace(command, garanta_penalty_minor=command.garanta_penalty_minor - 1))
+    assert journal_model.objects.count() == journals
+
+
+@pytest.mark.django_db
+def test_a_replayed_fraction_release_creates_no_new_lots(
+    admin_user: Model, investors: list[Model], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-audit R5-2: the release of the carried cents, called again with the same source,
+    returns the lots of the first call; other lines for the same source are refused."""
+    from dataclasses import replace
+
+    services: Any = import_module("backend.apps.servicing.services")
+    ledger: Any = import_module("backend.apps.ledger.services")
+    lot_model = apps.get_model("ledger", "InvestorBalanceLot")
+    seen: list[Any] = []
+    real = ledger.release_loan_cent_fractions
+
+    def spy(command: Any) -> Any:
+        seen.append(command)
+        return real(command)
+
+    monkeypatch.setattr(ledger, "release_loan_cent_fractions", spy)
+    loan = _engine_loan(admin_user, investors)
+    with at(date(2027, 1, 15)):
+        _pay(admin_user, loan, 1_001_92, date(2027, 1, 15), "replay-before-default")
+    with at(date(2027, 4, 20)):
+        engine.declare_loan_default(
+            engine.DeclareLoanDefaultCommand(actor=admin_user, loan_id=str(loan.pk))
+        )
+        remaining = int(
+            apps.get_model("holdings", "InvestorLoanHolding")
+            .objects.filter(loan=loan, status="active")
+            .aggregate(total=Sum("current_principal_minor"))["total"]
+        )
+        services.record_loan_write_off(
+            services.RecordLoanWriteOffCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                written_off_principal_minor=remaining,
+                reason="Insolvency closed without dividend.",
+                idempotency_key="replay-write-off",
+            )
+        )
+        [command] = seen
+        lots_before = lot_model.objects.count()
+        first_ids = sorted(
+            str(lot.id)
+            for lot in lot_model.objects.filter(source_id__startswith=f"{command.source_id}:")
+        )
+        replayed = real(command)
+        assert lot_model.objects.count() == lots_before
+        assert sorted(str(credit.balance_lot.id) for credit in replayed) == first_ids
+        changed = [replace(command.lines[0], interest_minor=command.lines[0].interest_minor + 1)]
+        with pytest.raises(ledger.LedgerValidationError):
+            real(replace(command, lines=changed + list(command.lines[1:])))
+        assert lot_model.objects.count() == lots_before

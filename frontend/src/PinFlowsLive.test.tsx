@@ -425,3 +425,46 @@ test("D-1: an investor with an authenticator app confirms with the app code, nev
   // The API field stays "pin" and carries the app code.
   expect(calls.withdrawals.map((body) => body.pin)).toEqual(["246813", "135790"]);
 }, 30_000);
+
+test("re-audit R8-1: in a new tab the SMS code goes to the registered number without typing it", async () => {
+  const user = lender({
+    status: "pending_kyc",
+    pin_set: false,
+    phone_verified: false,
+    second_factor: "",
+    phone_number_masked: "+41 ••• ••• •• 67"
+  });
+  const phoneRequests: Array<Record<string, unknown>> = [];
+  server.use(
+    ...pinHandlers(() => pinStatus({ pin_set: false, setup_requires_email_code: false })),
+    http.get("*/api/v1/auth/me/", () =>
+      HttpResponse.json({ ...getV1AuthMeRetrieveResponseMock(), user, qa_controls_available: false })
+    ),
+    http.get("*/api/v1/kyc/status/", () =>
+      HttpResponse.json({ ...getV1KycStatusRetrieveResponseMock(), status: "not_started", financial_access_allowed: false })
+    ),
+    http.post("*/api/v1/auth/phone/request/", async ({ request }) => {
+      const text = await request.text();
+      phoneRequests.push(text ? (JSON.parse(text) as Record<string, unknown>) : {});
+      return HttpResponse.json({ challenge_id: "c1", phone_verified: false });
+    })
+  );
+  // A fresh tab: the email link opened here, so this tab has only what the link rebuilds from
+  // the account (resumedRegisterStateForUser): name and email, no phone number.
+  window.sessionStorage.clear();
+  window.sessionStorage.setItem(
+    "banxum:register-flow:v3",
+    JSON.stringify({ step: 2, email: user.email, firstName: "Una", lastName: "Investor", emailLoginSent: true })
+  );
+  renderLiveApp(App, "/register");
+
+  fireEvent.click(await screen.findByRole("button", { name: /^SMS code/ }, { timeout: 5000 }));
+  expect(await screen.findByRole("heading", { name: "Verify your mobile number" })).toBeInTheDocument();
+  expect(screen.getByText("+41 ••• ••• •• 67")).toBeInTheDocument();
+  const send = screen.getByRole("button", { name: "Send SMS code" });
+  expect(send).toBeEnabled();
+  fireEvent.click(send);
+  expect(await screen.findByRole("heading", { name: "Enter your SMS code" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(phoneRequests).toHaveLength(1);
+  expect(phoneRequests[0]).not.toHaveProperty("phone_number");
+}, 30_000);

@@ -364,6 +364,10 @@ NEWSLETTER_CONFIRMATION_GLOBAL_DAILY_LIMIT = env.int(
 NEWSLETTER_TOKEN_IP_HOURLY_LIMIT = env.int("NEWSLETTER_TOKEN_IP_HOURLY_LIMIT", default=30)
 SCHEDULED_JOBS_ACTOR_EMAIL = env("SCHEDULED_JOBS_ACTOR_EMAIL", default="")
 SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", default=5)
+# Pre-deployment review P-5: jobs that run every few minutes (assisted-recovery links).
+SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES = env.int(
+    "SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES", default=15
+)
 SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", default=1800)
 SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES = env.int(
     "SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES",
@@ -480,11 +484,7 @@ SPECTACULAR_SETTINGS = {
         "SmartInvestRepaymentEnum": (
             "backend.apps.smart_invest.models.SmartInvestRepaymentOption.choices"
         ),
-        "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
         "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
-        "PublicEnquiryCurrencyEnum": (
-            "backend.apps.communications.api.serializers.CURRENCY_CHOICES"
-        ),
         "PublicEnquiryProposalEnum": (
             "backend.apps.communications.api.serializers.PROPOSAL_CHOICES"
         ),

@@ -34,6 +34,16 @@ def _validated_phone_number(value: str) -> str:
 pin_field = sensitive_action_pin_field
 
 
+def mask_phone_number(value: str) -> str:
+    """'+41791234567' -> '+41 ••• ••• •• 67'; empty when no number is stored."""
+    digits = "".join(character for character in value if character.isdigit())
+    if len(digits) < 6:
+        return ""
+    country = digits[:2] if value.strip().startswith("+") else ""
+    prefix = f"+{country} " if country else ""
+    return f"{prefix}••• ••• •• {digits[-2:]}"
+
+
 class UserSummarySerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     email = serializers.EmailField()
@@ -54,10 +64,17 @@ class UserSummarySerializer(serializers.Serializer[Any]):
     # 18.5 / D-1: "app" (authenticator code; no PIN), "sms" (SMS code; PIN for operations) or
     # "" (no second factor yet: the portal shows the factor set-up before anything else).
     second_factor = serializers.SerializerMethodField()
+    # Re-audit R8-1: the registered mobile number, masked (country code and last two digits), so
+    # a new tab of the registration can send the SMS code to it without the full number.
+    phone_number_masked = serializers.SerializerMethodField()
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_second_factor(self, user: User) -> str:
         return factor_kind(user)
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_phone_number_masked(self, user: User) -> str:
+        return mask_phone_number(str(getattr(user, "phone_number", "") or ""))
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_pin_set(self, user: User) -> bool:

@@ -392,8 +392,11 @@ def test_monitor_separates_paused_qa_periods_from_real_job_runtime(
     now = timezone.now()
     qa_now = now + timedelta(days=days)
     monkeypatch.setattr(monitor, "qa_time_override_from_db", lambda: qa_now)
+    from backend.apps.platform_core.services.scheduled_jobs import ASSISTED_RECOVERY_LINKS_JOB
+
+    frequent = {EMAIL_OUTBOX_DISPATCH_JOB, ASSISTED_RECOVERY_LINKS_JOB}  # P-5: real-time jobs
     for name in DEFAULT_SCHEDULED_JOB_NAMES:
-        finished = now if name == EMAIL_OUTBOX_DISPATCH_JOB else now - timedelta(days=2)
+        finished = now if name in frequent else now - timedelta(days=2)
         ScheduledJobRun.objects.create(
             job_name=name, run_key=f"{name}:qa-clock",
             status=ScheduledJobRunStatus.SUCCEEDED,
@@ -416,3 +419,30 @@ def test_monitor_separates_paused_qa_periods_from_real_job_runtime(
     with pytest.raises(CommandError, match="failed or stale"):
         call_command("check_scheduled_jobs", stdout=output)
     assert "Stale RUNNING runs" in output.getvalue()
+
+
+@pytest.mark.django_db
+def test_monitor_holds_the_assisted_recovery_links_to_a_short_limit() -> None:
+    """Pre-deployment review P-5: the assisted-recovery job runs every few minutes; a run older
+    than SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES (15) is overdue, not covered for a day."""
+    from backend.apps.platform_core.services.scheduled_jobs import ASSISTED_RECOVERY_LINKS_JOB
+
+    now = timezone.now()
+    run = ScheduledJobRun.objects.create(
+        job_name=ASSISTED_RECOVERY_LINKS_JOB,
+        run_key="assisted_recovery_links:monitor",
+        status=ScheduledJobRunStatus.SUCCEEDED,
+        scheduled_for=now - timedelta(minutes=40),
+        started_at=now - timedelta(minutes=40),
+        finished_at=now - timedelta(minutes=40),
+    )
+    with pytest.raises(CommandError, match="missing coverage"):
+        call_command(
+            "check_scheduled_jobs", "--job", ASSISTED_RECOVERY_LINKS_JOB, stdout=StringIO()
+        )
+    ScheduledJobRun.objects.filter(id=run.id).update(
+        scheduled_for=now - timedelta(minutes=5), finished_at=now - timedelta(minutes=5)
+    )
+    output = StringIO()
+    call_command("check_scheduled_jobs", "--job", ASSISTED_RECOVERY_LINKS_JOB, stdout=output)
+    assert "Scheduled job monitor OK" in output.getvalue()

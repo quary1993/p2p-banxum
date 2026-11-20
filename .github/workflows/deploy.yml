@@ -199,11 +199,10 @@ jobs:
 
           rm -rf "$app_dir"
 
-          # Keep the currently running images, containers, and volumes. Remove only
-          # unused build data before the next image build so repeated releases do not
-          # exhaust the deployment host.
-          docker builder prune -af
-          docker image prune -af
+          # Pre-deployment review P-3: the host is shared with other projects, so no global
+          # Docker cleanup here (no "builder prune" or "image prune -a"). Only dangling images
+          # of this BANXUM project are removed after the new release starts (below). Disk
+          # maintenance of the host is a separate operator task (runbook).
 
           mkdir -p "$app_dir"
           tar -xzf "$REMOTE_ARCHIVE" -C "$app_dir"
@@ -269,11 +268,28 @@ jobs:
           chmod 600 "$backend_env"
 
           cd "$app_dir"
-          docker compose \
+          compose() {
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              "$@"
+          }
+          compose build
+          # Pre-deployment review P-4: the settings check and the migrations run as a visible
+          # one-shot step with their own time limit, before the application restarts. A failed
+          # migration stops the deployment here; the running release keeps serving.
+          echo "Running the settings check and the migrations for $TARGET..."
+          if ! timeout "${MIGRATION_TIMEOUT_SECONDS:-1800}" docker compose \
             --project-name "$project_name" \
             --env-file infra/deploy/.env \
             -f infra/deploy/docker-compose.yml \
-            up -d --build
+            run --rm --no-TTY backend sh -c \
+            ".venv/bin/python backend/manage.py check --deploy --fail-level ERROR && .venv/bin/python backend/manage.py migrate --noinput"; then
+            echo "$TARGET migration step failed; the application was not restarted." >&2
+            exit 5
+          fi
+          compose up -d
 
           check_health() {
             curl -fsS --connect-timeout 3 --max-time 10 \
@@ -281,7 +297,7 @@ jobs:
               python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status") == "ok" and data.get("environment") == sys.argv[1]' "$TARGET"
           }
           healthy=false
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 60); do
             if check_health; then
               echo "$TARGET health check passed: $health_url"
               healthy=true
@@ -292,13 +308,11 @@ jobs:
 
           if [ "$healthy" != "true" ]; then
             echo "$TARGET health check failed: $health_url" >&2
-            docker compose \
-              --project-name "$project_name" \
-              --env-file infra/deploy/.env \
-              -f infra/deploy/docker-compose.yml \
-              ps
+            compose ps
             exit 4
           fi
+          # Only dangling images of this project (old builds of this release line).
+          docker image prune -f --filter "label=com.docker.compose.project=$project_name" || true
 
           if [ "${SEED_MARKETPLACE_DEMO_LOANS:-false}" = "true" ]; then
             seed_args=""

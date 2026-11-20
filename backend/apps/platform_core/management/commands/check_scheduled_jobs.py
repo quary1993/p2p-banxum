@@ -14,6 +14,7 @@ from backend.apps.platform_core.models.scheduled_jobs import (
 from backend.apps.platform_core.services.qa_dev_mode import qa_time_override_from_db
 from backend.apps.platform_core.services.scheduled_jobs import (
     ALL_SCHEDULED_JOB_NAMES,
+    ASSISTED_RECOVERY_LINKS_JOB,
     DEFAULT_SCHEDULED_JOB_NAMES,
     EMAIL_OUTBOX_DISPATCH_JOB,
 )
@@ -84,12 +85,16 @@ class Command(BaseCommand):
 
         coverage_errors: list[str] = []
         for job_name in job_names:
-            max_age_minutes = max(
-                1,
-                int(getattr(settings, "SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", 5))
-                if job_name == EMAIL_OUTBOX_DISPATCH_JOB
-                else int(getattr(settings, "SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", 1800)),
-            )
+            # Pre-deployment review P-5: the assisted-recovery links run every few minutes, so
+            # they have their own short limit instead of the daily one.
+            frequent = job_name in {EMAIL_OUTBOX_DISPATCH_JOB, ASSISTED_RECOVERY_LINKS_JOB}
+            if job_name == EMAIL_OUTBOX_DISPATCH_JOB:
+                configured = int(getattr(settings, "SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", 5))
+            elif job_name == ASSISTED_RECOVERY_LINKS_JOB:
+                configured = int(getattr(settings, "SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES", 15))
+            else:
+                configured = int(getattr(settings, "SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", 1800))
+            max_age_minutes = max(1, configured)
             success = (
                 runs.filter(job_name=job_name, status=ScheduledJobRunStatus.SUCCEEDED)
                 .filter(Q(summary__dry_run=False) | Q(summary__dry_run__isnull=True))
@@ -104,8 +109,8 @@ class Command(BaseCommand):
             period_cutoff = period_now - timedelta(minutes=max_age_minutes)
             # A paused QA business date does not make a completed daily scan stale.
             # Email delivery and stuck-run timing must still follow wall time.
-            check_runtime_age = qa_now is None or job_name == EMAIL_OUTBOX_DISPATCH_JOB
-            check_period_age = qa_now is None or job_name != EMAIL_OUTBOX_DISPATCH_JOB
+            check_runtime_age = qa_now is None or frequent
+            check_period_age = qa_now is None or not frequent
             if (
                 success.finished_at is None
                 or (check_runtime_age and success.finished_at < freshness_cutoff)

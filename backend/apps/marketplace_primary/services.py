@@ -320,6 +320,10 @@ def _resolve_fully_subscribed_originator_round(*, actor: Model, loan_id: str) ->
                 idempotency_key=f"originator-round-auto-close:{loan_id}",
             )
         )
+    except originator.OriginatorOfferFailedError:
+        # Re-audit R6-1: F04 failed the offer in its own committed transaction (participations
+        # cancelled, reservations released, investors told). Not a close failure.
+        return
     except Exception as exc:  # The reservation is already committed by design.
         try:
             originator.mark_originator_funding_close_failed(

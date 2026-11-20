@@ -775,3 +775,85 @@ def test_verify_a_return_account_from_the_deposit_with_evidence(
     assert listed.json()["registration_name"] == "Return Investor"
     assert listed.json()["identity_decision_at"] is not None
     assert listed.json()["results"] == []
+
+
+@pytest.mark.django_db
+def test_a_failed_return_stays_open_until_a_replacement_withdrawal_is_finalized(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Re-audit R3-1: the investor withdraws the money of a failed return; while that
+    withdrawal is only requested the case stays open; when it is cancelled, the money is back
+    and the scan creates no automatic return (the case is open)."""
+    deposit, forced = _forced_and_sent(admin_user, investor)
+    failure = _returned(admin_user, forced, date(2026, 3, 4), reason="technical")
+    code = issue_sensitive_action_test_code(investor, "withdrawal")
+    with freeze_time(_at(date(2026, 3, 5), 9)):
+        withdrawal = request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=1000_00,
+                currency="CHF",
+                destination_iban=IBAN,
+                destination_account_name="Return Investor",
+                idempotency_key="withdraw-after-failure",
+                sensitive_action_code_id=code.code_id,
+                sensitive_action_code=code.raw_code,
+                pin=code.pin,
+            )
+        )
+    assert _scan(admin_user, date(2026, 3, 6)).forced_withdrawal_requests == []
+    failure.refresh_from_db()
+    assert failure.status == "open"
+
+    with freeze_time(_at(date(2026, 3, 6), 11)):
+        cancel_investor_withdrawal(
+            CancelInvestorWithdrawalCommand(
+                actor=admin_user,
+                withdrawal_request_id=str(withdrawal.id),
+                reason="Investor asked to stop it.",
+                idempotency_key="cancel-after-failure",
+            )
+        )
+    deposit.balance_lot.refresh_from_db()
+    assert deposit.balance_lot.available_amount_minor == 1000_00
+    for day in (date(2026, 3, 9), date(2026, 3, 10)):
+        assert _scan(admin_user, day).forced_withdrawal_requests == []
+    failure.refresh_from_db()
+    assert failure.status == "open"
+    assert InvestorWithdrawalRequest.objects.filter(status="requested").count() == 0
+
+
+@pytest.mark.django_db
+def test_a_failed_return_closed_without_money_opens_again_when_the_money_comes_back(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """Re-audit R3-1: a case closed as "no money left" opens again (with its task) when its lots
+    have money again, and the scan does not return that money by itself."""
+    deposit, forced = _forced_and_sent(admin_user, investor)
+    failure = _returned(admin_user, forced, date(2026, 3, 4), reason="technical")
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    available = lot.available_amount_minor
+    InvestorBalanceLot.objects.filter(id=lot.id).update(
+        available_amount_minor=0,
+        withdrawn_amount_minor=lot.withdrawn_amount_minor + available,
+        status=BalanceLotStatus.CONSUMED,
+    )
+    _scan(admin_user, date(2026, 3, 5))
+    failure.refresh_from_db()
+    assert (failure.status, failure.resolution) == ("resolved", "no_money_left")
+
+    InvestorBalanceLot.objects.filter(id=lot.id).update(
+        available_amount_minor=available,
+        withdrawn_amount_minor=lot.withdrawn_amount_minor,
+        status=BalanceLotStatus.AVAILABLE,
+    )
+    assert _scan(admin_user, date(2026, 3, 6)).forced_withdrawal_requests == []
+    failure.refresh_from_db()
+    assert failure.status == "open"
+    assert AuditEvent.objects.filter(
+        action="ledger.balance_return_failure_reopened", target_id=str(failure.id)
+    ).exists()
+    [task] = _tasks("return_failed")
+    assert str(task.status) != "resolved"

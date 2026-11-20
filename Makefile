@@ -86,7 +86,11 @@ check-scheduled-jobs:
 
 api-schema:
 	mkdir -p openapi
-	$(UV) run python backend/manage.py spectacular --file openapi/schema.yaml --validate
+	@log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
+	$(UV) run python backend/manage.py spectacular --file openapi/schema.yaml --validate 2>&1 | tee "$$log"; \
+	if grep -Eq '^Error:|unable to load choice override|^Errors: +[1-9]' "$$log"; then \
+		echo "OpenAPI validation reported an error (re-audit R8-2)."; exit 1; \
+	fi
 
 api-client:
 	cd frontend && $(NPM) run api:generate
