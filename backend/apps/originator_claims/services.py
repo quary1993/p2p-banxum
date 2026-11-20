@@ -3962,28 +3962,90 @@ def originator_loan_ids_with_due_unpaid_installment(
 ) -> set[str]:
     """Originator claims whose current schedule has an installment due by ``as_of_date``.
 
-    C03 (Vlad, 2026-11-17): a row is paid once an import with an as-of date on or after its due
-    date records it; until then, from the due date itself, the claim is closed to new buyers.
+    C03 (Vlad, 2026-11-17): from the due date itself, the claim is closed to new buyers until
+    the payment is recorded.
     """
     profiles = [
         cast(Any, loan).originator_profile
         for loan in loans
         if getattr(cast(Any, loan), "originator_profile", None) is not None
     ]
-    by_import_id = {
-        str(profile.current_import_id): str(profile.loan_id)
-        for profile in profiles
-        if profile.current_import_id is not None
-    }
-    if not by_import_id:
+    return _due_unpaid_loan_ids(
+        {
+            str(profile.current_import_id): str(profile.loan_id)
+            for profile in profiles
+            if profile.current_import_id is not None
+        },
+        as_of_date=as_of_date,
+    )
+
+
+_DUE_COMPONENTS = ("principal_minor", "interest_minor", "penalty_minor", "fee_minor")
+
+
+def _due_unpaid_loan_ids(loan_by_import_id: dict[str, str], *, as_of_date: date) -> set[str]:
+    """C03 in two queries for any number of claims (audit S1-2 and S1-6).
+
+    An installment due by ``as_of_date`` is paid only when the current import (a) has an as-of
+    date on or after its due date and (b) records payments that cover, component by component
+    (principal, interest, penalty, fee), everything scheduled up to the latest due installment.
+    The import holds the whole payment history since the start of the loan (the import checks
+    the running principal), so cumulative sums are exact; a payment made in advance counts for
+    the later installments. A partial payment (for example part of an interest-only
+    installment) keeps the claim closed.
+    """
+    if not loan_by_import_id:
         return set()
-    blocked: set[str] = set()
-    for import_id, import_as_of, due_date in OriginatorLoanScheduleRow.objects.filter(
-        loan_import_id__in=by_import_id, due_date__lte=as_of_date
-    ).values_list("loan_import_id", "loan_import__as_of_date", "due_date"):
-        if due_date > import_as_of:
-            blocked.add(by_import_id[str(import_id)])
-    return blocked
+    due: dict[str, dict[str, int]] = {}
+    import_as_of: dict[str, date] = {}
+    latest_due: dict[str, date] = {}
+    for row in OriginatorLoanScheduleRow.objects.filter(
+        loan_import_id__in=loan_by_import_id, due_date__lte=as_of_date
+    ).values("loan_import_id", "loan_import__as_of_date", "due_date", *_DUE_COMPONENTS):
+        import_id = str(row["loan_import_id"])
+        totals = due.setdefault(import_id, dict.fromkeys(_DUE_COMPONENTS, 0))
+        for name in _DUE_COMPONENTS:
+            totals[name] += int(row[name])
+        import_as_of[import_id] = row["loan_import__as_of_date"]
+        latest_due[import_id] = max(latest_due.get(import_id, row["due_date"]), row["due_date"])
+    if not due:
+        return set()
+    paid: dict[str, dict[str, int]] = {}
+    for payment in OriginatorLoanPaymentRow.objects.filter(
+        loan_import_id__in=list(due), value_date__lte=as_of_date
+    ).values("loan_import_id", *_DUE_COMPONENTS):
+        import_id = str(payment["loan_import_id"])
+        totals = paid.setdefault(import_id, dict.fromkeys(_DUE_COMPONENTS, 0))
+        for name in _DUE_COMPONENTS:
+            totals[name] += int(payment[name])
+    return {
+        loan_by_import_id[import_id]
+        for import_id, scheduled in due.items()
+        if not due_installments_settled(
+            scheduled=scheduled,
+            paid=paid.get(import_id, {}),
+            latest_due_date=latest_due[import_id],
+            import_as_of_date=import_as_of[import_id],
+        )
+    }
+
+
+def due_installments_settled(
+    *,
+    scheduled: dict[str, int],
+    paid: dict[str, int],
+    latest_due_date: date,
+    import_as_of_date: date,
+) -> bool:
+    """C03 rule for one claim: every installment due so far is paid in full.
+
+    ``scheduled`` sums each component of the installments due so far; ``paid`` sums the same
+    components of the recorded payments. An import older than the latest due date cannot show
+    that payment yet.
+    """
+    if latest_due_date > import_as_of_date:
+        return False
+    return all(int(paid.get(name, 0)) >= int(scheduled.get(name, 0)) for name in _DUE_COMPONENTS)
 
 
 def originator_installment_due_unpaid(profile: OriginatorLoanProfile, *, as_of_date: date) -> bool:
@@ -4400,6 +4462,7 @@ def _originator_opportunity_closed_reason(
     *,
     is_par_subscription: bool,
     as_of_date: date,
+    due_unpaid: bool | None = None,
 ) -> str:
     """Why the opportunity cannot take investment today; empty when it is open."""
     expected_loan_status = "published" if is_par_subscription else "active"
@@ -4419,9 +4482,19 @@ def _originator_opportunity_closed_reason(
         return "Originator claim opportunity is within 30 days of maturity."
     # C03 (Vlad, 2026-11-17): closed from the due date of an unpaid installment until the
     # payment is recorded (this also covers a loan that is Late).
-    if originator_installment_due_unpaid(profile, as_of_date=as_of_date):
+    if due_unpaid is None:
+        due_unpaid = originator_installment_due_unpaid(profile, as_of_date=as_of_date)
+    if due_unpaid:
         return DUE_INSTALLMENT_UNAVAILABLE_MESSAGE
     return ""
+
+
+@dataclass(frozen=True)
+class _MarketplaceListPrefetch:
+    """Data read once for a whole opportunity list (audit S1-6)."""
+
+    due_unpaid_loan_ids: frozenset[str]
+    schedule_rows_by_import_id: dict[str, list[OriginatorLoanScheduleRow]]
 
 
 # A published opportunity stays readable after its round closes (JOURNEY-09): holders
@@ -4444,6 +4517,7 @@ def originator_marketplace_payload(
     allow_closed: bool = False,
     viewer_user_id: str | None = None,
     allow_coming_soon: bool = False,
+    _prefetch: _MarketplaceListPrefetch | None = None,
 ) -> dict[str, Any]:
     """Marketplace projection of an originator opportunity.
 
@@ -4454,15 +4528,19 @@ def originator_marketplace_payload(
     must invest now; without one, what a new investor must invest (Swiss-borrower
     limit, MKT-DEC-028).
     """
-    profile = OriginatorLoanProfile.objects.select_related(
-        "loan__currency", "originator", "current_import"
-    ).get(id=profile.id)
+    if _prefetch is None:
+        profile = OriginatorLoanProfile.objects.select_related(
+            "loan__currency", "originator", "current_import"
+        ).get(id=profile.id)
     is_par_subscription = _is_par_subscription(profile)
     as_of_date = pricing_date or business_date(now_utc())
     closed_reason = _originator_opportunity_closed_reason(
         profile,
         is_par_subscription=is_par_subscription,
         as_of_date=as_of_date,
+        due_unpaid=(
+            None if _prefetch is None else str(profile.loan_id) in _prefetch.due_unpaid_loan_ids
+        ),
     )
     coming_soon = (
         allow_coming_soon
@@ -4481,7 +4559,10 @@ def originator_marketplace_payload(
     loan_import = profile.current_import
     if loan_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
-    schedule_rows = list(loan_import.schedule_rows.order_by("installment_number", "id"))
+    if _prefetch is not None and str(loan_import.id) in _prefetch.schedule_rows_by_import_id:
+        schedule_rows = _prefetch.schedule_rows_by_import_id[str(loan_import.id)]
+    else:
+        schedule_rows = list(loan_import.schedule_rows.order_by("installment_number", "id"))
     sellable_principal_minor = originator_sellable_principal_minor(profile)
     committed_principal_minor = (
         int(profile.loan.committed_principal_minor)
@@ -4642,14 +4723,33 @@ def list_open_originator_marketplace_payloads(
         .select_related("loan__currency", "originator", "current_import")
         .order_by("maturity_date", "id")[:limit]
     )
+    profile_list = list(profiles)
+    # Audit S1-6: the C03 check and the schedules are read once for the whole list.
+    import_ids = {
+        str(profile.current_import_id): str(profile.loan_id)
+        for profile in profile_list
+        if profile.current_import_id is not None
+    }
+    schedule_rows_by_import_id: dict[str, list[OriginatorLoanScheduleRow]] = {}
+    for row in OriginatorLoanScheduleRow.objects.filter(loan_import_id__in=import_ids).order_by(
+        "loan_import_id", "installment_number", "id"
+    ):
+        schedule_rows_by_import_id.setdefault(str(row.loan_import_id), []).append(row)
+    prefetch = _MarketplaceListPrefetch(
+        due_unpaid_loan_ids=frozenset(
+            _due_unpaid_loan_ids(import_ids, as_of_date=business_date(now_utc()))
+        ),
+        schedule_rows_by_import_id=schedule_rows_by_import_id,
+    )
     payloads: list[dict[str, Any]] = []
-    for profile in profiles:
+    for profile in profile_list:
         try:
             payloads.append(
                 originator_marketplace_payload(
                     profile,
                     include_detail=False,
                     viewer_user_id=viewer_user_id,
+                    _prefetch=prefetch,
                 )
             )
         except OriginatorClaimsValidationError:
