@@ -161,6 +161,8 @@ Launch repayment types are:
 - Interest-only period then bullet.
 - Interest-only period then amortizing.
 
+> Updated 2026-11-20 (F14, 18.2): "Amortizing principal and interest" (equal principal) is closed for new direct loans; existing loans and imported Loan Originator claims keep it. New direct loans use the 18.6 engine types (equal total installments, periodic interest with the principal at the end, payment at maturity, custom schedule by import).
+
 Default is equal installments. The admin picker must include a short description for every repayment type. Custom/manual schedule is not a launch repayment type, but generated schedules may be materially changed through controlled payment or operational events under servicing controls.
 
 Rationale:
@@ -301,7 +303,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 ## Repayment Types
 
 - Bullet principal with periodic interest: interest is paid periodically and principal is repaid at maturity.
-- Amortizing principal and interest: scheduled payments reduce principal over time and include interest.
+- Amortizing principal and interest: scheduled payments reduce principal over time and include interest. Closed for new direct loans (F14, 2026-11-20); existing loans and imported claims keep it.
 - Equal installment: each scheduled payment is the same amount unless adjusted by the loan schedule.
 - Interest-only period then bullet: interest is paid during the term and principal is repaid at maturity.
 - Interest-only period then amortizing: interest-only payments first, followed by amortizing payments.

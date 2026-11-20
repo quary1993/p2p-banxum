@@ -2415,6 +2415,16 @@ Status 2026-11-19 (audit step 1, branch `u33-17-2`): done, except the S7 clean-u
 - Q24: How it works moved into Help (redirect); "Our first year in figures" removed (archived in `docs/archive`); Terms outline corrected.
 - Q25: the FX screen removed from the investor area. Q26: reservation, release (with a reason code) and investment as separate Transactions entries. Q27: the two invalid selectors dropped (generator and generated file). F14: equal principal closed for new direct loans. D10: "processed in 1-3 business days".
 
+Audit step 1 fixes (2026-11-20, GPT audit of step 1):
+
+- S1-1: the newsletter unsubscribe and the "News from Banxum" switch each run in one transaction and lock the account first, then the subscription (PostgreSQL refused the row locks outside a transaction). The same check found the engine repayment (18.6) and the display preferences; both are atomic now. Test fixture `row_locks_need_a_transaction` fails a test that takes a row lock without its own transaction.
+- S1-2 (C03): an installment counts as paid only when the current import, dated on or after its due date, records payments that cover every scheduled component (principal, interest, penalty, fee) so far; a partial payment keeps the claim closed.
+- S1-3 (C06): an asset reference per security; several counted assets need distinct references (database constraint, migration `loans` 0031); publication is refused for older data with two counted assets without distinct references.
+- S1-4 (C09/F15): investor ZIP reports use the investor's number format.
+- S1-5 (E-06): the older public shell hides its language controls.
+- S1-6: the Loan Originator offer list reads the C03 check and the schedules once for all offers.
+- S1-7: attribution on two migrations. D4: a value that differs from the converted foreign valuation is refused. D5: the "Stop these alerts" page removes the token from the address bar.
+
 #### 18.3 Design 1:1 pass (screens and data without new rules)
 
 - **Account and Transactions:** reserved amount per lot in the balances API (the design's "Reserved" column); activity endpoint with server filters (period, currency, type, search), pagination, "available after" balance per movement and a server CSV of the whole history.
