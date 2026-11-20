@@ -15,6 +15,13 @@ def _no_password_breach_lookup(settings: Any) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _media_outside_the_repository(settings: Any, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Uploaded and seeded files (for example the seed proof placeholders) go to a temporary
+    folder, never to the repository's media folder. A test may set its own folder."""
+    settings.MEDIA_ROOT = str(tmp_path_factory.getbasetemp() / "media")
+
+
+@pytest.fixture(autouse=True)
 def _no_declarations_gate(settings: Any) -> None:
     """Tests of other features invest without declarations and publish without security
     verifications; the 18.10 tests turn these gates on."""
