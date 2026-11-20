@@ -726,11 +726,25 @@ def read_investor_visible_borrower_document(
     *, borrower_id: str, document_id: str
 ) -> InvestorBorrowerDocumentFile:
     """File of a borrower document that the investor disclosure lists (visible and scanned)."""
-    document = (
+    return _read_borrower_document(
         BorrowerDocument.objects.select_related("stored_file")
         .filter(id=document_id, borrower__id=borrower_id, investor_visible=True)
         .first()
     )
+
+
+def read_borrower_document_for_staff(
+    *, borrower_id: str | None, document_id: str
+) -> InvestorBorrowerDocumentFile:
+    """Audit S7-8: the file of a borrower document for an admin check (scanned files only).
+    The caller checks the admin permission and why the admin may open it."""
+    queryset = BorrowerDocument.objects.select_related("stored_file").filter(id=document_id)
+    if borrower_id:
+        queryset = queryset.filter(borrower__id=borrower_id)
+    return _read_borrower_document(queryset.first())
+
+
+def _read_borrower_document(document: BorrowerDocument | None) -> InvestorBorrowerDocumentFile:
     if document is None or document.stored_file.scan_status != FileScanStatus.CLEAN:
         raise BorrowerValidationError("Document not found.")
     stored_file = document.stored_file

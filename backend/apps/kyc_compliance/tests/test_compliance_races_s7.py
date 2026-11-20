@@ -1,4 +1,4 @@
-"""IP of Webby-Soft SRL. Audit S7-2: the compliance block is checked again at the money step.
+"""IP of Webby-Soft SRL. Audit S7-2 and S7-4: checks again at the money step.
 
 Each test lets the early check pass (as if the review opened just after it) and shows that the
 final step, under the investor row lock, refuses: primary allocation, Loan Originator claim
@@ -108,10 +108,8 @@ def test_primary_allocation_rechecks_under_the_investor_lock(
     assert str(order.status) not in {"balance_allocated", "partially_allocated"}
 
 
-@pytest.mark.django_db
-def test_loan_originator_purchase_rechecks_under_the_investor_lock(
-    monkeypatch: pytest.MonkeyPatch, settings: Any
-) -> None:
+def _loan_originator_purchase() -> tuple[Model, Any, type[Exception], Any]:
+    """A ready Loan Originator purchase: (investor, attempt, error class, no-purchase check)."""
     claims: Any = import_module("backend.apps.originator_claims.tests.test_originator_claims")
     originator: Any = import_module("backend.apps.originator_claims.services")
     models: Any = import_module("backend.apps.originator_claims.models")
@@ -195,10 +193,9 @@ def test_loan_originator_purchase_rechecks_under_the_investor_lock(
     )
     acceptance = claims._primary_acceptance(investor, quote_id=str(quote.id))
     code = issue_sensitive_action_test_code(investor, "primary_investment")
-    _review_opens_after_the_early_check(investor, monkeypatch, settings)
 
-    with pytest.raises(originator.OriginatorClaimsValidationError, match="compliance team"):
-        originator.purchase_originator_claim(
+    def attempt() -> Any:
+        return originator.purchase_originator_claim(
             originator.PurchaseOriginatorClaimCommand(
                 actor=investor,
                 quote_id=str(quote.id),
@@ -209,13 +206,26 @@ def test_loan_originator_purchase_rechecks_under_the_investor_lock(
                 idempotency_key="race-lo-purchase",
             )
         )
-    assert not models.OriginatorClaimPurchase.objects.filter(quote_id=quote.id).exists()
+
+    def nothing_bought() -> bool:
+        return not models.OriginatorClaimPurchase.objects.filter(quote_id=quote.id).exists()
+
+    return investor, attempt, originator.OriginatorClaimsValidationError, nothing_bought
 
 
 @pytest.mark.django_db
-def test_resale_purchase_rechecks_under_the_investor_lock(
+def test_loan_originator_purchase_rechecks_under_the_investor_lock(
     monkeypatch: pytest.MonkeyPatch, settings: Any
 ) -> None:
+    investor, attempt, error, nothing_bought = _loan_originator_purchase()
+    _review_opens_after_the_early_check(investor, monkeypatch, settings)
+    with pytest.raises(error, match="compliance team"):
+        attempt()
+    assert nothing_bought()
+
+
+def _resale_purchase() -> tuple[Model, Any, type[Exception], Any]:
+    """A ready resale purchase: (buyer, attempt, error class, listing-unchanged check)."""
     resale: Any = import_module("backend.apps.secondary_market.tests.test_secondary_market")
     market: Any = import_module("backend.apps.secondary_market.services")
     admin = _user("race-sm-admin@example.test", account_type="admin", is_staff=True)
@@ -241,10 +251,9 @@ def test_resale_purchase_rechecks_under_the_investor_lock(
     review = resale._review_purchase(buyer, listing)
     acceptance = resale._create_purchase_acceptance(buyer, listing, review=review)
     code = resale._sensitive_code_payload(buyer, "secondary_market_purchase")
-    _review_opens_after_the_early_check(buyer, monkeypatch, settings)
 
-    with pytest.raises(market.SecondaryMarketValidationError, match="compliance team"):
-        market.purchase_secondary_market_listing(
+    def attempt() -> Any:
+        return market.purchase_secondary_market_listing(
             market.PurchaseSecondaryMarketListingCommand(
                 actor=buyer,
                 listing_id=str(listing.id),
@@ -254,5 +263,41 @@ def test_resale_purchase_rechecks_under_the_investor_lock(
                 **code,
             )
         )
-    listing.refresh_from_db()
-    assert str(listing.status) == "active"
+
+    def still_listed() -> bool:
+        listing.refresh_from_db()
+        return str(listing.status) == "active"
+
+    return buyer, attempt, market.SecondaryMarketValidationError, still_listed
+
+
+@pytest.mark.django_db
+def test_resale_purchase_rechecks_under_the_investor_lock(
+    monkeypatch: pytest.MonkeyPatch, settings: Any
+) -> None:
+    buyer, attempt, error, still_listed = _resale_purchase()
+    _review_opens_after_the_early_check(buyer, monkeypatch, settings)
+    with pytest.raises(error, match="compliance team"):
+        attempt()
+    assert still_listed()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("setup", [_loan_originator_purchase, _resale_purchase])
+def test_purchases_stop_while_securities_need_a_new_verification(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S7-4: Loan Originator and resale purchases call the security check under the
+    loan lock (the check itself is tested in the loans proof tests)."""
+    _investor, attempt, error, unchanged = setup()
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    seen: list[Any] = []
+
+    def refuse(loan: Any) -> None:
+        seen.append(loan)
+        raise proofs.SecurityProofError("New investments wait until verified again.")
+
+    monkeypatch.setattr(proofs, "assert_investment_allowed", refuse)
+    with pytest.raises(error, match="verified again"):
+        attempt()
+    assert seen and unchanged()

@@ -5034,6 +5034,16 @@ def create_originator_claim_quote(
     return _create_originator_claim_quote_locked(command, today=today)
 
 
+def _require_verified_securities(loan: Any) -> None:
+    """Audit S7-4: no new quote or purchase while a security of a verified claim needs a new
+    verification. Called under the loan lock."""
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_investment_allowed(loan)
+    except proofs.SecurityProofError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+
+
 @transaction.atomic
 def _create_originator_claim_quote_locked(
     command: CreateOriginatorClaimQuoteCommand,
@@ -5058,6 +5068,7 @@ def _create_originator_claim_quote_locked(
         raise OriginatorClaimsValidationError("Originator claim opportunity is not open.")
     if profile.originator.status != LoanOriginatorStatus.ACTIVE:
         raise OriginatorClaimsValidationError("Loan Originator is not active.")
+    _require_verified_securities(profile.loan)
     if profile.maturity_date <= today + timedelta(days=30):
         raise OriginatorClaimsValidationError(
             "This opportunity is closed because 30 days or less remain to maturity."
@@ -5365,6 +5376,7 @@ def _purchase_originator_claim_after_sensitive_code(
         compliance_locked.assert_can_invest_locked(command.actor)
     except compliance_locked.InvestmentComplianceBlock as exc:
         raise OriginatorClaimsValidationError(str(exc)) from exc
+    _require_verified_securities(quote.loan_profile.loan)
     quote_purchase = OriginatorClaimPurchase.objects.filter(quote=quote).first()
     if quote_purchase is not None:
         raise OriginatorClaimsValidationError("This quote has already been purchased.")

@@ -6729,6 +6729,35 @@ paths:
                 items:
                   $ref: '#/components/schemas/SecurityProofStatus'
           description: ''
+  /api/v1/loans/admin/securities/{security_id}/documents/{document_id}/:
+    get:
+      operationId: v1_loans_admin_securities_documents_retrieve
+      description: 'Audit S7-8: an admin opens a document of the security to check
+        it.'
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: security_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityProofDocumentFile'
+          description: ''
   /api/v1/loans/admin/securities/{security_id}/verification/:
     post:
       operationId: v1_loans_admin_securities_verification_create
@@ -22017,6 +22046,32 @@ components:
       description: |-
         * `direct` - direct
         * `originator_claim` - originator_claim
+    ProofDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        document_type:
+          type: string
+        document_date:
+          type: string
+          format: date
+          nullable: true
+        uploaded_at:
+          type: string
+          format: date-time
+          nullable: true
+        available:
+          type: boolean
+      required:
+      - available
+      - document_date
+      - document_type
+      - id
+      - title
+      - uploaded_at
     PublicDocumentTemplateVersion:
       type: object
       properties:
@@ -24543,6 +24598,31 @@ components:
       - restriction
       - second_factor
       - trusted_devices
+    SecurityProofDocumentFile:
+      type: object
+      properties:
+        document_id:
+          type: string
+        display_name:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_encoding:
+          type: string
+        content:
+          type: string
+        content_sha256:
+          type: string
+      required:
+      - content
+      - content_encoding
+      - content_sha256
+      - content_type
+      - display_name
+      - document_id
+      - filename
     SecurityProofStatus:
       type: object
       properties:
@@ -24557,10 +24637,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RequiredProof'
+        configuration_error:
+          type: string
         document_ids:
           type: array
           items:
             type: string
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProofDocument'
         verified:
           type: boolean
         verified_by:
@@ -24575,14 +24661,19 @@ components:
             type: string
         needs_new_verification:
           type: boolean
+        problem:
+          type: string
         history:
           type: array
           items:
             $ref: '#/components/schemas/VerificationHistory'
       required:
+      - configuration_error
       - document_ids
+      - documents
       - history
       - needs_new_verification
+      - problem
       - proofs
       - released
       - required_proofs
@@ -25798,10 +25889,33 @@ components:
           format: date-time
         note:
           type: string
+        required_proofs:
+          type: array
+          items:
+            type: string
+        proofs:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationProof'
       required:
       - note
+      - proofs
+      - required_proofs
       - verified_at
       - verifier_name
+    VerificationProof:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        document:
+          $ref: '#/components/schemas/ProofDocument'
+      required:
+      - document
+      - key
+      - label
     VerificationStatusEnum:
       enum:
       - verified

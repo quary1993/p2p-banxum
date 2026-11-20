@@ -3033,6 +3033,13 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         compliance_locked.assert_can_invest_locked(command.actor)
     except compliance_locked.InvestmentComplianceBlock as exc:
         raise SecondaryMarketValidationError(str(exc)) from exc
+    # Audit S7-4: no resale purchase while a security of a verified loan needs a new
+    # verification (the loan row is locked above).
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_investment_allowed(loan)
+    except proofs.SecurityProofError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
     _assert_transfer_within_investor_limit(
         loan=loan,
         buyer_user_id=buyer_user_id,

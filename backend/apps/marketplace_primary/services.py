@@ -249,6 +249,16 @@ def _require_no_compliance_block_locked(actor: Model) -> None:
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
 
+def _require_verified_securities(loan: Model) -> None:
+    """Audit S7-4: a verified loan takes no new order or allocation while a security needs a
+    new verification. Called with the loan row locked."""
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_investment_allowed(loan)
+    except proofs.SecurityProofError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise MarketplacePrimaryAuthorizationError(
@@ -894,6 +904,7 @@ def create_primary_investment_order(
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     loan = _loan_for_update(command.loan_id)
     _assert_published_loan_open(loan)
+    _require_verified_securities(loan)
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
@@ -1176,6 +1187,7 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
     # regime lock, so two new creditors of the same UID cannot both take the last place.
     _lock_borrower_regime(loan)
     _require_no_compliance_block_locked(command.actor)
+    _require_verified_securities(loan)
     _assert_sandbox_notice_confirmed(loan, command)
     investor_limit = _loan_investor_limit(loan)
     _assert_order_within_investor_limit(

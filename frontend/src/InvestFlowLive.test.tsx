@@ -432,3 +432,52 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
   expect(calls.purchases[1]).toMatchObject({ document_acceptance_id: "acc-2" });
   expect(calls.purchases[1].idempotency_key).not.toBe(calls.purchases[0].idempotency_key);
 }, 30_000);
+
+test("audit S7-7: the confirmation stays off when the compliance status cannot be loaded", async () => {
+  server.use(
+    http.get("*/api/v1/kyc/declarations/", () => HttpResponse.json({ detail: "down" }, { status: 503 })),
+    ...investorShellHandlers(calls),
+    ...primaryOrderHandlers(directLoan(), () => ({}))
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("1500");
+  acceptBoth();
+  expect(await screen.findByText("We could not check your compliance status. Reload the page or try again in a moment.", {}, SERVER_WAIT)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  expect(calls.orders).toHaveLength(0);
+}, 30_000);
+
+test("audit S7-7: an unknown block reason from the server also pauses the investment", async () => {
+  server.use(
+    http.get("*/api/v1/kyc/declarations/", () =>
+      HttpResponse.json({
+        declaration: null,
+        review_open: false,
+        review_status: null,
+        review_message: "",
+        reverification_due_date: null,
+        declaration_subject: "person",
+        investment_block: "something_new",
+        investment_block_message: "New investments are paused for a check."
+      })
+    ),
+    ...investorShellHandlers(calls),
+    ...primaryOrderHandlers(directLoan(), () => ({}))
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("1500");
+  acceptBoth();
+  expect(await screen.findByText("New investments are paused for a check.", {}, SERVER_WAIT)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+}, 30_000);
+
+test("audit S7-7: the Declarations tab shows an error and no guessed form when the status fails", async () => {
+  server.use(
+    http.get("*/api/v1/kyc/declarations/", () => HttpResponse.json({ detail: "down" }, { status: 503 })),
+    ...investorShellHandlers(calls)
+  );
+  renderLiveApp(App, "/settings/declarations");
+  expect(await screen.findByText("Could not load your declarations", {}, SERVER_WAIT)).toBeInTheDocument();
+  expect(screen.queryByRole("form", { name: "Declarations" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+}, 30_000);

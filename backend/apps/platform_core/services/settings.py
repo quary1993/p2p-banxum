@@ -5,6 +5,7 @@ from typing import Any
 
 from django.db import transaction
 
+from backend.apps.platform_core.domain import security_proofs
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.funding import (
     BALANCE_AUTO_RETURN_AFTER_DAYS,
@@ -330,6 +331,9 @@ class SetPlatformSettingCommand:
 
 @transaction.atomic
 def set_platform_setting(command: SetPlatformSettingCommand) -> PlatformSetting:
+    if command.key == security_proofs.REQUIRED_PROOFS_SETTING:
+        # Audit S7-3: a wrong proof list is refused before it is stored.
+        security_proofs.validate_required_proofs_setting(command.value)
     setting, created = PlatformSetting.objects.select_for_update().get_or_create(
         key=command.key,
         defaults={

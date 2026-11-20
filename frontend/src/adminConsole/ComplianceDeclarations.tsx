@@ -8,15 +8,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import {
+  useV1AdminOpsLookupsInvestorsList,
   useV1KycAdminComplianceInvestorsRetrieve,
   useV1KycAdminComplianceInvestorsReverificationCompleteCreate,
   useV1KycAdminComplianceInvestorsReverificationCreate,
+  useV1KycAdminComplianceReviewsCreate,
   useV1KycAdminComplianceReviewsDecisionCreate,
   useV1KycAdminComplianceReviewsList,
   useV1KycAdminStaffRolesCreate,
   useV1LoansAdminLoansSecurityProofsList,
   useV1LoansAdminSecuritiesVerificationCreate,
+  v1LoansAdminSecuritiesDocumentsRetrieve,
   type ComplianceReview,
+  type ProofDocument,
   type SecurityProofStatus
 } from "../api/generated/banxumApi";
 import { isFixturePreview } from "../investorPortal/data";
@@ -97,40 +101,24 @@ export function DeclarationReviewsCard() {
 
 function ReviewFile({ review, onDone }: { review: ComplianceReview; onDone: () => void }) {
   const queryClient = useQueryClient();
-  const file = useV1KycAdminComplianceInvestorsRetrieve(review.investor_id, { query: { retry: false } });
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [reason, setReason] = useState("");
   const [result, setResult] = useState("");
-  const refresh = (text: string) => {
-    setResult(text);
-    void queryClient.invalidateQueries();
-  };
-  const decision = useV1KycAdminComplianceReviewsDecisionCreate({ mutation: { onSuccess: (data) => { refresh(data.status === "closed" ? "The review is closed." : "The investor was asked for more information."); if (data.status === "closed") onDone(); } } });
-  const reverify = useV1KycAdminComplianceInvestorsReverificationCreate({ mutation: { onSuccess: () => refresh("The re-verification date is set.") } });
-  const complete = useV1KycAdminComplianceInvestorsReverificationCompleteCreate({ mutation: { onSuccess: () => refresh("The re-verification is done.") } });
-  const latest = file.data?.declarations[0];
-  const openReverification = file.data?.reverifications.find((item) => !item.completed_at && !item.replaced_at);
-  const error = decision.error || reverify.error || complete.error || file.error;
+  const decision = useV1KycAdminComplianceReviewsDecisionCreate({
+    mutation: {
+      onSuccess: (data) => {
+        setResult(data.status === "closed" ? "The review is closed." : "The investor was asked for more information.");
+        void queryClient.invalidateQueries();
+        if (data.status === "closed") onDone();
+      }
+    }
+  });
   return (
     <div className="admin-form-panel" style={{ marginTop: 16 }}>
-      <div className="admin-context-bar">
-        <strong>{review.investor_name}</strong>
-        <span>{review.investor_email}</span>
-        {latest ? <span>Declaration v{latest.version} · {formatDateTime(latest.submitted_at)}</span> : <span>No declaration</span>}
-      </div>
-      {latest ? (
-        <dl className="admin-review-list">
-          <div className="admin-review-row"><span>Beneficial owner</span><strong>{latest.beneficial_owner_is_self ? "The investor" : latest.beneficial_owner_name}</strong></div>
-          <div className="admin-review-row"><span>Sources of funds</span><strong>{latest.sources_of_funds.map((key) => SOURCE_LABELS[key] ?? key).join(", ")}{latest.savings_origin ? ` (savings: ${latest.savings_origin})` : ""}{latest.source_other_text ? ` (other: ${latest.source_other_text})` : ""}</strong></div>
-          <div className="admin-review-row"><span>PEP</span><strong>{latest.pep_status}{latest.pep_person ? ` · ${latest.pep_person}, ${latest.pep_relation}, ${latest.pep_function}, ${latest.pep_country}` : ""}</strong></div>
-          <div className="admin-review-row"><span>Yearly volume</span><strong>{latest.yearly_volume_band}</strong></div>
-          {latest.subject_type === "company" ? <div className="admin-review-row"><span>Company</span><strong>{Object.values(latest.company_details).join(" · ")}</strong></div> : null}
-        </dl>
-      ) : null}
+      <InvestorFile investorId={review.investor_id} name={review.investor_name} email={review.investor_email} />
       {review.status !== "closed" ? (
         <form className="admin-action-form" onSubmit={(event: FormEvent) => { event.preventDefault(); decision.mutate({ reviewId: review.id, data: { decision: "close", note } }); }}>
+          <h4>Decision</h4>
           <Field label="Outcome (recorded with your name)">
             <textarea aria-label="Outcome" onChange={(event) => setNote(event.target.value)} rows={2} value={note} />
           </Field>
@@ -143,21 +131,129 @@ function ReviewFile({ review, onDone }: { review: ComplianceReview; onDone: () =
           </div>
         </form>
       ) : <p className="muted">Closed {review.closed_at ? formatDateTime(review.closed_at) : ""}: {review.outcome_note}</p>}
-      <form className="admin-action-form" onSubmit={(event: FormEvent) => { event.preventDefault(); reverify.mutate({ investorId: review.investor_id, data: { due_date: dueDate, reason } }); }}>
-        <h4>Re-verification date</h4>
-        <p className="muted">{openReverification ? `Current date: ${formatDate(openReverification.due_date)} (notices sent: ${openReverification.notices_sent.join(", ") || "none"}).` : "No date set."} The investor gets notices 30 and 7 days before; after the date new investments pause.</p>
-        <div className="row gap-8 wrap">
-          <Field label="Date"><input aria-label="Re-verification date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} /></Field>
-          <Field label="Reason (internal risk)"><input aria-label="Reason" onChange={(event) => setReason(event.target.value)} value={reason} /></Field>
-        </div>
-        <div className="row gap-8 wrap">
-          <Button disabled={!dueDate || reverify.isPending} type="submit">Set the date</Button>
-          {openReverification ? <Button disabled={complete.isPending} onClick={() => complete.mutate({ investorId: review.investor_id })}>Mark the re-verification done</Button> : null}
-        </div>
-      </form>
-      {error ? <Banner tone="bad" title="Action failed">{errorMessage(error)}</Banner> : null}
+      {decision.error ? <Banner tone="bad" title="Action failed">{errorMessage(decision.error)}</Banner> : null}
       {result ? <Banner tone="ok" title="Done">{result}</Banner> : null}
     </div>
+  );
+}
+
+/** Audit S7-5: compliance finds any investor, opens the file, a manual review and the
+ * re-verification date without an existing review. */
+export function InvestorComplianceCard() {
+  const [search, setSearch] = useState("");
+  const [chosen, setChosen] = useState<{ id: string; label: string; meta: string } | null>(null);
+  const term = search.trim();
+  const lookup = useV1AdminOpsLookupsInvestorsList({ q: term, limit: 10 }, { query: { enabled: !isFixturePreview && term.length >= 2, retry: false } });
+  if (isFixturePreview) return null;
+  const results = lookup.data ?? [];
+  return (
+    <Card padded>
+      <h3>Investor compliance file</h3>
+      <p className="muted">Find an investor by name, email or account ID. Open the file to see the declarations, open a manual review or set a re-verification date.</p>
+      <Field label="Find an investor">
+        <input aria-label="Find an investor" onChange={(event) => setSearch(event.target.value)} placeholder="Name, email or ID" value={search} />
+      </Field>
+      {lookup.error ? <Banner tone="bad" title="Could not search">{errorMessage(lookup.error)}</Banner> : null}
+      {term.length >= 2 && lookup.isSuccess && !results.length ? <p className="muted">No account found.</p> : null}
+      {results.length ? (
+        <ul aria-label="Search results" className="admin-review-list">
+          {results.map((item) => (
+            <li className="admin-review-row" key={item.id}>
+              <span>
+                {item.label}
+                <span className="muted small"> · {item.meta}</span>
+              </span>
+              <Button onClick={() => setChosen({ id: item.id, label: item.label, meta: item.meta })}>Open file</Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {chosen ? (
+        <div className="admin-form-panel" style={{ marginTop: 16 }}>
+          <InvestorFile investorId={chosen.id} name={chosen.label} email={chosen.meta} />
+          <ManualReviewForm investorId={chosen.id} />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function ManualReviewForm({ investorId }: { investorId: string }) {
+  const queryClient = useQueryClient();
+  const [reason, setReason] = useState("");
+  const [necessary, setNecessary] = useState(true);
+  const mutation = useV1KycAdminComplianceReviewsCreate({ mutation: { onSuccess: () => void queryClient.invalidateQueries() } });
+  return (
+    <form
+      className="admin-action-form"
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        mutation.mutate({ data: { investor_id: investorId, reason, necessary } });
+      }}
+    >
+      <h4>Open a review</h4>
+      <Field hint="Internal; recorded with your name." label="Reason for the review">
+        <textarea aria-label="Reason for the review" onChange={(event) => setReason(event.target.value)} rows={2} value={reason} />
+      </Field>
+      <label>
+        <input checked={necessary} onChange={() => setNecessary(!necessary)} type="checkbox" /> Necessary review: new investments pause until it is closed
+      </label>
+      <Button disabled={reason.trim().length < 5 || mutation.isPending} type="submit" variant="primary">Open the review</Button>
+      {mutation.error ? <Banner tone="bad" title="Could not open the review">{errorMessage(mutation.error)}</Banner> : null}
+      {mutation.data ? <Banner tone="ok" title="Review open">{mutation.data.necessary ? "New investments of this investor pause until the review is closed. An open necessary review takes the new reason." : "The review is open; investments continue."}</Banner> : null}
+    </form>
+  );
+}
+
+/** The investor's declarations and the re-verification date (used with or without a review). */
+function InvestorFile({ investorId, name, email }: { investorId: string; name: string; email: string }) {
+  const queryClient = useQueryClient();
+  const file = useV1KycAdminComplianceInvestorsRetrieve(investorId, { query: { retry: false } });
+  const [dueDate, setDueDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [result, setResult] = useState("");
+  const refresh = (text: string) => {
+    setResult(text);
+    void queryClient.invalidateQueries();
+  };
+  const reverify = useV1KycAdminComplianceInvestorsReverificationCreate({ mutation: { onSuccess: () => refresh("The re-verification date is set.") } });
+  const complete = useV1KycAdminComplianceInvestorsReverificationCompleteCreate({ mutation: { onSuccess: () => refresh("The re-verification is done.") } });
+  const latest = file.data?.declarations[0];
+  const openReverification = file.data?.reverifications.find((item) => !item.completed_at && !item.replaced_at);
+  const error = reverify.error || complete.error || file.error;
+  return (
+    <>
+      <div className="admin-context-bar">
+        <strong>{name}</strong>
+        <span>{email}</span>
+        {file.isLoading ? <span>Loading the file…</span> : latest ? <span>Declaration v{latest.version} · {formatDateTime(latest.submitted_at)}</span> : <span>No declaration</span>}
+      </div>
+      {latest ? (
+        <dl className="admin-review-list">
+          <div className="admin-review-row"><span>Beneficial owner</span><strong>{latest.beneficial_owner_is_self ? "The investor" : latest.beneficial_owner_name}</strong></div>
+          <div className="admin-review-row"><span>Sources of funds</span><strong>{latest.sources_of_funds.map((key) => SOURCE_LABELS[key] ?? key).join(", ")}{latest.savings_origin ? ` (savings: ${latest.savings_origin})` : ""}{latest.source_other_text ? ` (other: ${latest.source_other_text})` : ""}</strong></div>
+          <div className="admin-review-row"><span>PEP</span><strong>{latest.pep_status}{latest.pep_person ? ` · ${latest.pep_person}, ${latest.pep_relation}, ${latest.pep_function}, ${latest.pep_country}` : ""}</strong></div>
+          <div className="admin-review-row"><span>Yearly volume</span><strong>{latest.yearly_volume_band}</strong></div>
+          {latest.subject_type === "company" ? <div className="admin-review-row"><span>Company</span><strong>{Object.values(latest.company_details).join(" · ")}</strong></div> : null}
+        </dl>
+      ) : null}
+      {file.data ? (
+        <form className="admin-action-form" onSubmit={(event: FormEvent) => { event.preventDefault(); reverify.mutate({ investorId, data: { due_date: dueDate, reason } }); }}>
+          <h4>Re-verification date</h4>
+          <p className="muted">{openReverification ? `Current date: ${formatDate(openReverification.due_date)} (notices sent: ${openReverification.notices_sent.join(", ") || "none"}).` : "No date set."} The investor gets notices 30 and 7 days before; after the date new investments pause.</p>
+          <div className="row gap-8 wrap">
+            <Field label="Date"><input aria-label="Re-verification date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} /></Field>
+            <Field label="Reason (internal risk)"><input aria-label="Reason" onChange={(event) => setReason(event.target.value)} value={reason} /></Field>
+          </div>
+          <div className="row gap-8 wrap">
+            <Button disabled={!dueDate || reverify.isPending} type="submit">Set the date</Button>
+            {openReverification ? <Button disabled={complete.isPending} onClick={() => complete.mutate({ investorId })}>Mark the re-verification done</Button> : null}
+          </div>
+        </form>
+      ) : null}
+      {error ? <Banner tone="bad" title="Action failed">{errorMessage(error)}</Banner> : null}
+      {result ? <Banner tone="ok" title="Done">{result}</Banner> : null}
+    </>
   );
 }
 
@@ -218,12 +314,31 @@ export function SecurityProofsPanel({ loanId }: { loanId: string }) {
   );
 }
 
+function documentLabel(document: ProofDocument) {
+  if (!document.available) return `Document no longer available (${document.id})`;
+  const date = document.document_date ? formatDate(document.document_date) : document.uploaded_at ? `uploaded ${formatDate(document.uploaded_at)}` : "no date";
+  return `${document.title} · ${document.document_type} · ${date}`;
+}
+
+async function openDocument(securityId: string, documentId: string) {
+  const file = await v1LoansAdminSecuritiesDocumentsRetrieve(securityId, documentId);
+  const bytes = Uint8Array.from(atob(file.content), (character) => character.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.content_type }));
+  window.open(url, "_blank", "noopener");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function SecurityProofRow({ security }: { security: SecurityProofStatus }) {
   const queryClient = useQueryClient();
   const [proofs, setProofs] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
+  const [openError, setOpenError] = useState("");
   const mutation = useV1LoansAdminSecuritiesVerificationCreate({ mutation: { onSuccess: () => void queryClient.invalidateQueries() } });
   const complete = security.required_proofs.every((proof) => proofs[proof.key]);
+  const open = (documentId: string) => {
+    setOpenError("");
+    openDocument(security.security_id, documentId).catch((error: unknown) => setOpenError(errorMessage(error)));
+  };
   return (
     <div className="admin-review-list" style={{ marginTop: 12 }}>
       <div className="admin-review-row">
@@ -232,6 +347,22 @@ function SecurityProofRow({ security }: { security: SecurityProofStatus }) {
           {security.released ? <Chip tone="info">Released</Chip> : security.verified ? <Chip tone="ok">Verified by {security.verified_by} · {security.verified_at ? formatDate(security.verified_at) : ""}</Chip> : <Chip tone="warn">{security.needs_new_verification ? "Changed: verify again" : "Not verified"}</Chip>}
         </strong>
       </div>
+      {security.configuration_error ? <Banner tone="bad" title="Proof setting not valid">{security.configuration_error}</Banner> : null}
+      {security.problem ? <p className="muted">Why: {security.problem}</p> : null}
+      {security.documents.length ? (
+        <ul aria-label="Linked documents" className="admin-review-list">
+          {security.documents.map((document) => (
+            <li className="admin-review-row" key={document.id}>
+              <span>
+                {documentLabel(document)}
+                <span className="muted small"> · ID {document.id}</span>
+              </span>
+              {document.available ? <Button onClick={() => open(document.id)}>Open</Button> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {openError ? <Banner tone="bad" title="Could not open the document">{openError}</Banner> : null}
       {!security.released && !security.verified ? (
         <form
           className="admin-action-form"
@@ -244,20 +375,43 @@ function SecurityProofRow({ security }: { security: SecurityProofStatus }) {
             <Field key={proof.key} label={proof.label}>
               <select aria-label={proof.label} onChange={(event) => setProofs({ ...proofs, [proof.key]: event.target.value })} value={proofs[proof.key] ?? ""}>
                 <option value="">Choose a linked document</option>
-                {security.document_ids.map((documentId) => (
-                  <option key={documentId} value={documentId}>
-                    {documentId.slice(0, 8)}
-                  </option>
-                ))}
+                {security.documents
+                  .filter((document) => document.available)
+                  .map((document) => (
+                    <option key={document.id} value={document.id}>
+                      {documentLabel(document)}
+                    </option>
+                  ))}
               </select>
             </Field>
           ))}
           <Field label="Note">
             <input aria-label="Verification note" onChange={(event) => setNote(event.target.value)} value={note} />
           </Field>
+          <p className="muted">Open and check each document before you record the verification.</p>
           <Button disabled={!complete || mutation.isPending} type="submit" variant="primary">Record the verification</Button>
           {!security.document_ids.length ? <p className="muted">Link the documents to this security first (Securities).</p> : null}
         </form>
+      ) : null}
+      {security.history.length ? (
+        <details>
+          <summary>Verification history ({security.history.length})</summary>
+          <ul className="admin-review-list">
+            {security.history.map((item) => (
+              <li key={item.verified_at}>
+                <strong>{item.verifier_name}</strong> · {formatDateTime(item.verified_at)}
+                {item.note ? ` · ${item.note}` : ""}
+                <ul>
+                  {item.proofs.map((proof) => (
+                    <li key={proof.key}>
+                      {proof.label}: {documentLabel(proof.document)}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </details>
       ) : null}
       {mutation.error ? <Banner tone="bad" title="Could not record the verification">{errorMessage(mutation.error)}</Banner> : null}
     </div>

@@ -216,7 +216,7 @@ import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type T
 import { adminFormDefaults } from "./adminFixtures";
 import { financialYearCheckResults, minorToUnits, unitsToMinor } from "./statementUnits";
 import { withIdempotencyKey } from "./adminIdempotency";
-import { DeclarationReviewsCard, SecurityProofsPanel, StaffRolesCard } from "./ComplianceDeclarations";
+import { DeclarationReviewsCard, InvestorComplianceCard, SecurityProofsPanel, StaffRolesCard } from "./ComplianceDeclarations";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
 import { adminHref, navigateAdmin, useAdminParam, useAdminSegments } from "./adminRoute";
@@ -1445,6 +1445,7 @@ export function CompliancePanel() {
 
       <section className="admin-stack">
         <DeclarationReviewsCard />
+        <InvestorComplianceCard />
         <StaffRolesCard />
       </section>
 

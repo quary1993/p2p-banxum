@@ -13,6 +13,8 @@ the platform setting ``loans.security_required_proofs`` can replace it.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 REQUIRED_PROOFS_SETTING = "loans.security_required_proofs"
@@ -50,7 +52,10 @@ DEFAULT_REQUIRED_PROOFS: dict[str, tuple[str, ...]] = {
     "other": ("agreement",),
 }
 
-# Fields whose change makes a verification no longer current (Q13: essential change).
+# Fields whose change makes a verification no longer current (Q13: essential change). Audit
+# step 7 (D8) adds the fields that change legal priority, collateral value or the investor
+# disclosure: rank, prior-ranking debt, valuation date, source and appraiser, LTV counting,
+# valuation exchange rate and its date, and insurance.
 ESSENTIAL_FIELDS = (
     "security_type",
     "holder_name",
@@ -61,18 +66,62 @@ ESSENTIAL_FIELDS = (
     "undertaking_limit_minor",
     "document_ids",
     "asset_reference",
+    "rank",
+    "prior_ranking_debt_minor",
+    "valuation_date",
+    "valuation_source",
+    "appraiser",
+    "counts_in_ltv",
+    "valuation_fx_rate",
+    "valuation_fx_rate_date",
+    "insurance",
 )
+
+
+class ProofConfigurationError(ValueError):
+    """The setting ``loans.security_required_proofs`` is not valid."""
+
+
+def validate_required_proofs_setting(value: Any) -> dict[str, tuple[str, ...]]:
+    """Audit S7-3: the setting maps known security types to non-empty lists of known proof
+    categories, without blanks or duplicates. An empty setting means the Q13 base."""
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, Mapping):
+        raise ProofConfigurationError("The required-proof setting must map security types.")
+    result: dict[str, tuple[str, ...]] = {}
+    for security_type, proofs in value.items():
+        if security_type not in DEFAULT_REQUIRED_PROOFS:
+            raise ProofConfigurationError(f"Unknown security type: {security_type!r}.")
+        if not isinstance(proofs, list | tuple) or not proofs:
+            raise ProofConfigurationError(f"Give at least one proof for {security_type}.")
+        keys = tuple(str(item).strip() for item in proofs)
+        if any(not key for key in keys):
+            raise ProofConfigurationError(f"A proof for {security_type} is blank.")
+        unknown = [key for key in keys if key not in PROOF_LABELS]
+        if unknown:
+            raise ProofConfigurationError(f"Unknown proof for {security_type}: {unknown[0]!r}.")
+        if len(set(keys)) != len(keys):
+            raise ProofConfigurationError(f"A proof for {security_type} is given twice.")
+        result[str(security_type)] = keys
+    return result
 
 
 def required_proofs(
     security_type: str, configured: Mapping[str, Any] | None = None
 ) -> tuple[str, ...]:
-    """The proof categories one security type needs (setting first, then the Q13 base)."""
+    """The proof categories one security type needs (setting first, then the Q13 base).
+
+    ``configured`` must be the output of ``validate_required_proofs_setting``.
+    """
     if configured and security_type in configured:
-        value = configured[security_type]
-        if isinstance(value, list | tuple):
-            return tuple(str(item) for item in value)
+        return tuple(str(item) for item in configured[security_type])
     return DEFAULT_REQUIRED_PROOFS.get(security_type, ("agreement",))
+
+
+def same_required_proofs(stored: Any, required: tuple[str, ...]) -> bool:
+    """Audit S7-3: a verification is current only for the proof list it was made against."""
+    return sorted(str(item) for item in stored or []) == sorted(required)
 
 
 def missing_proofs(required: tuple[str, ...], provided: Mapping[str, Any]) -> tuple[str, ...]:
@@ -87,5 +136,11 @@ def essential_fingerprint(values: Mapping[str, Any]) -> str:
         value = values.get(name)
         if name == "document_ids":
             value = sorted(str(item) for item in value or [])
+        elif isinstance(value, Decimal):
+            value = format(value.normalize(), "f")
+        elif isinstance(value, date):
+            value = value.isoformat()
+        elif isinstance(value, str):
+            value = value.strip()
         parts.append(f"{name}={value!r}")
     return "|".join(parts)

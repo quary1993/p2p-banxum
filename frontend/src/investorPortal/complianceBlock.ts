@@ -13,12 +13,22 @@ function useComplianceStatus() {
   return useV1KycDeclarationsRetrieve({ query: { enabled: !isFixturePreview, retry: false, staleTime: 30_000 } });
 }
 
-/** The current block reason and its message, or null when the investor can invest. */
+/** Audit S7-7: the status is not known yet, or could not be loaded. The confirmation stays
+ * disabled until the server answered (the server checks again in any case). */
+export const STATUS_LOADING = "status_loading";
+export const STATUS_UNAVAILABLE = "status_unavailable";
+
+/** The current block reason and its message, or null when the investor can invest. Loading,
+ * an error or an unknown reason from the server also block (fail closed). */
 export function useComplianceBlock(): ComplianceBlock | null {
   const status = useComplianceStatus();
-  const reason = status.data?.investment_block ?? "";
-  if (!reason || !KNOWN_BLOCKS.has(reason)) return null;
-  return { reason, message: status.data?.investment_block_message ?? "" };
+  if (isFixturePreview) return null;
+  if (status.isError) return { reason: STATUS_UNAVAILABLE, message: "We could not check your compliance status. Reload the page or try again in a moment." };
+  if (!status.data) return { reason: STATUS_LOADING, message: "Checking your compliance status…" };
+  const reason = status.data.investment_block ?? "";
+  if (!reason) return null;
+  const message = status.data.investment_block_message || "New investments are paused. See your declarations.";
+  return { reason: KNOWN_BLOCKS.has(reason) ? reason : "unknown", message };
 }
 
 /** 18.11 "re-verification in progress": the date set by compliance, when one is open. */

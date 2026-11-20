@@ -152,6 +152,17 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
     return <Notice title={t("Declarations")}>{t("Your declarations are shown with live data only.")}</Notice>;
   }
   if (status.isLoading) return <p className="bxm-muted">{t("Loading...")}</p>;
+  // Audit S7-7: without the status the form would guess the account type and the state.
+  if (status.isError || !status.data) {
+    return (
+      <Notice title={t("Could not load your declarations")} tone="danger">
+        <p className="mb-2">{t("Please try again in a moment. New investments stay paused until your declarations are loaded.")}</p>
+        <button className="btn btn-outline-primary" onClick={() => void status.refetch()} type="button">
+          {t("Try again")}
+        </button>
+      </Notice>
+    );
+  }
   const data = status.data;
   const showForm = editing || !current;
 
