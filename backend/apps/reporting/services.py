@@ -4056,20 +4056,34 @@ def _render_zip(
     end_date: date,
     dataset: ReportDataset,
     manifest: dict[str, Any],
+    number_format: str | None = None,
 ) -> RenderedReport:
+    # Audit S1-4 (C09, F15): the CSV and the PDF in the ZIP use the investor's number format,
+    # like the separate CSV and PDF downloads.
     csv_rendered = _render_csv(
         report_type=report_type,
         start_date=start_date,
         end_date=end_date,
         dataset=dataset,
+        number_format=number_format,
     )
-    pdf_rendered = _render_pdf(
-        report_type=report_type,
-        start_date=start_date,
-        end_date=end_date,
-        dataset=dataset,
-        manifest=manifest,
-    )
+    if number_format is not None:
+        with number_format_context(number_format):
+            pdf_rendered = _render_pdf(
+                report_type=report_type,
+                start_date=start_date,
+                end_date=end_date,
+                dataset=dataset,
+                manifest=manifest,
+            )
+    else:
+        pdf_rendered = _render_pdf(
+            report_type=report_type,
+            start_date=start_date,
+            end_date=end_date,
+            dataset=dataset,
+            manifest=manifest,
+        )
     csv_bytes = csv_rendered.content.encode("utf-8")
     pdf_bytes = base64.b64decode(pdf_rendered.content.encode("ascii"))
     zip_filename = _report_filename(
@@ -4171,6 +4185,7 @@ def _render_report(
             end_date=end_date,
             dataset=dataset,
             manifest=manifest,
+            number_format=number_format,
         )
     raise ReportingValidationError(f"Unsupported report output format: {output_format}")
 

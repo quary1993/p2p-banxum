@@ -195,6 +195,16 @@ def _pdf_text(artifact: Any) -> str:
     return " ".join(text.split())
 
 
+def _zip_parts(artifact: Any) -> tuple[str, str]:
+    """The CSV text and the PDF text of a ZIP report."""
+    archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(artifact.content)))
+    names = archive.namelist()
+    csv_text = archive.read(next(n for n in names if n.endswith(".csv"))).decode("utf-8")
+    pdf_bytes = archive.read(next(n for n in names if n.endswith(".pdf")))
+    text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf_bytes)).pages)
+    return csv_text, " ".join(text.split())
+
+
 def _statement(investor: Model, start: date, end: date, output_format: str) -> Any:
     with freeze_time("2026-04-15T10:00:00Z"):
         return generate_investor_self_service_report(
@@ -377,7 +387,14 @@ def test_investor_statement_is_signed_formatted_and_reconciles_to_ledger(
     swiss_csv = _statement(investor, start, end, "csv").content
     assert swiss_csv.startswith("investor,currency,")
     assert ",3560.00," in swiss_csv
+    # Audit S1-4: the ZIP download holds the same CSV and PDF formats.
+    swiss_zip_csv, swiss_zip_pdf = _zip_parts(_statement(investor, start, end, "zip"))
+    assert swiss_zip_csv.startswith("investor,currency,") and ",3560.00," in swiss_zip_csv
+    assert "3'560.00" in swiss_zip_pdf
     user_model.objects.filter(pk=investor.pk).update(number_format="european")
+    european_zip_csv, european_zip_pdf = _zip_parts(_statement(investor, start, end, "zip"))
+    assert european_zip_csv.startswith("investor;currency;") and ";3560,00;" in european_zip_csv
+    assert "3.560,00" in european_zip_pdf
     for internal in ("investor_balance_liability", "Journal Entry", "406000", "Amount Minor"):
         assert internal not in pdf
 
