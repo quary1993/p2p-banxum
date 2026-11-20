@@ -31,7 +31,7 @@ def _locked_tables(queries: list[dict[str, Any]]) -> list[str]:
     return tables
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_the_loan_originator_paths_lock_the_loan_first() -> None:
     races: Any = import_module("backend.apps.kyc_compliance.tests.test_compliance_races_s7")
     originator: Any = import_module("backend.apps.originator_claims.services")
