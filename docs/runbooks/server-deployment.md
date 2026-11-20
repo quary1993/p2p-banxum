@@ -12,12 +12,24 @@ The server also runs unrelated trading bots. BANXUM deployment must remain isola
   workflow removes only dangling images of the BANXUM project it deploys (label
   `com.docker.compose.project`). When the host disk fills up, an operator checks the inventory
   (`docker system df`, images per project) and removes BANXUM images or build cache by hand.
-- The `Deploy` workflow builds the images, then runs `check --deploy` and `migrate` in a
-  one-shot `backend` container (`MIGRATION_TIMEOUT_SECONDS`, default 1800) and shows their
-  output. Only after a successful migration does it restart the application and wait up to
-  five minutes for the health check. A failed migration stops the deployment while the
-  previous release keeps running; restore the pre-deployment backup if the migration changed
-  data before it failed.
+- The `Deploy` workflow does these steps in this order, and shows the output of each one:
+  1. It builds the images.
+  2. It runs `check --deploy` of the new release in a one-shot `backend` container. The
+     previous release keeps serving. If the check fails, nothing changes.
+  3. It takes a database backup with `infra/deploy/backup_postgres.sh`. The off-site settings
+     come from `/etc/banxum/<target>-backup.env` when that file exists and the deploy user can
+     read it. Otherwise the dump stays in `/opt/banxum/<environment>/backups`. If the backup
+     fails, nothing changes.
+  4. It stops the previous `backend` container, so that old code never runs on the new
+     schema. Then it runs `migrate` in a one-shot container (`MIGRATION_TIMEOUT_SECONDS`,
+     default 1800). The API is not available during this step (about 20 seconds in the
+     rehearsal of 2026-11-20).
+  5. Only after a successful migration does it start the new release and wait up to five
+     minutes for the health check.
+- If the migration fails before it applies any migration, the workflow starts the previous
+  `backend` container again. If it fails after it applied some migrations, the backend stays
+  stopped and the log names the backup to restore. Then restore that backup and deploy the
+  previous release.
 - Do not stop containers or processes that are not labeled with the BANXUM Compose project.
 - Do not bind common bot or development ports unless they are confirmed unused.
 

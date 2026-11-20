@@ -276,17 +276,57 @@ jobs:
               "$@"
           }
           compose build
-          # Pre-deployment review P-4: the settings check and the migrations run as a visible
-          # one-shot step with their own time limit, before the application restarts. A failed
-          # migration stops the deployment here; the running release keeps serving.
-          echo "Running the settings check and the migrations for $TARGET..."
+          # Pre-deployment review P-4: the settings check and the migrations run as visible
+          # one-shot steps with their own time limit, before the application restarts.
+          # 1. The settings check of the new release. The running release keeps serving.
+          echo "Running the settings check of the new release for $TARGET..."
+          if ! compose run --rm --no-TTY backend \
+            .venv/bin/python backend/manage.py check --deploy --fail-level ERROR; then
+            echo "$TARGET settings check failed; nothing was changed." >&2
+            exit 5
+          fi
+          # 2. A database backup before any schema change (migration rehearsal 2026-11-20).
+          #    The off-site settings come from /etc/banxum/<target>-backup.env when it exists.
+          backup_env="/etc/banxum/${TARGET}-backup.env"
+          backup_dir=$(
+            if [ -f "$backup_env" ]; then set -a; . "$backup_env"; set +a; fi
+            echo "${BANXUM_BACKUP_DIR:-$app_root/backups}"
+          )
+          echo "Taking a database backup of $TARGET into $backup_dir before the migrations..."
+          if ! (
+            set -e
+            if [ -f "$backup_env" ]; then set -a; . "$backup_env"; set +a; fi
+            export BANXUM_APP_DIR="$app_dir" BANXUM_COMPOSE_PROJECT="$project_name"
+            export BANXUM_BACKUP_DIR="$backup_dir"
+            mkdir -p "$BANXUM_BACKUP_DIR"
+            infra/deploy/backup_postgres.sh
+          ); then
+            echo "$TARGET backup failed; nothing was changed." >&2
+            exit 5
+          fi
+          latest_backup=$(ls -t "$backup_dir"/"$project_name"-postgres-*.dump 2>/dev/null | head -1 || true)
+          applied_migrations() {
+            compose exec -T postgres sh -c \
+              'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -Atc "select count(*) from django_migrations"'
+          }
+          applied_before=$(applied_migrations)
+          # 3. The old release stops, so that it never runs against the new schema (this
+          #    release removes old columns). Then the migrations run with their time limit.
+          compose stop backend
+          echo "Running the migrations for $TARGET..."
           if ! timeout "${MIGRATION_TIMEOUT_SECONDS:-1800}" docker compose \
             --project-name "$project_name" \
             --env-file infra/deploy/.env \
             -f infra/deploy/docker-compose.yml \
-            run --rm --no-TTY backend sh -c \
-            ".venv/bin/python backend/manage.py check --deploy --fail-level ERROR && .venv/bin/python backend/manage.py migrate --noinput"; then
-            echo "$TARGET migration step failed; the application was not restarted." >&2
+            run --rm --no-TTY backend .venv/bin/python backend/manage.py migrate --noinput; then
+            applied_after=$(applied_migrations || echo unknown)
+            if [ "$applied_after" = "$applied_before" ]; then
+              compose start backend
+              echo "$TARGET migration failed before any change; the previous release was started again." >&2
+            else
+              echo "$TARGET migration failed after a part of the changes. The backend stays stopped." >&2
+              echo "Restore the backup ${latest_backup:-in $app_root/backups} and deploy the previous release (runbook: rollback)." >&2
+            fi
             exit 5
           fi
           compose up -d
