@@ -23,6 +23,8 @@ Audit step 6 replaced the boundary-installment description of Loan Originator of
 Audit step 7 added the 18.10 compliance tools (declaration reviews, the investor compliance file, staff roles) and
 three flows: handle a declaration review, open a manual review or re-verification date, and verify the securities of
 a loan. These have no figures yet.
+The re-audit fixes added two steps to "Verify the securities of a loan": upload a loan document and confirm its
+manual check (proof files for Loan Originator claims).
 `manual.html` was rendered again from this content (`node scripts/render.mjs`). `manual-print.html` and the PDF
 were built before these changes and still show the old sign-in: rebuild them with `bash scripts/build.sh` on a
 Mac with Google Chrome (a build on Linux uses other fonts and changes the layout). The figures are older captures: Finance Operations has

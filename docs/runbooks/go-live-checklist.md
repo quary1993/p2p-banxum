@@ -90,6 +90,9 @@ Complete these before calling any environment production-like.
   - A superadmin gives the compliance and security verifier roles (and deputies) to named admins.
   - `loans.security_required_proofs` is the list approved by legal (the save refuses unknown, blank, duplicate or empty lists).
   - The QA and demo seeds are run again with verified securities (the always-on proof rule refuses a loan without them).
+  - Every proof document of a loan to publish has a recorded manual check (Loans > loan > Securities > Loan documents) until a malware scanner exists.
+  - The 5-minute cron line includes `--job assisted_recovery_links` (the monitor treats it as a frequent job).
+  - The deploy user can read `/etc/banxum/<target>-backup.env`; the `Deploy` workflow takes its pre-migration backup with it.
 
 ## 2. Admin Operations Checklist
 
@@ -233,6 +236,7 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
 - Compliance and proof of securities (18.10):
   - Give a declaration with PEP "Not sure": a necessary review, an admin task and a compliance email appear; an order is refused; close the review and the order goes through.
   - Open a manual review for an investor from the Investor compliance file; a second one joins the first.
+  - Upload a loan document to a Loan Originator claim, confirm its check, verify the security with it and publish the offer.
   - Verify a security (open each document first), publish, then change its value: new orders stop until a new verification.
 - Loan Originator claim:
   - Import and publish one controlled loan for every enabled repayment type, plus a

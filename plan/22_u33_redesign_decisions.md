@@ -1127,3 +1127,20 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.12 ("Status 2026-11-20
 
 Choices made in this step (for the audit): the texts are English only (18.13 translates them); Google Analytics is described as "only with consent" although it is not in the code yet (Vlad adds it); the review report and the external test scope are delivered as documents and not kept in the repository (AGENTS.md: no persistent audit reports).
 
+
+### Implemented In The Re-Audit Fixes (2026-11-20, Phases 18.4-18.12)
+
+Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.12 ("Re-audit fixes").
+
+| Item | Implemented |
+| --- | --- |
+| R3-1, R5-1, R5-2, R6-1, R7-1, R7-2, R8-1, R8-2 | Fixed with a test each (see the plan). |
+| G-1, C11 (proof of securities) | Admins upload proof documents to a loan; each file needs an audited manual check before it can prove a security. |
+| P-2 (seeds) | QA, reset and demo seeds pass the declaration and proof gates with synthetic, labelled data. |
+| P-1, P-4 (deployment) | Migration rehearsal 7368caa -> head; the Deploy workflow backs up the database and stops the old backend before it migrates. |
+
+Choices made in this step:
+
+- Vlad chose "upload per LO claim": proof documents are stored per loan (`loans.LoanDocument`), not per borrower, because a Loan Originator claim has no borrower record. Direct loans can use both the borrower documents and the loan documents.
+- The manual check stays the control until a malware scanner exists (G-1). The check is recorded with the admin, the time and a note, and the proof screens list only checked files.
+- During a migration the API is unavailable for a short time (about 20 seconds in the rehearsal), because this release removes old columns and the old code must not run on the new schema.

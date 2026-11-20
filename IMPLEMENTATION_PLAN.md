@@ -2752,6 +2752,19 @@ Audit step 8 fixes (2026-11-20):
 - Drift fixed: plan 17 (current sign-in and retention state), the nginx header comment. The settings comment on passwords was already corrected in audit step 4.
 - Open for the owner and counsel: the legitimate-interest basis for security and sign-in history; provider regions, contracts and transfer safeguards; the retention schedule; server log retention; a malware scanner before real money.
 
+Re-audit fixes (2026-11-20, after the cross-step re-audit of steps 1-8):
+
+- 18.4 (R3-1): a failed balance return that was closed (resolved, or "no money left") opens again when its lots have money again; the ageing scan does this before it reads the open failures, and writes an audit event and an urgent task. A failure is not closed while a requested withdrawal still holds its lots.
+- 18.6 (R5-1): the repayment idempotency fingerprint includes the Garanta penalty split, so the same key with another split is refused. (R5-2): a replay of the cent-fraction release returns the lots it made the first time, or is refused when they do not match; it never makes new lots.
+- 18.7 (R6-1): the automatic close after the last allocation of a Loan Originator round runs the F04 cancellation and fund release at once, for any actor. (R7-2): the LO quote, the purchase and the maturity close lock the loan first (lock order loan -> regime -> quote -> profile), so a proof change and a purchase cannot overlap.
+- 18.10 (R7-1): migration `kyc_compliance` 0010 merges duplicate open reviews and current re-verifications before it adds the unique constraints.
+- 18.5 (R8-1): registration by SMS works when the email link opens in a new tab: the session gives a masked phone number (`phone_number_masked`) and the screen uses it.
+- R8-2: `make api-schema` fails when the schema generator reports an error or an invalid choice override; the two stale overrides were removed.
+- Loan documents (owner's choice: upload per LO claim): admins upload PDF, PNG or JPEG files (20 MB at most) to a loan (`loans.LoanDocument`, files under `loans/<id>/documents/`, internal scope). Each file waits for an audited manual check (note of 5 characters or more) until a malware scanner exists (G-1); only checked files can prove a security. Loan Originator claims, which have no borrower record, can now be published with proofs.
+- Seeds work with the declaration and proof gates on: QA, reset and demo loans use the interest engine and get synthetic, checked proof files ("Synthetic seed data (no real check)"); the LO demo catalogue v3 uses accrued-interest pricing and retires v1/v2 offers; the QA investor gets a synthetic declaration.
+- Deployment (P-4, P-6, rehearsal): the Deploy workflow runs the settings check, takes a database backup, stops the old backend, then migrates with a time limit; it prunes only this project's dangling images. The scheduled-job monitor treats assisted-recovery links as a frequent job (5-minute cron line).
+- Migration rehearsal 7368caa -> head on PostgreSQL 16 with data made by the old code: 69 migrations in 15.6 s, no rows lost, money rows unchanged, all data migrations as expected; the old backup restores and runs the old code (record delivered with the re-audit response, not kept in the repository).
+
 #### 18.13 Translations (final phase before launch)
 
 - Switch the multilanguage work back on: export all texts with context; professional de-CH review (the ~1,280 drafts first, consistency with the design's ~830 texts); German emails, notifications, confirmations, server messages and generated documents (account language only); German contract documents (legal); public site DE/FR from the design translations, updated; reviewed language variants of published admin content (not the admin interface); "Available in English only" note for a single missing content item.
@@ -3278,6 +3291,13 @@ Do not enable production real-money operations until these are complete:
 - Accounting chart/export mapping approved.
 - Annual tax information statement output approved.
 - Production backups configured and restore-tested.
+- The deploy user can read `/etc/banxum/<target>-backup.env`, so the pre-migration backup
+  of the `Deploy` workflow goes off-site.
+- The migration rehearsal is repeated on a copy of the production dump before the first
+  deployment of a release with schema changes.
+- The 5-minute cron line includes `--job assisted_recovery_links`.
+- Every proof document of a published loan has a recorded manual check (or a malware
+  scanner replaces the check).
 - Admin users created.
 - Staging and production isolation verified on the shared host.
 - Superadmin env credentials verified and rotation procedure documented.
