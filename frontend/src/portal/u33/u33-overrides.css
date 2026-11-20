@@ -65,8 +65,9 @@ html.bxu body.has-sidebar {
 
 /* 1. styles.css rules reaching the U33 shell ------------------------------------------------------ */
 /* Found with tools/leaks.js (computed styles of the shell with and without the old stylesheets).
-   styles.css now loads only with the admin console; these fixes stay for a tab that opened the admin
-   console first (a lazy chunk's CSS stays in the page). :where() keeps them at (0,1,1). */
+   styles.css now loads only with the admin console, and since audit S4-9 the build scopes each of its
+   rules to html.bxa (adminConsole/adminCssScope.ts), so it styles nothing here, also in a tab that
+   opened the admin console first. These fixes stay as a second guard. :where() keeps them at (0,1,1). */
 
 /* styles.css :root paints <html> white; the design leaves it transparent, so the page canvas takes the
    body colour (Light #f5f6f7 / Dark #101214) below short pages. */

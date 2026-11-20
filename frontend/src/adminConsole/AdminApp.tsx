@@ -52,6 +52,7 @@ import {
 } from "./AdminModulePanels";
 import { AdminBusinessDateProvider } from "./AdminBusinessDateProvider";
 import { fallbackAdminBusinessDate } from "./adminBusinessDate";
+import { AdminSkin } from "./AdminSkin";
 import { AdminTasksPanel } from "./AdminTasksPanel";
 import { adminHref, navigateAdmin, openAdminSection, useAdminLocation, useAdminParam, type AdminSection } from "./adminRoute";
 import { isWithdrawalQueueItem, objectTypeLabel, uniqueQueueItems, useAdminOperationsDashboardData } from "./data";
@@ -249,7 +250,16 @@ function isAdminPortalUser(user: { account_type?: string; status?: string } | un
   );
 }
 
+/** The admin console below its skin (html.bxa; audit S4-9: styles.css styles nothing outside it). */
 export function AdminApp() {
+  return (
+    <AdminSkin>
+      <AdminConsoleApp />
+    </AdminSkin>
+  );
+}
+
+function AdminConsoleApp() {
   const queryClient = useQueryClient();
   const [qaBusinessDate, setQaBusinessDate] = useState("");
   const [restoredTarget] = useState<"seed" | "snapshot" | null>(() => {

@@ -10,5 +10,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["vite.config.ts", "eslint.config.js", "orval.config.ts"]
+  "include": ["vite.config.ts", "eslint.config.js", "orval.config.ts", "src/adminConsole/adminCssScope.ts"]
 }

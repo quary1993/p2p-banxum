@@ -3,6 +3,8 @@ import { loadEnv } from "vite";
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
+import { scopeAdminStyles } from "./src/adminConsole/adminCssScope";
+
 const emptyFixturesPath = fileURLToPath(new URL("./src/investorPortal/fixtures.empty.ts", import.meta.url));
 const emptyAdminFixturesPath = fileURLToPath(new URL("./src/adminConsole/adminFixtures.empty.ts", import.meta.url));
 const emptySiteFixturesPath = fileURLToPath(new URL("./src/site/siteFixtures.empty.ts", import.meta.url));
@@ -34,6 +36,10 @@ export default defineConfig(({ mode }) => {
           }
         ]
         : []
+    },
+    css: {
+      // Audit S4-9: every rule of src/styles.css (the admin stylesheet) goes below :where(html.bxa).
+      postcss: { plugins: [scopeAdminStyles()] }
     },
     server: {
       port: 5173,

@@ -1,6 +1,9 @@
 /* IP of Webby-Soft SRL. */
 /* The admin console's stylesheet (loaded with the lazy admin area only, adminConsole/adminStyles.ts).
- * The :root tokens and the element rules it builds on are in base.css (global). */
+ * The :root tokens and the element rules it builds on are in base.css (global).
+ * Audit S4-9: the build puts every selector of this file below :where(html.bxa)
+ * (adminConsole/adminCssScope.ts in vite.config.ts), and AdminSkin sets that class while the admin
+ * console is mounted. Write plain class selectors here; do not write html, body or :root rules. */
 .num,
 .money,
 td.num {
