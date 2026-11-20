@@ -11,6 +11,7 @@ from backend.apps.accounts_auth.api.pin_views import (
 )
 from backend.apps.accounts_auth.api.security_views import (
     AdminAssistedRecoveryApproveView,
+    AdminAssistedRecoveryIdentityCheckView,
     AdminAssistedRecoveryIdentityView,
     AdminAssistedRecoveryListView,
     AdminAuthenticatorResetView,
@@ -143,6 +144,11 @@ urlpatterns = [
         "admin/account-recoveries/<uuid:case_id>/confirm-identity/",
         AdminAssistedRecoveryIdentityView.as_view(),
         name="auth-admin-account-recovery-identity",
+    ),
+    path(
+        "admin/account-recoveries/<uuid:case_id>/identity-check/",
+        AdminAssistedRecoveryIdentityCheckView.as_view(),
+        name="auth-admin-account-recovery-identity-check",
     ),
     path(
         "admin/account-recoveries/<uuid:case_id>/approve/",

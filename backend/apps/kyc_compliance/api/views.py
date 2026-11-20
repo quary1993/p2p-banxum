@@ -25,6 +25,7 @@ from backend.apps.kyc_compliance.models import (
     KycManualReviewDecisionType,
     KycManualReviewReason,
     KycProviderSession,
+    KycSessionPurpose,
     KycVerificationCase,
 )
 from backend.apps.kyc_compliance.services import (
@@ -50,6 +51,13 @@ from backend.apps.platform_core.api.impersonation import (
 from backend.apps.platform_core.domain.access import is_admin_actor
 
 
+def _latest_kyc_session(case: KycVerificationCase | None) -> KycProviderSession | None:
+    """The investor's latest verification session (never a recovery identity check)."""
+    if case is None:
+        return None
+    return KycProviderSession.objects.filter(case=case, purpose=KycSessionPurpose.KYC).first()
+
+
 class KycStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -61,9 +69,7 @@ class KycStatusView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         if readonly_user.pk != audit_actor.pk:
             case = KycVerificationCase.objects.filter(user_id=readonly_user.pk).first()
-            latest_session = (
-                KycProviderSession.objects.filter(case=case).first() if case is not None else None
-            )
+            latest_session = _latest_kyc_session(case)
             return Response(
                 serialize_kyc_status(user=readonly_user, case=case, latest_session=latest_session),
                 status=status.HTTP_200_OK,
@@ -75,9 +81,7 @@ class KycStatusView(APIView):
             user.refresh_from_db()
         except (DiditApiError, KycWebhookMatchError):
             case = KycVerificationCase.objects.filter(user_id=user.pk).first()
-            latest_session = (
-                KycProviderSession.objects.filter(case=case).first() if case is not None else None
-            )
+            latest_session = _latest_kyc_session(case)
         return Response(
             serialize_kyc_status(user=user, case=case, latest_session=latest_session),
             status=status.HTTP_200_OK,

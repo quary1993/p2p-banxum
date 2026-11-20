@@ -1299,6 +1299,103 @@ def _case_audit(actor: Any, case: AssistedRecoveryCase, action: str, **metadata:
     )
 
 
+MAX_IDENTITY_CHECKS_PER_RECOVERY = 3
+IDENTITY_CHECK_FAILURES = {
+    "not_approved": "The new identity check was not approved by the provider.",
+    "mismatch": "The new identity check does not match the stored identity.",
+}
+
+
+def _recovery_checks() -> Any:
+    return import_module("backend.apps.kyc_compliance.recovery_checks")
+
+
+def _require_compliance_person(actor: Any) -> None:
+    """Audit S4-4 (D7): the provider's identity result is confirmed by a compliance person."""
+    from backend.apps.platform_core.domain import declarations
+
+    _require_admin(actor)
+    if not declarations.has_staff_role(actor, declarations.COMPLIANCE_ROLES):
+        raise TwoFactorError(
+            "Only a person with the compliance role can confirm the identity of a recovery.",
+            code="compliance_role_required",
+            http_status=403,
+        )
+
+
+def _start_identity_check(case: AssistedRecoveryCase, *, actor: Any) -> None:
+    """Create the new provider check for this recovery and send its link to the investor."""
+    checks = _recovery_checks()
+    if case.identity_check_count >= MAX_IDENTITY_CHECKS_PER_RECOVERY:
+        raise TwoFactorError(
+            "This recovery already had 3 identity checks. Cancel it and open a new recovery.",
+            code="identity_check_limit",
+            http_status=429,
+        )
+    user = case.user
+    try:
+        session = checks.start_recovery_identity_check(user=user, reference=str(case.id))
+    except checks.RecoveryCheckError as exc:
+        raise TwoFactorError(str(exc), code="identity_check_unavailable") from exc
+    except checks.services.DiditApiError as exc:
+        raise TwoFactorError(
+            "The identity check provider is not available. Try again later.",
+            code="identity_check_unavailable",
+            http_status=503,
+        ) from exc
+    case.identity_check_session_id = str(session.provider_session_id)
+    case.identity_check_started_at = _now()
+    case.identity_check_count += 1
+    case.identity_check_outcome = ""
+    case.identity_check_decision_digest = ""
+    case.identity_check_result = {}
+    case.save(
+        update_fields=[
+            "identity_check_session_id",
+            "identity_check_started_at",
+            "identity_check_count",
+            "identity_check_outcome",
+            "identity_check_decision_digest",
+            "identity_check_result",
+            "updated_at",
+        ]
+    )
+    brand = str(getattr(settings, "PLATFORM_BRAND_NAME", "") or "BANXUM")
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"assisted-recovery:{case.id}:identity-check:{case.identity_check_count}",
+            topic="email.security_change",
+            payload={
+                "user_id": str(user.pk),
+                "email": str(user.email),
+                "subject": f"Confirm your identity to recover your {brand} account",
+                "notice_label": "Security",
+                "headline": "Confirm your identity",
+                "status_label": "Action needed",
+                "status_tone": "warning",
+                "body_text": (
+                    "Our support received a request to recover your account, because the "
+                    "second factor is not available. To continue, confirm your identity with "
+                    "your identity document. We compare the result with the identity that we "
+                    "verified when you registered.\n\nIf you did not ask for this, do nothing "
+                    "and tell our support: without the identity check the recovery stops."
+                ),
+                "action_url": str(session.verification_url),
+                "action_label": "Confirm my identity",
+                "template_key": "security.assisted_recovery_identity_check.v1",
+                "metadata": {"navigation_target": "none"},
+            },
+        )
+    )
+    _case_audit(
+        actor,
+        case,
+        "identity_check_started",
+        provider_session_id=case.identity_check_session_id,
+        check_number=case.identity_check_count,
+    )
+
+
 @transaction.atomic
 def open_assisted_recovery(*, actor: Any, user_id: str, note: str) -> AssistedRecoveryCase:
     _require_admin(actor)
@@ -1330,28 +1427,107 @@ def open_assisted_recovery(*, actor: Any, user_id: str, note: str) -> AssistedRe
         user=user, requested_by_admin_id=actor.pk, request_note=note.strip()
     )
     _case_audit(actor, case, "opened", note=note.strip())
+    # Audit S4-4: the recovery starts with a new identity check at the provider.
+    _start_identity_check(case, actor=actor)
     return case
 
 
 @transaction.atomic
-def confirm_assisted_identity(*, actor: Any, case_id: str, evidence: str) -> AssistedRecoveryCase:
-    """The new Didit check matches the stored identity (evidence: the Didit session and result)."""
+def restart_assisted_identity_check(*, actor: Any, case_id: str) -> AssistedRecoveryCase:
+    """A new identity check for the same recovery (the first expired, failed or did not match).
+    At most 3 checks per recovery."""
     _require_admin(actor)
-    case = AssistedRecoveryCase.objects.select_for_update().filter(id=case_id).first()
+    case = (
+        AssistedRecoveryCase.objects.select_for_update()
+        .select_related("user")
+        .filter(id=case_id)
+        .first()
+    )
     if case is None or case.status != AssistedRecoveryStatus.REQUESTED:
         raise TwoFactorError(
             "This recovery is not waiting for the identity check.", code="bad_state"
         )
-    if not evidence.strip():
-        raise TwoFactorError(
-            "Record the identity check (Didit session and result).", code="evidence_required"
+    _start_identity_check(case, actor=actor)
+    return case
+
+
+def confirm_assisted_identity(
+    *, actor: Any, case_id: str, evidence: str = ""
+) -> AssistedRecoveryCase:
+    """Audit S4-4: confirm the identity of a recovery from the provider's result.
+
+    Only when the new Didit check of THIS recovery ended approved and its name and date of
+    birth match the stored verified identity. The admin's note is supplementary: no text can
+    confirm an identity. A check that is pending, not approved or does not match is refused,
+    and that outcome is recorded on the case.
+    """
+    _require_compliance_person(actor)
+    checks = _recovery_checks()
+    failure: TwoFactorError | None = None
+    with transaction.atomic():
+        case = AssistedRecoveryCase.objects.select_for_update().filter(id=case_id).first()
+        if case is None or case.status != AssistedRecoveryStatus.REQUESTED:
+            raise TwoFactorError(
+                "This recovery is not waiting for the identity check.", code="bad_state"
+            )
+        if not case.identity_check_session_id:
+            raise TwoFactorError(
+                "This recovery has no identity check. Send a new identity check first.",
+                code="identity_check_missing",
+            )
+        try:
+            result = checks.recovery_check_result(
+                provider_session_id=case.identity_check_session_id, reference=str(case.id)
+            )
+        except checks.RecoveryCheckError as exc:
+            raise TwoFactorError(str(exc), code="identity_check_missing") from exc
+        if result.outcome == checks.OUTCOME_PENDING:
+            raise TwoFactorError(
+                "The investor has not finished the identity check yet.",
+                code="identity_check_pending",
+            )
+        case.identity_check_outcome = result.outcome
+        case.identity_check_decision_digest = result.decision_digest
+        case.identity_check_result = result.as_record()
+        fields = [
+            "identity_check_outcome",
+            "identity_check_decision_digest",
+            "identity_check_result",
+            "updated_at",
+        ]
+        if result.outcome == checks.OUTCOME_MATCH:
+            case.status = AssistedRecoveryStatus.IDENTITY_CONFIRMED
+            case.identity_confirmed_by_admin_id = actor.pk
+            case.identity_confirmed_at = _now()
+            case.identity_evidence = evidence.strip()
+            fields += [
+                "status",
+                "identity_confirmed_by_admin_id",
+                "identity_confirmed_at",
+                "identity_evidence",
+            ]
+            action = "identity_confirmed"
+        else:
+            action = "identity_check_failed"
+            failure = TwoFactorError(
+                IDENTITY_CHECK_FAILURES[result.outcome]
+                + " The identity is not confirmed. You can send a new identity check.",
+                code=f"identity_check_{result.outcome}",
+                extra={"mismatches": list(result.mismatches)},
+            )
+        case.save(update_fields=fields)
+        _case_audit(
+            actor,
+            case,
+            action,
+            outcome=result.outcome,
+            provider_session_id=result.provider_session_id,
+            decision_digest=result.decision_digest,
+            mismatches=list(result.mismatches),
+            note=evidence.strip(),
         )
-    case.status = AssistedRecoveryStatus.IDENTITY_CONFIRMED
-    case.identity_confirmed_by_admin_id = actor.pk
-    case.identity_confirmed_at = _now()
-    case.identity_evidence = evidence.strip()
-    case.save()
-    _case_audit(actor, case, "identity_confirmed", evidence=evidence.strip())
+    if failure is not None:
+        raise failure
     return case
 
 
@@ -1380,6 +1556,11 @@ def approve_assisted_recovery(*, actor: Any, case_id: str) -> AssistedRecoveryCa
     )
     if case is None or case.status != AssistedRecoveryStatus.IDENTITY_CONFIRMED:
         raise TwoFactorError("Confirm the identity first.", code="bad_state")
+    if case.identity_check_outcome != "match" or not case.identity_check_decision_digest:
+        # Audit S4-4: no approval without the provider's matching decision on the case.
+        raise TwoFactorError(
+            "This recovery has no matching identity check from the provider.", code="bad_state"
+        )
     if str(actor.pk) in {str(case.requested_by_admin_id), str(case.identity_confirmed_by_admin_id)}:
         raise TwoFactorError(
             "Another authorized person must approve this recovery.",

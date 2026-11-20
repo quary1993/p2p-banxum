@@ -185,7 +185,15 @@ class AssistedRecoveryOpenRequestSerializer(serializers.Serializer[Any]):
 
 
 class AssistedRecoveryEvidenceRequestSerializer(serializers.Serializer[Any]):
-    evidence = serializers.CharField(max_length=2000)
+    evidence = serializers.CharField(
+        max_length=2000,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "An optional note. It never confirms the identity: the platform reads the result of "
+            "the recovery's own identity check at the provider."
+        ),
+    )
 
 
 class AssistedRecoveryCaseSerializer(serializers.Serializer[Any]):
@@ -195,6 +203,14 @@ class AssistedRecoveryCaseSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     request_note = serializers.CharField(allow_blank=True)
     identity_evidence = serializers.CharField(allow_blank=True)
+    identity_check_session_id = serializers.CharField(allow_blank=True)
+    identity_check_started_at = serializers.DateTimeField(allow_null=True)
+    identity_check_count = serializers.IntegerField()
+    identity_check_outcome = serializers.CharField(
+        allow_blank=True,
+        help_text='"" (not checked yet), "match", "mismatch" or "not_approved".',
+    )
+    identity_check_mismatches = serializers.ListField(child=serializers.CharField())
     requested_by_admin_id = serializers.CharField(allow_blank=True)
     identity_confirmed_by_admin_id = serializers.CharField(allow_blank=True)
     approved_by_admin_id = serializers.CharField(allow_blank=True)

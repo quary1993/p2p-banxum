@@ -548,7 +548,10 @@ export const AdminTaskStatusEnum = {
 
 export interface AdminUserCreateRequest {
   email: string;
-  /** @minLength 1 */
+  /**
+     * @minLength 12
+     * @maxLength 128
+     */
   password: string;
   /** @maxLength 255 */
   full_name: string;
@@ -731,6 +734,13 @@ export interface AssistedRecoveryCase {
   status: string;
   request_note: string;
   identity_evidence: string;
+  identity_check_session_id: string;
+  /** @nullable */
+  identity_check_started_at: string | null;
+  identity_check_count: number;
+  /** "" (not checked yet), "match", "mismatch" or "not_approved". */
+  identity_check_outcome: string;
+  identity_check_mismatches: string[];
   requested_by_admin_id: string;
   identity_confirmed_by_admin_id: string;
   approved_by_admin_id: string;
@@ -753,8 +763,11 @@ export interface AssistedRecoveryCompleteRequest {
 }
 
 export interface AssistedRecoveryEvidenceRequest {
-  /** @maxLength 2000 */
-  evidence: string;
+  /**
+     * An optional note. It never confirms the identity: the platform reads the result of the recovery's own identity check at the provider.
+     * @maxLength 2000
+     */
+  evidence?: string;
 }
 
 export interface AssistedRecoveryList {
@@ -12675,7 +12688,7 @@ export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateUrl = (caseId: 
 }
 
 export const v1AuthAdminAccountRecoveriesConfirmIdentityCreate = async (caseId: string,
-    assistedRecoveryEvidenceRequest: AssistedRecoveryEvidenceRequest, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
+    assistedRecoveryEvidenceRequest?: AssistedRecoveryEvidenceRequest, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -12726,9 +12739,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>>
-    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationBody = AssistedRecoveryEvidenceRequest
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationBody = AssistedRecoveryEvidenceRequest | undefined
     export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationError = TwoFactorError
-    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables = {caseId: string;data: AssistedRecoveryEvidenceRequest}
+    export type V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables = {caseId: string;data?: AssistedRecoveryEvidenceRequest}
 
     export const useV1AuthAdminAccountRecoveriesConfirmIdentityCreate = <TError = TwoFactorError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesConfirmIdentityCreate>>, TError,V1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
@@ -12739,6 +12752,77 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1AuthAdminAccountRecoveriesIdentityCheckCreateUrl = (caseId: string,) => {
+
+
+
+
+  return `/api/v1/auth/admin/account-recoveries/${caseId}/identity-check/`
+}
+
+/**
+ * Audit S4-4: send the investor a new identity check for this recovery (at most 3).
+ */
+export const v1AuthAdminAccountRecoveriesIdentityCheckCreate = async (caseId: string, options?: Parameters<typeof httpClient>[1]): Promise<AssistedRecoveryCase> => {
+
+  return httpClient<AssistedRecoveryCase>(getV1AuthAdminAccountRecoveriesIdentityCheckCreateUrl(caseId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1AuthAdminAccountRecoveriesIdentityCheckCreateMutationKey = () => ['v1AuthAdminAccountRecoveriesIdentityCheckCreate'] as const;
+
+export const getV1AuthAdminAccountRecoveriesIdentityCheckCreateMutationOptions = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>, TError,V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>, TError,V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AuthAdminAccountRecoveriesIdentityCheckCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>, V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables> = (props) => {
+          const {caseId} = props ?? {};
+
+          return  v1AuthAdminAccountRecoveriesIdentityCheckCreate(caseId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>>
+
+    export type V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationError = TwoFactorError
+    export type V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables = {caseId: string}
+
+    export const useV1AuthAdminAccountRecoveriesIdentityCheckCreate = <TError = TwoFactorError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>, TError,V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminAccountRecoveriesIdentityCheckCreate>>,
+        TError,
+        V1AuthAdminAccountRecoveriesIdentityCheckCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AuthAdminAccountRecoveriesIdentityCheckCreateMutationOptions(options), queryClient);
     }
 
 export const getV1AuthAdminLoginConfirmCreateUrl = () => {
@@ -33431,13 +33515,15 @@ export const getV1AuthAccountRecoveryCompleteCreateResponseMock = (overrideRespo
 
 export const getV1AuthAccountRecoveryNotMeCreateResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1AuthAdminAccountRecoveriesRetrieveResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryList, object>> = {}): AssistedRecoveryList => ({results: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesRetrieveResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryList, object>> = {}): AssistedRecoveryList => ({results: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_session_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_started_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), identity_check_count: faker.number.int(), identity_check_outcome: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_mismatches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null])})), ...overrideResponse})
 
-export const getV1AuthAdminAccountRecoveriesCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_session_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_started_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), identity_check_count: faker.number.int(), identity_check_outcome: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_mismatches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
-export const getV1AuthAdminAccountRecoveriesApproveCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesApproveCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_session_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_started_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), identity_check_count: faker.number.int(), identity_check_outcome: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_mismatches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
-export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_session_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_started_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), identity_check_count: faker.number.int(), identity_check_outcome: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_mismatches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
+
+export const getV1AuthAdminAccountRecoveriesIdentityCheckCreateResponseMock = (overrideResponse: Partial<Extract<AssistedRecoveryCase, object>> = {}): AssistedRecoveryCase => ({id: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.alpha({length: {min: 10, max: 20}}), user_email: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), request_note: faker.string.alpha({length: {min: 10, max: 20}}), identity_evidence: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_session_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_started_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), identity_check_count: faker.number.int(), identity_check_outcome: faker.string.alpha({length: {min: 10, max: 20}}), identity_check_mismatches: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), requested_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), identity_confirmed_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), approved_by_admin_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', wait_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), link_sent_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), completed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), cancelled_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), ...overrideResponse})
 
 export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean(), number_format: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), pin_set: faker.datatype.boolean(), pin_locked_until: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), second_factor: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
@@ -34395,6 +34481,18 @@ export const getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMockHandler = (
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminAccountRecoveriesConfirmIdentityCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1AuthAdminAccountRecoveriesIdentityCheckCreateMockHandler = (overrideResponse?: AssistedRecoveryCase | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AssistedRecoveryCase> | AssistedRecoveryCase), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/account-recoveries/:caseId/identity-check/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminAccountRecoveriesIdentityCheckCreateResponseMock(),
       { status: 200
       })
   }, options)
@@ -37402,6 +37500,7 @@ export const getBanxumApiMock = () => [
   getV1AuthAdminAccountRecoveriesCreateMockHandler(),
   getV1AuthAdminAccountRecoveriesApproveCreateMockHandler(),
   getV1AuthAdminAccountRecoveriesConfirmIdentityCreateMockHandler(),
+  getV1AuthAdminAccountRecoveriesIdentityCheckCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginEnrollCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),

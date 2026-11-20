@@ -121,6 +121,13 @@ class KycVerificationCase(TimestampedModel):
         return self.status == KycStatus.APPROVED
 
 
+class KycSessionPurpose(models.TextChoices):
+    KYC = "kyc", "Identity verification"
+    # Audit S4-4: a new identity check for an assisted account recovery. Its results are
+    # evidence for that recovery only; they never change the KYC case.
+    ACCOUNT_RECOVERY = "account_recovery", "Account recovery identity check"
+
+
 class KycProviderSession(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     case = models.ForeignKey(
@@ -144,6 +151,11 @@ class KycProviderSession(TimestampedModel):
     # Set when an admin KYC decision is recorded: results that arrive later for this session
     # are kept as evidence but can no longer change the case.
     superseded_at = models.DateTimeField(null=True, blank=True)
+    purpose = models.CharField(
+        max_length=32, choices=KycSessionPurpose.choices, default=KycSessionPurpose.KYC
+    )
+    # For an account-recovery check: the id of the recovery case that asked for it.
+    recovery_reference = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

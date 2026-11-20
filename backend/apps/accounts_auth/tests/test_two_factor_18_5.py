@@ -75,6 +75,66 @@ def _admin(email: str) -> User:
     )
 
 
+STORED_NAME = "Anna Maria Müller-Keller"
+STORED_BIRTH = "1984-05-17"
+
+
+def _verified(user: User, *, name: str = STORED_NAME, birth: str = STORED_BIRTH) -> User:
+    """An approved KYC case with the verified name and date of birth (the stored identity)."""
+    from datetime import date
+
+    from django.apps import apps
+
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.update_or_create(
+        user_id=user.pk,
+        defaults={
+            "subject_reference": f"user:{user.pk}",
+            "provider_environment": "test",
+            "workflow_id": "test-workflow",
+            "vendor_data": f"user:{user.pk}",
+            "status": "approved",
+            "decision_at": timezone.now(),
+            "verified_full_name": name,
+            "verified_birth_date": date.fromisoformat(birth),
+        },
+    )
+    return user
+
+
+def _compliance(email: str) -> User:
+    admin = _admin(email)
+    admin.staff_roles = ["compliance"]
+    admin.save(update_fields=["staff_roles"])
+    return admin
+
+
+def _didit_result(
+    case: AssistedRecoveryCase,
+    *,
+    status: str = "approved",
+    name: str = "MÜLLER-KELLER ANNA MARIA",
+    birth: str = STORED_BIRTH,
+    event: str = "recovery-result-1",
+    session_id: str = "",
+) -> None:
+    """The provider's webhook for the recovery's identity check."""
+    kyc: Any = import_module("backend.apps.kyc_compliance.services")
+    kyc.process_didit_event(
+        kyc.ProviderKycEventCommand(
+            provider_event_id=event,
+            provider_event_type="status.updated",
+            provider_status=status,
+            provider_session_id=session_id or case.identity_check_session_id,
+            vendor_data=f"user:{case.user_id}",
+            raw_payload={
+                "id": event,
+                "status": status,
+                "decision": {"id_verifications": [{"full_name": name, "date_of_birth": birth}]},
+            },
+        )
+    )
+
+
 def _wrong(code: str) -> str:
     return "000000" if code != "000000" else "111111"
 
@@ -605,19 +665,33 @@ def test_a_password_reset_stops_unfinished_operation_codes() -> None:
 
 @pytest.mark.django_db
 def test_assisted_recovery_needs_two_people_a_notice_and_then_a_single_use_link() -> None:
-    user = ready_investor(_investor())
+    user = _verified(ready_investor(_investor()))
     give_authenticator(user)
     session = Client()
     sign_in(session, user)
-    support = _admin("support@example.test")
+    support = _compliance("support@example.test")
     approver = _admin("approver@example.test")
 
     case = two_factor.open_assisted_recovery(
         actor=support, user_id=str(user.pk), note="Lost phone."
     )
-    case = two_factor.confirm_assisted_identity(
-        actor=support, case_id=str(case.id), evidence="Didit session 123: match."
+    # Audit S4-4: the recovery starts a new identity check and sends its link to the investor.
+    assert case.identity_check_session_id and case.identity_check_count == 1
+    link = OutboxMessage.objects.get(
+        payload__template_key="security.assisted_recovery_identity_check.v1"
     )
+    assert link.payload["email"] == user.email
+    assert case.identity_check_session_id in link.payload["action_url"]
+    _didit_result(case)
+    case = two_factor.confirm_assisted_identity(
+        actor=support, case_id=str(case.id), evidence="Checked by phone too."
+    )
+    assert (case.status, case.identity_check_outcome) == ("identity_confirmed", "match")
+    assert len(case.identity_check_decision_digest) == 64
+    assert case.identity_check_result["provider_session_id"] == case.identity_check_session_id
+    # The case keeps the comparison's result, not the name or the date.
+    assert STORED_BIRTH not in str(case.identity_check_result)
+    assert "Anna" not in str(case.identity_check_result)
     with pytest.raises(two_factor.TwoFactorError) as same_person:
         two_factor.approve_assisted_recovery(actor=support, case_id=str(case.id))
     assert same_person.value.code == "second_person_required"
@@ -661,11 +735,12 @@ def test_assisted_recovery_needs_two_people_a_notice_and_then_a_single_use_link(
 
 @pytest.mark.django_db
 def test_this_was_not_me_stops_the_recovery_and_alerts_support() -> None:
-    user = ready_investor(_investor())
-    support = _admin("support@example.test")
+    user = _verified(ready_investor(_investor()))
+    support = _compliance("support@example.test")
     approver = _admin("approver@example.test")
     case = two_factor.open_assisted_recovery(actor=support, user_id=str(user.pk), note="Call.")
-    two_factor.confirm_assisted_identity(actor=support, case_id=str(case.id), evidence="Didit 9.")
+    _didit_result(case)
+    two_factor.confirm_assisted_identity(actor=support, case_id=str(case.id))
     two_factor.approve_assisted_recovery(actor=approver, case_id=str(case.id))
     AssistedRecoveryCase.objects.filter(id=case.id).update(
         dispute_token_digest=digest_secret("known-dispute-link")
@@ -685,7 +760,7 @@ def test_this_was_not_me_stops_the_recovery_and_alerts_support() -> None:
 
 @pytest.mark.django_db
 def test_at_most_three_assisted_recoveries_in_seven_days() -> None:
-    user = ready_investor(_investor())
+    user = _verified(ready_investor(_investor()))
     support = _admin("support@example.test")
     for _ in range(3):
         case = two_factor.open_assisted_recovery(actor=support, user_id=str(user.pk), note="x")
@@ -696,6 +771,190 @@ def test_at_most_three_assisted_recoveries_in_seven_days() -> None:
 
     assert error.value.code == "assisted_recovery_limit"
     assert AuditEvent.objects.filter(action="auth.assisted_recovery_opened").count() == 3
+
+
+# ---- Audit S4-4: the identity of a recovery comes from the provider's result ------------------
+
+
+def _open_recovery(email: str = "security@example.test") -> tuple[User, User, AssistedRecoveryCase]:
+    user = _verified(ready_investor(_investor(email)))
+    compliance = _compliance("compliance@example.test")
+    case = two_factor.open_assisted_recovery(actor=compliance, user_id=str(user.pk), note="Call.")
+    return user, compliance, case
+
+
+def _confirm_code(actor: User, case: AssistedRecoveryCase, note: str = "") -> str:
+    with pytest.raises(two_factor.TwoFactorError) as error:
+        two_factor.confirm_assisted_identity(actor=actor, case_id=str(case.id), evidence=note)
+    return error.value.code
+
+
+@pytest.mark.django_db
+def test_free_text_cannot_confirm_the_identity_of_a_recovery() -> None:
+    """Pending: no provider result yet. A note such as "Didit session 123: match" is no proof."""
+    _user, compliance, case = _open_recovery()
+    assert _confirm_code(compliance, case, "Didit session 123: match.") == "identity_check_pending"
+    case.refresh_from_db()
+    assert (case.status, case.identity_check_outcome, case.identity_evidence) == (
+        "requested",
+        "",
+        "",
+    )
+    # The approval needs the confirmed identity.
+    with pytest.raises(two_factor.TwoFactorError):
+        two_factor.approve_assisted_recovery(
+            actor=_admin("approver@example.test"), case_id=str(case.id)
+        )
+
+
+@pytest.mark.django_db
+def test_only_a_compliance_person_confirms_the_identity() -> None:
+    _user, _compliance_person, case = _open_recovery()
+    _didit_result(case)
+    assert _confirm_code(_admin("support@example.test"), case) == "compliance_role_required"
+    case.refresh_from_db()
+    assert case.status == "requested"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("result", "code", "mismatches"),
+    [
+        ({"status": "declined"}, "identity_check_not_approved", []),
+        ({"status": "in review"}, "identity_check_not_approved", []),
+        ({"name": "Peter Example"}, "identity_check_mismatch", ["name"]),
+        ({"name": "Anna Other"}, "identity_check_mismatch", ["name"]),
+        ({"birth": "1984-05-18"}, "identity_check_mismatch", ["birth_date"]),
+        (
+            {"name": "", "birth": ""},
+            "identity_check_mismatch",
+            ["name_missing", "birth_date_missing"],
+        ),
+    ],
+)
+def test_a_rejected_or_different_identity_does_not_confirm_the_recovery(
+    result: dict[str, str], code: str, mismatches: list[str]
+) -> None:
+    """Rejected and mismatch outcomes: refused, recorded on the case, and the KYC case of the
+    real investor is not changed by somebody's failed check."""
+    from django.apps import apps
+
+    user, compliance, case = _open_recovery()
+    _didit_result(case, **result)
+    with pytest.raises(two_factor.TwoFactorError) as error:
+        two_factor.confirm_assisted_identity(actor=compliance, case_id=str(case.id), evidence="ok")
+    assert error.value.code == code
+    assert error.value.extra["mismatches"] == mismatches
+    case.refresh_from_db()
+    assert case.status == "requested" and case.identity_confirmed_at is None
+    assert case.identity_check_outcome == code.removeprefix("identity_check_")
+    assert AuditEvent.objects.filter(action="auth.assisted_recovery_identity_check_failed").exists()
+    kyc_case = apps.get_model("kyc_compliance", "KycVerificationCase").objects.get(user_id=user.pk)
+    assert (kyc_case.status, kyc_case.verified_full_name) == ("approved", STORED_NAME)
+    assert str(kyc_case.verified_birth_date) == STORED_BIRTH
+
+
+@pytest.mark.django_db
+def test_a_middle_name_left_out_on_the_new_document_still_matches() -> None:
+    _user, compliance, case = _open_recovery()
+    _didit_result(case, name="Anna Müller-Keller")
+    case = two_factor.confirm_assisted_identity(actor=compliance, case_id=str(case.id))
+    assert case.identity_check_outcome == "match"
+
+
+@pytest.mark.django_db
+def test_a_result_of_another_check_cannot_be_replayed_for_a_recovery() -> None:
+    """Replay: only the check that this recovery started counts, and only once."""
+    kyc: Any = import_module("backend.apps.kyc_compliance.recovery_checks")
+    user, compliance, case = _open_recovery()
+    other_user, _c, other_case = (
+        _verified(ready_investor(_investor("other@example.test"))),
+        None,
+        None,
+    )
+    other_case = two_factor.open_assisted_recovery(
+        actor=compliance, user_id=str(other_user.pk), note="Other."
+    )
+    # An approved result for the other recovery's session.
+    _didit_result(other_case, event="other-result")
+    # Pointing this recovery at the other session is refused by the provider-check lookup.
+    AssistedRecoveryCase.objects.filter(id=case.id).update(
+        identity_check_session_id=other_case.identity_check_session_id
+    )
+    assert _confirm_code(compliance, case) == "identity_check_missing"
+    with pytest.raises(kyc.RecoveryCheckError):
+        kyc.recovery_check_result(
+            provider_session_id=other_case.identity_check_session_id, reference=str(case.id)
+        )
+    # The right recovery confirms once; a second confirmation is a wrong state.
+    two_factor.confirm_assisted_identity(actor=compliance, case_id=str(other_case.id))
+    assert _confirm_code(compliance, other_case) == "bad_state"
+    assert user.pk != other_user.pk
+
+
+@pytest.mark.django_db
+def test_a_new_identity_check_can_be_sent_three_times_at_most() -> None:
+    _user, compliance, case = _open_recovery()
+    first = case.identity_check_session_id
+    _didit_result(case, status="declined")
+    assert _confirm_code(compliance, case) == "identity_check_not_approved"
+    case = two_factor.restart_assisted_identity_check(actor=compliance, case_id=str(case.id))
+    assert case.identity_check_session_id != first
+    assert (case.identity_check_count, case.identity_check_outcome) == (2, "")
+    # The old declined result does not count for the new check.
+    assert _confirm_code(compliance, case) == "identity_check_pending"
+    _didit_result(case, event="recovery-result-2")
+    assert (
+        two_factor.confirm_assisted_identity(actor=compliance, case_id=str(case.id)).status
+        == "identity_confirmed"
+    )
+    other = _verified(ready_investor(_investor("limit@example.test")))
+    second = two_factor.open_assisted_recovery(
+        actor=compliance, user_id=str(other.pk), note="Call."
+    )
+    two_factor.restart_assisted_identity_check(actor=compliance, case_id=str(second.id))
+    two_factor.restart_assisted_identity_check(actor=compliance, case_id=str(second.id))
+    with pytest.raises(two_factor.TwoFactorError) as limit:
+        two_factor.restart_assisted_identity_check(actor=compliance, case_id=str(second.id))
+    assert limit.value.code == "identity_check_limit"
+    assert (
+        OutboxMessage.objects.filter(
+            payload__template_key="security.assisted_recovery_identity_check.v1",
+            payload__user_id=str(second.user_id),
+        ).count()
+        == 3
+    )
+
+
+@pytest.mark.django_db
+def test_a_recovery_needs_a_stored_verified_identity() -> None:
+    user = ready_investor(_investor())
+    with pytest.raises(two_factor.TwoFactorError) as error:
+        two_factor.open_assisted_recovery(
+            actor=_admin("support@example.test"), user_id=str(user.pk), note="Call."
+        )
+    assert error.value.code == "identity_check_unavailable"
+    assert not AssistedRecoveryCase.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_admin_api_confirms_from_the_provider_result_and_sends_a_new_check(client: Client) -> None:
+    user, compliance, case = _open_recovery()
+    client.force_login(compliance)
+    base = f"/api/v1/auth/admin/account-recoveries/{case.id}"
+    pending = post_json(client, f"{base}/confirm-identity/", {"evidence": "match, trust me"})
+    assert pending.status_code == 400 and pending.json()["code"] == "identity_check_pending"
+    again = post_json(client, f"{base}/identity-check/", {})
+    assert again.status_code == 200 and again.json()["identity_check_count"] == 2
+    case.refresh_from_db()
+    _didit_result(case, name="Somebody Else")
+    refused = post_json(client, f"{base}/confirm-identity/", {})
+    assert refused.status_code == 400 and refused.json()["code"] == "identity_check_mismatch"
+    assert refused.json()["mismatches"] == ["name"]
+    listed = client.get("/api/v1/auth/admin/account-recoveries/").json()["results"][0]
+    assert listed["identity_check_outcome"] == "mismatch"
+    assert listed["identity_check_mismatches"] == ["name"]
+    assert user.email == listed["user_email"]
 
 
 # ---- Sign-in place (Q06, D6) ---------------------------------------------------------------

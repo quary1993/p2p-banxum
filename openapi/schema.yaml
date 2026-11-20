@@ -1441,7 +1441,53 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/AssistedRecoveryEvidenceRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistedRecoveryCase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '423':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorError'
+          description: ''
+  /api/v1/auth/admin/account-recoveries/{case_id}/identity-check/:
+    post:
+      operationId: v1_auth_admin_account_recoveries_identity_check_create
+      description: 'Audit S4-4: send the investor a new identity check for this recovery
+        (at most 3).'
+      parameters:
+      - in: path
+        name: case_id
+        schema:
+          type: string
+          format: uuid
         required: true
+      tags:
+      - v1
       security:
       - cookieAuth: []
       responses:
@@ -9880,7 +9926,8 @@ components:
         password:
           type: string
           writeOnly: true
-          minLength: 1
+          maxLength: 128
+          minLength: 12
         full_name:
           type: string
           maxLength: 255
@@ -10242,6 +10289,21 @@ components:
           type: string
         identity_evidence:
           type: string
+        identity_check_session_id:
+          type: string
+        identity_check_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        identity_check_count:
+          type: integer
+        identity_check_outcome:
+          type: string
+          description: '"" (not checked yet), "match", "mismatch" or "not_approved".'
+        identity_check_mismatches:
+          type: array
+          items:
+            type: string
         requested_by_admin_id:
           type: string
         identity_confirmed_by_admin_id:
@@ -10273,6 +10335,11 @@ components:
       - completed_at
       - created_at
       - id
+      - identity_check_count
+      - identity_check_mismatches
+      - identity_check_outcome
+      - identity_check_session_id
+      - identity_check_started_at
       - identity_confirmed_by_admin_id
       - identity_evidence
       - link_sent_at
@@ -10300,9 +10367,9 @@ components:
       properties:
         evidence:
           type: string
+          description: 'An optional note. It never confirms the identity: the platform
+            reads the result of the recovery''s own identity check at the provider.'
           maxLength: 2000
-      required:
-      - evidence
     AssistedRecoveryList:
       type: object
       properties:

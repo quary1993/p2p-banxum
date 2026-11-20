@@ -593,8 +593,9 @@ class AssistedRecoveryStatus(models.TextChoices):
 class AssistedRecoveryCase(TimestampedModel):
     """A lost second factor without recovery codes (Q05, D4): support-led, two people.
 
-    Support opens the case; a new Didit check is compared with the stored identity and
-    recorded; another authorized person approves; unfinished authorizations and sessions end
+    Support opens the case; the investor gets a link to a new Didit check; its approved result
+    is compared with the stored identity by the platform and confirmed by a compliance person;
+    another authorized person approves; unfinished authorizations and sessions end
     and the old factor is disabled; the investor gets a notice with a "This was not me" link and
     24 hours to stop it; then a single-use link lets the investor set a password and a new
     factor. At most 3 requests per account in 7 days.
@@ -611,7 +612,16 @@ class AssistedRecoveryCase(TimestampedModel):
     request_note = models.TextField(blank=True)
     identity_confirmed_by_admin_id = models.UUIDField(null=True, blank=True)
     identity_confirmed_at = models.DateTimeField(null=True, blank=True)
+    # The admin's own note. Supplementary only: it never confirms an identity (audit S4-4).
     identity_evidence = models.TextField(blank=True)
+    # Audit S4-4: the new identity check at the provider (Didit) that this recovery asked for,
+    # its outcome against the stored identity, and the digest of the provider's decision.
+    identity_check_session_id = models.CharField(max_length=128, blank=True)
+    identity_check_started_at = models.DateTimeField(null=True, blank=True)
+    identity_check_count = models.PositiveSmallIntegerField(default=0)
+    identity_check_outcome = models.CharField(max_length=32, blank=True)
+    identity_check_decision_digest = models.CharField(max_length=64, blank=True)
+    identity_check_result = models.JSONField(default=dict, blank=True)
     approved_by_admin_id = models.UUIDField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     dispute_token_digest = models.CharField(max_length=64, blank=True)

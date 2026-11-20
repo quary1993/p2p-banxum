@@ -802,6 +802,14 @@ def _case_payload(case: AssistedRecoveryCase) -> dict[str, Any]:
         "status": case.status,
         "request_note": case.request_note,
         "identity_evidence": case.identity_evidence,
+        # Audit S4-4: the provider check of this recovery and its outcome.
+        "identity_check_session_id": case.identity_check_session_id,
+        "identity_check_started_at": case.identity_check_started_at,
+        "identity_check_count": case.identity_check_count,
+        "identity_check_outcome": case.identity_check_outcome,
+        "identity_check_mismatches": list(
+            (case.identity_check_result or {}).get("mismatches") or []
+        ),
         "requested_by_admin_id": str(case.requested_by_admin_id or ""),
         "identity_confirmed_by_admin_id": str(case.identity_confirmed_by_admin_id or ""),
         "approved_by_admin_id": str(case.approved_by_admin_id or ""),
@@ -861,8 +869,22 @@ class AdminAssistedRecoveryIdentityView(APIView):
             case = two_factor.confirm_assisted_identity(
                 actor=request.user,
                 case_id=case_id,
-                evidence=str(serializer.validated_data["evidence"]),
+                evidence=str(serializer.validated_data.get("evidence") or ""),
             )
+        except _HANDLED as exc:
+            return _error(exc)
+        return Response(AssistedRecoveryCaseSerializer(_case_payload(case)).data)
+
+
+class AdminAssistedRecoveryIdentityCheckView(APIView):
+    """Audit S4-4: send the investor a new identity check for this recovery (at most 3)."""
+
+    permission_classes = [IsAuthenticated, IsAdminPortalUser]
+
+    @extend_schema(request=None, responses={200: AssistedRecoveryCaseSerializer, **ERRORS})
+    def post(self, request: Request, case_id: str) -> Response:
+        try:
+            case = two_factor.restart_assisted_identity_check(actor=request.user, case_id=case_id)
         except _HANDLED as exc:
             return _error(exc)
         return Response(AssistedRecoveryCaseSerializer(_case_payload(case)).data)

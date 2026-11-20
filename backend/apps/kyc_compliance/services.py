@@ -25,6 +25,7 @@ from backend.apps.kyc_compliance.models import (
     KycManualReviewReason,
     KycProviderEvent,
     KycProviderSession,
+    KycSessionPurpose,
     KycStatus,
     KycVerificationCase,
 )
@@ -705,7 +706,11 @@ def refresh_user_kyc_status_from_provider(
     case = KycVerificationCase.objects.filter(user_id=user.pk).first()
     if case is None:
         return None, None
-    sessions = list(KycProviderSession.objects.filter(case=case).order_by("-created_at")[:10])
+    sessions = list(
+        KycProviderSession.objects.filter(case=case, purpose=KycSessionPurpose.KYC).order_by(
+            "-created_at"
+        )[:10]
+    )
     latest_session = sessions[0] if sessions else None
     if not sessions:
         return case, None
@@ -804,6 +809,7 @@ def latest_active_session(case: KycVerificationCase) -> KycProviderSession | Non
     return (
         KycProviderSession.objects.filter(
             case=case,
+            purpose=KycSessionPurpose.KYC,
             status=KycStatus.PENDING,
             expires_at__gt=now,
             superseded_at__isnull=True,
@@ -833,7 +839,9 @@ def _admin_requested_reverification(case: KycVerificationCase) -> bool:
     decision = _latest_manual_review_decision(case)
     if decision is None or decision.decision != KycManualReviewDecisionType.REQUEST_REVERIFICATION:
         return False
-    return not KycProviderSession.objects.filter(case=case, superseded_at__isnull=True).exists()
+    return not KycProviderSession.objects.filter(
+        case=case, purpose=KycSessionPurpose.KYC, superseded_at__isnull=True
+    ).exists()
 
 
 def investor_session_start_block_reason(case: KycVerificationCase) -> str:
@@ -1189,6 +1197,44 @@ def _hold_provider_event(
     return ProviderKycEventResult(event=event, case=case, held_for_review=True)
 
 
+def _record_recovery_check_event(
+    *,
+    case: KycVerificationCase,
+    session: KycProviderSession,
+    event: KycProviderEvent,
+    command: ProviderKycEventCommand,
+    status: KycStatus,
+) -> ProviderKycEventResult:
+    if status != KycStatus.PENDING:
+        session.status = status
+        session.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="kyc.recovery_check_event_recorded",
+            target_type="KycVerificationCase",
+            target_id=str(case.id),
+            metadata={
+                "provider_event_id": command.provider_event_id,
+                "provider_session_id": command.provider_session_id,
+                "provider_status": command.provider_status,
+                "normalized_status": status,
+                "recovery_reference": session.recovery_reference,
+            },
+        )
+    )
+    if status in INVESTOR_MASKED_REVIEW_STATUSES:
+        _ensure_kyc_review_task(
+            case,
+            finding=(
+                f"The identity check of an account recovery reported {status} for session "
+                f"{command.provider_session_id}. The KYC case was not changed."
+            ),
+            urgent=status == KycStatus.SANCTIONS_HIT,
+        )
+    return ProviderKycEventResult(event=event, case=case, held_for_review=True)
+
+
 @transaction.atomic
 def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventResult:
     existing = KycProviderEvent.objects.filter(
@@ -1231,6 +1277,14 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     except IntegrityError:
         existing = KycProviderEvent.objects.get(provider_event_id=command.provider_event_id)
         return ProviderKycEventResult(event=existing, case=existing.case, idempotent=True)
+
+    if session is not None and session.purpose == KycSessionPurpose.ACCOUNT_RECOVERY:
+        # Audit S4-4: the result of a recovery identity check is evidence for that recovery.
+        # It never changes the KYC case: a failed check by somebody else must not block the
+        # real investor. A screening hit still goes to an admin.
+        return _record_recovery_check_event(
+            case=case, session=session, event=event, command=command, status=normalized_status
+        )
 
     hold_reason = _provider_event_hold_reason(
         case=case,
@@ -1381,7 +1435,9 @@ def record_manual_review_decision(
     )
     # Provider results for sessions that existed when the admin decided are evidence only;
     # after a re-verification request only the investor's next session can change the case.
-    KycProviderSession.objects.filter(case=case, superseded_at__isnull=True).update(
+    KycProviderSession.objects.filter(
+        case=case, purpose=KycSessionPurpose.KYC, superseded_at__isnull=True
+    ).update(
         superseded_at=now,
         updated_at=now_utc(),
     )
