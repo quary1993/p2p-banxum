@@ -60,10 +60,11 @@ type FormState = {
   controlling_persons: string;
 };
 
-function initialForm(declaration?: Declaration | null): FormState {
+function initialForm(declaration?: Declaration | null, subject?: "person" | "company"): FormState {
   const company = (declaration?.company_details ?? {}) as Record<string, string>;
   return {
-    subject_type: declaration?.subject_type === "company" ? "company" : "person",
+    // Audit S7-1: the subject follows the account type (sent by the server), not a choice.
+    subject_type: subject ?? (declaration?.subject_type === "company" ? "company" : "person"),
     beneficial_owner_is_self: declaration ? declaration.beneficial_owner_is_self : true,
     beneficial_owner_name: declaration?.beneficial_owner_name ?? "",
     sources_of_funds: declaration?.sources_of_funds ?? [],
@@ -99,7 +100,7 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (status.data) setForm(initialForm(status.data.declaration));
+    if (status.data) setForm(initialForm(status.data.declaration, status.data.declaration_subject));
   }, [status.data]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((previous) => ({ ...previous, [key]: value }));
@@ -192,12 +193,7 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
           <form aria-label={t("Declarations")} className="card-inner u33-declarations-form" id={formId} onSubmit={submit}>
             <fieldset className="mb-3">
               <legend className="form-label">{t("Who invests?")}</legend>
-              {(["person", "company"] as const).map((value) => (
-                <label className="form-check form-check-inline" key={value}>
-                  <input checked={form.subject_type === value} className="form-check-input" name="subject_type" onChange={() => set("subject_type", value)} type="radio" />
-                  <span className="form-check-label">{value === "person" ? t("I invest as a private person") : t("A company invests")}</span>
-                </label>
-              ))}
+              <p className="u33-muted mb-0">{form.subject_type === "company" ? t("A company invests (company account).") : t("I invest as a private person (private account).")}</p>
             </fieldset>
             {form.subject_type === "company" ? (
               <div className="row g-2 mb-3">

@@ -240,6 +240,15 @@ def _require_no_compliance_block(actor: Model) -> None:
         raise MarketplacePrimaryValidationError(declarations.BLOCK_MESSAGES[reason])
 
 
+def _require_no_compliance_block_locked(actor: Model) -> None:
+    """Audit S7-2: the same check under the investor row lock, just before money is reserved."""
+    declarations: Any = import_module("backend.apps.kyc_compliance.declarations")
+    try:
+        declarations.assert_can_invest_locked(actor)
+    except declarations.InvestmentComplianceBlock as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise MarketplacePrimaryAuthorizationError(
@@ -1166,6 +1175,7 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
     # Swiss creditor limit (18.9): counted under the loan lock taken above and the borrower's
     # regime lock, so two new creditors of the same UID cannot both take the last place.
     _lock_borrower_regime(loan)
+    _require_no_compliance_block_locked(command.actor)
     _assert_sandbox_notice_confirmed(loan, command)
     investor_limit = _loan_investor_limit(loan)
     _assert_order_within_investor_limit(

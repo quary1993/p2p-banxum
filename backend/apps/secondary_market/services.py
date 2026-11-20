@@ -3027,6 +3027,12 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     except regimes.CreditorRegimeViolation as exc:
         # Audit S6-5: a Swiss loan without a valid UID cannot change creditors.
         raise SecondaryMarketValidationError(str(exc)) from exc
+    # Audit S7-2: the buyer's compliance block again, under the investor row lock.
+    compliance_locked: Any = import_module("backend.apps.kyc_compliance.declarations")
+    try:
+        compliance_locked.assert_can_invest_locked(command.actor)
+    except compliance_locked.InvestmentComplianceBlock as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
     _assert_transfer_within_investor_limit(
         loan=loan,
         buyer_user_id=buyer_user_id,

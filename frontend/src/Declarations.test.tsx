@@ -28,6 +28,7 @@ const EMPTY = {
   review_status: null,
   review_message: "",
   reverification_due_date: null,
+  declaration_subject: "person",
   investment_block: "declaration_missing",
   investment_block_message: "Complete your declarations (Settings > Declarations) before your next investment."
 };
@@ -91,6 +92,31 @@ test("an investor without declarations fills the form and the answers are sent a
   expect(await screen.findByText("Compliance review in progress")).toBeInTheDocument();
   expect(screen.getByText("Version 1 · 20 Nov 2026")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Update declarations" })).toBeInTheDocument();
+}, 30_000);
+
+test("audit S7-1: a company account gets the company declaration without a person choice", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    http.get("*/api/v1/kyc/declarations/", () => HttpResponse.json({ ...EMPTY, declaration_subject: "company" })),
+    http.post("*/api/v1/kyc/declarations/", async ({ request }) => {
+      calls.declarations.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json({ detail: "stop" }, { status: 400 });
+    })
+  );
+  renderLiveApp(App, "/settings/declarations");
+  const form = await screen.findByRole("form", { name: "Declarations" }, { timeout: 5000 });
+  expect(within(form).getByText("A company invests (company account).")).toBeInTheDocument();
+  expect(within(form).queryByRole("radio", { name: /private person/i })).not.toBeInTheDocument();
+  fireEvent.change(within(form).getByRole("textbox", { name: "Company name" }), { target: { value: "Example Holding AG" } });
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Salary" }));
+  fireEvent.click(within(form).getByRole("radio", { name: "Not sure" }));
+  fireEvent.change(within(form).getByRole("combobox", { name: "Expected yearly investment volume" }), { target: { value: "10k_50k" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Save declarations" }));
+  await waitFor(() => expect(calls.declarations).toHaveLength(1));
+  expect(calls.declarations[0]).toMatchObject({
+    subject_type: "company",
+    company_details: expect.objectContaining({ company_name: "Example Holding AG" })
+  });
 }, 30_000);
 
 test("18.11: the Overview shows a re-verification date and a review in progress", async () => {

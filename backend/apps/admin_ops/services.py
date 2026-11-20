@@ -349,6 +349,9 @@ class CreateAdminTaskCommand:
     notes: str = ""
     related_object_type: str = ""
     related_object_id: str = ""
+    # Audit step 7 (D3): a platform rule raises the task because of a user's own action (an
+    # investor's declaration). The user is recorded as the origin; it cannot manage tasks.
+    raised_by_platform: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,7 +556,8 @@ def render_admin_user_document(command: RenderAdminUserDocumentCommand) -> dict[
 
 @transaction.atomic
 def create_admin_task(command: CreateAdminTaskCommand) -> AdminTask:
-    _require_admin_actor(command.actor)
+    if not command.raised_by_platform:
+        _require_admin_actor(command.actor)
     assigned_admin = _resolve_assignable_admin(command.assigned_admin_id)
     task = AdminTask.objects.create(
         task_type=_task_type(command.task_type),
@@ -617,6 +621,7 @@ def ensure_related_admin_task(
     due_at: datetime | None = None,
     reopen_closed: bool = False,
     assigned_admin_id: str | None = None,
+    raised_by_platform: bool = False,
 ) -> tuple[AdminTask, bool]:
     """The single task for one object and one task type; created once (18.4).
 
@@ -632,6 +637,8 @@ def ensure_related_admin_task(
     }
     existing = AdminTask.objects.select_for_update().filter(**task_filter).first()
     if existing is not None:
+        if raised_by_platform and not is_admin_actor(actor):
+            return existing, False
         if reopen_closed and existing.status in TERMINAL_ADMIN_TASK_STATUSES:
             reopened = update_admin_task(
                 UpdateAdminTaskCommand(
@@ -659,6 +666,7 @@ def ensure_related_admin_task(
                     related_object_type=related_object_type,
                     related_object_id=related_object_id,
                     assigned_admin_id=assigned_admin_id,
+                    raised_by_platform=raised_by_platform,
                 )
             )
     except IntegrityError:

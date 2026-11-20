@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from importlib import import_module
 from typing import Any, cast
 
 from django.conf import settings
@@ -38,6 +39,7 @@ from backend.apps.platform_core.domain.access import (
 )
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
 from backend.apps.platform_core.services.investor_notices import (
     InvestorNotice,
     enqueue_investor_notice,
@@ -151,18 +153,107 @@ def assert_can_invest(user: Any) -> None:
         raise InvestmentComplianceBlock(reason)
 
 
+def lock_investor(user_id: Any) -> Any:
+    """Audit S7-2: the investor's user row is the one lock between compliance changes (new
+    declaration, review opened or decided, re-verification set or completed) and the final step
+    of a new investment."""
+    return get_user_model().objects.select_for_update().filter(pk=user_id).first()
+
+
+def assert_can_invest_locked(user: Any) -> None:
+    """Audit S7-2: lock the investor row, then check the block again, inside the transaction
+    that reserves or moves the money (after the loan and regime locks)."""
+    if not getattr(settings, "COMPLIANCE_DECLARATIONS_REQUIRED", True):
+        return
+    lock_investor(getattr(user, "pk", None))
+    assert_can_invest(user)
+
+
+def _require_investor_target(investor_id: Any) -> Any:
+    """Audit S7-6: a compliance action targets an investor account (locked)."""
+    investor = lock_investor(investor_id)
+    if investor is None or not has_lender_role(investor):
+        raise DeclarationsError("This account is not an investor account.")
+    return investor
+
+
+def _event(kind: str, **values: Any) -> dict[str, Any]:
+    return {"type": kind, "at": now_utc().isoformat(), **values}
+
+
+def _open_review_task(review: ComplianceReview, *, actor: Model) -> None:
+    """Audit step 7 (D3): one admin task and one email to the compliance team when a
+    necessary review opens; later triggers update the same task."""
+    user = cast(Any, review.user)
+    reasons = ", ".join(rules.TRIGGER_LABELS.get(t, t) for t in review.triggers or []) or "manual"
+    admin_ops: Any = import_module("backend.apps.admin_ops.services")
+    _task, opened = admin_ops.ensure_related_admin_task(
+        actor=actor,
+        task_type="compliance_review",
+        related_object_type="ComplianceReview",
+        related_object_id=str(review.id),
+        title=f"Compliance review: {user.full_name}",
+        priority="high",
+        notes=f"Reasons: {reasons}. New investments of this investor wait for the review.",
+        raised_by_platform=True,
+    )
+    if not opened:
+        return
+    brand = settings.PLATFORM_BRAND_NAME
+    recipient = str(
+        getattr(settings, "COMPLIANCE_ALERT_EMAIL", "")
+        or getattr(settings, "OPERATIONS_ALERT_EMAIL", "")
+        or "hq@banxum.com"
+    ).strip()
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"email:compliance-review-opened:{review.id}",
+            topic="email.compliance_review_opened",
+            payload={
+                "email": recipient,
+                "subject": f"{brand} compliance review opened",
+                "notice_label": "Compliance alert",
+                "headline": "A compliance review was opened",
+                "status_label": "Review needed",
+                "status_tone": "warning",
+                "body_text": (
+                    f"A necessary compliance review was opened for investor {user.full_name} "
+                    f"({review.user_id}). Reasons: {reasons}. New investments of this investor "
+                    "wait for the review. Open the admin console, Compliance."
+                ),
+            },
+        )
+    )
+
+
 @dataclass(frozen=True)
 class SubmitDeclarationCommand:
     actor: Model
     data: dict[str, Any] = field(default_factory=dict)
 
 
+def declaration_subject_for(user: Any) -> str:
+    """Audit S7-1: the declaration subject follows the account type, never the request: a
+    company representative declares for the company, a private investor as a person."""
+    if str(getattr(user, "account_type", "")) == "legal_entity_lender_representative":
+        return rules.SUBJECT_COMPANY
+    return rules.SUBJECT_PERSON
+
+
 def submit_declaration(command: SubmitDeclarationCommand) -> InvestorDeclaration:
     actor = cast(Any, command.actor)
     if not has_lender_role(actor):
         raise DeclarationsPermissionError("Only an investor account submits declarations.")
+    expected_subject = declaration_subject_for(actor)
+    given_subject = str(command.data.get("subject_type") or "").strip()
+    if given_subject and given_subject != expected_subject:
+        raise DeclarationsError(
+            "A company account declares for the company."
+            if expected_subject == rules.SUBJECT_COMPANY
+            else "A private investor account declares as a private person."
+        )
     try:
-        answers = rules.validate_declaration(command.data)
+        answers = rules.validate_declaration({**command.data, "subject_type": expected_subject})
     except rules.DeclarationError as exc:
         raise DeclarationsError(str(exc)) from exc
     triggers = rules.review_triggers(answers)
@@ -189,20 +280,37 @@ def submit_declaration(command: SubmitDeclarationCommand) -> InvestorDeclaration
             review_triggers=list(triggers),
             submitted_at=now_utc(),
         )
-        if triggers:
-            review = open_necessary_review(actor.pk)
-            if review is None:
-                review = ComplianceReview.objects.create(
-                    user_id=actor.pk,
-                    declaration=declaration,
-                    triggers=list(triggers),
-                    necessary=True,
-                    opened_reason="Declaration answers that need a review (Q12).",
-                )
-            else:
-                review.declaration = declaration
-                review.triggers = sorted(set(review.triggers) | set(triggers))
-                review.save(update_fields=["declaration", "triggers", "updated_at"])
+        review = open_necessary_review(actor.pk)
+        event = _event(
+            "declaration",
+            declaration_id=str(declaration.id),
+            version=declaration.version,
+            triggers=list(triggers),
+        )
+        if review is not None and (
+            triggers or review.status == ComplianceReviewStatus.MORE_INFORMATION
+        ):
+            # Audit step 7 (D4, D5): the declaration joins the review (each version kept in
+            # the history); an answer to a request for information puts it back to open.
+            review.declaration = declaration
+            review.triggers = sorted(set(review.triggers) | set(triggers))
+            review.trigger_events = [*list(review.trigger_events or []), event]
+            if review.status == ComplianceReviewStatus.MORE_INFORMATION:
+                review.status = ComplianceReviewStatus.OPEN
+            review.save(
+                update_fields=["declaration", "triggers", "trigger_events", "status", "updated_at"]
+            )
+            _open_review_task(review, actor=actor)
+        elif triggers:
+            review = ComplianceReview.objects.create(
+                user_id=actor.pk,
+                declaration=declaration,
+                triggers=list(triggers),
+                necessary=True,
+                opened_reason="Declaration answers that need a review (Q12).",
+                trigger_events=[event],
+            )
+            _open_review_task(review, actor=actor)
         _audit(
             actor,
             "compliance.declaration_submitted",
@@ -251,6 +359,8 @@ def investor_compliance_status(user: Any) -> dict[str, Any]:
         ),
         "investment_block": block,
         "investment_block_message": BLOCK_MESSAGES[block] if block else "",
+        # Audit S7-1: the declaration this account gives (from its account type).
+        "declaration_subject": declaration_subject_for(user),
     }
 
 
@@ -327,6 +437,22 @@ def open_review(command: OpenReviewCommand) -> ComplianceReview:
     if len(reason) < 5:
         raise DeclarationsError("Give the reason for the review.")
     with transaction.atomic():
+        _require_investor_target(command.investor_id)
+        event = _event(
+            "manual",
+            reason=reason,
+            necessary=command.necessary,
+            by_user_id=str(cast(Any, command.actor).pk),
+        )
+        existing = open_necessary_review(command.investor_id) if command.necessary else None
+        if existing is not None:
+            # Audit S7-6: one unresolved necessary review per investor; a manual trigger joins it.
+            existing.triggers = sorted(set(existing.triggers or []) | {"manual"})
+            existing.trigger_events = [*list(existing.trigger_events or []), event]
+            existing.save(update_fields=["triggers", "trigger_events", "updated_at"])
+            _audit(command.actor, "compliance.review_joined", existing, {"reason": reason})
+            _open_review_task(existing, actor=command.actor)
+            return existing
         review = ComplianceReview.objects.create(
             user_id=command.investor_id,
             declaration=latest_declaration(command.investor_id),
@@ -335,8 +461,11 @@ def open_review(command: OpenReviewCommand) -> ComplianceReview:
             opened_reason=reason,
             opened_by_user_id=cast(Any, command.actor).pk,
             assigned_to_user_id=cast(Any, command.actor).pk,
+            trigger_events=[event],
         )
         _audit(command.actor, "compliance.review_opened", review, {"reason": reason})
+        if command.necessary:
+            _open_review_task(review, actor=command.actor)
     return review
 
 
@@ -352,6 +481,14 @@ class DecideReviewCommand:
 def decide_review(command: DecideReviewCommand) -> ComplianceReview:
     _require_compliance(command.actor)
     with transaction.atomic():
+        investor_id = (
+            ComplianceReview.objects.filter(pk=command.review_id)
+            .values_list("user_id", flat=True)
+            .first()
+        )
+        if investor_id is None:
+            raise DeclarationsError("This review does not exist.")
+        lock_investor(investor_id)
         review = ComplianceReview.objects.select_for_update().get(pk=command.review_id)
         if review.status == ComplianceReviewStatus.CLOSED:
             raise DeclarationsError("This review is already closed.")
@@ -373,12 +510,24 @@ def decide_review(command: DecideReviewCommand) -> ComplianceReview:
             raise DeclarationsError("Unknown decision.")
         review.assigned_to_user_id = actor_id
         review.save()
+        review.trigger_events = [
+            *list(review.trigger_events or []),
+            _event(command.decision, by_user_id=str(actor_id)),
+        ]
+        review.save(update_fields=["trigger_events", "updated_at"])
         _audit(
             command.actor,
             f"compliance.review_{command.decision}",
             review,
             {"note": review.outcome_note, "investor_message": review.investor_message},
         )
+        if command.decision == "close":
+            import_module("backend.apps.admin_ops.services").resolve_related_admin_task(
+                actor=command.actor,
+                related_object_type="ComplianceReview",
+                related_object_id=str(review.id),
+                completion_note=f"Review closed: {review.outcome_note}",
+            )
     if command.decision == "more_information":
         brand = settings.PLATFORM_BRAND_NAME
         enqueue_investor_notice(
@@ -412,6 +561,7 @@ def set_reverification(command: SetReverificationCommand) -> InvestorReverificat
     if command.due_date <= business_date(now_utc()):
         raise DeclarationsError("The re-verification date must be in the future.")
     with transaction.atomic():
+        _require_investor_target(command.investor_id)
         current = current_reverification(command.investor_id)
         if current is not None:
             current.replaced_at = now_utc()
@@ -434,6 +584,7 @@ def set_reverification(command: SetReverificationCommand) -> InvestorReverificat
 def complete_reverification(*, actor: Model, investor_id: str) -> InvestorReverification:
     _require_compliance(actor)
     with transaction.atomic():
+        _require_investor_target(investor_id)
         current = current_reverification(investor_id)
         if current is None:
             raise DeclarationsError("This investor has no open re-verification date.")

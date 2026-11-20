@@ -45,11 +45,16 @@ class InvestorComplianceStatusSerializer(serializers.Serializer[Any]):
     reverification_due_date = serializers.DateField(allow_null=True)
     investment_block = serializers.CharField(allow_null=True)
     investment_block_message = serializers.CharField(allow_blank=True)
+    declaration_subject = serializers.ChoiceField(
+        choices=[rules.SUBJECT_PERSON, rules.SUBJECT_COMPANY]
+    )
 
 
 class DeclarationSubmitSerializer(serializers.Serializer[Any]):
+    # Audit S7-1: optional; the server takes the subject from the account type and refuses a
+    # different value.
     subject_type = serializers.ChoiceField(
-        choices=[rules.SUBJECT_PERSON, rules.SUBJECT_COMPANY], default=rules.SUBJECT_PERSON
+        choices=[rules.SUBJECT_PERSON, rules.SUBJECT_COMPANY], required=False
     )
     beneficial_owner_is_self = serializers.BooleanField()
     beneficial_owner_name = serializers.CharField(required=False, allow_blank=True, default="")

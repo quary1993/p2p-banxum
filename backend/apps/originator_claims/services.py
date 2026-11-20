@@ -5358,6 +5358,13 @@ def _purchase_originator_claim_after_sensitive_code(
     )
     if existing is not None:
         return existing
+    # Audit S7-2: after the replay check, the compliance block again under the investor row
+    # lock (after the loan, regime and profile locks), before the money moves.
+    compliance_locked: Any = import_module("backend.apps.kyc_compliance.declarations")
+    try:
+        compliance_locked.assert_can_invest_locked(command.actor)
+    except compliance_locked.InvestmentComplianceBlock as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
     quote_purchase = OriginatorClaimPurchase.objects.filter(quote=quote).first()
     if quote_purchase is not None:
         raise OriginatorClaimsValidationError("This quote has already been purchased.")

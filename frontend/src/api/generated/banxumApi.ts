@@ -2005,6 +2005,18 @@ export interface Declaration {
   submitted_at: string;
 }
 
+/**
+ * * `person` - person
+ * * `company` - company
+ */
+export type DeclarationSubjectEnum = typeof DeclarationSubjectEnum[keyof typeof DeclarationSubjectEnum];
+
+
+export const DeclarationSubjectEnum = {
+  person: 'person',
+  company: 'company',
+} as const;
+
 export type DeclarationSubmitCompanyDetails = {[key: string]: string};
 
 /**
@@ -3063,6 +3075,7 @@ export interface InvestorComplianceStatus {
   /** @nullable */
   investment_block: string | null;
   investment_block_message: string;
+  declaration_subject: DeclarationSubjectEnum;
 }
 
 export interface PortfolioSummary {
@@ -33829,11 +33842,11 @@ export const getV1KycAdminStaffRolesCreateResponseMock = (overrideResponse: Part
 
 export const getV1KycDeclarationsRetrieveResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceStatus, object>> = {}): InvestorComplianceStatus => ({declaration: faker.helpers.arrayElement([{id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
-      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), declaration_subject: faker.helpers.arrayElement(Object.values(DeclarationSubjectEnum)), ...overrideResponse})
 
 export const getV1KycDeclarationsCreateResponseMock = (overrideResponse: Partial<Extract<InvestorComplianceStatus, object>> = {}): InvestorComplianceStatus => ({declaration: faker.helpers.arrayElement([{id: faker.string.uuid(), version: faker.number.int(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owner_is_self: faker.datatype.boolean(), beneficial_owner_name: faker.string.alpha({length: {min: 10, max: 20}}), sources_of_funds: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), savings_origin: faker.string.alpha({length: {min: 10, max: 20}}), source_other_text: faker.string.alpha({length: {min: 10, max: 20}}), pep_status: faker.string.alpha({length: {min: 10, max: 20}}), pep_person: faker.string.alpha({length: {min: 10, max: 20}}), pep_relation: faker.string.alpha({length: {min: 10, max: 20}}), pep_function: faker.string.alpha({length: {min: 10, max: 20}}), pep_country: faker.string.alpha({length: {min: 10, max: 20}}), yearly_volume_band: faker.string.alpha({length: {min: 10, max: 20}}), company_details: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
-      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+      }, review_triggers: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), submitted_at: faker.date.past().toISOString().slice(0, 19) + 'Z'},null,]), review_open: faker.datatype.boolean(), review_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), review_message: faker.string.alpha({length: {min: 10, max: 20}}), reverification_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), investment_block: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), investment_block_message: faker.string.alpha({length: {min: 10, max: 20}}), declaration_subject: faker.helpers.arrayElement(Object.values(DeclarationSubjectEnum)), ...overrideResponse})
 
 export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial<Extract<KycSessionResponse, object>> = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
 

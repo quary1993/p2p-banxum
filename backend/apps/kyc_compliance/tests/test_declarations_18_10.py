@@ -281,3 +281,154 @@ def test_api_for_investor_and_compliance() -> None:
     assert file.status_code == 200 and len(file.json()["declarations"]) == 1
     # An investor cannot reach the compliance endpoints.
     assert client.get("/api/v1/kyc/admin/compliance/reviews/").status_code == 403
+
+
+COMPANY = {
+    **CLEAN,
+    "company_details": {
+        "company_name": "Example Holding AG",
+        "representative_name": "A. Director",
+        "representative_authority": "Board member, signs alone",
+        "controlling_persons": "A. Director (60%)",
+    },
+}
+
+
+@pytest.mark.django_db
+def test_the_account_type_decides_the_declaration_subject() -> None:
+    """Audit S7-1: a company account cannot give the shorter person declaration."""
+    company = _user("company-rep@example.test", account_type="legal_entity_lender_representative")
+    person = _user("private@example.test")
+    assert (
+        services.investor_compliance_status(company)["declaration_subject"] == rules.SUBJECT_COMPANY
+    )
+    assert (
+        services.investor_compliance_status(person)["declaration_subject"] == rules.SUBJECT_PERSON
+    )
+    # No subject given: the company account must still give the company details.
+    with pytest.raises(services.DeclarationsError, match="company name"):
+        services.submit_declaration(
+            services.SubmitDeclarationCommand(actor=company, data=dict(CLEAN))
+        )
+    # A forged subject is refused for both account types.
+    with pytest.raises(services.DeclarationsError, match="company"):
+        services.submit_declaration(
+            services.SubmitDeclarationCommand(
+                actor=company, data={**CLEAN, "subject_type": rules.SUBJECT_PERSON}
+            )
+        )
+    with pytest.raises(services.DeclarationsError):
+        services.submit_declaration(
+            services.SubmitDeclarationCommand(
+                actor=person, data={**COMPANY, "subject_type": rules.SUBJECT_COMPANY}
+            )
+        )
+    saved = services.submit_declaration(
+        services.SubmitDeclarationCommand(actor=company, data=dict(COMPANY))
+    )
+    assert saved.subject_type == rules.SUBJECT_COMPANY
+
+    client = Client()
+    client.force_login(cast(Any, company))
+    refused = client.post(
+        "/api/v1/kyc/declarations/",
+        {**CLEAN, "subject_type": "person"},
+        content_type="application/json",
+    )
+    assert refused.status_code == 400, refused.content
+    assert client.get("/api/v1/kyc/declarations/").json()["declaration_subject"] == "company"
+
+
+@pytest.mark.django_db
+def test_one_unresolved_necessary_review_with_its_history() -> None:
+    """Audit S7-6, D3, D4: a manual review joins the open one; history is kept."""
+    investor = _user("one-review@example.test")
+    officer = _compliance_officer()
+    services.submit_declaration(
+        services.SubmitDeclarationCommand(actor=investor, data={**CLEAN, "pep_status": "not_sure"})
+    )
+    joined = services.open_review(
+        services.OpenReviewCommand(
+            actor=officer, investor_id=str(investor.pk), reason="Adverse media hit."
+        )
+    )
+    reviews = ComplianceReview.objects.filter(user_id=investor.pk)
+    assert reviews.count() == 1 and joined.id == reviews.get().id
+    assert "manual" in joined.triggers
+    assert [event["type"] for event in joined.trigger_events] == ["declaration", "manual"]
+    task_model: Any = import_module("backend.apps.admin_ops.models").AdminTask
+    assert (
+        task_model.objects.filter(
+            related_object_type="ComplianceReview", related_object_id=str(joined.id)
+        ).count()
+        == 1
+    )
+    assert OutboxMessage.objects.filter(topic="email.compliance_review_opened").count() == 1
+
+    # The database refuses a second unresolved necessary review.
+    with pytest.raises(DatabaseError), transaction.atomic():
+        ComplianceReview.objects.create(
+            user_id=investor.pk, necessary=True, status="open", triggers=["manual"]
+        )
+
+    # D5: a new declaration after "more information" opens the review again.
+    services.decide_review(
+        services.DecideReviewCommand(
+            actor=officer,
+            review_id=str(joined.id),
+            decision="more_information",
+            investor_message="Please describe the function of the person.",
+        )
+    )
+    services.submit_declaration(services.SubmitDeclarationCommand(actor=investor, data=CLEAN))
+    joined.refresh_from_db()
+    assert joined.status == "open"
+    assert [event["type"] for event in joined.trigger_events][-2:] == [
+        "more_information",
+        "declaration",
+    ]
+    services.decide_review(
+        services.DecideReviewCommand(
+            actor=officer, review_id=str(joined.id), decision="close", note="Function explained."
+        )
+    )
+    task = task_model.objects.get(
+        related_object_type="ComplianceReview", related_object_id=str(joined.id)
+    )
+    assert str(task.status) == "resolved"
+
+
+@pytest.mark.django_db
+def test_compliance_actions_need_an_investor_and_one_current_reverification() -> None:
+    """Audit S7-6: staff and borrower accounts are refused; one current date only."""
+    officer = _compliance_officer()
+    staff = _user("staff@example.test", account_type="admin", is_staff=True)
+    due = business_date(timezone.now()) + timedelta(days=40)
+    with pytest.raises(services.DeclarationsError, match="not an investor"):
+        services.open_review(
+            services.OpenReviewCommand(
+                actor=officer, investor_id=str(staff.pk), reason="Wrong account."
+            )
+        )
+    with pytest.raises(services.DeclarationsError, match="not an investor"):
+        services.set_reverification(
+            services.SetReverificationCommand(
+                actor=officer, investor_id=str(staff.pk), due_date=due
+            )
+        )
+    investor = _user("dates@example.test")
+    services.set_reverification(
+        services.SetReverificationCommand(actor=officer, investor_id=str(investor.pk), due_date=due)
+    )
+    services.set_reverification(
+        services.SetReverificationCommand(
+            actor=officer, investor_id=str(investor.pk), due_date=due + timedelta(days=5)
+        )
+    )
+    model: Any = import_module("backend.apps.kyc_compliance.models").InvestorReverification
+    current = model.objects.filter(
+        user_id=investor.pk, completed_at__isnull=True, replaced_at__isnull=True
+    )
+    assert current.count() == 1 and current.get().due_date == due + timedelta(days=5)
+    with pytest.raises(DatabaseError), transaction.atomic():
+        model.objects.create(user_id=investor.pk, due_date=due, set_by_user_id=officer.pk)

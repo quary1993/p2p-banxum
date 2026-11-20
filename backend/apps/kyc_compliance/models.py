@@ -4,6 +4,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
@@ -291,10 +292,21 @@ class ComplianceReview(TimestampedModel):
     outcome_note = models.TextField(blank=True)
     closed_by_user_id = models.UUIDField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    # Audit step 7 (D4, D5): every event that joined this review, oldest first: a declaration
+    # version with its triggers, a manual trigger, a new declaration answering a request.
+    trigger_events = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["user", "status"]), models.Index(fields=["status"])]
+        constraints = [
+            # Audit S7-6: one unresolved necessary review per investor.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=Q(necessary=True) & ~Q(status="closed"),
+                name="kyc_one_unresolved_necessary_review",
+            )
+        ]
 
 
 class InvestorReverification(TimestampedModel):
@@ -316,3 +328,11 @@ class InvestorReverification(TimestampedModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["user", "completed_at", "replaced_at"])]
+        constraints = [
+            # Audit S7-6: one current re-verification date per investor.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=Q(completed_at__isnull=True) & Q(replaced_at__isnull=True),
+                name="kyc_one_current_reverification",
+            )
+        ]

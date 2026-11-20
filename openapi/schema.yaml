@@ -12581,13 +12581,19 @@ components:
       - submitted_at
       - version
       - yearly_volume_band
+    DeclarationSubjectEnum:
+      enum:
+      - person
+      - company
+      type: string
+      description: |-
+        * `person` - person
+        * `company` - company
     DeclarationSubmit:
       type: object
       properties:
         subject_type:
-          allOf:
-          - $ref: '#/components/schemas/SubjectTypeEnum'
-          default: person
+          $ref: '#/components/schemas/SubjectTypeEnum'
         beneficial_owner_is_self:
           type: boolean
         beneficial_owner_name:
@@ -14465,8 +14471,11 @@ components:
           nullable: true
         investment_block_message:
           type: string
+        declaration_subject:
+          $ref: '#/components/schemas/DeclarationSubjectEnum'
       required:
       - declaration
+      - declaration_subject
       - investment_block
       - investment_block_message
       - reverification_due_date
