@@ -837,3 +837,41 @@ def test_a_failed_monthly_statement_opens_one_operations_task(
     assert (task.task_type, task.priority, task.status) == ("reporting", "high", "open")
     assert "Renderer unavailable." in task.notes
     assert not InvestorReportDocument.objects.filter(investor_user_id=investor.pk).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("effective_at", "year"),
+    [
+        # 00:30 on 1 January in Zurich (UTC+1 in winter): the new year, not the old one.
+        ("2025-12-31T23:30:00+00:00", 2026),
+        # 23:59 on 31 December in Zurich: still this year.
+        ("2026-12-31T22:59:00+00:00", 2026),
+        # Midnight in Zurich: the next year.
+        ("2026-12-31T23:00:00+00:00", 2027),
+    ],
+)
+def test_report_summary_years_begin_at_midnight_in_zurich(
+    admin_user: Model, investor: Model, effective_at: str, year: int
+) -> None:
+    """Audit S2-5: the invested total uses the same local year as the payments."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    secondary_tests: Any = import_module(
+        "backend.apps.secondary_market.tests.test_secondary_market"
+    )
+    loan = secondary_tests._create_funded_loan(admin_user)
+    holding = secondary_tests._create_holding(
+        admin_user, investor, loan, current_principal_minor=2_500_00, idempotency_key="s25"
+    )
+    apps.get_model("holdings", "InvestorLoanHolding").objects.filter(pk=holding.pk).update(
+        assignment_effective_at=datetime.fromisoformat(effective_at)
+    )
+
+    def invested(in_year: int) -> int:
+        summary = reports.investor_report_summary(investor_user_id=str(investor.pk), year=in_year)
+        return int(
+            next(c for c in summary["currencies"] if c["currency"] == "CHF")["invested_minor"]
+        )
+
+    assert invested(year) == 2_500_00
+    assert invested(year - 1) + invested(year + 1) == 0

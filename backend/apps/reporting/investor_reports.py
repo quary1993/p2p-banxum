@@ -29,7 +29,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Model, Q
 
 from backend.apps.platform_core.domain.money import minor_units_to_decimal
-from backend.apps.platform_core.domain.time import business_date, now_utc
+from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
 from backend.apps.reporting import services as reporting
 from backend.apps.reporting.models import (
@@ -906,10 +906,10 @@ def investor_report_summary(*, investor_user_id: str, year: int | None) -> dict[
     for payment in payments:
         totals[payment.currency]["principal_repaid_minor"] += payment.principal
         totals[payment.currency]["interest_received_minor"] += payment.interest + payment.late
-    start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=now_utc().tzinfo)
-    end_dt = datetime.combine(end_date + timedelta(days=1), datetime.min.time()).replace(
-        tzinfo=now_utc().tzinfo
-    )
+    # Audit S2-5: local (Europe/Zurich) midnights, like the payment periods; not UTC.
+    zone = business_timezone()
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=zone)
+    end_dt = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=zone)
     for holding in (
         _model("holdings", "InvestorLoanHolding")
         .objects.filter(
