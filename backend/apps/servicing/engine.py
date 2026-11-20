@@ -728,8 +728,12 @@ def _write_schedule_version(
     return new_version
 
 
+@transaction.atomic
 def record_engine_repayment(command: Any) -> Any:
-    """Record a borrower payment on an engine loan (``RecordBorrowerRepaymentCommand``)."""
+    """Record a borrower payment on an engine loan (``RecordBorrowerRepaymentCommand``).
+
+    One transaction for the lock, the ledger posting, the events and the distribution (found
+    with the audit S1-1 check: the loan row lock needs a transaction on PostgreSQL)."""
     services = _services()
     services._require_admin_actor(command.actor)
     idempotency_key = services._clean_idempotency_key(command.idempotency_key)

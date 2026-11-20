@@ -733,7 +733,9 @@ def stop_marketing_consent_for_email(email: str, *, source: str) -> bool:
     return True
 
 
+@transaction.atomic
 def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
+    # Lock order (audit S1-1): the account first, then the newsletter subscription.
     user = User.objects.select_for_update().filter(id=command.user.id).first()
     if user is None or not is_lender_actor(user):
         raise AccountsAuthError("Only an active lender can update communication preferences.")
@@ -789,6 +791,7 @@ class UpdateDisplayPreferencesCommand:
     language: str | None = None
 
 
+@transaction.atomic
 def update_display_preferences(command: UpdateDisplayPreferencesCommand) -> User:
     """U33-DEC-31/-32: save the language and number format in the account (all devices, emails,
     reports)."""

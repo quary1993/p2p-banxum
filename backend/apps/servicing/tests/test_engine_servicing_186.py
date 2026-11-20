@@ -485,3 +485,22 @@ def test_a_payment_more_than_what_is_owed_is_refused(
         with pytest.raises(ServicingValidationError, match="more than everything"):
             _pay(admin_user, loan, 20_000_00, date(2027, 1, 15), "engine-too-much")
     assert not BorrowerRepaymentEvent.objects.filter(loan=loan).exists()
+
+
+@pytest.mark.django_db
+def test_an_engine_payment_runs_in_one_transaction(
+    admin_user: Model, investors: list[Model], row_locks_need_a_transaction: None
+) -> None:
+    """Audit S1-1 follow-up: the loan row lock and the postings need one transaction."""
+    loan = _engine_loan(admin_user, investors, repayment_type="equal_installments")
+    first = (
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(loan=loan, schedule_version=1)
+        .order_by("installment_number")
+        .first()
+    )
+    with at(date(2027, 1, 12)):
+        result = _pay(
+            admin_user, loan, int(cast(Any, first).total_minor), date(2027, 1, 12), "engine-atomic"
+        )
+    assert result.repayment_event.interest_applied_minor == 92_05

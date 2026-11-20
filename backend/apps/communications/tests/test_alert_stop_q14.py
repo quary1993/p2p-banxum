@@ -142,9 +142,7 @@ def test_saved_reminder_after_stop_is_in_app_only(admin_user: Model) -> None:
     SavedOpportunity.objects.filter(pk=saved.pk).update(
         created_at=datetime.combine(deadline - timedelta(days=20), time(9), tzinfo=UTC)
     )
-    saved_module.stop_saved_reminder_emails(
-        investor_user_id=str(investor.pk), loan_id=str(loan.pk)
-    )
+    saved_module.stop_saved_reminder_emails(investor_user_id=str(investor.pk), loan_id=str(loan.pk))
 
     saved_module.send_saved_opportunity_reminders(
         as_of=datetime.combine(deadline - timedelta(days=7), time(9), tzinfo=UTC)
@@ -189,3 +187,40 @@ def test_news_and_newsletter_are_one_preference_for_the_same_address(admin_user:
     newsletter.unsubscribe_from_newsletter(token)
     investor.refresh_from_db()
     assert cast(Any, investor).marketing_consent is False
+
+
+@pytest.mark.django_db
+def test_both_preference_paths_lock_inside_one_transaction(
+    row_locks_need_a_transaction: None,
+) -> None:
+    accounts = import_module("backend.apps.accounts_auth.services")
+    newsletter = import_module("backend.apps.communications.newsletter")
+    investor = _make_investor("atomic-preference@example.test")
+    cast(Any, investor).marketing_consent = True
+    investor.save(update_fields=["marketing_consent"])
+    subscription = NewsletterSubscription.objects.create(
+        email="atomic-preference@example.test",
+        status="confirmed",
+        source="other",
+        consent_version="test",
+    )
+    # Account switch -> newsletter (no transaction around the call, as in the API view).
+    accounts.update_marketing_consent(
+        accounts.UpdateMarketingConsentCommand(user=investor, marketing_consent=False)
+    )
+    subscription.refresh_from_db()
+    assert subscription.status == "unsubscribed"
+
+    # Newsletter link -> account.
+    cast(Any, investor).marketing_consent = True
+    investor.save(update_fields=["marketing_consent"])
+    NewsletterSubscription.objects.filter(pk=subscription.pk).update(status="confirmed")
+    subscription.refresh_from_db()
+    newsletter._issue_unsubscribe_token(subscription)
+    subscription.save(update_fields=["unsubscribe_token_nonce", "unsubscribe_token_hash"])
+    token = newsletter._live_token(subscription, newsletter.TOKEN_PURPOSE_UNSUBSCRIBE)
+    newsletter.unsubscribe_from_newsletter(token)
+    investor.refresh_from_db()
+    subscription.refresh_from_db()
+    assert cast(Any, investor).marketing_consent is False
+    assert subscription.status == "unsubscribed"

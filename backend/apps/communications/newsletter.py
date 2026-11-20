@@ -337,32 +337,41 @@ def _mark_unsubscribed(subscription: NewsletterSubscription) -> bool:
     return True
 
 
+@transaction.atomic
 def unsubscribe_from_newsletter(token: object) -> NewsletterSubscription:
     """Unsubscribe with the link of any newsletter email. Repeating it is a no-op.
 
     Q14: the newsletter and "News from Banxum" are one preference for the same address, so an
-    investor account with this email stops "News from Banxum" too.
+    investor account with this email stops "News from Banxum" too, in the same transaction.
+    Lock order in both directions: the account first, then the newsletter subscription
+    (``update_marketing_consent`` does the same), so the two paths cannot deadlock.
     """
 
     digest = _presented_token_hash(token)
-    subscription = (
-        NewsletterSubscription.objects.select_for_update()
-        .filter(unsubscribe_token_hash=digest)
+    found = (
+        NewsletterSubscription.objects.filter(unsubscribe_token_hash=digest)
+        .values_list("pk", "email")
         .first()
     )
-    if subscription is None:
+    if found is None:
         raise NewsletterTokenError("This link is not valid or has expired.")
-    _mark_unsubscribed(subscription)
-    if subscription.email:
+    subscription_id, email = found
+    if email:
         import_module("backend.apps.accounts_auth.services").stop_marketing_consent_for_email(
-            subscription.email, source="newsletter_unsubscribe"
+            str(email), source="newsletter_unsubscribe"
         )
+    subscription = NewsletterSubscription.objects.select_for_update().get(pk=subscription_id)
+    _mark_unsubscribed(subscription)
     return subscription
 
 
+@transaction.atomic
 def unsubscribe_email_from_newsletter(email: str) -> bool:
     """Q14: "News from Banxum" switched off in an account also ends the public newsletter
-    subscription of the same address (no link needed). Returns True when it changed."""
+    subscription of the same address (no link needed). Returns True when it changed.
+
+    Called by ``update_marketing_consent`` after it locked the account (lock order: account,
+    then subscription)."""
     normalized = email.strip().lower()
     if not normalized:
         return False

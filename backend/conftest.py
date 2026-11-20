@@ -54,3 +54,23 @@ def _bind_test_codes_at_first_use() -> Iterator[None]:
     patcher.setattr(services, "consume_sensitive_action_code", consume)
     yield
     patcher.undo()
+
+
+@pytest.fixture
+def row_locks_need_a_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit S1-1: PostgreSQL refuses select_for_update() outside a transaction; SQLite does not
+    check it. A test that asks for this fixture fails when the code under test takes a row lock
+    without opening its own atomic block (the test case's transaction does not count, because
+    production API views open none)."""
+    from django.db import connection
+    from django.db.models.query import QuerySet
+
+    original = QuerySet.select_for_update
+    test_depth = len(connection.atomic_blocks)
+
+    def checked(self: Any, *args: Any, **kwargs: Any) -> Any:
+        assert len(connection.atomic_blocks) > test_depth, "select_for_update outside atomic"
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", checked)
+
