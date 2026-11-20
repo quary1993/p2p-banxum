@@ -257,12 +257,14 @@ test("a draft's securities move up or down and show the borrower documents they 
   );
   renderAdmin(`/admin/loans/${adminLoanId}/manage/securities`);
 
-  expect(await screen.findByText("Land register extract", {}, { timeout: 10_000 })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Move Real Estate up" })).toBeDisabled();
+  // The loan-document upload form below also offers "Land register extract" as a document
+  // type, so the rows are found through their buttons and the table.
+  expect(await screen.findByRole("button", { name: "Move Real Estate up" }, { timeout: 10_000 })).toBeDisabled();
+  const securitiesTable = screen.getByRole("button", { name: "Move Real Estate up" }).closest("table") as HTMLElement;
+  expect(within(securitiesTable).getByText("Land register extract")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Move Equipment up" }));
   await waitFor(() => expect(moves).toEqual([{ id: "s2", body: { direction: "up" } }]));
 
-  const securitiesTable = screen.getByText("Land register extract").closest("table") as HTMLElement;
   fireEvent.click(within(securitiesTable).getAllByRole("button", { name: "Edit" })[0]);
   const valuation = await screen.findByRole("checkbox", { name: "Valuation report" });
   expect(screen.getByRole("checkbox", { name: "Land register extract" })).toBeChecked();
