@@ -1051,12 +1051,14 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.5 ("Status 2026-11-19"
 | --- | --- |
 | U33-DEC-01, Q05, D1-D5 | Password sign-in with an SMS code or an authenticator app code; 10 single-use recovery codes; trusted device for 30 days; admins with password + authenticator app. Magic-link sign-in removed (E-01). |
 | D-1 | Operations: email code + PIN, or + authenticator code for investors with the app (no PIN for them). The email code is bound to the operation details; changed data needs a new code. |
-| Recovery | Forgotten password (email link + factor), forgotten PIN (password + SMS code), assisted recovery with a second approver, "This was not me" link, 72 h restriction for bank account changes; resets end the other sessions. |
-| Security tab | Password, second factor, recovery codes, trusted devices, sessions; changes confirmed with the password and the second factor. |
+| Recovery | Forgotten password (email link + factor), forgotten PIN (password + SMS code), assisted recovery with a new Didit check compared with the stored identity and a second approver, "This was not me" link, 72 h restriction for bank account changes; resets end the other sessions. |
+| Security tab | Password, second factor, recovery codes, trusted devices, sessions; changes confirmed with the password and the second factor. Exception: signing out a session and removing a trusted device need the signed-in session only (they only take access away). |
 | Q06, D6 | Sign-in place from the DB-IP Lite City file when configured, else the country (attribution on the privacy page in 18.12). |
 | S7, audit G-07 | Old skin removed; `u33.css` without the legacy guard; public site and admin console load lazily with their own CSS; `styles.css` for the admin console only. |
 
 Choices made in this step (for the audit): the API field `pin` carries the authenticator code when the investor has the app (same limits and lock as the PIN); a new email code for the same operation keeps the cooldown, a code for changed details does not (capped at 30 per hour and 100 per day per account); the portal keeps the design tokens the old skin gave it, so the screens look the same after S7; DB-IP Lite is used until Vlad chooses MaxMind (no account needed).
+
+Audit step 4 fixes (2026-11-20): no raw IP address in the account tables (keyed hashes; the clickwrap evidence keeps its IP address until the owner decides); limits for each account from all addresses for failed sign-ins, wrong factor codes and SMS sends, with a known-device exemption so the owner is not locked out; sensitive-action codes issued under an account lock; assisted recovery confirmed only by a matching new Didit check and a person with the compliance role; the password policy for new administrators; a notice and a task when an administrator's authenticator is reset; one label per sign-in method; the admin stylesheet scoped to the admin console. Details in `IMPLEMENTATION_PLAN.md` 18.5 ("Audit step 4 fixes").
 
 ### Implemented In Audit Step 5 (2026-11-19, Phase 18.6)
 

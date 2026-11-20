@@ -79,7 +79,7 @@ Complete these before calling any environment production-like.
   - Closure-time reversible pseudonymization, offline private-key custody, and the recovery procedure are implemented and tested before processing a production closure request.
   - Production data is never copied to staging without an approved anonymization/pseudonymization process.
 - Communications and monitoring:
-  - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, and Loan Originator opportunity/activation lifecycle scan.
+  - Scheduled jobs are installed for email dispatch, daily balance ageing and 56-day returns (no penalty charging since 18.4), servicing status scan, campaign expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, and Loan Originator opportunity/activation lifecycle scan.
   - `check_scheduled_jobs` runs at least every 15 minutes and alerts on non-zero exit.
     Verify missing job history, overdue success, failed runs and stuck runs all fail;
     a dry run must not satisfy successful execution coverage or suppress a real run.
@@ -102,7 +102,7 @@ Use this as the daily operating checklist once the environment is live.
 - Finance:
   - Match lender deposits from bank statements using the `BX-{currency}-{investor_reference}` reference first.
   - Verify collector account/currency/value date against the bank line.
-  - Register verified payout IBANs before finalizing withdrawals or expecting day-60 forced withdrawals to succeed.
+  - Register verified payout IBANs before finalizing withdrawals or expecting the 56-day returns (18.4) to succeed.
   - Run balance-ageing scan as dry-run first, then live only after the preview is understood.
   - Create reconciliation snapshots after bank-operation batches and investigate every break/anomaly.
   - Finalize withdrawals and borrower disbursements only after the external bank transfer is actually executed.
@@ -214,7 +214,7 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
 - Primary investment:
   - Publish a test borrower/loan after offline company KYB, with no explicit hold or
     adverse decision, and with a funding deadline no later than the 50th inclusive subscription date.
-  - Place an investment order with automatic email-code issuance.
+  - Place an investment order: the email code for this operation plus the PIN, or plus the authenticator app code for an investor with the app (18.5, D-1). Change the amount and confirm that the old code is refused.
   - Accept project investment confirmation and download the generated PDF.
   - Allocate above the configured minimum, advance past the deadline/run the resolver, and verify automatic close plus holding creation.
   - Repeat below the threshold and verify cancellation plus exact reservation restoration.
@@ -258,10 +258,9 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Run servicing scan and confirm late/default transitions on controlled test loans.
 - Withdrawals and ageing:
   - Register a payout instruction.
-  - Request an investor withdrawal with email code.
+  - Request an investor withdrawal with the email code plus the PIN, or plus the authenticator app code for an investor with the app (18.5, D-1).
   - Finalize and cancel separate test withdrawals.
-  - Test day-60 forced-withdrawal behavior with and without verified IBAN.
-  - Test daily penalty charging only after Garanta has approved the policy.
+  - Test the 56-day return of uninvested money (18.4) with and without a verified return account, and a failed return. There is no penalty on uninvested money.
 - Secondary market and FX:
   - List a holding, cancel the seller listing, relist, and approve a non-standard listing.
   - Purchase a listing and confirm buyer/seller anonymity in UI and emails.

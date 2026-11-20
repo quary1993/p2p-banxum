@@ -5,7 +5,7 @@
       "goal": "Take a brand-new business borrower from nothing to a live, investable loan on the marketplace.",
       "actor": "Operations admin (any active admin can do every step).",
       "preconditions": [
-        "You are signed in to the ops console (email + password, then a 6-digit code sent to your admin email).",
+        "You are signed in to the ops console (email + password, then the 6-digit code from your authenticator app).",
         "A borrower is a business without a portal login. KYB means Know Your Business: Garanta completes and retains company checks offline. Platform KYB records are optional; explicit compliance holds and Declined or Manual review decisions block transactions. A draft is not public; publishing opens it to investor funding.",
         "You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral).",
         "A current Primary Market Investment document template is published in Superadmin Settings. Without it, investors cannot complete the investment clickwrap because the server cannot load the project investment confirmation / claim assignment agreement."
@@ -215,19 +215,19 @@
       "goal": "Add a colleague to the ops console, and put a hold on a problematic investor account.",
       "actor": "Superadmin (for creating admins) / compliance admin (for the access change).",
       "preconditions": [
-        "Jargon: 'admin user' = a staff member who can log in to the ops console. 'account access change' = restricting, locking, reactivating, or closing any user (investor or admin) account. Statuses: Active, Restricted, Locked, Closed. 'reason code' = why (e.g. Compliance Hold, Kyc Aml Review, Account Closure). There is no self-serve forgot-password; passwords stay superadmin-managed.",
-        "For creating an admin you need their email, full name, and an initial password."
+        "Jargon: 'admin user' = a staff member who can log in to the ops console. 'account access change' = restricting, locking, reactivating, or closing any user (investor or admin) account. Statuses: Active, Restricted, Locked, Closed. 'reason code' = why (e.g. Compliance Hold, Kyc Aml Review, Account Closure). Admins sign in with email, password and an authenticator app. There is no self-serve forgot-password for admins.",
+        "For creating an admin you need their email, full name, and an initial password of 12 to 128 characters. The system refuses common passwords and passwords found in known data leaks."
       ],
       "steps": [
         { "n": 1, "screen": "Users (left nav 'Users')", "action": "Open Users and search the paginated user table by name, email, investor reference, or UUID.", "detail": "The table is backend-filtered and shows all account types by default. Regular admins can manage account access. Superadmins additionally see the read-only impersonation action for non-admin users." },
-        { "n": 2, "screen": "Users > User accounts", "action": "Click 'Create admin', fill Email, Full name, and Initial password, then click 'Create admin'.", "detail": "Only a superadmin can create admin users. The new admin logs in with email + password + an email code. There is NO forgot-password flow; a superadmin must reset passwords manually." },
+        { "n": 2, "screen": "Users > User accounts", "action": "Click 'Create admin', fill Email, Full name, and Initial password, then click 'Create admin'.", "detail": "Only a superadmin can create admin users. The initial password must have 12 to 128 characters and must not be a common or leaked password. At the first sign-in the new admin sets up an authenticator app: the system sends a one-time code to the admin's email for this set-up only. After that the admin signs in with email + password + the code from the app. There is NO forgot-password flow for admins." },
         { "n": 3, "screen": "Users > User accounts", "action": "To act on an existing account, search for it and click 'Access controls' on its row.", "detail": "Account access controls have moved out of Compliance and Superadmin Settings so account-level actions are reviewed in one place." },
         { "n": 4, "screen": "Users > Account access controls", "action": "Set 'New account status' to 'Restricted' (or Locked/Closed), pick a Reason code, and write an Admin note plus Evidence summary.", "detail": "'Restricted' limits what the user can do while you investigate; 'Locked' is harder; 'Closed' ends the account." },
         { "n": 5, "screen": "Account access controls", "action": "If closing an account, tick 'Clean/empty account checked where required for closure', then click 'Apply access change'.", "detail": "The clean-account checkbox is an admin attestation that you verified the balance is empty before closure (it is not yet auto-checked by this endpoint). The change is saved and audit-logged." }
       ],
       "outcome": "A new admin can log in; the targeted account is moved to the chosen status with a documented reason in the audit trail.",
       "pitfalls": [
-        "No forgot-password exists - record the initial admin password securely and hand it over safely.",
+        "No forgot-password exists for admins - record the initial admin password securely and hand it over safely. An admin who lost the phone asks a superadmin to reset the authenticator app; the affected admin gets a security email and a task, and sets up the app again at the next sign-in. There is no screen for this reset yet: the technical team does it.",
         "Closing an account asserts it is empty; do not tick the clean-account box unless you actually confirmed there is no balance or holding.",
         "Always provide a reason code and note; access changes are compliance-sensitive and audited.",
         "Users cannot be deleted from the directory - only their access status is changed."

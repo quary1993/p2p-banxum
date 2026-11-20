@@ -1,6 +1,21 @@
 # Accounts, Authentication, and Access Control
 
-Status: Draft. Updated with identity, balance, access, magic-link, admin-auth, phone-verification, KYB approval-gating, and closure pseudonymization decisions on 2026-05-30.
+Status: Draft. Updated with identity, balance, access, magic-link, admin-auth, phone-verification, KYB approval-gating, and closure pseudonymization decisions on 2026-05-30. Sign-in and security rules replaced on 2026-11-19 (Phase 18.5); see "Current Sign-In And Security Rules".
+
+## Current Sign-In And Security Rules (2026-11-20, Phase 18.5)
+
+This section is the current rule. It replaces the sign-in, confirmation and recovery parts of ACC-DEC-001, ACC-DEC-002, ACC-DEC-008 and ACC-DEC-009 below. Those decision texts stay as history and are marked "Superseded". Sources: `plan/22_u33_redesign_decisions.md` (U33-DEC-01, D-1 to D-6) and `IMPLEMENTATION_PLAN.md` 18.5 (with "Audit step 4 fixes").
+
+- **Investor sign-in:** email and password, then one second factor: an SMS code (Twilio Verify) or an authenticator app code (RFC 6238), or a single-use recovery code (10 codes, stored hashed). There are no magic links and no passkeys. A trusted device (optional, 30 days) skips the second factor; the password is always asked.
+- **Passwords (investors and administrators):** 12 to 128 characters, no forced mix, a common-password list and the Have I Been Pwned range check (k-anonymity).
+- **Administrator sign-in:** email, password and an authenticator app (no SMS, no email code). The first sign-in sets up the app with a one-time code. A superadmin can reset the app of another administrator; that person gets a security email and a task. There is no self-service password recovery for administrators.
+- **Sensitive operations (D-1):** after a review step, the email code and the PIN. An investor with an authenticator app types its code in place of the PIN and has no PIN. The email code is bound to one operation (action, amount, currency, destination, loan or listing) and is single use; changed data needs a new code.
+- **PIN:** only investors with the SMS factor have a PIN (set at registration after the factor). Forgotten PIN: password and SMS code.
+- **Recovery:** forgotten password = single-use email link and the second factor. Lost factor without recovery codes = assisted recovery: a support case, a new Didit identity check that the system compares with the stored identity, a confirmation by a person with the compliance role, an approval by a second person, a 24-hour notice with a "This was not me" link, then a single-use link, a new password and a new factor. At most 3 requests per account in 7 days. After it, 72 hours without new bank accounts or a change of the default return account.
+- **Limits:** per account and IP, per IP, and for each account from all addresses (failed sign-ins, wrong factor codes, SMS sends, sensitive-action codes). A browser that already signed in to the account is not held by the account-wide sign-in limit.
+- **Security tab:** password, second factor, recovery codes, trusted devices, sessions and sign-in history. A change that gives or changes access asks the password and the second factor first. Signing out a session and removing a trusted device need the signed-in session only.
+- **Privacy:** the account tables keep IP addresses as keyed hashes only. The sign-in place is a city or country from a local database or the proxy header, marked as approximate.
+- **Resets:** every reset is notified; a password or factor reset ends the other sessions and revokes the trusted devices.
 
 ## Purpose
 
@@ -9,7 +24,7 @@ Define how users, internal staff, service accounts, and future external auditor/
 ## Scope
 
 - User registration and login.
-- Passwordless investor login, investor sensitive-action email-code confirmation, admin password login, admin email-code verification, and recovery flows.
+- Investor sign-in with password and second factor, investor sensitive-action confirmation (email code with PIN or authenticator code), admin sign-in with password and authenticator app, and recovery flows.
 - Role-based access control for portals and admin tools.
 - Admin-created legal-entity lender accounts and optional representative access.
 - Explicit exclusion of borrower portal/account access.
@@ -37,10 +52,10 @@ Define how users, internal staff, service accounts, and future external auditor/
 
 - Register user account.
 - Verify email and mandatory natural-person investor phone.
-- Send magic-link login emails for investor accounts.
-- Send email-code confirmations for investor sensitive/financial actions.
-- Require the investor's 6-digit PIN with the email code for every sensitive action (ACC-DEC-009).
-- Enforce email/password plus email-code verification for admin accounts.
+- Sign investors in with email, password and a second factor (SMS code or authenticator app), with recovery codes and optional trusted devices.
+- Send email-code confirmations for investor sensitive/financial actions, bound to one operation.
+- Require the investor's 6-digit PIN, or the authenticator app code for investors with the app, with the email code for every sensitive action (ACC-DEC-009, D-1).
+- Enforce email, password and authenticator app for admin accounts.
 - Support one representative/login per legal-entity lender account at launch.
 - Manage trusted devices and active sessions.
 - Lock, suspend, or close accounts.
@@ -51,7 +66,7 @@ Define how users, internal staff, service accounts, and future external auditor/
 
 ### ACC-DEC-001: Investor Magic-Link Login and Mandatory Phone Verification
 
-> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: investor login becomes password + mandatory second factor (SMS or authenticator app, chosen by the investor); no magic link and no passkeys.
+> Superseded 2026-11-19 (Phase 18.5, implemented; U33-DEC-01): investors sign in with a password and a mandatory second factor (SMS or authenticator app). Magic links are removed. Lost access is handled by the assisted recovery with a new Didit check, not by the offline procedure below. See "Current Sign-In And Security Rules". Phone verification stays mandatory. The text below is history.
 
 Status: Accepted.
 Date: 2026-05-22.
@@ -86,6 +101,8 @@ Implementation status:
 The backend supports local/mock phone verification for development and Twilio Verify for staging/production through `PHONE_VERIFICATION_PROVIDER=twilio_verify`. In Twilio mode, BANXUM stores the local challenge/audit evidence and Twilio verification SID but not a local OTP digest; confirmation is checked through Twilio while local ownership, expiry, attempt limits, and throttles are still enforced. Non-local deploy checks require Twilio credentials and Verify service configuration. Live SMS delivery must be tested once staging/production credentials and phone-number policies are active.
 
 ### ACC-DEC-002: Admin and Superadmin Authentication
+
+> Superseded in part 2026-11-19 (Phase 18.5, implemented): administrators sign in with email, password and an authenticator app; the email code is removed. Passwords follow the platform policy (12 to 128 characters, common list, Have I Been Pwned). See "Current Sign-In And Security Rules". The rules below for admin creation, the superadmin account and the missing self-service recovery stay in force.
 
 Status: Accepted.
 Date: 2026-05-22.
@@ -241,7 +258,7 @@ Launch can rely on server-side session controls while leaving user-facing sessio
 
 ### ACC-DEC-008: Investor Long-Lived Sessions and Sensitive-Action Email Codes
 
-> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: sensitive operations need a review step and the PIN only, inside the authenticated session; the email code for operations is removed. The server authorization is bound to operation, amount and destination, expires and is single-use.
+> Superseded in part 2026-11-19 (Phase 18.5, implemented; D-1 of 2026-11-19 replaces the note of 2026-11-08): the email code for operations stays, with the PIN or the authenticator app code. The code is bound to one operation (action, amount, currency, destination, loan or listing), expires and is single use; changed data needs a new code. Sign-in is by password and second factor, not by magic link. See "Current Sign-In And Security Rules". The session rules below stay in force with the update of 2026-10-09.
 
 Status: Accepted.
 Date: 2026-05-22.
@@ -275,7 +292,7 @@ Updated 2026-10-09 (QA regression decision): investor and admin sessions now end
 
 ### ACC-DEC-009: Investor PIN for Every Sensitive Action
 
-> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-01: the PIN stays and becomes the only confirmation factor for operations; PIN recovery needs password + second factor.
+> Superseded in part 2026-11-19 (Phase 18.5, implemented; D-1): the PIN is used with the email code, as below. Changes: only investors with the SMS factor have a PIN; an investor with an authenticator app types the app code in place of the PIN (API field `pin`); the PIN step of the registration comes after the second factor; a forgotten PIN needs the password and an SMS code (no email code). A PIN change still needs the current PIN and an email code. The public wording about a magic link is no longer used. See "Current Sign-In And Security Rules".
 
 Status: Accepted.
 Date: 2026-10-16 (owner decision of 2026-10-15, row 12).
@@ -288,18 +305,18 @@ Every investor has a 6-digit PIN. Every sensitive action needs the fresh email c
 - Rules: exactly 6 digits; not one digit repeated (111111) and not a straight run up or down (123456, 654321, 012345). The registration screen shows the rules as a checklist.
 - Check order, in the shared `platform_core.services.sensitive_actions.verify_sensitive_action_code`, so every module gets it: PIN lock, then PIN, then email code. A wrong PIN never uses up the email code, and counts toward the lock even when the email code is right. A correct PIN resets the count. Like the email-code attempts, the check commits on its own before any rollbackable financial transaction.
 - Lock: 5 wrong PINs in a row lock the PIN for 30 minutes (`AUTH_PIN_MAX_ATTEMPTS`, `AUTH_PIN_LOCK_SECONDS`, real clock), with the audit event `auth.pin_locked` and the email `email.pin_locked` ("Your PIN was locked after 5 wrong attempts").
-- Actions: withdrawal, bank account change, FX, primary investment (single order, Smart-Invest batch, Loan Originator claim purchase), secondary-market listing (create and edit) and purchase. Each request carries `pin` next to `sensitive_action_code_id`/`sensitive_action_code`. Admin login (admin email code) has no PIN.
-- Registration: a PIN step after terms and phone verification and before the KYC hand-off (steps Account, Email and phone, PIN, KYC). The PIN is entered twice and needs no email code (pending-KYC account, phone just verified). The KYC session cannot start for a natural person without a PIN (409 `pin_required`).
+- Actions: withdrawal, bank account change, FX, primary investment (single order, Smart-Invest batch, Loan Originator claim purchase), secondary-market listing (create and edit) and purchase. Each request carries `pin` next to `sensitive_action_code_id`/`sensitive_action_code`. Admin login (password and authenticator app) has no PIN. Since 18.5 the field `pin` carries the authenticator app code for an investor with the app.
+- Registration (changed in 18.5: the PIN step comes after the second-factor step and only for investors with the SMS factor; an investor with the app sets no PIN): a PIN step after terms and phone verification and before the KYC hand-off (steps Account, Email and phone, PIN, KYC). The PIN is entered twice and needs no email code (pending-KYC account, phone just verified). The KYC session cannot start for a natural person without a PIN (409 `pin_required`).
 - Existing accounts: after login, an account without a PIN sees "Create your PIN" before anything else; outside registration the first PIN needs a fresh email code for `pin_setup`. Until then every sensitive action answers 409 `pin_required`.
 - Change PIN (Settings): current PIN, an email code for `pin_change` and the new PIN twice.
-- Forgot PIN (Settings and the PIN prompt): an email code for `pin_reset`, an SMS code to the verified phone (the phone-verification provider, Twilio Verify in staging/production) and the new PIN twice; it clears the lock. The email code is checked first without being used, so a wrong SMS code does not cost it. A PIN-reset SMS code never verifies a phone number.
+- Forgot PIN (Settings and the PIN prompt; changed in 18.5: the password takes the place of the email code): the password, an SMS code to the verified phone (the phone-verification provider, Twilio Verify in staging/production) and the new PIN twice; it clears the lock. The reset SMS also counts for the SMS limits of the account (audit S4-2). A PIN-reset SMS code never verifies a phone number.
 - After any change or reset the investor gets the email `email.pin_changed` ("Your PIN was changed. If this was not you, contact support"). Audit events: `auth.pin_set`, `auth.pin_verified`, `auth.pin_check_failed`, `auth.pin_locked`, `auth.pin_changed`, `auth.pin_reset`, `auth.pin_reset_sms_requested`, `auth.pin_reset_sms_failed`.
 
 API (`/api/v1/auth/pin/`, session auth, throttled per IP and account: `AUTH_PIN_HOURLY_LIMIT`/`AUTH_PIN_DAILY_LIMIT`; the reset SMS follows the registration SMS limits):
 - `GET status/`: `pin_set`, `locked_until`, `attempts_left`, `max_attempts`, `setup_requires_email_code`, `reset_available`, `phone_last_digits`. The `/auth/me/` user also carries `pin_set` and `pin_locked_until`.
 - `POST set/`: `new_pin`, `new_pin_confirmation`, and outside registration `sensitive_action_code_id`/`sensitive_action_code` (`pin_setup`).
 - `POST change/`: `pin`, `new_pin`, `new_pin_confirmation`, email code (`pin_change`).
-- `POST reset/start/`: sends the SMS code; answers `phone_challenge_id`. `POST reset/confirm/`: email code (`pin_reset`), `phone_challenge_id`, `phone_code`, `new_pin`, `new_pin_confirmation`.
+- `POST reset/start/`: `password`; sends the SMS code; answers `phone_challenge_id`. `POST reset/confirm/`: `phone_challenge_id`, `phone_code`, `new_pin`, `new_pin_confirmation`.
 
 Error codes (body `{"detail", "code", ...}`): 400 `pin_invalid` (`attempts_left`), 423 `pin_locked` (`locked_until`), 409 `pin_required` (no PIN yet), 400 `pin_weak`, 400 `pin_mismatch`, 400 `pin_unchanged`, 409 `pin_already_set`, 403 `pin_not_available` (admin or blocked account), 409 `phone_verification_required`, 409 `pin_reset_unavailable` (no verified phone), 400 `email_code_invalid`, 429 `email_code_attempts_exceeded`, 400 `phone_code_invalid`, 429 `phone_code_attempts_exceeded`, 429 `phone_code_throttled`. A sensitive-action request without a valid `pin` field answers 400 with a `pin` field error. Wrong or expired email codes keep their existing answers.
 
@@ -330,15 +347,15 @@ Launch lender portal accounts use a single permission set. More granular investo
 
 ## Security Requirements
 
-- Investor accounts use magic-link login and mandatory phone verification.
-- Admin accounts use email, password, and email code.
+- Investor accounts use password sign-in with a mandatory second factor (SMS or authenticator app) and mandatory phone verification.
+- Admin accounts use email, password, and an authenticator app.
 - Admin sensitive actions do not require step-up authentication at launch.
-- Investor sensitive/financial actions require fresh email-code confirmation and the investor PIN (ACC-DEC-009).
+- Investor sensitive/financial actions require fresh email-code confirmation and the investor PIN, or the authenticator app code for investors with the app (ACC-DEC-009, D-1).
 - Sensitive actions require detailed audit logs.
 - Admin sessions expire based on risk and role. Investor sessions are long-lived but revocable.
 - Access tokens are short-lived.
 - Refresh tokens are revocable.
-- Passwords, if used, must follow modern hashing and breach detection controls.
+- Passwords follow modern hashing and breach detection controls (platform password policy with the Have I Been Pwned range check).
 - Login and permission changes create audit events.
 - Investor impersonation is read-only, superadmin-only, short-lived, blocked for admin targets, and audited (ACC-DEC-005).
 
@@ -378,8 +395,8 @@ The future organization model may support:
 
 ## Q/A Backlog
 
-1. Answered by ACC-DEC-001/ACC-DEC-002: investors use magic-link login with mandatory phone verification and offline support recovery for lost/bouncing email access; admins use email/password plus email code; superadmin credentials are configured through environment variables.
-2. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-008: baseline investor login uses magic links and mandatory phone verification, with sensitive-action email-code confirmation for financial/legal actions; admin login uses email-code verification.
+1. Answered by ACC-DEC-001/ACC-DEC-002 and replaced on 2026-11-19 (Phase 18.5): investors use password sign-in with a second factor and mandatory phone verification, with the assisted recovery for lost access; admins use email, password and an authenticator app; superadmin credentials are configured through environment variables.
+2. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-008 and replaced on 2026-11-19 (Phase 18.5): investor sign-in needs the password and a second factor; sensitive/financial actions need the email code with the PIN or the authenticator app code; admin sign-in needs the authenticator app.
 3. Answered by ACC-DEC-004: no legal-entity lender maker-checker approval or internal roles are required at launch.
 4. Answered by ACC-DEC-004: one person cannot represent multiple investor accounts/entities at launch; borrower representative relationships are tracked only as entity data.
 5. Updated by ACC-DEC-005 (2026-07-04): support impersonation exists as a read-only, superadmin-only, short-lived, audited view of investor accounts; no write-capable impersonation.
