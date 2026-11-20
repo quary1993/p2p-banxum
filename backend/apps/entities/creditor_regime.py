@@ -43,6 +43,65 @@ def _regimes() -> Any:
     return import_module("backend.apps.marketplace_primary.creditor_regime")
 
 
+def _lock_regime(uid: str) -> SwissCreditorRegime:
+    """Audit S6-8: the UID's regime row is the one lock for every change of its legal state
+    (mode, external debts) and every financing action (publication, order, allocation, claim
+    purchase, resale, close)."""
+    regime, _created = SwissCreditorRegime.objects.select_for_update().get_or_create(
+        uid=uid, defaults={"mode": rules.MODE_SANDBOX}
+    )
+    return regime
+
+
+def regime_breach(uid: str) -> str:
+    """The rule the UID breaks today in its mode ("" when none): sandbox total or 10/20."""
+    regime = SwissCreditorRegime.objects.filter(uid=uid).first()
+    mode = str(regime.mode) if regime is not None else rules.MODE_SANDBOX
+    today = business_date(now_utc())
+    if mode == rules.MODE_SANDBOX:
+        try:
+            result = rules.check_sandbox_total(_regimes().borrower_total_chf_minor(uid, on=today))
+        except _regimes().CreditorRegimeViolation as exc:
+            return str(exc)
+    else:
+        loans = _limits().uid_loans(uid)
+        investors = _limits().loan_investor_ids([str(loan.pk) for loan in loans])
+        result = rules.check_ten_twenty(
+            financing_creditors=max((len(ids) for ids in investors.values()), default=0),
+            borrower_creditors=len(_limits().borrower_creditor_ids(uid, on=today)),
+        )
+    return "" if result.ok else str(result.message)
+
+
+def flag_regime_breach(*, actor: Model, uid: str, cause: str) -> str:
+    """Audit S6-8: a true change of the legal state (a debt, an SNB rate) is recorded even when
+    it breaks the mode. The financing actions then stop at their own checks, and an operations
+    task asks an admin to decide. Returns the breach ("" when none)."""
+    breach = regime_breach(uid)
+    if breach:
+        import_module("backend.apps.admin_ops.services").ensure_related_admin_task(
+            actor=actor,
+            task_type="compliance_review",
+            related_object_type="SwissCreditorRegime",
+            related_object_id=uid,
+            title=f"Swiss creditor mode breached for {uid}",
+            priority="high",
+            notes=f"{cause}: {breach} New investments and closes of this borrower stop at "
+            "their checks until the situation is resolved.",
+            reopen_closed=True,
+        )
+        record_audit_event(
+            AuditCommand(
+                actor=actor_ref_for_user(actor),
+                action="entities.creditor_mode_breach_flagged",
+                target_type="SwissCreditorRegime",
+                target_id=uid,
+                metadata={"uid": uid, "cause": cause, "breach": breach},
+            )
+        )
+    return breach
+
+
 def _uid(value: str) -> str:
     try:
         return rules.normalize_uid(value)
@@ -87,13 +146,12 @@ def set_creditor_mode(command: SetCreditorModeCommand) -> SwissCreditorRegime:
         mode = rules.require_mode(command.mode)
     except rules.CreditorRegimeError as exc:
         raise BorrowerValidationError(str(exc)) from exc
-    regime, _created = SwissCreditorRegime.objects.select_for_update().get_or_create(
-        uid=uid, defaults={"mode": rules.MODE_SANDBOX}
-    )
+    regime = _lock_regime(uid)
     previous = str(regime.mode)
     if mode != previous:
         loans = _limits().uid_loans(uid)
-        if any(str(loan.status) == "published" for loan in loans):
+        # Audit S6-6: also a failed close that still holds its reservations.
+        if any(_limits().is_in_funding(loan) for loan in loans):
             raise BorrowerValidationError(
                 "The creditor mode cannot change while a project of this borrower is in funding."
             )
@@ -180,6 +238,7 @@ def record_external_debt(command: RecordExternalDebtCommand) -> BorrowerExternal
             "Attach the signed borrower declaration (document or reference)."
         )
     identification = command.creditor_identification.strip().upper()
+    _lock_regime(uid)
     if BorrowerExternalDebt.objects.filter(
         uid=uid,
         creditor_identification=identification,
@@ -214,12 +273,19 @@ def record_external_debt(command: RecordExternalDebtCommand) -> BorrowerExternal
             "currency": currency,
         },
     )
+    flag_regime_breach(actor=command.actor, uid=uid, cause="External debt recorded")
     return debt
 
 
 @transaction.atomic
 def end_external_debt(*, actor: Model, debt_id: str, ended_on: date) -> BorrowerExternalDebt:
     _require_admin_actor(actor)
+    uid_of_debt = (
+        BorrowerExternalDebt.objects.filter(id=debt_id).values_list("uid", flat=True).first()
+    )
+    if uid_of_debt is None:
+        raise BorrowerValidationError("External debt does not exist.")
+    _lock_regime(str(uid_of_debt))
     debt = BorrowerExternalDebt.objects.select_for_update().filter(id=debt_id).first()
     if debt is None:
         raise BorrowerValidationError("External debt does not exist.")
@@ -256,6 +322,9 @@ def record_snb_rate(
         raise BorrowerValidationError("Write the source of the rate (SNB publication).")
     if rate_date > business_date(now_utc()):
         raise BorrowerValidationError("The rate date cannot be in the future.")
+    # Audit S6-8: a new or corrected rate changes every CHF total; all regime rows are locked
+    # (in UID order) so no financing action of a UID runs on the old rate meanwhile.
+    regimes = list(SwissCreditorRegime.objects.select_for_update().order_by("uid"))
     record, _created = SnbReferenceRate.objects.update_or_create(
         currency=code,
         rate_date=rate_date,
@@ -274,6 +343,9 @@ def record_snb_rate(
             metadata={"currency": code, "rate_date": rate_date.isoformat(), "rate": str(rate)},
         )
     )
+    for regime in regimes:
+        if str(regime.mode) == rules.MODE_SANDBOX:
+            flag_regime_breach(actor=actor, uid=str(regime.uid), cause="SNB reference rate changed")
     return record
 
 

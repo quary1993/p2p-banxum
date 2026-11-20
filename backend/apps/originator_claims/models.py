@@ -193,6 +193,11 @@ class OriginatorLoanProfile(TimestampedModel):
     borrower_registration_number = models.CharField(max_length=128, blank=True)
     # 18.9: the Swiss UID of the final borrower (creditor modes count per UID).
     borrower_uid = models.CharField(max_length=16, blank=True, default="")
+    # Audit S6-9: the originator's own identifier of the underlying financing (its loan or
+    # contract number). One underlying financing counts once in the borrower's totals, and two
+    # live offers of one originator cannot carry the same identifier. Required before a Swiss
+    # claim is published; set once and not changed after publication.
+    underlying_financing_id = models.CharField(max_length=128, blank=True, default="")
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)
     registered_address = models.TextField(blank=True)
@@ -224,6 +229,11 @@ class OriginatorLoanProfile(TimestampedModel):
     class Meta:
         ordering = ["-created_at", "-id"]
         constraints = [
+            models.UniqueConstraint(
+                fields=["originator", "underlying_financing_id"],
+                condition=~Q(underlying_financing_id="") & ~Q(opportunity_status="cancelled"),
+                name="originator_one_live_offer_per_underlying_financing",
+            ),
             models.CheckConstraint(
                 condition=Q(target_yield_bps__gte=0),
                 name="originator_target_yield_nonnegative",

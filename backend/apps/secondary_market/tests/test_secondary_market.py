@@ -168,6 +168,8 @@ def _create_borrower(admin_user: Model) -> Model:
             entity_type="swiss_company",
             kyb_status="approved",
             country="CH",
+            # Audit S6-5: a Swiss borrower needs a valid UID to change creditors.
+            uid="CHE-123.456.788",
             created_by_admin_id=admin_user.pk,
         ),
     )

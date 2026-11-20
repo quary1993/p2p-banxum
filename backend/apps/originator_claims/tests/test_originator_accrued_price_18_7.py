@@ -111,6 +111,7 @@ def _create(
     deadline_days: int = 5,
     convention: str = day_count.ACT_365_FIXED,
     publish: bool = True,
+    snapshot: dict[str, Any] | None = None,
 ) -> Any:
     originator = create_loan_originator(
         CreateLoanOriginatorCommand(
@@ -153,6 +154,7 @@ def _create(
             borrower_snapshot={
                 "borrower_legal_name": f"Accrued Borrower {suffix} AG",
                 "borrower_display_name": f"Accrued borrower {suffix}",
+                **(snapshot or {}),
             },
             funding_deadline=today + timedelta(days=deadline_days),
             investor_interest_participation_bps=7_000,
@@ -678,3 +680,92 @@ def test_bought_accrued_interest_is_not_reported_as_interest_earned(
     by_category = {row["category"]: row["amount_minor"] for row in tax.rows}
     assert by_category["originator_claim_interest_received_or_credited"] == received - bought
     assert by_category["originator_claim_bought_accrued_interest_returned"] == bought
+
+
+@pytest.mark.django_db
+def test_one_underlying_financing_is_offered_once(admin_user: Model) -> None:
+    """Audit S6-9: two live offers of one originator cannot carry the same underlying financing
+    ID; a cancelled (failed) offer frees it; a Swiss claim needs it before publication."""
+    from backend.apps.originator_claims.services import (
+        CancelOriginatorSubscriptionCommand,
+        cancel_originator_subscription,
+    )
+
+    today = business_date(now_utc())
+    first = _create(
+        admin_user, today=today, suffix="U1", snapshot={"underlying_financing_id": "LO-77"}
+    )
+    profile = OriginatorLoanProfile.objects.get(pk=first.profile.pk)
+    assert profile.underlying_financing_id == "LO-77"
+    originator_id = str(profile.originator_id)
+
+    def second_offer(financing_id: str) -> Any:
+        return create_originator_loan(
+            replace(
+                _second_offer_command(admin_user, originator_id=originator_id, today=today),
+                borrower_snapshot={
+                    "borrower_legal_name": "Accrued Borrower U1 AG",
+                    "borrower_display_name": "Accrued borrower U1",
+                    "underlying_financing_id": financing_id,
+                },
+            )
+        )
+
+    with pytest.raises(OriginatorClaimsValidationError, match="already on the platform"):
+        second_offer("LO-77")
+    cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(first.loan.id),
+            reason="Offer withdrawn.",
+            investor_message="The offer was withdrawn.",
+            idempotency_key="u1-cancel",
+        )
+    )
+    again = second_offer("LO-77")
+    assert again.profile.underlying_financing_id == "LO-77"
+
+    swiss = _create(
+        admin_user,
+        today=today,
+        suffix="U2",
+        publish=False,
+        snapshot={"country": "Switzerland", "uid": "CHE-123.456.788"},
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="underlying financing ID"):
+        publish_originator_loan(
+            PublishOriginatorLoanCommand(
+                actor=admin_user, loan_id=str(swiss.loan.id), as_of_date=today
+            )
+        )
+
+
+def _second_offer_command(admin_user: Model, *, originator_id: str, today: date) -> Any:
+    return CreateOriginatorLoanCommand(
+        actor=admin_user,
+        originator_id=originator_id,
+        title="Accrued offer U1 again",
+        investor_summary="Offer priced with accrued interest.",
+        purpose="working_capital",
+        purpose_description="Working capital",
+        currency="CHF",
+        original_principal_minor=1_000_000,
+        interest_rate_bps=1_200,
+        distribution_model=OriginatorDistributionModel.PAR_COMPONENT_V2,
+        pricing_rule=OriginatorPricingRule.ACCRUED_INTEREST,
+        interest_convention=day_count.ACT_365_FIXED,
+        minimum_investment_minor=100_000,
+        repayment_type="equal_installments",
+        interest_only_months=0,
+        collateral_type="receivables",
+        collateral_value_minor=1_500_000,
+        collateral_description="Assigned receivables",
+        risk_rating="BBB",
+        csv_content=_csv(today),
+        source_filename="accrued-u1-again.csv",
+        as_of_date=today,
+        borrower_snapshot={},
+        funding_deadline=today + timedelta(days=5),
+        investor_interest_participation_bps=7_000,
+        investor_penalty_participation_bps=5_000,
+    )

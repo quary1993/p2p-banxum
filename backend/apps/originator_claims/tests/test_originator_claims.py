@@ -948,6 +948,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
                 "uid": "CHE-123.456.788",
+                "underlying_financing_id": "LO-UNDERLYING-1",
             },
         )
     )
@@ -1009,6 +1010,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
                 "uid": "CHE-123.456.788",
+                "underlying_financing_id": "LO-UNDERLYING-1",
             },
         ),
     )

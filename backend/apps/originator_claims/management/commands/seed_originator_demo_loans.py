@@ -479,6 +479,8 @@ def _borrower_snapshot(spec: DemoOriginatorLoanSpec) -> dict[str, Any]:
         "entity_type": "Private company",
         "country": spec.borrower_country,
         "uid": _demo_uid(spec),
+        # Audit S6-9: the originator's identifier of the underlying financing (demo value).
+        "underlying_financing_id": f"DEMO-{spec.title[:40]}",
         "business_classification": "Small or medium-sized operating company",
         "business_classification_public": True,
         "registered_address": "Withheld in private-test catalogue",

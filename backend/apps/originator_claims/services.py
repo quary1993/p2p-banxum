@@ -1081,6 +1081,8 @@ def _private_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]
         "employees": profile.borrower_employees,
         "employees_year": profile.borrower_employees_year,
         "registration_number": profile.borrower_registration_number,
+        "uid": profile.borrower_uid,
+        "underlying_financing_id": profile.underlying_financing_id,
         "business_classification": profile.business_classification,
         "business_classification_public": profile.business_classification_public,
         "registered_address": profile.registered_address,
@@ -1116,6 +1118,35 @@ def _snapshot_uid(snapshot: dict[str, Any]) -> str:
         raise OriginatorClaimsValidationError(str(exc)) from exc
 
 
+def _snapshot_financing_id(snapshot: dict[str, Any]) -> str:
+    """Audit S6-9: the originator's identifier of the underlying financing, as written."""
+    value = str(_snapshot_value(snapshot, "underlying_financing_id")).strip()
+    if len(value) > 128:
+        raise OriginatorClaimsValidationError(
+            "The underlying financing ID cannot exceed 128 characters."
+        )
+    return value
+
+
+def _check_underlying_financing_unique(
+    *, originator_id: Any, financing_id: str, exclude_profile_id: Any = None
+) -> None:
+    """Audit S6-9: one live offer per underlying financing of an originator (a cancelled or
+    failed offer frees the identifier for a new offer of the same claim)."""
+    if not financing_id:
+        return
+    others = OriginatorLoanProfile.objects.filter(
+        originator_id=originator_id, underlying_financing_id=financing_id
+    ).exclude(opportunity_status=OriginatorOpportunityStatus.CANCELLED)
+    if exclude_profile_id is not None:
+        others = others.exclude(pk=exclude_profile_id)
+    if others.exists():
+        raise OriginatorClaimsValidationError(
+            f"The underlying financing {financing_id} of this Loan Originator is already on the "
+            "platform; one underlying financing is offered and counted once."
+        )
+
+
 def _apply_borrower_snapshot(
     profile: OriginatorLoanProfile,
     snapshot: dict[str, Any],
@@ -1137,6 +1168,7 @@ def _apply_borrower_snapshot(
     profile.borrower_employees_year = _snapshot_value(snapshot, "employees_year", None)
     profile.borrower_registration_number = str(_snapshot_value(snapshot, "registration_number"))
     profile.borrower_uid = _snapshot_uid(snapshot)
+    profile.underlying_financing_id = _snapshot_financing_id(snapshot)
     profile.business_classification = str(_snapshot_value(snapshot, "business_classification"))
     profile.business_classification_public = bool(
         _snapshot_value(snapshot, "business_classification_public", False)
@@ -1613,6 +1645,9 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         loan, actor=command.actor
     )
     snapshot = command.borrower_snapshot
+    _check_underlying_financing_unique(
+        originator_id=originator.pk, financing_id=_snapshot_financing_id(snapshot)
+    )
     profile = OriginatorLoanProfile.objects.create(
         loan=loan,
         originator=originator,
@@ -1662,6 +1697,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         borrower_employees_year=_snapshot_value(snapshot, "employees_year", None),
         borrower_registration_number=str(_snapshot_value(snapshot, "registration_number")),
         borrower_uid=_snapshot_uid(snapshot),
+        underlying_financing_id=_snapshot_financing_id(snapshot),
         business_classification=str(_snapshot_value(snapshot, "business_classification")),
         business_classification_public=bool(
             _snapshot_value(snapshot, "business_classification_public", False)
@@ -2117,6 +2153,11 @@ def replace_originator_loan_draft(
     profile.current_outstanding_principal_minor = profile_principal_minor
     profile.unsold_principal_minor = profile_principal_minor
     profile.maturity_date = parsed.maturity_date
+    _check_underlying_financing_unique(
+        originator_id=profile.originator_id,
+        financing_id=_snapshot_financing_id(command.borrower_snapshot),
+        exclude_profile_id=profile.pk,
+    )
     _apply_borrower_snapshot(profile, command.borrower_snapshot)
     loan_import = _persist_import_revision(
         actor=command.actor,
@@ -2236,6 +2277,19 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
         proofs.assert_securities_verified(loan)
     except proofs.SecurityProofError as exc:
         raise OriginatorClaimsValidationError(str(exc)) from exc
+    regimes_module = import_module("backend.apps.marketplace_primary.creditor_regime")
+    if regimes_module.is_swiss_loan(cast(Model, loan)) and not profile.underlying_financing_id:
+        # Audit S6-9: the borrower total counts each underlying financing once; a Swiss claim
+        # needs the originator's identifier of it.
+        raise OriginatorClaimsValidationError(
+            "Enter the underlying financing ID (the Loan Originator's loan or contract number) "
+            "before a Swiss claim is published."
+        )
+    _check_underlying_financing_unique(
+        originator_id=profile.originator_id,
+        financing_id=str(profile.underlying_financing_id),
+        exclude_profile_id=profile.pk,
+    )
     _check_creditor_mode(
         lambda regimes: regimes.check_publication(
             cast(Model, loan), actor=command.actor, on=business_date(now_utc())
@@ -5276,10 +5330,9 @@ def _purchase_originator_claim_after_sensitive_code(
             .first()
         )
         if locked_loan is not None:
-            # 18.9: and the borrower's regime row, so creditors of one UID queue.
-            import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(
-                locked_loan
-            )
+            # 18.9: and the borrower's regime row, so creditors of one UID queue (a Swiss
+            # claim without a valid UID is refused: audit S6-5).
+            _check_creditor_mode(lambda regimes: regimes.lock_borrower(locked_loan))
     profile = (
         OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import", "loan__currency")

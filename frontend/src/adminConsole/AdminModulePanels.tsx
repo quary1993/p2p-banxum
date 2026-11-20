@@ -3458,6 +3458,7 @@ function OriginatorLoanCreateForm({
   const [borrowerEmployeesYear, setBorrowerEmployeesYear] = useState(snapshot.employees_year == null ? "" : String(snapshot.employees_year));
   const [borrowerRegistration, setBorrowerRegistration] = useState(String(snapshot.registration_number ?? ""));
   const [borrowerUid, setBorrowerUid] = useState(String(snapshot.uid ?? ""));
+  const [underlyingFinancingId, setUnderlyingFinancingId] = useState(String(snapshot.underlying_financing_id ?? ""));
   const [businessClassification, setBusinessClassification] = useState(String(snapshot.business_classification ?? ""));
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(Boolean(snapshot.business_classification_public));
   const [registeredAddress, setRegisteredAddress] = useState(String(snapshot.registered_address ?? ""));
@@ -3552,6 +3553,7 @@ function OriginatorLoanCreateForm({
           employees_year: optionalMinorValue(borrowerEmployeesYear),
           registration_number: borrowerRegistration,
           uid: borrowerUid,
+          underlying_financing_id: underlyingFinancingId,
           business_classification: businessClassification,
           business_classification_public: businessClassificationPublic,
           registered_address: registeredAddress,
@@ -3677,6 +3679,7 @@ function OriginatorLoanCreateForm({
         <TextInput integer label="Employees year" onChange={setBorrowerEmployeesYear} value={borrowerEmployeesYear} />
         <TextInput label="Registration number (internal)" onChange={setBorrowerRegistration} value={borrowerRegistration} />
         <TextInput hint="18.9: required for a Swiss borrower before publication. Creditor modes count per UID across direct loans and Loan Originator claims." label="Borrower Swiss UID (CHE-123.456.789)" onChange={setBorrowerUid} value={borrowerUid} />
+        <TextInput hint="The Loan Originator's own loan or contract number of the underlying financing. Required for a Swiss borrower before publication: one underlying financing counts once, and it cannot be offered twice at the same time." label="Underlying financing ID" onChange={setUnderlyingFinancingId} value={underlyingFinancingId} />
         <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
         <TextInput label="Industry / activity" onChange={setIndustryActivity} value={industryActivity} />
         <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />

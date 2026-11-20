@@ -3021,7 +3021,12 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         )
     # The loan row is locked, and (18.9) the borrower's regime row: two new creditors of one
     # UID cannot both take the last place.
-    import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(loan)
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.lock_borrower(loan)
+    except regimes.CreditorRegimeViolation as exc:
+        # Audit S6-5: a Swiss loan without a valid UID cannot change creditors.
+        raise SecondaryMarketValidationError(str(exc)) from exc
     _assert_transfer_within_investor_limit(
         loan=loan,
         buyer_user_id=buyer_user_id,

@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -27,7 +28,9 @@ from django.conf import settings
 from django.db.models import Model
 
 from backend.apps.marketplace_primary.investor_limit import (
+    active_external_debts,
     borrower_creditor_ids,
+    is_in_funding,
     loan_borrower_country,
     loan_borrower_uid,
     loan_investor_ids,
@@ -78,38 +81,82 @@ def _loan_count_amount_minor(loan: Any) -> int:
     if str(loan.product_type) == "originator_claim":
         # The underlying loan counted once.
         return int(loan.original_principal_minor)
-    if str(loan.status) == "published":
+    if is_in_funding(loan):
         return int(loan.principal_minor)
     return int(loan.original_principal_minor or loan.principal_minor)
 
 
+def _financing_key(loan: Any, claim_keys: dict[str, str]) -> str:
+    """Audit S6-9: one key per underlying financing. A Loan Originator claim is keyed by its
+    originator and the originator's financing identifier, so two offers of one underlying loan
+    count once; any other loan by its own id."""
+    return claim_keys.get(str(loan.pk)) or f"loan:{loan.pk}"
+
+
+def _claim_keys(loans: list[Any]) -> dict[str, str]:
+    claim_ids = [loan.pk for loan in loans if str(loan.product_type) == "originator_claim"]
+    if not claim_ids:
+        return {}
+    rows = (
+        _model("originator_claims", "OriginatorLoanProfile")
+        .objects.filter(loan_id__in=claim_ids)
+        .exclude(underlying_financing_id="")
+        .values_list("loan_id", "originator_id", "underlying_financing_id")
+    )
+    return {
+        str(loan_id): f"claim:{originator_id}:{financing_id}"
+        for loan_id, originator_id, financing_id in rows
+    }
+
+
 def borrower_total_chf_minor(uid: str, *, on: date, include_loan: Model | None = None) -> int:
-    """T: the borrower's loans in funding or running, plus open external debts, in CHF."""
+    """T: the borrower's loans in funding or running (each underlying financing once), plus the
+    external debts that run on ``on``, in CHF."""
     total = 0
     loans = uid_loans(uid)
     seen = {str(loan.pk) for loan in loans}
     if include_loan is not None and str(include_loan.pk) not in seen:
         loans.append(include_loan)
+    claim_keys = _claim_keys(loans)
+    counted: set[str] = set()
     for loan in loans:
+        key = _financing_key(loan, claim_keys)
+        if key in counted:
+            continue
+        counted.add(key)
         total += chf_minor(_loan_count_amount_minor(loan), str(loan.currency_id), on=on)
-    for debt in _model("entities", "BorrowerExternalDebt").objects.filter(
-        uid=uid, ended_on__isnull=True
-    ):
+    for debt in active_external_debts(uid, on=on):
         total += chf_minor(int(debt.principal_minor), str(debt.currency), on=on)
     return total
+
+
+MISSING_UID_MESSAGE = (
+    "This Swiss borrower has no valid UID (CHE-123.456.789) recorded. Investments, transfers "
+    "and closes of its financings stop until an admin records the UID; the creditor mode "
+    "checks need it."
+)
+
+
+def require_valid_uid(loan: Model) -> str:
+    """Audit S6-5: a Swiss loan needs a valid UID for every investment, transfer and close (a
+    loan published before 18.9 may have none). The UID is never guessed."""
+    uid = normalized_uid(loan_borrower_uid(loan))
+    if not uid:
+        raise CreditorRegimeViolation(MISSING_UID_MESSAGE)
+    return uid
 
 
 def lock_borrower(loan: Model) -> Any | None:
     """Lock the borrower's regime row so concurrent investments of the same UID queue (Q03).
 
     A UID without a row yet (a loan published before 18.9) gets one in the pre-selected sandbox
-    mode, not confirmed, so there is always a row to lock. A loan without a valid UID has none.
+    mode, not confirmed, so there is always a row to lock. Audit S6-5: a Swiss loan without a
+    valid UID is refused (CreditorRegimeViolation). Lock order: the loan, then this row, then
+    the money rows.
     """
     if not is_swiss_loan(loan):
         return None
-    uid = normalized_uid(loan_borrower_uid(loan))
-    if not uid:
-        return None
+    uid = require_valid_uid(loan)
     regime, _created = (
         _model("entities", "SwissCreditorRegime")
         .objects.select_for_update()
@@ -163,18 +210,19 @@ def check_publication(loan: Model, *, actor: Model, on: date) -> None:
         result = rules.check_sandbox_total(borrower_total_chf_minor(uid, on=on, include_loan=loan))
     else:
         result = rules.check_ten_twenty(
-            financing_creditors=0, borrower_creditors=len(borrower_creditor_ids(uid))
+            financing_creditors=0, borrower_creditors=len(borrower_creditor_ids(uid, on=on))
         )
     if not result.ok:
         raise CreditorRegimeViolation(result.message)
 
 
 def check_before_close(loan: Model, *, on: date) -> None:
-    """Before a funding close (F08): a failure stops the close; an admin decides."""
+    """Before a funding close (F08): a failure stops the close; an admin decides. The regime
+    row is locked (audit S6-8) and a valid UID is required (audit S6-5)."""
     if not is_swiss_loan(loan):
         return
-    uid = loan_borrower_uid(loan)
-    regime = regime_for_uid(uid)
+    regime = lock_borrower(loan)
+    uid = str(regime.uid) if regime is not None else ""
     mode = str(regime.mode) if regime is not None else rules.MODE_SANDBOX
     if mode == rules.MODE_SANDBOX:
         result = rules.check_sandbox_total(borrower_total_chf_minor(uid, on=on, include_loan=loan))
@@ -182,7 +230,7 @@ def check_before_close(loan: Model, *, on: date) -> None:
         financing = loan_investor_ids([str(loan.pk)]).get(str(loan.pk), frozenset())
         result = rules.check_ten_twenty(
             financing_creditors=len(financing),
-            borrower_creditors=len(borrower_creditor_ids(uid)),
+            borrower_creditors=len(borrower_creditor_ids(uid, on=on)),
         )
     if not result.ok:
         raise CreditorRegimeViolation(f"Swiss creditor mode check failed: {result.message}")
@@ -218,3 +266,36 @@ def creditor_mode_payload(loan: Model) -> str | None:
         return None
     regime = regime_for_uid(loan_borrower_uid(loan))
     return str(regime.mode) if regime is not None else rules.MODE_SANDBOX
+
+
+def swiss_loans_without_uid() -> list[Any]:
+    """Audit S6-5: live Swiss financings (in funding or running) whose borrower has no valid UID
+    (loans published before 18.9). They take no investment, transfer or close until an admin
+    records the UID from the borrower's register entry; the UID is never guessed."""
+    from backend.apps.marketplace_primary.investor_limit import REGIME_LOAN_STATUSES
+
+    loans = _model("loans", "Loan").objects.filter(status__in=REGIME_LOAN_STATUSES).order_by("id")
+    return [
+        loan
+        for loan in loans
+        if is_swiss_loan(cast(Model, loan))
+        and not normalized_uid(loan_borrower_uid(cast(Model, loan)))
+    ]
+
+
+def open_missing_uid_tasks(*, actor: Model) -> list[str]:
+    """One operations task per Swiss financing without a valid UID; returns the loan ids."""
+    admin_ops = import_module("backend.apps.admin_ops.services")
+    loan_ids: list[str] = []
+    for loan in swiss_loans_without_uid():
+        admin_ops.ensure_related_admin_task(
+            actor=actor,
+            task_type="compliance_review",
+            related_object_type="SwissBorrowerUidMissing",
+            related_object_id=str(loan.pk),
+            title=f"Record the Swiss UID of the borrower of {loan.title}",
+            priority="high",
+            notes=MISSING_UID_MESSAGE,
+        )
+        loan_ids.append(str(loan.pk))
+    return loan_ids

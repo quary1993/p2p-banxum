@@ -853,6 +853,16 @@ def _holdings_services() -> Any:
     return import_module("backend.apps.holdings.services")
 
 
+def _lock_borrower_regime(loan: Model) -> None:
+    """18.9: lock the borrower's creditor regime row (after the loan row). Audit S6-5: a Swiss
+    loan without a valid UID is refused."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.lock_borrower(loan)
+    except regimes.CreditorRegimeViolation as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
 def _loans_services() -> Any:
     return import_module("backend.apps.loans.services")
 
@@ -878,6 +888,10 @@ def create_primary_investment_order(
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
+    # Audit S6-10: the minimum for a new creditor is quoted under the borrower's regime lock
+    # (after the loan lock), like the allocation that checks it again; a Swiss loan without a
+    # valid UID takes no order (audit S6-5).
+    _lock_borrower_regime(loan)
     remaining_capacity = _loan_remaining_capacity_minor(loan)
     investor_limit = _loan_investor_limit(loan)
     minimum = _order_minimum_minor(
@@ -924,6 +938,10 @@ def create_primary_investment_order(
     metadata = {
         ORDER_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "remaining_capacity_at_order_minor": remaining_capacity,
+        # Audit S6-10: the inputs of the quoted minimum (checked again at allocation).
+        "quoted_minimum_minor": minimum,
+        "quoted_creditor_mode": investor_limit.mode,
+        "quoted_places_left": investor_limit.places_left_for(investor_id),
     }
     try:
         order = PrimaryInvestmentOrder.objects.create(
@@ -1147,7 +1165,7 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         return order
     # Swiss creditor limit (18.9): counted under the loan lock taken above and the borrower's
     # regime lock, so two new creditors of the same UID cannot both take the last place.
-    import_module("backend.apps.marketplace_primary.creditor_regime").lock_borrower(loan)
+    _lock_borrower_regime(loan)
     _assert_sandbox_notice_confirmed(loan, command)
     investor_limit = _loan_investor_limit(loan)
     _assert_order_within_investor_limit(

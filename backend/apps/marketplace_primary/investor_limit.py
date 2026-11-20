@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import date
 from typing import Any, cast
 
 from django.apps import apps
@@ -88,8 +89,32 @@ def loan_investor_ids(loan_ids: Iterable[str]) -> dict[str, frozenset[str]]:
     return {loan_id: frozenset(investors.get(loan_id, set())) for loan_id in ids}
 
 
-# Loans of a borrower UID that count for the creditor modes (18.9): in funding or running.
-REGIME_LOAN_STATUSES = ("published", "funded", "active", "late", "defaulted")
+# Loans of a borrower UID that count for the creditor modes (18.9). Audit S6-6: one shared
+# set. "In funding" includes a failed close that keeps its reservations until it is resolved
+# (closed again or cancelled); it counts like a published financing and blocks a mode change.
+IN_FUNDING_LOAN_STATUSES = ("published", "funding_close_failed")
+REGIME_LOAN_STATUSES = (*IN_FUNDING_LOAN_STATUSES, "funded", "active", "late", "defaulted")
+
+
+def is_in_funding(loan: Any) -> bool:
+    return str(loan.status) in IN_FUNDING_LOAN_STATUSES
+
+
+def active_external_debts(uid: str, *, on: date) -> Any:
+    """Audit S6-7: the external debts of the UID that run on ``on``: started on or before it and
+    not ended (``ended_on`` is the first day without the debt: a debt ended on ``on`` no longer
+    counts on ``on``)."""
+    return (
+        _model("entities", "BorrowerExternalDebt")
+        .objects.filter(uid=uid, start_date__lte=on)
+        .filter(Q(ended_on__isnull=True) | Q(ended_on__gt=on))
+    )
+
+
+def _today() -> date:
+    from backend.apps.platform_core.domain.time import business_date, now_utc
+
+    return business_date(now_utc())
 
 
 def max_investors_for_borrower_country(
@@ -186,11 +211,13 @@ def uid_loans(uid: str, *, exclude_loan_id: str | None = None) -> list[Any]:
     return list(queryset.order_by("id"))
 
 
-def borrower_creditor_ids(uid: str) -> frozenset[str]:
+def borrower_creditor_ids(uid: str, *, on: date | None = None) -> frozenset[str]:
     """Relevant creditors of the borrower UID (F07): investors of its loans counted once, a Loan
-    Originator while it keeps part of a claim, and external non-bank creditors."""
+    Originator while it keeps part of a claim, and external non-bank creditors whose debt runs
+    on ``on`` (today by default)."""
     if not uid:
         return frozenset()
+    on = on or _today()
     loans = uid_loans(uid)
     creditors: set[str] = set()
     for investors in loan_investor_ids([str(loan.pk) for loan in loans]).values():
@@ -201,10 +228,11 @@ def borrower_creditor_ids(uid: str) -> frozenset[str]:
         unsold_principal_minor__gt=0,
     ).values_list("originator_id", flat=True):
         creditors.add(f"originator:{originator_id}")
-    debt_model = _model("entities", "BorrowerExternalDebt")
-    for identification in debt_model.objects.filter(
-        uid=uid, ended_on__isnull=True, creditor_is_bank=False
-    ).values_list("creditor_identification", flat=True):
+    for identification in (
+        active_external_debts(uid, on=on)
+        .filter(creditor_is_bank=False)
+        .values_list("creditor_identification", flat=True)
+    ):
         creditors.add(f"external:{str(identification).strip().upper()}")
     return frozenset(creditors)
 
