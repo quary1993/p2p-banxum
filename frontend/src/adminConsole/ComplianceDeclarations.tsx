@@ -347,6 +347,7 @@ function LoanDocumentsSection({ loanId }: { loanId: string }) {
   const [type, setType] = useState<string>("other");
   const [date, setDate] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [checksums, setChecksums] = useState<Record<string, string>>({});
   const refresh = () => void queryClient.invalidateQueries();
   const upload = useV1LoansAdminLoansDocumentsCreate({
     mutation: {
@@ -362,7 +363,10 @@ function LoanDocumentsSection({ loanId }: { loanId: string }) {
   return (
     <div className="admin-review-list" style={{ marginTop: 12 }}>
       <h5>Documents uploaded to this loan</h5>
-      <p className="muted">PDF, PNG or JPEG, up to 20 MB. Link them to a security under Securities. A file counts as proof after you confirm that it was checked (scan).</p>
+      <p className="muted">PDF, PNG or JPEG, up to 20 MB. Link them to a security under Securities. A file counts as proof only after its check.</p>
+      <p className="muted">
+        The platform does not open a file before its check. Scan the original file on your computer with your malware scanner and read it there. Then enter its SHA-256 (on a Mac: <code>shasum -a 256 file.pdf</code>). The check is accepted only when it matches the uploaded copy.
+      </p>
       {documents.length ? (
         <ul aria-label="Loan documents" className="admin-review-list">
           {documents.map((document) => (
@@ -376,8 +380,15 @@ function LoanDocumentsSection({ loanId }: { loanId: string }) {
                 <Chip tone="ok">Checked{document.checked_at ? ` ${formatDate(document.checked_at)}` : ""}</Chip>
               ) : (
                 <span className="row gap-8 wrap">
+                  <span className="muted small">
+                    Uploaded copy SHA-256: <code>{document.checksum_sha256}</code>
+                  </span>
+                  <input aria-label={`SHA-256 of the scanned ${document.display_name}`} onChange={(event) => setChecksums({ ...checksums, [document.id]: event.target.value })} placeholder="SHA-256 of the scanned file" value={checksums[document.id] ?? ""} />
                   <input aria-label={`How ${document.display_name} was checked`} onChange={(event) => setNotes({ ...notes, [document.id]: event.target.value })} placeholder="How was it checked?" value={notes[document.id] ?? ""} />
-                  <Button disabled={(notes[document.id] ?? "").trim().length < 5 || check.isPending} onClick={() => check.mutate({ documentId: document.id, data: { note: notes[document.id] ?? "" } })}>
+                  <Button
+                    disabled={(notes[document.id] ?? "").trim().length < 5 || !(checksums[document.id] ?? "").trim() || check.isPending}
+                    onClick={() => check.mutate({ documentId: document.id, data: { note: notes[document.id] ?? "", checksum_sha256: (checksums[document.id] ?? "").trim() } })}
+                  >
                     Confirm check
                   </Button>
                 </span>
@@ -474,7 +485,8 @@ function SecurityProofRow({ security }: { security: SecurityProofStatus }) {
                 {documentLabel(document)}
                 <span className="muted small"> · ID {document.id}</span>
               </span>
-              {document.available ? <Button onClick={() => open(document.id)}>Open</Button> : null}
+              {/* Re-audit 2: the server opens a file only after its check. */}
+              {document.available && document.checked ? <Button onClick={() => open(document.id)}>Open</Button> : null}
             </li>
           ))}
         </ul>

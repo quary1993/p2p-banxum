@@ -34,12 +34,29 @@ def _validated_phone_number(value: str) -> str:
 pin_field = sensitive_action_pin_field
 
 
+# ITU-T E.164 country calling codes are prefix-free: 1 and 7 have one digit, these have two,
+# and all others have three (for example +359, +423).
+_ONE_DIGIT_CALLING_CODES = frozenset({"1", "7"})
+_TWO_DIGIT_CALLING_CODES = frozenset(
+    "20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 "
+    "60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98".split()
+)
+
+
+def _calling_code(digits: str) -> str:
+    if digits[:1] in _ONE_DIGIT_CALLING_CODES:
+        return digits[:1]
+    if digits[:2] in _TWO_DIGIT_CALLING_CODES:
+        return digits[:2]
+    return digits[:3]
+
+
 def mask_phone_number(value: str) -> str:
     """'+41791234567' -> '+41 ••• ••• •• 67'; empty when no number is stored."""
     digits = "".join(character for character in value if character.isdigit())
     if len(digits) < 6:
         return ""
-    country = digits[:2] if value.strip().startswith("+") else ""
+    country = _calling_code(digits) if value.strip().startswith("+") else ""
     prefix = f"+{country} " if country else ""
     return f"{prefix}••• ••• •• {digits[-2:]}"
 

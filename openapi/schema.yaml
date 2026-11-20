@@ -16789,10 +16789,13 @@ components:
           type: string
         size_bytes:
           type: integer
+        checksum_sha256:
+          type: string
       required:
       - check_note
       - checked
       - checked_at
+      - checksum_sha256
       - display_name
       - document_date
       - document_type
@@ -16806,7 +16809,11 @@ components:
         note:
           type: string
           maxLength: 500
+        checksum_sha256:
+          type: string
+          maxLength: 100
       required:
+      - checksum_sha256
       - note
     LoanDocumentUpload:
       type: object

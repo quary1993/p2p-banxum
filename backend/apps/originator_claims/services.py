@@ -4991,7 +4991,6 @@ def _cash_flow_payload(flow: Any) -> dict[str, Any]:
 
 
 @transaction.atomic
-@transaction.atomic
 def _close_mature_originator_opportunity(*, loan_id: str, as_of_date: date) -> bool:
     # Re-audit R7-2: one lock order (loan, then profile) also for this short step.
     apps.get_model("loans", "Loan").objects.select_for_update().filter(id=loan_id).first()

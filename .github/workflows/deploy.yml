@@ -285,7 +285,12 @@ jobs:
             echo "$TARGET settings check failed; nothing was changed." >&2
             exit 5
           fi
-          # 2. A database backup before any schema change (migration rehearsal 2026-11-20).
+          # 2. The old release stops before the backup, so that the backup is the exact cut-off
+          #    (GPT confirmation run: no write may land after the dump). The backend is the only
+          #    writer; the cron jobs run inside it and fail while it is stopped. This release
+          #    also removes old columns, so the old code must not run against the new schema.
+          compose stop backend
+          # 3. A database backup before any schema change (migration rehearsal 2026-11-20).
           #    The off-site settings come from /etc/banxum/<target>-backup.env when it exists.
           backup_env="/etc/banxum/${TARGET}-backup.env"
           backup_dir=$(
@@ -301,7 +306,8 @@ jobs:
             mkdir -p "$BANXUM_BACKUP_DIR"
             infra/deploy/backup_postgres.sh
           ); then
-            echo "$TARGET backup failed; nothing was changed." >&2
+            compose start backend
+            echo "$TARGET backup failed; nothing was changed and the previous release was started again." >&2
             exit 5
           fi
           latest_backup=$(ls -t "$backup_dir"/"$project_name"-postgres-*.dump 2>/dev/null | head -1 || true)
@@ -310,9 +316,7 @@ jobs:
               'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -Atc "select count(*) from django_migrations"'
           }
           applied_before=$(applied_migrations)
-          # 3. The old release stops, so that it never runs against the new schema (this
-          #    release removes old columns). Then the migrations run with their time limit.
-          compose stop backend
+          # 4. The migrations run with their time limit.
           echo "Running the migrations for $TARGET..."
           if ! timeout "${MIGRATION_TIMEOUT_SECONDS:-1800}" docker compose \
             --project-name "$project_name" \

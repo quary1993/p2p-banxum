@@ -153,6 +153,7 @@ class LoanDocumentSerializer(serializers.Serializer[Any]):
     checked_at = serializers.DateTimeField(allow_null=True)
     check_note = serializers.CharField(allow_blank=True)
     size_bytes = serializers.IntegerField()
+    checksum_sha256 = serializers.CharField()
 
 
 class LoanDocumentUploadSerializer(serializers.Serializer[Any]):
@@ -164,6 +165,7 @@ class LoanDocumentUploadSerializer(serializers.Serializer[Any]):
 
 class LoanDocumentCheckSerializer(serializers.Serializer[Any]):
     note = serializers.CharField(max_length=500)
+    checksum_sha256 = serializers.CharField(max_length=100)
 
 
 class LoanDocumentListView(APIView):
@@ -226,6 +228,7 @@ class LoanDocumentCheckView(APIView):
                 actor=cast(Model, request.user),
                 document_id=str(document_id),
                 note=serializer.validated_data["note"],
+                checksum_sha256=serializer.validated_data["checksum_sha256"],
             )
         except loan_documents.LoanDocumentPermissionError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)

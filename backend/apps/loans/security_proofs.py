@@ -122,6 +122,10 @@ def verification_problem(security: LoanSecurity) -> str:
     existing = _documents(security.loan_id, proof_ids)
     if any(not item or item not in linked or item not in existing for item in proof_ids):
         return "a proof document is no longer available; verify it again."
+    # Re-audit 2: a file that is no longer clean (a scanner marks it infected, failed or
+    # quarantined) ends the verification.
+    if any(not _checked(existing[item]) for item in proof_ids):
+        return "a proof document did not pass its file check; verify it again."
     return ""
 
 
@@ -458,6 +462,7 @@ def seed_verified_securities(*, actor: Model, loan_id: str) -> int:
                 actor=actor,
                 document_id=str(document.id),
                 note="Synthetic seed data; generated placeholder, no real document.",
+                checksum_sha256=str(document.stored_file.checksum_sha256),
             )
             proofs[key] = str(document.id)
         security.document_ids = [

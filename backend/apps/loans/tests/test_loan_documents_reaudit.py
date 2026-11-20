@@ -7,6 +7,7 @@ G-1); then the offer can be verified and published with the proof rule on.
 
 from __future__ import annotations
 
+import hashlib
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
@@ -155,9 +156,22 @@ def test_a_loan_originator_offer_is_published_with_uploaded_and_checked_proofs()
     opened = client.get(f"/api/v1/loans/admin/securities/{security.id}/documents/{document_id}/")
     assert opened.status_code == 404  # not yet checked
 
+    # Re-audit 2: the platform does not serve the unchecked file, so the admin gives the
+    # SHA-256 of the scanned original; a different file is refused.
+    assert uploaded.json()["checksum_sha256"] == hashlib.sha256(PDF).hexdigest()
+    wrong = client.post(
+        f"/api/v1/loans/admin/loan-documents/{document_id}/check/",
+        {"note": "Scanned another file.", "checksum_sha256": hashlib.sha256(b"x").hexdigest()},
+        content_type="application/json",
+    )
+    assert wrong.status_code == 400
+    assert "does not match" in wrong.json()["detail"]
     checked = client.post(
         f"/api/v1/loans/admin/loan-documents/{document_id}/check/",
-        {"note": "Scanned with the office antivirus; content read."},
+        {
+            "note": "Scanned with the office antivirus; content read.",
+            "checksum_sha256": hashlib.sha256(PDF).hexdigest().upper(),
+        },
         content_type="application/json",
     )
     assert checked.status_code == 200, checked.content
@@ -175,6 +189,13 @@ def test_a_loan_originator_offer_is_published_with_uploaded_and_checked_proofs()
     originator.publish_originator_loan(
         originator.PublishOriginatorLoanCommand(actor=admin, loan_id=str(loan.id), as_of_date=today)
     )
+
+    # Re-audit 2: when a scanner later marks the file as not clean, the verification ends.
+    stored = LoanDocument.objects.select_related("stored_file").get(id=document_id).stored_file
+    stored.scan_status = "infected"
+    stored.save(update_fields=["scan_status"])
+    assert proofs.current_verification(security) is None
+    assert "did not pass its file check" in proofs.verification_problem(security)
 
 
 @pytest.mark.django_db
@@ -205,7 +226,10 @@ def test_uploads_are_admin_only_and_must_be_pdf_or_image() -> None:
             )
         )
         loan_documents.confirm_loan_document_check(
-            actor=admin, document_id=str(document.id), note="ok"
+            actor=admin,
+            document_id=str(document.id),
+            note="ok",
+            checksum_sha256=hashlib.sha256(PDF).hexdigest(),
         )
 
     investor = Client()

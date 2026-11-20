@@ -81,7 +81,7 @@ test("S7-8: the proof panel names the documents, opens one and shows the history
     document_ids: [DOC_A, DOC_B],
     documents: [
       { id: DOC_A, title: "Land register extract 2026", document_type: "Other", document_date: "2026-11-02", uploaded_at: "2026-11-03T08:00:00Z", available: true, checked: true, source: "borrower" },
-      { id: DOC_B, title: "Mortgage note", document_type: "Other", document_date: null, uploaded_at: "2026-11-03T08:00:00Z", available: true, checked: true, source: "borrower" }
+      { id: DOC_B, title: "Mortgage note", document_type: "Other", document_date: null, uploaded_at: "2026-11-03T08:00:00Z", available: true, checked: false, source: "loan" }
     ],
     verified: false,
     verified_by: "",
@@ -120,12 +120,17 @@ test("S7-8: the proof panel names the documents, opens one and shows the history
   const select = screen.getByRole("combobox", { name: "Land register extract" });
   expect(within(select).getByRole("option", { name: /Land register extract 2026/ })).toBeInTheDocument();
 
-  fireEvent.click(within(documents).getAllByRole("button", { name: "Open" })[0]);
+  // Re-audit 2: the unchecked file has no "Open" button (the server refuses it).
+  expect(within(documents).getAllByRole("button", { name: "Open" })).toHaveLength(1);
+  expect(within(documents).getByText(/Mortgage note · Other · .* · waits for its check/)).toBeInTheDocument();
+  fireEvent.click(within(documents).getByRole("button", { name: "Open" }));
   await waitFor(() => expect(openWindow).toHaveBeenCalledWith("blob:proof", "_blank", "noopener"));
   expect(opened).toEqual([DOC_A]);
   expect(screen.getByText("Verification history (1)")).toBeInTheDocument();
   openWindow.mockRestore();
 });
+
+const SHA = "a".repeat(64);
 
 test("re-audit: a proof file is uploaded to the loan, then its check is confirmed", async () => {
   const uploads: FormData[] = [];
@@ -141,7 +146,8 @@ test("re-audit: a proof file is uploaded to the loan, then its check is confirme
     checked,
     checked_at: checked ? "2026-11-20T09:00:00Z" : null,
     check_note: checked ? "Scanned." : "",
-    size_bytes: 1200
+    size_bytes: 1200,
+    checksum_sha256: SHA
   });
   server.use(
     http.get("*/api/v1/loans/admin/loans/:loanId/security-proofs/", () => HttpResponse.json([])),
@@ -171,8 +177,11 @@ test("re-audit: a proof file is uploaded to the loan, then its check is confirme
   const list = await screen.findByRole("list", { name: "Loan documents" });
   const confirm = within(list).getByRole("button", { name: "Confirm check" });
   expect(confirm).toBeDisabled();
+  expect(within(list).getByText(SHA)).toBeInTheDocument();
   fireEvent.change(within(list).getByRole("textbox", { name: "How Assignment agreement 2026 was checked" }), { target: { value: "Scanned with the office antivirus." } });
+  expect(confirm).toBeDisabled(); // the SHA-256 of the scanned file is also required
+  fireEvent.change(within(list).getByRole("textbox", { name: "SHA-256 of the scanned Assignment agreement 2026" }), { target: { value: ` ${SHA} ` } });
   fireEvent.click(confirm);
-  await waitFor(() => expect(checks).toEqual([{ note: "Scanned with the office antivirus." }]));
+  await waitFor(() => expect(checks).toEqual([{ note: "Scanned with the office antivirus.", checksum_sha256: SHA }]));
   expect(await screen.findByText(/^Checked/)).toBeInTheDocument();
 });

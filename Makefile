@@ -87,7 +87,12 @@ check-scheduled-jobs:
 api-schema:
 	mkdir -p openapi
 	@log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
-	$(UV) run python backend/manage.py spectacular --file openapi/schema.yaml --validate 2>&1 | tee "$$log"; \
+	status=0; \
+	$(UV) run python backend/manage.py spectacular --file openapi/schema.yaml --validate >"$$log" 2>&1 || status=$$?; \
+	cat "$$log"; \
+	if [ "$$status" -ne 0 ]; then \
+		echo "OpenAPI generation failed with exit code $$status (re-audit R8-2)."; exit "$$status"; \
+	fi; \
 	if grep -Eq '^Error:|unable to load choice override|^Errors: +[1-9]' "$$log"; then \
 		echo "OpenAPI validation reported an error (re-audit R8-2)."; exit 1; \
 	fi

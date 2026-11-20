@@ -144,8 +144,14 @@ def upload_loan_document(command: UploadLoanDocumentCommand) -> LoanDocument:
 
 
 @transaction.atomic
-def confirm_loan_document_check(*, actor: Model, document_id: str, note: str) -> LoanDocument:
-    """G-1: the admin confirms that the file was checked (scanned) before it can be used."""
+def confirm_loan_document_check(
+    *, actor: Model, document_id: str, note: str, checksum_sha256: str
+) -> LoanDocument:
+    """G-1: the admin confirms that the file was checked (scanned) before it can be used.
+
+    The platform does not serve a file before its check, so the admin scans the original file
+    outside the platform and gives its SHA-256. The check counts only when that value matches
+    the stored copy (re-audit 2: proof that the stored copy is the scanned file)."""
     _require_admin(actor)
     document = (
         LoanDocument.objects.select_for_update()
@@ -160,6 +166,12 @@ def confirm_loan_document_check(*, actor: Model, document_id: str, note: str) ->
         raise LoanDocumentError("Say how the file was checked (at least 5 characters).")
     if document.stored_file.scan_status == FileScanStatus.CLEAN:
         return document
+    given = "".join(str(checksum_sha256 or "").split()).lower()
+    if not given or given != str(document.stored_file.checksum_sha256).lower():
+        raise LoanDocumentError(
+            "The SHA-256 does not match the uploaded file. Scan the file that you uploaded and "
+            "enter its SHA-256."
+        )
     mark_file_scan_clean(document.stored_file)
     document.scan_confirmed_by_admin_id = actor.pk
     document.scan_confirmed_at = now_utc()
@@ -173,7 +185,11 @@ def confirm_loan_document_check(*, actor: Model, document_id: str, note: str) ->
             action="loan.document_check_confirmed",
             target_type="LoanDocument",
             target_id=str(document.id),
-            metadata={"loan_id": str(document.loan_id), "note": note},
+            metadata={
+                "loan_id": str(document.loan_id),
+                "note": note,
+                "content_sha256": str(document.stored_file.checksum_sha256),
+            },
         )
     )
     return document
@@ -197,6 +213,7 @@ def document_payload(document: LoanDocument) -> dict[str, Any]:
         else None,
         "check_note": document.scan_note,
         "size_bytes": int(document.stored_file.size_bytes),
+        "checksum_sha256": str(document.stored_file.checksum_sha256),
     }
 
 

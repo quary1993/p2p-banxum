@@ -13,6 +13,11 @@ from backend.apps.accounts_auth.api.serializers import mask_phone_number
 
 def test_the_mask_keeps_only_the_country_code_and_the_last_two_digits() -> None:
     assert mask_phone_number("+41791234567") == "+41 ••• ••• •• 67"
+    # Country codes have one, two or three digits (re-audit 2).
+    assert mask_phone_number("+359881234567") == "+359 ••• ••• •• 67"
+    assert mask_phone_number("+4236601234") == "+423 ••• ••• •• 34"
+    assert mask_phone_number("+12025550147") == "+1 ••• ••• •• 47"
+    assert mask_phone_number("+447911123456") == "+44 ••• ••• •• 56"
     assert mask_phone_number("") == ""
     assert mask_phone_number("12") == ""
 

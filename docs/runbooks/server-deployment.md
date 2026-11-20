@@ -16,14 +16,16 @@ The server also runs unrelated trading bots. BANXUM deployment must remain isola
   1. It builds the images.
   2. It runs `check --deploy` of the new release in a one-shot `backend` container. The
      previous release keeps serving. If the check fails, nothing changes.
-  3. It takes a database backup with `infra/deploy/backup_postgres.sh`. The off-site settings
+  3. It stops the previous `backend` container. The backend is the only writer (the cron
+     jobs run inside it), so the backup that follows is the exact cut-off, and old code never
+     runs on the new schema. The API is not available from here until the new release starts
+     (about 20 seconds of migrations in the rehearsal of 2026-11-20, plus the backup time).
+  4. It takes a database backup with `infra/deploy/backup_postgres.sh`. The off-site settings
      come from `/etc/banxum/<target>-backup.env` when that file exists and the deploy user can
      read it. Otherwise the dump stays in `/opt/banxum/<environment>/backups`. If the backup
-     fails, nothing changes.
-  4. It stops the previous `backend` container, so that old code never runs on the new
-     schema. Then it runs `migrate` in a one-shot container (`MIGRATION_TIMEOUT_SECONDS`,
-     default 1800). The API is not available during this step (about 20 seconds in the
-     rehearsal of 2026-11-20).
+     fails, the workflow starts the previous backend again and stops; nothing changed.
+     Then it runs `migrate` in a one-shot container (`MIGRATION_TIMEOUT_SECONDS`, default
+     1800).
   5. Only after a successful migration does it start the new release and wait up to five
      minutes for the health check.
 - If the migration fails before it applies any migration, the workflow starts the previous
