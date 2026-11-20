@@ -1023,6 +1023,8 @@ Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.3 ("Status 2026-11-19"
 | Public site, D-10 | Anonymous asset name per security; footer links to the kept pages. |
 | D-11 | Kept functions in the U33 screens; the ZIP evidence package of offered statements kept. |
 
+Audit step 2 fixes (2026-11-20): the Transactions page and CSV have no row cap; exchanges show the source balance after the debit; monthly statements are generated with system authority, a failure opens a task; C03 before the resale page limit; Zurich year boundaries in the Reports summary; the PDF reader cancels stale drawings; SIX v3 concatenation rows and full replacement of the master; 15 rows by default. Details in `IMPLEMENTATION_PLAN.md` 18.3 ("Audit step 2 fixes").
+
 ### Implemented In Audit Step 3 (2026-11-19, Phase 18.4)
 
 Branch `u33-17-2`; details in `IMPLEMENTATION_PLAN.md` 18.4 ("Status 2026-11-19") and `plan/10_payments_ledger_custody.md` PAY-DEC-017.
