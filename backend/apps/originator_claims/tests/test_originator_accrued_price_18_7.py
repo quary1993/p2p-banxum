@@ -386,18 +386,25 @@ def test_an_admin_records_a_borrower_payment_during_the_offer(
     )
     client = Client()
     client.force_login(cast(Any, admin_user))
-    response = client.post(
-        f"/api/v1/originator-claims/admin/loans/{result.loan.id}/offer-failed/",
-        {"cause": "payment"},
-        content_type="application/json",
-    )
+    url = f"/api/v1/originator-claims/admin/loans/{result.loan.id}/offer-failed/"
+    evidence = {
+        "cause": "payment",
+        "payment_reference": "LO-PAY-6",
+        "value_date": today.isoformat(),
+        "amount_minor": 210_000,
+        "evidence_reference": "Originator report 2026-11",
+    }
+    # Audit step 6 (D3): the payment is recorded with its evidence, not as a bare assertion.
+    bare = client.post(url, {"cause": "payment"}, content_type="application/json")
+    assert bare.status_code == 400
+    response = client.post(url, evidence, content_type="application/json")
     assert response.status_code == 200, response.json()
     assert response.json()["opportunity_status"] == "cancelled"
-    again = client.post(
-        f"/api/v1/originator-claims/admin/loans/{result.loan.id}/offer-failed/",
-        {"cause": "payment"},
-        content_type="application/json",
-    )
+    cancellation = import_module(
+        "backend.apps.originator_claims.models"
+    ).OriginatorSubscriptionCancellation.objects.get(loan_profile_id=result.profile.pk)
+    assert cancellation.metadata["failure_evidence"]["payment_reference"] == "LO-PAY-6"
+    again = client.post(url, evidence, content_type="application/json")
     assert again.status_code == 400
 
 

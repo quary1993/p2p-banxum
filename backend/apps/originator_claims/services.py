@@ -269,6 +269,8 @@ class CancelOriginatorSubscriptionCommand:
     # 18.7 (F04): the offer failed because of a borrower payment or a due date before the
     # settlement; the "condition met" guard does not apply and the round never reopens.
     offer_failed: bool = False
+    # Audit step 6 (D3): the evidence of a borrower payment that failed the offer.
+    failure_evidence: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -3664,6 +3666,7 @@ def cancel_originator_subscription(
             "Originator subscription committed principal must be zero after cancellation."
         )
     cancellation_metadata = {
+        **({"failure_evidence": command.failure_evidence} if command.failure_evidence else {}),
         "loan_id": str(loan.id),
         "released_principal_minor": released_principal,
         "released_order_ids": released_ids,
@@ -3785,7 +3788,12 @@ OFFER_FAILED_DUE_DATE = "due_date"
 
 
 def fail_originator_offer_if_needed(
-    *, actor: Model, loan_id: str, cause: str, as_of_date: date
+    *,
+    actor: Model,
+    loan_id: str,
+    cause: str,
+    as_of_date: date,
+    evidence: dict[str, Any] | None = None,
 ) -> OriginatorSubscriptionCancellation | None:
     """18.7 (F04): a borrower payment on the claim or a due date before the settlement fails
     an offer priced with accrued interest. Every participation is cancelled, the reserved money
@@ -3802,6 +3810,11 @@ def fail_originator_offer_if_needed(
         return None
     if str(profile.loan.status) not in {"published", "funded", "funding_close_failed"}:
         return None
+    if cause == OFFER_FAILED_PAYMENT and not evidence:
+        # Audit step 6 (D3): a payment that fails an offer is recorded with its bank evidence.
+        raise OriginatorClaimsValidationError(
+            "Record the payment's reference, value date, amount and evidence reference."
+        )
     if cause == OFFER_FAILED_PAYMENT:
         reason = "Offer failed: the borrower paid on the claim before the settlement."
     else:
@@ -3827,6 +3840,7 @@ def fail_originator_offer_if_needed(
             investor_message=message,
             idempotency_key=f"originator-offer-failed:{loan_id}",
             offer_failed=True,
+            failure_evidence=evidence,
         )
     )
 

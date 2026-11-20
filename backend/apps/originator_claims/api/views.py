@@ -415,12 +415,22 @@ class OriginatorOfferFailedView(APIView):
     def post(self, request: Request, loan_id: Any) -> Response:
         serializer = OriginatorOfferFailedRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
         try:
+            if data["value_date"] > business_date(now_utc()):
+                raise OriginatorClaimsValidationError("The value date cannot be in the future.")
             evidence = fail_originator_offer_if_needed(
                 actor=_actor(request),
                 loan_id=str(loan_id),
                 cause=OFFER_FAILED_PAYMENT,
                 as_of_date=business_date(now_utc()),
+                evidence={
+                    "payment_reference": str(data["payment_reference"]).strip(),
+                    "value_date": data["value_date"].isoformat(),
+                    "amount_minor": int(data["amount_minor"]),
+                    "evidence_reference": str(data["evidence_reference"]).strip(),
+                    "recorded_by_admin_id": str(_actor(request).pk),
+                },
             )
             if evidence is None:
                 raise OriginatorClaimsValidationError(

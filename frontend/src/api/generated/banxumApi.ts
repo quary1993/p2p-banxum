@@ -5892,6 +5892,13 @@ export const OriginatorLoanReplacePricingRuleEnum = {
  */
 export interface OriginatorOfferFailedRequest {
   cause?: CauseEnum;
+  /** @maxLength 128 */
+  payment_reference: string;
+  value_date: string;
+  /** @minimum 1 */
+  amount_minor: number;
+  /** @maxLength 255 */
+  evidence_reference: string;
 }
 
 export interface OriginatorSettlementQueueRow {
@@ -29894,7 +29901,7 @@ export const getOriginatorClaimsAdminLoansOfferFailedUrl = (loanId: string,) => 
  * 18.7 (F04): an admin records that the borrower paid on the claim during the offer.
  */
 export const originatorClaimsAdminLoansOfferFailed = async (loanId: string,
-    originatorOfferFailedRequest?: OriginatorOfferFailedRequest, options?: Parameters<typeof httpClient>[1]): Promise<OriginatorLoanProfileResponse> => {
+    originatorOfferFailedRequest: OriginatorOfferFailedRequest, options?: Parameters<typeof httpClient>[1]): Promise<OriginatorLoanProfileResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -29945,9 +29952,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type OriginatorClaimsAdminLoansOfferFailedMutationResult = NonNullable<Awaited<ReturnType<typeof originatorClaimsAdminLoansOfferFailed>>>
-    export type OriginatorClaimsAdminLoansOfferFailedMutationBody = OriginatorOfferFailedRequest | undefined
+    export type OriginatorClaimsAdminLoansOfferFailedMutationBody = OriginatorOfferFailedRequest
     export type OriginatorClaimsAdminLoansOfferFailedMutationError = unknown
-    export type OriginatorClaimsAdminLoansOfferFailedMutationVariables = {loanId: string;data?: OriginatorOfferFailedRequest}
+    export type OriginatorClaimsAdminLoansOfferFailedMutationVariables = {loanId: string;data: OriginatorOfferFailedRequest}
 
     export const useOriginatorClaimsAdminLoansOfferFailed = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof originatorClaimsAdminLoansOfferFailed>>, TError,OriginatorClaimsAdminLoansOfferFailedMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}

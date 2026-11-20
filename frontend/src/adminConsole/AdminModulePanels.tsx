@@ -3905,6 +3905,11 @@ function OriginatorLoanManageModal({
   const cancellationMutation = useOriginatorClaimsAdminLoansSubscriptionCancel({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   // 18.7 (F04): the borrower paid on the claim during the offer; the offer fails.
   const offerFailedMutation = useOriginatorClaimsAdminLoansOfferFailed({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  // Audit step 6 (D3): the bank evidence of the borrower payment that fails the offer.
+  const [failedPaymentReference, setFailedPaymentReference] = useState("");
+  const [failedValueDate, setFailedValueDate] = useState(businessDate);
+  const [failedAmount, setFailedAmount] = useState("");
+  const [failedEvidence, setFailedEvidence] = useState("");
   const holdMutation = useOriginatorClaimsAdminLoansHold({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const resumeMutation = useOriginatorClaimsAdminLoansSubscriptionResume({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({
@@ -4061,7 +4066,13 @@ function OriginatorLoanManageModal({
       {action === "edit" && detail ? <OriginatorLoanCreateForm detail={detail} loanId={loan.id} originators={originators} onCreated={() => { void detailQuery.refetch(); onChanged(); setAction("menu"); }} /> : null}
       {action === "offer_failed" ? (
         <div className="admin-form-panel">
-          <OperationConfirmButton confirmLabel="The offer failed" description="Record that the borrower paid on the claim before the settlement (F04). All participations are cancelled, the reservations are released and the investors get an email. This cannot be undone." details={[{ label: "Loan", value: loan.title }, { label: "Reserved principal", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }]} onConfirm={() => { if (isFixturePreview) { setPreview("The offer would fail and every reservation would be released."); return; } offerFailedMutation.mutate({ loanId: loan.id, data: { cause: "payment" } }); }} title="Borrower paid during the offer" variant="danger">Review and record</OperationConfirmButton>
+          <FieldGrid>
+            <TextInput label="Payment reference" onChange={setFailedPaymentReference} required value={failedPaymentReference} />
+            <TextInput label="Value date" onChange={setFailedValueDate} required type="date" value={failedValueDate} />
+            <MoneyMinorInput currency={loan.currency} label="Amount paid" onChange={setFailedAmount} required value={failedAmount} />
+            <TextInput hint="The originator's report or the bank statement line." label="Evidence reference" onChange={setFailedEvidence} required value={failedEvidence} />
+          </FieldGrid>
+          <OperationConfirmButton confirmLabel="The offer failed" description="Record that the borrower paid on the claim before the settlement (F04). All participations are cancelled, the reservations are released and the investors get an email. This cannot be undone." details={[{ label: "Loan", value: loan.title }, { label: "Reserved principal", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }]} onConfirm={() => { if (isFixturePreview) { setPreview("The offer would fail and every reservation would be released."); return; } offerFailedMutation.mutate({ loanId: loan.id, data: { cause: "payment", payment_reference: failedPaymentReference, value_date: failedValueDate, amount_minor: intValue(failedAmount), evidence_reference: failedEvidence } }); }} title="Borrower paid during the offer" variant="danger">Review and record</OperationConfirmButton>
         </div>
       ) : null}
       {action === "publish" && accruedPrice ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts reservations of the principal plus its accrued interest until the deadline. The price is fixed for the planned settlement day; investors receive the next payment. A due date or a borrower payment before the settlement makes the offer fail." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Planned settlement", value: formatDate(accruedPrice.price_reference_date) }, { label: "Next due date", value: formatDate(accruedPrice.next_due_date) }, { label: "Convention", value: accruedPrice.interest_convention_label }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}

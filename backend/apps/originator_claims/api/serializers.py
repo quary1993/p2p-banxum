@@ -339,6 +339,11 @@ class OriginatorOfferFailedRequestSerializer(serializers.Serializer[dict[str, ob
     """18.7 (F04): the borrower paid on the claim before the settlement."""
 
     cause = serializers.ChoiceField(choices=["payment"], default="payment")
+    # Audit step 6 (D3): the bank evidence of the borrower payment.
+    payment_reference = serializers.CharField(max_length=128)
+    value_date = serializers.DateField()
+    amount_minor = serializers.IntegerField(min_value=1)
+    evidence_reference = serializers.CharField(max_length=255)
 
 
 class OriginatorLoanHoldSerializer(serializers.Serializer[dict[str, object]]):

@@ -7735,6 +7735,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/OriginatorOfferFailedRequest'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -20177,6 +20178,23 @@ components:
           allOf:
           - $ref: '#/components/schemas/CauseEnum'
           default: payment
+        payment_reference:
+          type: string
+          maxLength: 128
+        value_date:
+          type: string
+          format: date
+        amount_minor:
+          type: integer
+          minimum: 1
+        evidence_reference:
+          type: string
+          maxLength: 255
+      required:
+      - amount_minor
+      - evidence_reference
+      - payment_reference
+      - value_date
     OriginatorOfferPrice:
       type: object
       description: 18.7 price facts of a Loan Originator offer (principal + accrued
