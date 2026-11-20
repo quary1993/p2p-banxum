@@ -487,6 +487,10 @@ class LoanSecurity(TimestampedModel):
     is_main = models.BooleanField(default=False)
     # F16: the value counts in the loan-to-value. Excluding is not releasing.
     counts_in_ltv = models.BooleanField(default=False)
+    # Audit S1-3 (C06): a stable identifier of the asset (land register parcel, serial or chassis
+    # number, ISIN or securities account, account IBAN, inventory location), stored normalized.
+    # The same asset is never counted twice in the loan-to-value.
+    asset_reference = models.CharField(max_length=160, blank=True, default="")
     # F16: a valuation made in another currency than the loan's: its amount, the rate to the loan
     # currency and the rate date. ``value_minor`` is then the converted value (no FX for investors).
     valuation_currency = models.CharField(max_length=3, blank=True, default="")
@@ -499,6 +503,13 @@ class LoanSecurity(TimestampedModel):
     class Meta:
         ordering = ["position", "created_at", "id"]
         constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "asset_reference"],
+                condition=models.Q(counts_in_ltv=True)
+                & ~models.Q(asset_reference="")
+                & ~models.Q(status="released"),
+                name="loan_security_counted_asset_unique",
+            ),
             models.UniqueConstraint(
                 fields=["loan", "position"], name="unique_loan_security_position"
             ),

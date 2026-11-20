@@ -7,10 +7,12 @@ from importlib import import_module
 from typing import Any, cast
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.db.models import Model
 from django.test import Client
 
 from backend.apps.loans.models import CollateralType, Loan, LoanSecurity
+from backend.apps.loans.securities import normalized_asset_reference
 from backend.apps.loans.services import (
     LoanValidationError,
     PublishLoanCommand,
@@ -35,6 +37,14 @@ def _client(user: Model) -> Client:
 def _url(loan: Loan, security_id: str = "") -> str:
     base = f"/api/v1/loans/admin/loans/{loan.pk}/securities/"
     return f"{base}{security_id}/" if security_id else base
+
+
+def _with_reference(loan: Loan, reference: str = "LAND REGISTER 4521") -> None:
+    """Audit S1-3: the first security (mirrored from the loan form) gets its asset reference, so
+    a second counted asset can be added."""
+    LoanSecurity.objects.filter(loan=loan, position=0).update(
+        asset_reference=normalized_asset_reference(reference)
+    )
 
 
 def _add(user: Model, loan: Loan, **data: Any) -> Any:
@@ -133,8 +143,11 @@ def test_a_wrong_security_is_removed_from_a_draft_only_and_a_loan_keeps_one(
     admin_user: Model,
 ) -> None:
     loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    _with_reference(loan)
     first = LoanSecurity.objects.get(loan=loan)
-    extra = _add(admin_user, loan, security_type="equipment", value_minor=400_00).json()
+    extra = _add(
+        admin_user, loan, security_type="equipment", value_minor=400_00, asset_reference="SN 77"
+    ).json()
 
     assert _client(admin_user).delete(_url(loan, str(first.id))).status_code == 204
     assert _client(admin_user).delete(_url(loan, extra["id"])).status_code == 400
@@ -225,7 +238,10 @@ def test_moving_changes_the_order_and_the_main_security_gives_the_summary(
     """C06: the order is for display; the admin chooses the main security; the loan's value (the
     loan-to-value basis) is the sum of the counted assets (F16)."""
     loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
-    extra = _add(admin_user, loan, security_type="equipment", value_minor=900_00).json()
+    _with_reference(loan)
+    extra = _add(
+        admin_user, loan, security_type="equipment", value_minor=900_00, asset_reference="SN 900"
+    ).json()
     listed = _client(admin_user).get(_url(loan)).json()
     assert listed["borrower_documents"] == []
     assert [item["is_main"] for item in listed["securities"]] == [True, False]
@@ -265,15 +281,18 @@ def test_moving_changes_the_order_and_the_main_security_gives_the_summary(
     assert "fixed" in fixed.json()["detail"]
 
 
-
 def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) -> None:
     """F16: guarantees never count, receivables only when the admin says so, a valuation in another
     currency counts converted, excluding is not releasing, and the main security is not released
     while another one is in force."""
     loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    _with_reference(loan)
     [real_estate] = LoanSecurity.objects.filter(loan=loan)
     guarantee = _add(
-        admin_user, loan, security_type="personal_guarantee", holder_name="A. Owner",
+        admin_user,
+        loan,
+        security_type="personal_guarantee",
+        holder_name="A. Owner",
         counts_in_ltv=True,
     )
     assert guarantee.status_code == 400
@@ -288,6 +307,7 @@ def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) 
         valuation_amount_minor=1000_00,
         valuation_fx_rate="0.95000000",
         valuation_fx_rate_date="2026-11-02",
+        asset_reference="CNC mill serial 8812",
     )
     assert euro_equipment.status_code == 201, euro_equipment.content
     assert euro_equipment.json()["value_minor"] == 950_00
@@ -297,7 +317,12 @@ def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) 
 
     counted = _client(admin_user).put(
         _url(loan, receivables["id"]),
-        data={"security_type": "receivables", "value_minor": 500_00, "counts_in_ltv": True},
+        data={
+            "security_type": "receivables",
+            "value_minor": 500_00,
+            "counts_in_ltv": True,
+            "asset_reference": "Claim against Kunde AG",
+        },
         content_type="application/json",
     )
     assert counted.status_code == 200, counted.content
@@ -331,9 +356,7 @@ def test_ltv_assets_follow_the_type_the_flag_and_the_release(admin_user: Model) 
     assert "Receivables" in invoices.json()["detail"]
     with pytest.raises(LoanValidationError, match="several securities"):
         update_loan(
-            UpdateLoanCommand(
-                actor=admin_user, loan_id=str(loan.pk), collateral_value_minor=1_00
-            )
+            UpdateLoanCommand(actor=admin_user, loan_id=str(loan.pk), collateral_value_minor=1_00)
         )
 
 
@@ -374,7 +397,58 @@ def test_the_public_site_shows_the_anonymous_asset_name_of_the_main_security(
     assert response.json()["public_name"] == "Residential building in Biel"
     publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.pk)))
     public = import_module("backend.apps.marketplace_primary.public_site")
-    [project] = [
-        item for item in public.list_public_projects() if item["loan_id"] == str(loan.pk)
-    ]
+    [project] = [item for item in public.list_public_projects() if item["loan_id"] == str(loan.pk)]
     assert project["security_public_name"] == "Residential building in Biel"
+
+
+def test_one_asset_never_counts_twice_in_the_loan_to_value(admin_user: Model) -> None:
+    """Audit S1-3 (C06): several counted assets need distinct asset references; the database
+    refuses a duplicate too; publication checks older data."""
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    missing = _add(admin_user, loan, security_type="equipment", value_minor=400_00)
+    assert missing.status_code == 400 and "asset reference" in missing.json()["detail"]
+    _with_reference(loan, "land register  4521 ")
+    duplicate = _add(
+        admin_user,
+        loan,
+        security_type="real_estate",
+        value_minor=400_00,
+        asset_reference="Land Register 4521",
+    )
+    assert duplicate.status_code == 400 and "already counts" in duplicate.json()["detail"]
+    # Not counted: no reference needed, and the value stays out of the loan-to-value.
+    excluded = _add(
+        admin_user, loan, security_type="equipment", value_minor=400_00, counts_in_ltv=False
+    )
+    assert excluded.status_code == 201, excluded.content
+    with pytest.raises(IntegrityError), transaction.atomic():
+        LoanSecurity.objects.create(
+            loan=loan,
+            position=9,
+            security_type="real_estate",
+            value_minor=1_00,
+            counts_in_ltv=True,
+            asset_reference="LAND REGISTER 4521",
+        )
+    # Older data: two counted rows without references stop the publication.
+    LoanSecurity.objects.filter(loan=loan).update(asset_reference="", counts_in_ltv=True)
+    with pytest.raises(LoanValidationError, match="asset reference"):
+        publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.pk)))
+
+
+def test_a_value_that_differs_from_the_converted_valuation_is_refused(admin_user: Model) -> None:
+    """Audit step 1 D4: value_minor and a foreign valuation that disagree are ambiguous."""
+    loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    _with_reference(loan)
+    refused = _add(
+        admin_user,
+        loan,
+        security_type="equipment",
+        value_minor=1_00,
+        valuation_currency="EUR",
+        valuation_amount_minor=1000_00,
+        valuation_fx_rate="0.95000000",
+        valuation_fx_rate_date="2026-11-02",
+        asset_reference="SN 5",
+    )
+    assert refused.status_code == 400 and "leave it empty" in refused.json()["detail"]

@@ -509,6 +509,8 @@ class LoanSecuritySerializer(serializers.Serializer[Any]):
     is_main = serializers.BooleanField()
     # F16: its value counts in the loan-to-value (the loan's collateral value is the sum).
     counts_in_ltv = serializers.BooleanField()
+    # Audit S1-3: the asset's stable identifier (one asset never counts twice).
+    asset_reference = serializers.CharField(allow_blank=True)
     # F16: a valuation in another currency (value_minor is then the converted value).
     valuation_currency = serializers.CharField(allow_blank=True)
     valuation_amount_minor = serializers.IntegerField(allow_null=True)
@@ -569,6 +571,9 @@ class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
     )
     # F16: omitted keeps the current choice; a new security takes the default of its type.
     counts_in_ltv = serializers.BooleanField(required=False, allow_null=True, default=None)
+    asset_reference = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=160
+    )
     valuation_currency = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=3
     )

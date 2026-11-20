@@ -6518,6 +6518,8 @@ type SecurityDraft = {
   documentIds: string[];
   // F16: null keeps the server's choice (a new security takes the default of its type).
   countsInLtv: boolean | null;
+  // Audit S1-3: the asset's stable identifier (one asset never counts twice).
+  assetReference: string;
   valuationCurrency: string;
   valuationAmount: string;
   valuationFxRate: string;
@@ -6544,6 +6546,7 @@ function securityDraft(security?: LoanSecurity): SecurityDraft {
     limit: text(security?.undertaking_limit_minor),
     documentIds: (security?.documents ?? []).map((document) => document.id),
     countsInLtv: security ? security.counts_in_ltv : null,
+    assetReference: security?.asset_reference ?? "",
     valuationCurrency: security?.valuation_currency ?? "",
     valuationAmount: text(security?.valuation_amount_minor),
     valuationFxRate: security?.valuation_fx_rate ?? "",
@@ -6562,7 +6565,8 @@ function securityRequest(draft: SecurityDraft, loanCurrency: string): LoanSecuri
     holder_name: draft.holderName.trim(),
     rank: draft.rank.trim() ? intValue(draft.rank) : null,
     status: draft.status,
-    value_minor: guarantee ? null : amount(draft.value),
+    // A foreign valuation: the server calculates the value in the loan currency (audit step 1 D4).
+    value_minor: guarantee || foreign ? null : amount(draft.value),
     valuation_date: guarantee || !draft.valuationDate ? null : draft.valuationDate,
     valuation_source: guarantee ? "" : draft.valuationSource.trim(),
     appraiser: guarantee ? "" : draft.appraiser.trim(),
@@ -6572,6 +6576,7 @@ function securityRequest(draft: SecurityDraft, loanCurrency: string): LoanSecuri
     undertaking_limit_minor: guarantee ? amount(draft.limit) : null,
     document_ids: draft.documentIds,
     counts_in_ltv: guarantee ? false : draft.countsInLtv,
+    asset_reference: guarantee ? "" : draft.assetReference.trim(),
     valuation_currency: foreign ? draft.valuationCurrency : "",
     valuation_amount_minor: foreign ? amount(draft.valuationAmount) : null,
     valuation_fx_rate: foreign && draft.valuationFxRate.trim() ? draft.valuationFxRate.trim() : null,
@@ -6738,6 +6743,12 @@ function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }
                 <input checked={countsInLtv} onChange={(event) => set({ countsInLtv: event.target.checked })} type="checkbox" />
                 Counts in the loan-to-value (a documented valuation of a distinct asset)
               </label>
+              <TextInput
+                hint="Land register number, serial or chassis number, ISIN or securities account. Needed when several assets count in the loan-to-value; the same asset never counts twice."
+                label="Asset reference"
+                onChange={(value) => set({ assetReference: value })}
+                value={draft.assetReference}
+              />
             </FieldGrid>
           )}
           <fieldset className="col gap-8 admin-security-documents">

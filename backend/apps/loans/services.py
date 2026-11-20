@@ -1760,6 +1760,10 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
+    # Audit S1-3 (C06): one asset never counts twice in the loan-to-value.
+    asset_problems = import_module("backend.apps.loans.securities").counted_asset_problems(loan)
+    if asset_problems:
+        raise LoanValidationError(" ".join(asset_problems))
     # 18.10 (Q13): every kept security has its documents and a named verification.
     proofs = import_module("backend.apps.loans.security_proofs")
     try:

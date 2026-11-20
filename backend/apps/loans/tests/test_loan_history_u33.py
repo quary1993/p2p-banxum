@@ -30,10 +30,11 @@ def _history(user: Model, loan: Loan) -> Any:
 
 def test_the_history_merges_events_and_changes_newest_first(admin_user: Model) -> None:
     loan = create_loan(_loan_command(admin_user, _borrower(admin_user)))
+    loan.securities.filter(position=0).update(asset_reference="LAND REGISTER 4521")
     client = _client(admin_user)
     added = client.post(
         f"/api/v1/loans/admin/loans/{loan.pk}/securities/",
-        data={"security_type": "equipment", "value_minor": 400_00},
+        data={"security_type": "equipment", "value_minor": 400_00, "asset_reference": "SN 1"},
         content_type="application/json",
     )
     assert added.status_code == 201, added.content

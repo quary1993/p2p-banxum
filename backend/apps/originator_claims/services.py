@@ -2203,6 +2203,10 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             )
         if uses_accrued_interest_price(profile):
             _check_accrued_offer_can_publish(profile, publication_date=publication_date)
+    # Audit S1-3 (C06): one asset never counts twice in the loan-to-value.
+    asset_problems = import_module("backend.apps.loans.securities").counted_asset_problems(loan)
+    if asset_problems:
+        raise OriginatorClaimsValidationError(" ".join(asset_problems))
     # 18.10 (Q13): every kept security has its documents and a named verification.
     proofs: Any = import_module("backend.apps.loans.security_proofs")
     try:

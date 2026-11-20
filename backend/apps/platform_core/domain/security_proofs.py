@@ -60,6 +60,7 @@ ESSENTIAL_FIELDS = (
     "undertaking_scope",
     "undertaking_limit_minor",
     "document_ids",
+    "asset_reference",
 )
 
 

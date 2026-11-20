@@ -17331,6 +17331,8 @@ components:
           type: boolean
         counts_in_ltv:
           type: boolean
+        asset_reference:
+          type: string
         valuation_currency:
           type: string
         valuation_amount_minor:
@@ -17349,6 +17351,7 @@ components:
             $ref: '#/components/schemas/LoanSecurityDocument'
       required:
       - appraiser
+      - asset_reference
       - counts_in_ltv
       - description
       - documents
@@ -17484,6 +17487,10 @@ components:
         counts_in_ltv:
           type: boolean
           nullable: true
+        asset_reference:
+          type: string
+          default: ''
+          maxLength: 160
         valuation_currency:
           type: string
           default: ''

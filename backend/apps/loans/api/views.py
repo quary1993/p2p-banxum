@@ -441,6 +441,7 @@ def _security_command(request: Request, loan_id: str, security_id: str | None) -
         valuation_amount_minor=data["valuation_amount_minor"],
         valuation_fx_rate=data["valuation_fx_rate"],
         valuation_fx_rate_date=data["valuation_fx_rate_date"],
+        asset_reference=data["asset_reference"],
     )
 
 

@@ -271,7 +271,7 @@ test("a draft's securities move up or down and show the borrower documents they 
   fireEvent.click(counts);
   fireEvent.click(screen.getByRole("button", { name: "Save security" }));
   await waitFor(() => expect(saves[0]?.document_ids).toEqual(["d1", "d2"]));
-  expect(saves[0]).toMatchObject({ counts_in_ltv: false, status: "in_place", valuation_currency: "" });
+  expect(saves[0]).toMatchObject({ counts_in_ltv: false, status: "in_place", valuation_currency: "", asset_reference: "" });
 }, 20_000);
 
 test("C06: the main security is chosen explicitly and a valuation in another currency is converted", async () => {

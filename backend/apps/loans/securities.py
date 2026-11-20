@@ -79,6 +79,35 @@ class SaveLoanSecurityCommand:
     valuation_amount_minor: int | None = None
     valuation_fx_rate: Decimal | None = None
     valuation_fx_rate_date: date | None = None
+    # Audit S1-3: the asset's stable identifier (needed when several assets count in the LTV).
+    asset_reference: str = ""
+
+
+DISTINCT_ASSETS_MESSAGE = (
+    "Several assets count in the loan-to-value: enter the asset reference of each one (for "
+    "example the land register number or the serial number), so that one asset is never "
+    "counted twice."
+)
+
+
+def normalized_asset_reference(value: str) -> str:
+    return " ".join(value.split()).upper()[:160]
+
+
+def counted_asset_problems(loan: Loan) -> list[str]:
+    """Audit S1-3 (C06): two counted assets need distinct asset references."""
+    counted = list(
+        loan.securities.filter(counts_in_ltv=True)
+        .exclude(status=LoanSecurityStatus.RELEASED)
+        .values_list("asset_reference", flat=True)
+    )
+    if len(counted) < 2:
+        return []
+    if any(not reference for reference in counted):
+        return [DISTINCT_ASSETS_MESSAGE]
+    if len(set(counted)) != len(counted):
+        return ["The same asset reference counts twice in the loan-to-value."]
+    return []
 
 
 def _require_admin(actor: Model) -> None:
@@ -121,6 +150,7 @@ def security_payload(
         "undertaking_limit_minor": security.undertaking_limit_minor,
         "is_main": security.is_main,
         "counts_in_ltv": security.counts_in_ltv,
+        "asset_reference": security.asset_reference,
         "valuation_currency": security.valuation_currency,
         "valuation_amount_minor": security.valuation_amount_minor,
         "valuation_fx_rate": (
@@ -220,6 +250,13 @@ def _validated(
     value_minor = command.value_minor
     valuation = _foreign_valuation(command, loan, guarantee=guarantee)
     if valuation["valuation_currency"]:
+        # Audit step 1 D4: a value in the loan currency that differs from the converted one is
+        # ambiguous; leave it empty or send the converted value.
+        if command.value_minor is not None and command.value_minor != valuation["converted_minor"]:
+            raise LoanSecurityValidationError(
+                "The value in the loan currency is calculated from the amount and the rate; "
+                "leave it empty."
+            )
         value_minor = valuation["converted_minor"]
     if command.prior_ranking_debt_minor is not None and not value_minor:
         raise LoanSecurityValidationError("Prior-ranking debt needs the value of the asset.")
@@ -237,6 +274,23 @@ def _validated(
         raise LoanSecurityValidationError(
             "Only a security with a documented value counts in the loan-to-value."
         )
+    asset_reference = normalized_asset_reference(command.asset_reference)
+    if guarantee and asset_reference:
+        raise LoanSecurityValidationError("A guarantee has no asset reference.")
+    if counts_in_ltv and status != LoanSecurityStatus.RELEASED:
+        others = loan.securities.filter(counts_in_ltv=True).exclude(
+            status=LoanSecurityStatus.RELEASED
+        )
+        if current is not None:
+            others = others.exclude(pk=current.pk)
+        other_references = list(others.values_list("asset_reference", flat=True))
+        if other_references:
+            if not asset_reference or any(not item for item in other_references):
+                raise LoanSecurityValidationError(DISTINCT_ASSETS_MESSAGE)
+            if asset_reference in other_references:
+                raise LoanSecurityValidationError(
+                    "This asset already counts in the loan-to-value (same asset reference)."
+                )
     documents = _borrower_documents(loan)
     unknown = [item for item in command.document_ids if str(item) not in documents]
     if unknown:
@@ -250,6 +304,7 @@ def _validated(
         "status": status,
         "value_minor": value_minor,
         "counts_in_ltv": counts_in_ltv,
+        "asset_reference": asset_reference,
         "valuation_currency": valuation["valuation_currency"],
         "valuation_amount_minor": valuation["valuation_amount_minor"],
         "valuation_fx_rate": valuation["valuation_fx_rate"],
