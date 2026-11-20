@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from importlib import import_module
 from typing import Any
 
 from django.conf import settings
@@ -774,25 +775,82 @@ def create_investor_report(command: CreateInvestorReportCommand) -> dict[str, An
                 extra_filters={"currency": currency} if currency else None,
             )
         )
-        run = artifact.report_run
-        document = InvestorReportDocument.objects.create(
-            investor_user_id=command.actor.pk,
+        document = _keep_document(
+            artifact,
+            investor=command.actor,
             kind=kind,
             currency=currency,
             start_date=start_date,
             end_date=end_date,
             output_format=command.output_format,
-            filename=artifact.filename,
-            content_type=artifact.content_type,
-            content_encoding=artifact.content_encoding,
-            content=artifact.content,
-            content_sha256=str(artifact.manifest["content_sha256"]),
             issued_at=command.as_of or now_utc(),
             automatic=command.automatic,
-            report_run=run,
-            created_by_user_id=(command.audit_actor or command.actor).pk,
+            created_by=command.audit_actor or command.actor,
         )
-        _enqueue_document_ready(document, user=command.actor)
+    return report_payload(document)
+
+
+def _keep_document(
+    artifact: Any,
+    *,
+    investor: Any,
+    kind: str,
+    currency: str,
+    start_date: date,
+    end_date: date,
+    output_format: str,
+    issued_at: datetime,
+    automatic: bool,
+    created_by: Any,
+) -> InvestorReportDocument:
+    """Keep the issued file (append-only) and announce it in the app."""
+    document: InvestorReportDocument = InvestorReportDocument.objects.create(
+        investor_user_id=investor.pk,
+        kind=kind,
+        currency=currency,
+        start_date=start_date,
+        end_date=end_date,
+        output_format=output_format,
+        filename=artifact.filename,
+        content_type=artifact.content_type,
+        content_encoding=artifact.content_encoding,
+        content=artifact.content,
+        content_sha256=str(artifact.manifest["content_sha256"]),
+        issued_at=issued_at,
+        automatic=automatic,
+        report_run=artifact.report_run,
+        created_by_user_id=created_by.pk,
+    )
+    _enqueue_document_ready(document, user=investor)
+    return document
+
+
+def create_automatic_monthly_statement(
+    *, investor: Any, start_date: date, end_date: date, as_of: datetime
+) -> dict[str, Any]:
+    """Audit S2-3: the month's statement through the system path (no self-service access
+    check), kept as an automatic document."""
+    with transaction.atomic():
+        artifact = reporting.generate_investor_scheduled_statement(
+            reporting.GenerateInvestorScheduledStatementCommand(
+                participant_actor=investor,
+                start_date=start_date,
+                end_date=end_date,
+                as_of=as_of,
+            )
+        )
+        document = _keep_document(
+            artifact,
+            investor=investor,
+            kind=InvestorReportKind.MONTHLY_STATEMENT,
+            currency="",
+            start_date=start_date,
+            end_date=end_date,
+            output_format=ReportOutputFormat.PDF,
+            issued_at=as_of,
+            automatic=True,
+            created_by=investor,
+        )
     return report_payload(document)
 
 
@@ -873,13 +931,19 @@ def investor_report_summary(*, investor_user_id: str, year: int | None) -> dict[
     }
 
 
-def generate_monthly_statements(*, as_of: datetime) -> dict[str, Any]:
+MONTHLY_STATEMENT_TASK_TYPE = "InvestorMonthlyStatement"
+
+
+def generate_monthly_statements(*, as_of: datetime, actor: Any = None) -> dict[str, Any]:
     """On the 1st (and later days, idempotently): last month's statement for each investor with
-    money movements in that month. An investor without financial access is skipped."""
+    money movements in that month. Audit S2-3: generated with system authority, so an investor
+    whose access has ended still gets the statement; a failure opens one operations task per
+    investor and month (``actor`` is the scheduled-job admin who opens it)."""
     today = business_date(as_of)
     first_of_month = today.replace(day=1)
     end_date = first_of_month - timedelta(days=1)
     start_date = end_date.replace(day=1)
+    month = start_date.isoformat()[:7]
     posting_model = _model("ledger", "LedgerPosting")
     investor_ids = {
         str(owner_id)
@@ -896,29 +960,50 @@ def generate_monthly_statements(*, as_of: datetime) -> dict[str, Any]:
         ).values_list("investor_user_id", flat=True)
     )
     user_model = _model("accounts_auth", "User")
-    created = skipped = 0
+    created = 0
+    failed: list[str] = []
     for user in user_model.objects.filter(pk__in=investor_ids).exclude(
         Q(pk__in=list(existing))
     ):
         try:
-            create_investor_report(
-                CreateInvestorReportCommand(
-                    actor=user,
-                    kind=InvestorReportKind.MONTHLY_STATEMENT,
-                    start_date=start_date,
-                    end_date=end_date,
-                    automatic=True,
-                    as_of=as_of,
-                )
+            create_automatic_monthly_statement(
+                investor=user, start_date=start_date, end_date=end_date, as_of=as_of
             )
             created += 1
-        except (reporting.ReportingError, InvestorReportError, IntegrityError):
-            skipped += 1
+        except IntegrityError:
+            # A parallel run kept this month's statement first: nothing is missing.
+            continue
+        except (reporting.ReportingError, InvestorReportError) as exc:
+            failed.append(str(user.pk))
+            _open_statement_failure_task(actor=actor, investor=user, month=month, error=exc)
     return {
-        "month": start_date.isoformat()[:7],
+        "month": month,
         "statements_created": created,
-        "investors_skipped": skipped,
+        "statements_failed": len(failed),
+        "failed_investor_ids": failed,
     }
+
+
+def _open_statement_failure_task(
+    *, actor: Any, investor: Any, month: str, error: Exception
+) -> None:
+    """One operations task per investor and month; the next daily run retries the statement."""
+    if actor is None:
+        return
+    admin_ops: Any = import_module("backend.apps.admin_ops.services")
+    admin_ops.ensure_related_admin_task(
+        actor=actor,
+        task_type="reporting",
+        related_object_type=MONTHLY_STATEMENT_TASK_TYPE,
+        related_object_id=f"{investor.pk}:{month}",
+        title=f"Monthly statement {month} not generated",
+        priority="high",
+        notes=(
+            f"The automatic account statement for {month} could not be generated for investor "
+            f"{investor.pk}: {error}. The daily job retries it; close this task when the "
+            "statement is in the investor's Reports."
+        ),
+    )
 
 
 __all__ = [
@@ -927,6 +1012,7 @@ __all__ = [
     "TAX_REPORT_NOTICE",
     "CreateInvestorReportCommand",
     "InvestorReportError",
+    "create_automatic_monthly_statement",
     "create_investor_report",
     "generate_monthly_statements",
     "investor_report_bytes",

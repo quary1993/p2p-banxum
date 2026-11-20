@@ -77,10 +77,11 @@ SYSTEM_JOB_NAMES = frozenset(
         PUBLIC_SITE_RETENTION_JOB,
         ACCOUNT_SECURITY_RETENTION_JOB,
         SAVED_OPPORTUNITY_REMINDERS_JOB,
-        MONTHLY_INVESTOR_STATEMENTS_JOB,
         REVERIFICATION_NOTICES_JOB,
     }
 )
+# Audit S2-3: monthly statements are generated with system authority, but a failure opens an
+# operations task, so that job runs with the scheduled-job admin as the task's author.
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
 DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -545,9 +546,11 @@ def _account_security_retention_summary(*, as_of: datetime) -> dict[str, Any]:
     return cast(dict[str, Any], sessions.purge_account_security_history(as_of=as_of))
 
 
-def _monthly_investor_statements_summary(*, as_of: datetime) -> dict[str, Any]:
+def _monthly_investor_statements_summary(
+    *, actor: models.Model, as_of: datetime
+) -> dict[str, Any]:
     reports: Any = import_module("backend.apps.reporting.investor_reports")
-    return cast(dict[str, Any], reports.generate_monthly_statements(as_of=as_of))
+    return cast(dict[str, Any], reports.generate_monthly_statements(as_of=as_of, actor=actor))
 
 
 def _saved_opportunity_reminders_summary(*, as_of: datetime) -> dict[str, Any]:
@@ -575,13 +578,13 @@ def _execute_scheduled_job(
         return {"links_sent": len(two_factor.send_due_recovery_links())}
     if job_name == SAVED_OPPORTUNITY_REMINDERS_JOB:
         return _saved_opportunity_reminders_summary(as_of=as_of)
-    if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:
-        return _monthly_investor_statements_summary(as_of=as_of)
     if job_name == REVERIFICATION_NOTICES_JOB:
         compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
         return dict(compliance.send_reverification_notices(as_of=business_date(as_of)))
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
+    if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:
+        return _monthly_investor_statements_summary(actor=actor, as_of=as_of)
     if job_name == SETTLEMENT_CALENDAR_CHECK_JOB:
         calendars: Any = import_module("backend.apps.platform_core.services.settlement_calendar")
         return dict(calendars.check_settlement_calendars(actor=actor, as_of=as_of))

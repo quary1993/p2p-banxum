@@ -23,6 +23,7 @@ from backend.apps.platform_core.domain.time import business_date, business_timez
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.reporting.models import (
+    InvestorReportDocument,
     ReportOutputFormat,
     ReportPeriodPreset,
     ReportRedactionMode,
@@ -771,3 +772,68 @@ def test_statement_lists_money_in_first_when_entries_share_a_timestamp(
     assert rows[0]["balance"] == "1000.00"
     assert [row["amount"] for row in movements] == ["500.00", "-600.00"]
     assert [row["balance"] for row in movements] == ["1500.00", "900.00"]
+
+
+@pytest.mark.django_db
+def test_monthly_statement_is_kept_after_the_investor_loses_access(
+    admin_user: Model, investor: Model
+) -> None:
+    """Audit S2-3: a month with movements gets its automatic statement with system authority,
+    also when the investor's access ended since; a rerun creates none."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    _approve_lender(investor)
+    with freeze_time("2026-01-05T09:00:00Z"):
+        _deposit(admin_user, investor, amount_minor=1_000_00, value_date=date(2026, 1, 5))
+    # KYC is declined at re-verification before the statement job runs: no financial access.
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.filter(
+        user_id=investor.pk
+    ).update(status="declined")
+    access: Any = import_module("backend.apps.platform_core.domain.access")
+    investor.refresh_from_db()
+    assert not access.user_can_access_financial_features(investor)
+    first = reports.generate_monthly_statements(as_of=_at(date(2026, 2, 1), 6), actor=admin_user)
+    assert (first["month"], first["statements_created"], first["statements_failed"]) == (
+        "2026-01",
+        1,
+        0,
+    )
+    again = reports.generate_monthly_statements(as_of=_at(date(2026, 2, 2), 6), actor=admin_user)
+    assert (again["statements_created"], again["statements_failed"]) == (0, 0)
+    [document] = InvestorReportDocument.objects.filter(
+        investor_user_id=investor.pk, kind="monthly_statement"
+    )
+    assert (document.automatic, document.start_date) == (True, date(2026, 1, 1))
+    assert document.report_run.metadata["run_mode"] == "investor_scheduled_statement"
+    assert "statement" in _pdf_text(document).lower()
+
+
+@pytest.mark.django_db
+def test_a_failed_monthly_statement_opens_one_operations_task(
+    admin_user: Model, investor: Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S2-3: a failure is recorded as one task per investor and month; retries reuse it."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    reporting: Any = import_module("backend.apps.reporting.services")
+    _approve_lender(investor)
+    with freeze_time("2026-01-05T09:00:00Z"):
+        _deposit(admin_user, investor, amount_minor=1_000_00, value_date=date(2026, 1, 5))
+
+    def broken(_command: Any) -> Any:
+        raise reporting.ReportingValidationError("Renderer unavailable.")
+
+    monkeypatch.setattr(reporting, "generate_investor_scheduled_statement", broken)
+    for day in (1, 2):
+        summary = reports.generate_monthly_statements(
+            as_of=_at(date(2026, 2, day), 6), actor=admin_user
+        )
+        assert (summary["statements_created"], summary["failed_investor_ids"]) == (
+            0,
+            [str(investor.pk)],
+        )
+    [task] = apps.get_model("admin_ops", "AdminTask").objects.filter(
+        related_object_type="InvestorMonthlyStatement"
+    )
+    assert task.related_object_id == f"{investor.pk}:2026-01"
+    assert (task.task_type, task.priority, task.status) == ("reporting", "high", "open")
+    assert "Renderer unavailable." in task.notes
+    assert not InvestorReportDocument.objects.filter(investor_user_id=investor.pk).exists()
