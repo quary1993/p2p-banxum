@@ -636,7 +636,7 @@ class TransactionQuerySerializer(serializers.Serializer[Any]):
     date_to = serializers.DateField(required=False, allow_null=True, default=None)
     q = serializers.CharField(required=False, allow_blank=True, default="", max_length=120)
     offset = serializers.IntegerField(required=False, min_value=0, default=0)
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=15)
 
 
 class TransactionEntrySerializer(ActivityEntrySerializer):

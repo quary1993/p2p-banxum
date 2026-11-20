@@ -468,3 +468,24 @@ def test_the_transactions_page_and_its_csv_read_the_whole_history(
     assert client.get("/api/v1/investor/portal/transactions/").status_code == 200
     assert client.get("/api/v1/investor/portal/transactions/export/").status_code == 200
     assert limits == [None, None]
+
+
+@pytest.mark.django_db
+def test_the_transactions_page_has_15_rows_by_default(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """Audit S2-8: without ``limit`` the API returns the design's 15-row page."""
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    for number in range(16):
+        _declare_deposit(
+            admin_user, investor, amount_minor=100_00 + number, idempotency_key=f"s28-dep-{number}"
+        )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    page = client.get("/api/v1/investor/portal/transactions/").json()
+    assert (page["total"], len(page["entries"]), page["next_offset"]) == (16, 15, 15)
+    rest = client.get("/api/v1/investor/portal/transactions/", {"offset": 15}).json()
+    assert (len(rest["entries"]), rest["next_offset"]) == (1, None)

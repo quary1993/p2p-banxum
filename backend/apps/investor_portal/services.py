@@ -1975,7 +1975,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
 
 
 def get_investor_transactions(
-    *, actor: Model, filters: Any, offset: int = 0, limit: int = 25
+    *, actor: Model, filters: Any, offset: int = 0, limit: int = 15
 ) -> dict[str, Any]:
     """18.3: the Transactions page from the server (filters, pages, available after)."""
     investor_user_id = _require_financial_access(actor)

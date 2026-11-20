@@ -67,7 +67,8 @@ _TYPE_GROUPS = {
     "secondary_listing": "sale",
     "fx_exchange": "fx",
 }
-DEFAULT_PAGE_SIZE = 25
+# The design's Transactions page shows 15 rows (audit S2-8: the API default too).
+DEFAULT_PAGE_SIZE = 15
 MAX_PAGE_SIZE = 100
 
 

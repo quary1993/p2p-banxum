@@ -4527,7 +4527,7 @@ paths:
           type: integer
           maximum: 100
           minimum: 1
-          default: 25
+          default: 15
       - in: query
         name: offset
         schema:
@@ -4605,7 +4605,7 @@ paths:
           type: integer
           maximum: 100
           minimum: 1
-          default: 25
+          default: 15
       - in: query
         name: offset
         schema:
