@@ -315,7 +315,11 @@ jobs:
             compose exec -T postgres sh -c \
               'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -Atc "select count(*) from django_migrations"'
           }
-          applied_before=$(applied_migrations)
+          if ! applied_before=$(applied_migrations); then
+            compose start backend
+            echo "$TARGET could not read the applied migrations; nothing was changed and the previous release was started again." >&2
+            exit 5
+          fi
           # 4. The migrations run with their time limit.
           echo "Running the migrations for $TARGET..."
           if ! timeout "${MIGRATION_TIMEOUT_SECONDS:-1800}" docker compose \
