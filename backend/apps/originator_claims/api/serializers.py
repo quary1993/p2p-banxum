@@ -28,6 +28,11 @@ class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
     default_premium_fee_bps = serializers.IntegerField(
         min_value=0, max_value=10_000, required=False
     )
+    # The service accepts 1800 to the current year; the explicit bounds keep the schema the
+    # same on SQLite and PostgreSQL (CI drift on PR #1: 32767 against the int64 maximum).
+    founded_year = serializers.IntegerField(
+        min_value=1800, max_value=9999, required=False, allow_null=True
+    )
 
     class Meta:
         model = LoanOriginator

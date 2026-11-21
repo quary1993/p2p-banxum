@@ -17058,9 +17058,8 @@ components:
           type: string
         founded_year:
           type: integer
-          maximum: 9223372036854775807
-          minimum: 0
-          format: int64
+          maximum: 9999
+          minimum: 1800
           nullable: true
         about:
           type: string
