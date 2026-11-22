@@ -151,6 +151,15 @@ test("A-39: the opportunity page names the borrower and what can be invested her
       balances: () => balancesPayload([{ currency: "CHF", investableMinor: 10_050_001 }]),
       marketplaceLoans: () => [preview]
     }),
+    // U33-DEC-08: no rule means that the platform does not prefill the amount.
+    // Do not use the generated fallback here because its preferred amount is random.
+    http.get("*/api/v1/investor/smart-invest/", () => HttpResponse.json({
+      rule: null,
+      notification_channels: { in_app: true, email: true },
+      match_count: 0,
+      open_opportunity_count: 1,
+      matches: []
+    })),
     http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail()))
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}`);
