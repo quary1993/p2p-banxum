@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> "$HOME/.ssh/known_hosts"
 
-      - name: Read-only server preflight
+      - name: Read-only server and environment preflight
         env:
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
@@ -59,8 +59,18 @@ jobs:
             -p "$SSH_PORT" \
             -o BatchMode=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" "bash -s -- '${{ inputs.environment }}'" <<'REMOTE'
           set -eu
+
+          target=$1
+          case "$target" in
+            staging|production) ;;
+            *) echo "environment_target_status=invalid"; exit 2 ;;
+          esac
+
+          app_dir="/opt/banxum/$target/app"
+          env_file="$app_dir/infra/deploy/.env"
+          backup_env="/etc/banxum/$target-backup.env"
 
           echo "ssh_connection_status=ok"
           printf "remote_user=%s\n" "$(id -un)"
@@ -94,5 +104,146 @@ jobs:
           if command -v docker >/dev/null 2>&1; then
             printf "running_container_count=%s\n" "$(docker ps -q | wc -l | tr -d " ")"
             printf "banxum_container_count=%s\n" "$(docker ps -a --filter name=banxum --format "{{.ID}}" | wc -l | tr -d " ")"
+          fi
+
+          if [ ! -d "$app_dir" ]; then
+            echo "application_directory_status=missing"
+            exit 2
+          fi
+          echo "application_directory_status=present"
+
+          if [ ! -r "$env_file" ]; then
+            echo "environment_file_status=missing_or_unreadable"
+            exit 2
+          fi
+          echo "environment_file_status=readable"
+
+          # Print names and statuses only. Never print an environment value.
+          python3 - "$target" "$env_file" <<'PYTHON'
+          from __future__ import annotations
+
+          import sys
+          from pathlib import Path
+
+
+          target = sys.argv[1]
+          env_path = Path(sys.argv[2])
+
+
+          def read_env(path: Path) -> dict[str, str]:
+              values: dict[str, str] = {}
+              for raw_line in path.read_text(encoding="utf-8").splitlines():
+                  line = raw_line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  if line.startswith("export "):
+                      line = line[7:].lstrip()
+                  if "=" not in line:
+                      continue
+                  name, value = line.split("=", 1)
+                  name = name.strip()
+                  value = value.strip()
+                  if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                      value = value[1:-1]
+                  values[name] = value
+              return values
+
+
+          values = read_env(env_path)
+          required = [
+              "ENVIRONMENT",
+              "DJANGO_SECRET_KEY",
+              "AUTH_DELIVERY_SECRET_ENCRYPTION_KEY",
+              "AUTH_SECRET_DIGEST_PEPPER",
+              "DJANGO_ALLOWED_HOSTS",
+              "PUBLIC_APP_BASE_URL",
+              "POSTGRES_DB",
+              "POSTGRES_USER",
+              "POSTGRES_PASSWORD",
+              "SCHEDULED_JOBS_ACTOR_EMAIL",
+              "GARANTA_SUPERADMIN_ENABLED",
+              "GARANTA_SUPERADMIN_EMAIL",
+              "GARANTA_SUPERADMIN_PASSWORD_HASH",
+              "GARANTA_SUPERADMIN_FULL_NAME",
+              "PHONE_VERIFICATION_PROVIDER",
+              "COMMUNICATIONS_EMAIL_PROVIDER",
+              "DIDIT_SESSION_PROVIDER",
+              "DIDIT_WEBHOOK_REQUIRE_SIGNATURE",
+              "DIDIT_CALLBACK_URL",
+              "FX_RATE_PROVIDER",
+          ]
+          if target == "production":
+              required.extend(
+                  [
+                      "TWILIO_API_KEY_SID",
+                      "TWILIO_API_KEY_SECRET",
+                      "TWILIO_VERIFY_SERVICE_SID",
+                      "TWILIO_EMAIL_API_KEY_SID",
+                      "TWILIO_EMAIL_API_KEY_SECRET",
+                      "TWILIO_EMAIL_FROM_EMAIL",
+                      "DIDIT_API_KEY",
+                      "DIDIT_WORKFLOW_ID",
+                      "DIDIT_WEBHOOK_SECRET",
+                  ]
+              )
+
+          missing = sorted(name for name in required if name not in values)
+          empty = sorted(name for name in required if name in values and not values[name])
+          invalid: list[str] = []
+
+          if values.get("ENVIRONMENT") != target:
+              invalid.append("ENVIRONMENT")
+          if not values.get("PUBLIC_APP_BASE_URL", "").startswith("https://"):
+              invalid.append("PUBLIC_APP_BASE_URL")
+
+          false_values = {"0", "false", "no", "off"}
+          for name in (
+              "SESSION_COOKIE_SECURE",
+              "CSRF_COOKIE_SECURE",
+              "SECURE_SSL_REDIRECT",
+              "DJANGO_USE_X_FORWARDED_PROTO",
+          ):
+              if name in values and values[name].strip().lower() in false_values:
+                  invalid.append(name)
+          if "DJANGO_DEBUG" in values and values["DJANGO_DEBUG"].strip().lower() not in false_values:
+              invalid.append("DJANGO_DEBUG")
+          if "TRUSTED_PROXY_COUNT" in values:
+              try:
+                  if int(values["TRUSTED_PROXY_COUNT"]) < 1:
+                      invalid.append("TRUSTED_PROXY_COUNT")
+              except ValueError:
+                  invalid.append("TRUSTED_PROXY_COUNT")
+
+          if target == "production":
+              expected_providers = {
+                  "PHONE_VERIFICATION_PROVIDER": "twilio_verify",
+                  "COMMUNICATIONS_EMAIL_PROVIDER": "twilio_email",
+                  "DIDIT_SESSION_PROVIDER": "api",
+                  "FX_RATE_PROVIDER": "yahoo_finance",
+              }
+              invalid.extend(
+                  name
+                  for name, expected in expected_providers.items()
+                  if values.get(name) and values[name] != expected
+              )
+
+          invalid = sorted(set(invalid))
+          print("environment_required_missing=" + (",".join(missing) or "none"))
+          print("environment_required_empty=" + (",".join(empty) or "none"))
+          print("environment_required_invalid=" + (",".join(invalid) or "none"))
+          print("redis_settings_source=compose_internal")
+          print("secure_cookie_settings_source=application_defaults_or_safe_overrides")
+          print("proxy_settings_source=compose_defaults_or_safe_overrides")
+          if missing or empty or invalid:
+              raise SystemExit(2)
+          PYTHON
+
+          if [ ! -e "$backup_env" ]; then
+            echo "backup_environment_file_status=not_configured"
+          elif [ -r "$backup_env" ]; then
+            echo "backup_environment_file_status=readable"
+          else
+            echo "backup_environment_file_status=unreadable"
+            exit 2
           fi
           REMOTE
