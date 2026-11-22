@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.marketplace_primary import saved_opportunities
 from backend.apps.marketplace_primary.api.serializers import (
     MarketplaceBorrowerDocumentDownloadSerializer,
     MarketplaceLoanDetailSerializer,
@@ -27,13 +28,14 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryLoanCloseSerializer,
     PrimaryLoanExpiryScanRequestSerializer,
     PrimaryLoanExpiryScanResponseSerializer,
-    PrimaryOrderBatchRequestSerializer,
-    PrimaryOrderBatchResponseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
     PublicOriginatorSerializer,
     PublicProjectListQuerySerializer,
     PublicProjectSerializer,
     PublicStatisticsSerializer,
+    SavedOpportunityListSerializer,
+    SavedOpportunityRequestSerializer,
+    SavedOpportunitySerializer,
     serialize_primary_expiry_scan_result,
     serialize_primary_loan_cancellation,
     serialize_primary_loan_close,
@@ -55,8 +57,6 @@ from backend.apps.marketplace_primary.services import (
     MarketplacePrimaryOrderNotPendingError,
     MarketplacePrimarySwissInvestorLimitError,
     MarketplacePrimaryValidationError,
-    PlacePrimaryOrderBatchCommand,
-    PrimaryOrderBatchItemCommand,
     ReleasePrimaryInvestmentOrderCommand,
     ScanExpiredPrimaryFundingCommand,
     allocate_primary_order_from_balance,
@@ -65,10 +65,11 @@ from backend.apps.marketplace_primary.services import (
     create_primary_investment_order,
     download_marketplace_borrower_document,
     get_full_marketplace_loan,
+    list_coming_soon_marketplace_loans,
     list_investor_marketplace_loans,
-    place_primary_order_batch,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
+    set_loan_opening_alert,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -318,6 +319,8 @@ class PrimaryInvestmentOrderAllocateView(APIView):
                     pin=data["pin"],
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
+                    sandbox_notice_confirmed=bool(data.get("sandbox_notice_confirmed", False)),
+                    sandbox_notice_version=str(data.get("sandbox_notice_version", "")),
                 )
             )
         except SensitiveActionPinError as exc:
@@ -325,81 +328,6 @@ class PrimaryInvestmentOrderAllocateView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_order(order), status=status.HTTP_200_OK)
-
-
-class PrimaryOrderBatchView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        operation_id="marketplace_primary_orders_batch_create",
-        request=PrimaryOrderBatchRequestSerializer,
-        responses={201: PrimaryOrderBatchResponseSerializer},
-    )
-    def post(self, request: Request) -> Response:
-        serializer = PrimaryOrderBatchRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data: dict[str, Any] = serializer.validated_data
-        try:
-            result = place_primary_order_batch(
-                PlacePrimaryOrderBatchCommand(
-                    actor=cast(Model, request.user),
-                    items=[
-                        PrimaryOrderBatchItemCommand(
-                            loan_id=str(item["loan_id"]),
-                            amount_minor=int(item["amount_minor"]),
-                            quote_id=(
-                                str(item["quote_id"]) if item.get("quote_id") is not None else None
-                            ),
-                        )
-                        for item in data["items"]
-                    ],
-                    document_acceptance_id=str(data["document_acceptance_id"]),
-                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
-                    sensitive_action_code=data["sensitive_action_code"],
-                    pin=data["pin"],
-                    idempotency_key=data["idempotency_key"],
-                    ip_address=client_ip(request),
-                    user_agent=user_agent(request),
-                )
-            )
-        except SensitiveActionPinError as exc:
-            return sensitive_action_pin_error_response(exc)
-        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
-            return _error_response(exc)
-        return Response(
-            {
-                "batch_id": str(result.batch.id),
-                "currency": result.batch.currency_id,
-                "currency_totals": result.batch.currency_totals,
-                "orders": [serialize_primary_order(order) for order in result.orders],
-                "order_count": len(result.orders),
-                "originator_purchases": [
-                    {
-                        "purchase_id": str(purchase.id),
-                        "quote_id": str(purchase.quote_id),
-                        "loan_id": str(purchase.loan_profile.loan_id),
-                        "holding_id": str(purchase.holding_id),
-                        "currency": purchase.currency_id,
-                        "cash_consideration_minor": purchase.cash_consideration_minor,
-                        "assigned_principal_minor": purchase.assigned_principal_minor,
-                        "outstanding_principal_at_pricing_minor": (
-                            purchase.outstanding_principal_at_pricing_minor
-                        ),
-                        "share_ppm": purchase.share_ppm,
-                        "target_yield_bps": purchase.target_yield_bps,
-                        "purchased_at": purchase.purchased_at,
-                    }
-                    for purchase in result.originator_purchases
-                ],
-                "originator_purchase_count": len(result.originator_purchases),
-                "total_amount_minor": (
-                    int(result.batch.total_amount_minor)
-                    if result.batch.total_amount_minor is not None
-                    else None
-                ),
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class PrimaryInvestmentOrderReleaseView(APIView):
@@ -509,3 +437,92 @@ class PrimaryLoanExpiryScanView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_expiry_scan_result(result), status=status.HTTP_200_OK)
+
+
+class MarketplaceComingSoonListView(APIView):
+    """U33-DEC-17: opportunities shown before they open, by planned opening date."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: MarketplaceLoanPreviewSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = list_coming_soon_marketplace_loans(actor=actor)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class MarketplaceOpeningAlertView(APIView):
+    """U33-DEC-17: ask for (POST) or cancel (DELETE) the email at the real opening."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _answer(self, request: Request, loan_id: str, *, wanted: bool) -> Response:
+        try:
+            payload = set_loan_opening_alert(
+                actor=cast(Model, request.user), loan_id=str(loan_id), wanted=wanted
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={200: MarketplaceLoanDetailSerializer})
+    def post(self, request: Request, loan_id: str) -> Response:
+        return self._answer(request, loan_id, wanted=True)
+
+    @extend_schema(request=None, responses={200: MarketplaceLoanDetailSerializer})
+    def delete(self, request: Request, loan_id: str) -> Response:
+        return self._answer(request, loan_id, wanted=False)
+
+
+class SavedOpportunityListView(APIView):
+    """U33-DEC-18: the investor's saved opportunities, checked again now."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: SavedOpportunityListSerializer})
+    def get(self, request: Request) -> Response:
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            saved = saved_opportunities.list_saved_opportunities(actor=actor)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response({"saved": saved}, status=status.HTTP_200_OK)
+
+
+class SavedOpportunityView(APIView):
+    """U33-DEC-18: save an open opportunity (PUT, optional amount) or remove it (DELETE)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SavedOpportunityRequestSerializer, responses={200: SavedOpportunitySerializer}
+    )
+    def put(self, request: Request, loan_id: str) -> Response:
+        serializer = SavedOpportunityRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = saved_opportunities.save_opportunity(
+                actor=cast(Model, request.user),
+                loan_id=str(loan_id),
+                amount_minor=serializer.validated_data["amount_minor"],
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request, loan_id: str) -> Response:
+        try:
+            saved_opportunities.remove_saved_opportunity(
+                actor=cast(Model, request.user), loan_id=str(loan_id)
+            )
+        except MarketplacePrimaryAuthorizationError as exc:
+            return _error_response(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)

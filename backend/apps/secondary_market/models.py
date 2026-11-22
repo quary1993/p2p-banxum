@@ -117,12 +117,12 @@ class SecondaryMarketListing(TimestampedModel):
                 name="secondary_listing_current_principal_positive",
             ),
             models.CheckConstraint(
-                condition=models.Q(price_bps__gt=0),
-                name="secondary_listing_price_bps_positive",
+                condition=models.Q(price_bps__gte=0),
+                name="secondary_listing_price_bps_not_negative",
             ),
             models.CheckConstraint(
-                condition=models.Q(transfer_price_minor__gt=0),
-                name="secondary_listing_transfer_price_positive",
+                condition=models.Q(transfer_price_minor__gte=0),
+                name="secondary_listing_transfer_price_not_negative",
             ),
             models.CheckConstraint(
                 condition=models.Q(accrued_interest_minor__gte=0),
@@ -280,12 +280,12 @@ class SecondaryMarketPurchase(AppendOnlyModel, TimestampedModel):
                 name="secondary_purchase_current_principal_positive",
             ),
             models.CheckConstraint(
-                condition=models.Q(price_bps__gt=0),
-                name="secondary_purchase_price_bps_positive",
+                condition=models.Q(price_bps__gte=0),
+                name="secondary_purchase_price_bps_not_negative",
             ),
             models.CheckConstraint(
-                condition=models.Q(transfer_price_minor__gt=0),
-                name="secondary_purchase_transfer_price_positive",
+                condition=models.Q(transfer_price_minor__gte=0),
+                name="secondary_purchase_transfer_price_not_negative",
             ),
             models.CheckConstraint(
                 condition=models.Q(accrued_interest_minor__gte=0),

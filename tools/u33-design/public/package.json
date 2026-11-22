@@ -1,0 +1,11 @@
+{
+  "name": "banxum-u33-public-css",
+  "private": true,
+  "description": "Generator of frontend/src/site/u33/public.css from the U33 design package (see ../README.md).",
+  "dependencies": {
+    "playwright": "1.63.0",
+    "postcss": "8.5.32",
+    "postcss-selector-parser": "7.2.0",
+    "purgecss": "6.0.0"
+  }
+}

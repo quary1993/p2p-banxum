@@ -474,3 +474,67 @@ def test_borrower_investor_story_is_validated_and_exposed(
         "previous": "2 blocks",
         "new": "1 blocks",
     }
+
+
+@pytest.mark.django_db
+def test_borrower_city_and_employees_reach_the_investor_disclosure(admin_user: Model) -> None:
+    """U33-DEC-23: city and a dated head count are plain business facts for investors."""
+    borrower = create_borrower_entity(
+        CreateBorrowerEntityCommand(
+            actor=admin_user,
+            legal_name="Headcount Borrower AG",
+            year_founded=2012,
+            country="Switzerland",
+            city=" Basel ",
+            employees=42,
+            employees_year=2025,
+        )
+    )
+
+    assert borrower.city == "Basel"
+    disclosure = borrower_investor_disclosure(borrower)
+    assert disclosure["city"] == "Basel"
+    assert disclosure["employees"] == 42
+    assert disclosure["employees_year"] == 2025
+
+    updated = update_borrower_entity(
+        UpdateBorrowerEntityCommand(
+            actor=admin_user,
+            borrower_id=str(borrower.id),
+            employees=45,
+            employees_year=2026,
+            note="New head count.",
+        )
+    )
+    assert (updated.employees, updated.employees_year) == (45, 2026)
+
+    cleared = update_borrower_entity(
+        UpdateBorrowerEntityCommand(
+            actor=admin_user,
+            borrower_id=str(borrower.id),
+            clear_employees=True,
+            note="Head count withdrawn.",
+        )
+    )
+    assert (cleared.employees, cleared.employees_year) == (None, None)
+    assert "employees" not in borrower_investor_disclosure(cleared)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("employees", "employees_year"),
+    [(10, None), (None, 2024), (-1, 2024), (10, 1799), (10, 9999)],
+)
+def test_borrower_employees_need_a_valid_year(
+    admin_user: Model, employees: int | None, employees_year: int | None
+) -> None:
+    with pytest.raises(BorrowerValidationError):
+        create_borrower_entity(
+            CreateBorrowerEntityCommand(
+                actor=admin_user,
+                legal_name="Bad Headcount AG",
+                year_founded=2012,
+                employees=employees,
+                employees_year=employees_year,
+            )
+        )

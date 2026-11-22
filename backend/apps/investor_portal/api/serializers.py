@@ -4,7 +4,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.investor_portal.services import NOTIFICATION_TARGET_TYPES
+from backend.apps.investor_portal.services import NOTIFICATION_CATEGORIES, NOTIFICATION_TARGET_TYPES
 
 
 class PortalLimitQuerySerializer(serializers.Serializer[Any]):
@@ -26,7 +26,7 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
         )
     )
     withdraw_only_minor = serializers.IntegerField(
-        help_text="Balance on its last day (day 58 by default): it can only be withdrawn."
+        help_text="Balance on its last day (day 56): it can only be withdrawn."
     )
     overdue_minor = serializers.IntegerField(
         help_text=(
@@ -62,6 +62,8 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
 
 class BalanceLotSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
+    # 18.3: the part of this lot reserved for primary investments waiting for the closing.
+    reserved_amount_minor = serializers.IntegerField(default=0)
     currency = serializers.CharField()
     source_type = serializers.CharField()
     status = serializers.CharField()
@@ -71,24 +73,41 @@ class BalanceLotSerializer(serializers.Serializer[Any]):
         help_text="Compatibility alias of withdrawal_deadline_at, not a fixed source-age cutoff."
     )
     withdrawal_deadline_at = serializers.DateTimeField(
-        help_text="60-day legal holding limit; penalty mode can start only after this day."
+        help_text="60-day legal holding limit (day 60 after the value date)."
     )
     days_until_investment_deadline = serializers.IntegerField()
     days_until_withdrawal_deadline = serializers.IntegerField()
+    return_after_days = serializers.IntegerField(
+        help_text="Q01: the holding day this money may stay until (56; 58 for older money)."
+    )
     last_day = serializers.DateField(
         help_text=(
-            "Last Europe/Zurich day the money may stay (holding day auto_return_after_days, "
-            "58 by default). On that day it can only be withdrawn."
+            "Last Europe/Zurich day the money may stay (day 56 after the value date, earlier "
+            "when the return date moves). On that day it can only be withdrawn."
         )
     )
     return_date = serializers.DateField(
         help_text=(
-            "Day the platform returns money still not invested to the investor's verified "
-            "bank account (the day after last_day)."
+            "Day the platform starts the return of money still not invested to the "
+            "investor's verified bank account: day 57, moved to an earlier settlement day "
+            "when the calendar or the bank's processing time needs it."
         )
+    )
+    return_date_adjusted = serializers.BooleanField(
+        help_text="True when the return date moved earlier than day 57."
     )
     days_until_last_day = serializers.IntegerField(
         help_text="Days until last_day: 0 on the last day, negative once the money is due back."
+    )
+    direct_funding_until = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "F01: the latest last subscription date of a direct loan this money can fund "
+            "(close + payout margin on or before day 56); null when none fits."
+        ),
+    )
+    return_failed = serializers.BooleanField(
+        help_text="Q02: this money came back from a failed return and waits for the team."
     )
     original_amount_minor = serializers.IntegerField()
     available_amount_minor = serializers.IntegerField()
@@ -108,7 +127,19 @@ class PayoutInstructionSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     destination_iban = serializers.CharField()
     destination_account_name = serializers.CharField()
+    # 18.3: from the SIX bank master for CH and LI IBANs, else as typed by the investor; may be "".
+    bank_name = serializers.CharField(allow_blank=True, required=False, default="")
     is_verified_usable = serializers.BooleanField()
+    verification_status = serializers.ChoiceField(
+        choices=[("verified", "Verified"), ("pending", "Pending verification")],
+        help_text="U33-DEC-05: a pending account cannot be used until the team verifies it.",
+    )
+    is_default_return = serializers.BooleanField(
+        help_text=(
+            "U33-DEC-05: the account money going back to the investor's bank is sent to; "
+            "one per currency, always a verified account."
+        ),
+    )
     verified_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
 
@@ -122,10 +153,22 @@ class PendingWithdrawalSerializer(serializers.Serializer[Any]):
     requested_at = serializers.DateTimeField()
     is_forced = serializers.BooleanField(
         help_text=(
-            "Automatic return of money not invested within auto_return_after_days days, not "
-            "asked by the investor."
+            "Automatic return of money not invested in time (day 57), not asked by the "
+            "investor."
         )
     )
+
+
+class ReturnFailurePortalSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    currency = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    is_forced = serializers.BooleanField()
+    reason_code = serializers.CharField()
+    reason_text = serializers.CharField(help_text="The bank's reason, for the investor.")
+    destination_iban = serializers.CharField()
+    returned_value_date = serializers.DateField()
+    recorded_at = serializers.DateTimeField()
 
 
 class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
@@ -136,15 +179,14 @@ class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     pending_withdrawals = PendingWithdrawalSerializer(
         many=True, help_text="Withdrawal requests waiting for the bank transfer, oldest first."
     )
-    has_penalty_mode_balance = serializers.BooleanField()
-    penalty_bps_per_day = serializers.IntegerField(
-        help_text="Daily balance-ageing penalty on a balance in penalty mode, in basis points."
-    )
     auto_return_after_days = serializers.IntegerField(
         help_text=(
-            "Money still not invested goes back to the investor's bank the day after this "
-            "holding day (58 by default; the legal limit is 60)."
+            "New money may stay until this holding day (56); the return is requested the "
+            "next day or earlier. The legal limit is 60."
         )
+    )
+    return_failures = ReturnFailurePortalSerializer(
+        many=True, help_text="Q02: failed returns waiting for the team, oldest first."
     )
 
 
@@ -217,6 +259,64 @@ class InvestorDocumentDownloadResponseSerializer(serializers.Serializer[Any]):
     manifest = serializers.JSONField()
 
 
+class InvestorReportSerializer(serializers.Serializer[Any]):
+    """18.3: a report kept as issued (created by the investor or a monthly statement)."""
+
+    id = serializers.UUIDField()
+    kind = serializers.ChoiceField(
+        choices=[
+            "account_statement",
+            "portfolio",
+            "interest_repayments",
+            "tax",
+            "monthly_statement",
+        ]
+    )
+    title = serializers.CharField()
+    # Empty: EUR and CHF, reported separately.
+    currency = serializers.CharField(allow_blank=True)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    output_format = serializers.CharField()
+    filename = serializers.CharField()
+    issued_at = serializers.DateTimeField()
+    automatic = serializers.BooleanField()
+
+
+class InvestorReportsSerializer(serializers.Serializer[Any]):
+    reports = InvestorReportSerializer(many=True)
+
+
+class InvestorReportCreateRequestSerializer(serializers.Serializer[Any]):
+    kind = serializers.ChoiceField(
+        choices=["account_statement", "portfolio", "interest_repayments", "tax"]
+    )
+    # The portfolio report is always as of today; the dates are then ignored.
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    currency = serializers.ChoiceField(choices=["", "EUR", "CHF"], required=False, default="")
+    output_format = serializers.ChoiceField(choices=["pdf", "csv"], required=False, default="pdf")
+
+
+class InvestorReportSummaryQuerySerializer(serializers.Serializer[Any]):
+    # A calendar year, or "all" for every year.
+    year = serializers.CharField(required=False, default="all", max_length=4)
+
+
+class InvestorReportCurrencySummarySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    invested_minor = serializers.IntegerField()
+    principal_repaid_minor = serializers.IntegerField()
+    interest_received_minor = serializers.IntegerField()
+
+
+class InvestorReportSummarySerializer(serializers.Serializer[Any]):
+    year = serializers.IntegerField(allow_null=True)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    currencies = InvestorReportCurrencySummarySerializer(many=True)
+
+
 class InvestorNotificationSerializer(serializers.Serializer[Any]):
     id = serializers.CharField()
     notification_source = serializers.CharField()
@@ -237,6 +337,10 @@ class InvestorNotificationSerializer(serializers.Serializer[Any]):
     navigation_target_id = serializers.CharField(
         allow_blank=True,
         help_text="Loan or holding UUID for the loan and holding targets; blank otherwise.",
+    )
+    # 18.3: the design's tone (positive, late, default, neutral).
+    category = serializers.ChoiceField(
+        choices=list(NOTIFICATION_CATEGORIES), required=False, default="neutral"
     )
 
 
@@ -301,6 +405,24 @@ class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
     payment_reference = serializers.CharField(required=False, allow_blank=True)
 
 
+class HoldingReceivedPaymentSerializer(serializers.Serializer[Any]):
+    """18.3: the investor's share of one payment already received (credited to the balance)."""
+
+    # The borrower installment (direct loans); null for a Loan Originator claim payment.
+    installment_number = serializers.IntegerField(allow_null=True)
+    due_date = serializers.DateField(allow_null=True)
+    paid_on = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField()
+    fee_minor = serializers.IntegerField()
+    # Principal + interest + penalty of the investor's share.
+    total_minor = serializers.IntegerField()
+    # What was credited to the Banxum balance (the total less any fee).
+    credited_minor = serializers.IntegerField()
+    principal_after_minor = serializers.IntegerField()
+
+
 class PortfolioHoldingInstallmentSerializer(serializers.Serializer[Any]):
     loan_installment_id = serializers.UUIDField()
     schedule_version = serializers.IntegerField()
@@ -320,7 +442,6 @@ class PortfolioExposureSerializer(serializers.Serializer[Any]):
     by_borrower = ExposureBucketSerializer(many=True)
     by_country = ExposureBucketSerializer(many=True)
     by_purpose = ExposureBucketSerializer(many=True)
-    by_risk_rating = ExposureBucketSerializer(many=True)
     by_collateral_type = ExposureBucketSerializer(many=True)
     by_maturity = ExposureBucketSerializer(many=True)
     by_loan_status = ExposureBucketSerializer(many=True)
@@ -328,6 +449,8 @@ class PortfolioExposureSerializer(serializers.Serializer[Any]):
 
 class PortfolioLoanSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    # Q04: a Garanta account has a confirmed reservation or holds a participation (no amount).
+    banxum_invests = serializers.BooleanField(required=False, default=False)
     product_type = serializers.CharField()
     loan_title = serializers.CharField()
     loan_status = serializers.CharField()
@@ -341,7 +464,6 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     collateral_value_minor = serializers.IntegerField()
     collateral_description = serializers.CharField(allow_blank=True)
     skin_in_the_game_bps = serializers.IntegerField()
-    risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
@@ -361,8 +483,35 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     first_payment_date = serializers.DateField(allow_null=True)
     ltv_bps = serializers.IntegerField(allow_null=True)
     days_past_due = serializers.IntegerField()
+    # U33-DEC-09: the contract termination date recorded by Banxum (null when not terminated).
+    contract_terminated_on = serializers.DateField(allow_null=True, required=False)
     schedule_version = serializers.IntegerField()
     schedule = PortfolioInstallmentSerializer(many=True)
+
+
+class HoldingRecoveryStageSerializer(serializers.Serializer[Any]):
+    """U33-DEC-22: a real stage of the loan's follow-up, recorded by the team."""
+
+    title = serializers.CharField()
+    # Q16: with "Recovery closed": full, partial or none (empty otherwise).
+    recovery_result = serializers.CharField(allow_blank=True, required=False, default="")
+    occurred_on = serializers.DateField(
+        allow_null=True, help_text="The real date; for the next step, null when not known."
+    )
+    investor_note = serializers.CharField(allow_blank=True)
+
+
+class HoldingRecoveryEventSerializer(serializers.Serializer[Any]):
+    """U33-DEC-12: one recovery of the loan (whole-loan amounts) and the investor's share."""
+
+    recovery_event_id = serializers.UUIDField()
+    value_date = serializers.DateField()
+    gross_recovered_minor = serializers.IntegerField()
+    external_costs_minor = serializers.IntegerField()
+    # A Banxum recovery fee recorded before U33-DEC-12; 0 for every later recovery.
+    recovery_fee_minor = serializers.IntegerField()
+    net_distributed_minor = serializers.IntegerField()
+    credited_to_you_minor = serializers.IntegerField()
 
 
 class LatestPublicNoteSerializer(serializers.Serializer[Any]):
@@ -381,6 +530,8 @@ class HoldingOpenSecondaryListingSerializer(serializers.Serializer[Any]):
     seller_net_proceeds_minor = serializers.IntegerField()
     listed_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField()
+    # C03: shown as "Pending" while an installment of the loan is due and unpaid.
+    paused_for_due_installment = serializers.BooleanField()
 
 
 class HoldingSerializer(serializers.Serializer[Any]):
@@ -397,8 +548,17 @@ class HoldingSerializer(serializers.Serializer[Any]):
     received_interest_minor = serializers.IntegerField()
     received_penalty_minor = serializers.IntegerField()
     repayment_fee_minor = serializers.IntegerField()
+    received_payments = HoldingReceivedPaymentSerializer(many=True, required=False)
     investment_schedule = PortfolioHoldingInstallmentSerializer(many=True)
     acquisition_cash_consideration_minor = serializers.IntegerField(allow_null=True)
+    bought_accrued_interest_minor = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text=(
+            "18.7: accrued interest paid in the price of a Loan Originator offer; it comes back "
+            "with the next payment and is not interest earned."
+        ),
+    )
     acquisition_cash_flow = serializers.ListField(
         child=serializers.DictField(),
     )
@@ -407,6 +567,9 @@ class HoldingSerializer(serializers.Serializer[Any]):
     recovered_default_interest_minor = serializers.IntegerField()
     recovered_penalties_minor = serializers.IntegerField()
     recovered_other_costs_minor = serializers.IntegerField()
+    recovery_events = HoldingRecoveryEventSerializer(many=True, required=False)
+    recovery_stages = HoldingRecoveryStageSerializer(many=True, required=False)
+    recovery_next_step = HoldingRecoveryStageSerializer(allow_null=True, required=False)
     latest_public_note = LatestPublicNoteSerializer(allow_null=True, required=False)
     open_secondary_listing = HoldingOpenSecondaryListingSerializer(allow_null=True)
 
@@ -444,6 +607,65 @@ class ActivityEntrySerializer(serializers.Serializer[Any]):
 
 class InvestorActivitySerializer(serializers.Serializer[Any]):
     entries = ActivityEntrySerializer(many=True)
+
+
+class TransactionQuerySerializer(serializers.Serializer[Any]):
+    """18.3: server filters of the Transactions page (dates are Europe/Zurich days)."""
+
+    currency = serializers.CharField(required=False, allow_blank=True, default="", max_length=3)
+    group = serializers.ChoiceField(
+        choices=[
+            "",
+            "deposit",
+            "reservation",
+            "investment",
+            "repayment",
+            "recovery",
+            "withdrawal",
+            "return",
+            "purchase",
+            "sale",
+            "fee",
+            "fx",
+            "other",
+        ],
+        required=False,
+        default="",
+    )
+    date_from = serializers.DateField(required=False, allow_null=True, default=None)
+    date_to = serializers.DateField(required=False, allow_null=True, default=None)
+    q = serializers.CharField(required=False, allow_blank=True, default="", max_length=120)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=15)
+
+
+class TransactionEntrySerializer(ActivityEntrySerializer):
+    # The filter group the page shows.
+    group = serializers.CharField()
+    # The investor's available balance in this currency right after the movement.
+    available_after_minor = serializers.IntegerField(allow_null=True)
+
+
+class TransactionSummarySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    deposited_minor = serializers.IntegerField()
+    invested_minor = serializers.IntegerField()
+    credited_minor = serializers.IntegerField()
+    withdrawn_minor = serializers.IntegerField()
+
+
+class TransactionPageSerializer(serializers.Serializer[Any]):
+    entries = TransactionEntrySerializer(many=True)
+    # Movements that match the filters (all pages).
+    total = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    next_offset = serializers.IntegerField(allow_null=True)
+    # Currencies, groups and years the investor has movements in (for the filters).
+    currencies = serializers.ListField(child=serializers.CharField())
+    groups = serializers.ListField(child=serializers.CharField())
+    years = serializers.ListField(child=serializers.IntegerField())
+    # Totals of all movements that match the filters, per currency.
+    summary = TransactionSummarySerializer(many=True)
 
 
 class InvestorDashboardSerializer(serializers.Serializer[Any]):
@@ -490,10 +712,15 @@ class SecondaryListingPortalSerializer(serializers.Serializer[Any]):
     seller_net_proceeds_minor = serializers.IntegerField()
     currency = serializers.CharField()
     loan_status_at_listing = serializers.CharField()
+    # C03: an open listing of a loan with a due, unpaid installment is "Pending".
+    paused_for_due_installment = serializers.BooleanField()
     risk_acknowledgement_required = serializers.BooleanField()
     public_disclosure_note = serializers.CharField(allow_blank=True)
     listed_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
+    # 18.3: "listed", "sold" or "cancelled" (a listing removed or refused by Banxum is cancelled).
+    state = serializers.ChoiceField(choices=["listed", "sold", "cancelled"])
+    closed_at = serializers.DateTimeField(allow_null=True)
 
 
 class SecondaryPurchaseAsBuyerPortalSerializer(serializers.Serializer[Any]):
@@ -611,3 +838,26 @@ class InvestorPortalFeaturesSerializer(serializers.Serializer[Any]):
     """Platform switches the investor app reads before it shows a feature."""
 
     fx_enabled = serializers.BooleanField()
+
+
+class InvestorSupportRequestCreateSerializer(serializers.Serializer[Any]):
+    """U33-DEC-35 Help message (`help`) or U33-DEC-28 account closure request."""
+
+    kind = serializers.ChoiceField(choices=["help", "account_closure"])
+    idempotency_key = serializers.CharField(max_length=160)
+    topic = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    message = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default="", trim_whitespace=False
+    )
+    context_type = serializers.ChoiceField(
+        choices=["", "holding"], required=False, allow_blank=True, default=""
+    )
+    context_id = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+
+
+class InvestorSupportRequestReceiptSerializer(serializers.Serializer[Any]):
+    reference = serializers.CharField()
+    kind = serializers.CharField()
+    received_at = serializers.DateTimeField()
+    context_label = serializers.CharField(allow_blank=True)
+    receipt_email = serializers.EmailField()

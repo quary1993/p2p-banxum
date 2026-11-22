@@ -20,6 +20,8 @@ class ScheduleInstallmentDraft:
     interest_minor: int
     total_minor: int
     admin_overridden: bool = False
+    # 18.6: the unadjusted due date and the interest start of the row (engine schedules).
+    metadata: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -34,6 +34,7 @@ from backend.apps.platform_core.models import (
     DomainEvent,
     OutboxMessage,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -127,7 +128,7 @@ def _installment(loan: Model, *, due_date: date, amount_minor: int = 1_100_00) -
 
 def _declare_old_deposit(admin_user: Model, investor: Model, *, value_date: date) -> None:
     ledger_services = import_module("backend.apps.ledger.services")
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -355,19 +356,19 @@ def test_admin_dashboard_aggregates_daily_operations(
 
 
 @pytest.mark.django_db
-def test_admin_dashboard_balance_buckets_follow_the_58_day_return(
+def test_admin_dashboard_balance_buckets_follow_the_56_day_return(
     admin_user: Model,
     investor: Model,
 ) -> None:
     ledger_services = import_module("backend.apps.ledger.services")
-    # 2026-03-01: the 01-01 lot is on day 59 (due back), the 01-02 lot on day 58 (last day),
-    # the 01-03 lot on day 57 (still investable).
+    # 18.4, on Tuesday 2026-03-03: the 01-05 lot is on day 57 (due back), the 01-06 lot on
+    # day 56 (last day), the 01-07 lot on day 55 (still investable).
     for value_date, amount_minor in (
-        (date(2026, 1, 1), 100_00),
-        (date(2026, 1, 2), 200_00),
-        (date(2026, 1, 3), 300_00),
+        (date(2026, 1, 5), 100_00),
+        (date(2026, 1, 6), 200_00),
+        (date(2026, 1, 7), 300_00),
     ):
-        ledger_services.declare_lender_deposit(
+        declare_deposit_and_verify_account(
             ledger_services.DeclareLenderDepositCommand(
                 actor=admin_user,
                 investor_user_id=str(investor.pk),
@@ -384,7 +385,7 @@ def test_admin_dashboard_balance_buckets_follow_the_58_day_return(
                 idempotency_key=f"admin-dashboard-bucket-{value_date}",
             )
         )
-    as_of = datetime(2026, 3, 1, 12, tzinfo=business_timezone())
+    as_of = datetime(2026, 3, 3, 12, tzinfo=business_timezone())
 
     dashboard = get_admin_operations_dashboard(
         GetAdminDashboardCommand(actor=admin_user, as_of=as_of, due_window_days=7, queue_limit=5)
@@ -401,9 +402,9 @@ def test_admin_dashboard_balance_buckets_follow_the_58_day_return(
     assert item["kind"] == "balance_lot_overdue"
     assert item["amount_minor"] == 100_00
     assert item["title"] == (
-        "Balance lot not invested after 58 days: due back to the investor's bank"
+        "Balance lot not invested by day 56: due back to the investor's bank"
     )
-    assert item["metadata"]["return_date"] == "2026-03-01"
+    assert item["metadata"]["return_date"] == "2026-03-03"
 
 
 @pytest.mark.django_db

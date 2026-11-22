@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from importlib import import_module
 from typing import Any, TypedDict, cast
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -22,6 +21,7 @@ from backend.apps.platform_core.services.impersonation import (
     READONLY_IMPERSONATION_HEADER,
     issue_readonly_impersonation_token,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -55,6 +55,10 @@ from backend.apps.secondary_market.services import (
     refresh_open_secondary_market_listings_for_loan,
     reject_secondary_market_listing,
 )
+
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
 
 
 @pytest.fixture
@@ -127,6 +131,22 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+    # U33-DEC-04: buying needs a verified bank account in the currency.
+    instruction_model = apps.get_model("ledger", "InvestorPayoutInstruction")
+    if not instruction_model.objects.filter(
+        investor_user_id=investor.pk, currency_id="CHF", status="active"
+    ).exists():
+        instruction_model.objects.create(
+            investor_user_id=investor.pk,
+            currency_id="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name=str(getattr(investor, "full_name", "") or "Investor"),
+            is_verified_usable=True,
+            is_default_return=True,
+            verified_at=now,
+            created_by_admin_id=investor.pk,
+            metadata={"source": "test_return_account"},
+        )
 
 
 def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
@@ -148,6 +168,8 @@ def _create_borrower(admin_user: Model) -> Model:
             entity_type="swiss_company",
             kyb_status="approved",
             country="CH",
+            # Audit S6-5: a Swiss borrower needs a valid UID to change creditors.
+            uid="CHE-123.456.788",
             created_by_admin_id=admin_user.pk,
         ),
     )
@@ -354,7 +376,7 @@ def _declare_deposit(
     idempotency_key: str = "secondary-buyer-deposit-1",
 ) -> Any:
     ledger = import_module("backend.apps.ledger.services")
-    return ledger.declare_lender_deposit(
+    return declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -769,6 +791,21 @@ def test_seller_can_cancel_open_listing_and_relist_holding(
     )
     assert relisted.status == SecondaryMarketListingStatus.ACTIVE
 
+    # 18.3: My listings states: the new listing is listed, the first one cancelled with its day.
+    from importlib import import_module
+
+    portal = import_module("backend.apps.investor_portal.services")
+    states = {
+        row["id"]: (row["state"], row["closed_at"] is not None)
+        for row in portal.get_secondary_market_activity(actor=investor)["listings"]
+    }
+    assert states == {str(relisted.id): ("listed", False), str(listing.id): ("cancelled", True)}
+    buyer_rows = Client()
+    buyer_rows.force_login(cast(Any, other_investor))
+    offers = buyer_rows.get("/api/v1/marketplace/secondary/listings/").json()
+    offer = next(row for row in offers if row["id"] == str(relisted.id))
+    assert offer["maturity_date"] == "2027-01-01"
+
 
 @pytest.mark.django_db
 def test_create_listing_requires_sensitive_action_code(
@@ -947,11 +984,21 @@ def test_open_listing_is_cancelled_and_seller_told_when_loan_turns_non_performin
 def test_servicing_status_scan_cancels_open_listing_of_a_loan_that_turns_late(
     admin_user: Model,
     investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import backend.apps.secondary_market.services as secondary_services
+
     servicing = import_module("backend.apps.servicing.services")
+    # C03: the listing is made before the installment falls due (31 Dec 2025).
+    monkeypatch.setattr(
+        secondary_services,
+        "now_utc",
+        lambda: datetime(2025, 12, 31, 12, 0, tzinfo=ZoneInfo("UTC")),
+    )
     _approve_financial_access(investor)
     loan = _create_funded_loan(admin_user)
-    _create_current_installment(loan, due_date=date(2026, 1, 8))
+    # U33-DEC-09: Late from day 15 (16 Jan is day 15).
+    _create_current_installment(loan, due_date=date(2026, 1, 1))
     holding = _create_holding(admin_user, investor, loan)
     acceptance = _create_listing_acceptance(investor, holding)
     listing = create_secondary_market_listing(
@@ -1364,6 +1411,9 @@ def test_secondary_market_buyer_detail_exposes_loan_schedules_without_seller_dat
                 "row_type": "scheduled_installment",
                 "label": "Installment 1",
                 "payment_date": None,
+                # 18.6: the unadjusted due date and the interest start (engine schedules only).
+                "original_due_date": None,
+                "interest_start": None,
             }
         ]
     assert payload["investment_schedule"] == [
@@ -2857,94 +2907,6 @@ def test_direct_resale_chain_charges_the_next_buyer_accrued_interest_from_the_in
     assert c_interest_net == 34_25
 
 
-def _put_investor_in_penalty_mode(admin_user: Model, investor: Model) -> None:
-    ledger = import_module("backend.apps.ledger.services")
-    deposit = _declare_deposit(
-        admin_user,
-        investor,
-        amount_minor=500_00,
-        value_date=date(2025, 10, 1),
-        idempotency_key="penalty-mode-old-deposit",
-    )
-    # No usable IBAN at day 60: the deposit's IBAN was revoked.
-    ledger.revoke_investor_payout_instruction(
-        ledger.RevokeInvestorPayoutInstructionCommand(
-            actor=admin_user,
-            instruction_id=str(deposit.payout_instruction.pk),
-            reason="Returned by the bank.",
-        )
-    )
-    ledger.run_balance_ageing_scan(
-        ledger.RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=datetime(2026, 1, 16, 12, 0, tzinfo=ZoneInfo("UTC")),
-        )
-    )
-    assert ledger.investor_has_penalty_mode_balance(str(investor.pk))
-
-
-@pytest.mark.django_db
-def test_penalty_mode_seller_cannot_list_or_change_a_listing_but_can_cancel(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _approve_financial_access(investor)
-    loan = _create_funded_loan(admin_user)
-    holding = _create_holding(admin_user, investor, loan)
-    listing = _list_holding_for_sale(investor, holding, price_bps=10_000, key="penalty-listed")
-    other_loan = _create_funded_loan(admin_user)
-    other_holding = _create_holding(
-        admin_user,
-        investor,
-        other_loan,
-        idempotency_key="secondary-holding-penalty-2",
-    )
-    _put_investor_in_penalty_mode(admin_user, investor)
-
-    # The freeze is checked before the email code, so no code is spent.
-    unused_code = {"sensitive_action_code_id": str(uuid4()), "sensitive_action_code": "000000"}
-    other_acceptance = _create_listing_acceptance(
-        investor,
-        other_holding,
-        idempotency_key="penalty-new-acceptance",
-    )
-    with pytest.raises(SecondaryMarketValidationError, match="Listing a holding for sale"):
-        create_secondary_market_listing(
-            CreateSecondaryMarketListingCommand(
-                actor=investor,
-                holding_id=str(cast(Any, other_holding).id),
-                price_bps=10_000,
-                document_acceptance_id=str(other_acceptance.pk),
-                idempotency_key="penalty-new",
-                **unused_code,
-            )
-        )
-    edit_acceptance = _create_listing_acceptance(
-        investor,
-        holding,
-        idempotency_key="penalty-edit-acceptance",
-    )
-    with pytest.raises(SecondaryMarketValidationError, match="Changing a listing"):
-        edit_secondary_market_listing(
-            EditSecondaryMarketListingCommand(
-                actor=investor,
-                listing_id=str(listing.id),
-                price_bps=9_900,
-                document_acceptance_id=str(edit_acceptance.pk),
-                idempotency_key="penalty-edit",
-                **unused_code,
-            )
-        )
-    cancelled = cancel_secondary_market_listing(
-        CancelSecondaryMarketListingCommand(
-            actor=investor,
-            listing_id=str(listing.id),
-            reason="Frozen account.",
-            idempotency_key="penalty-cancel",
-        )
-    )
-    assert cancelled.status == SecondaryMarketListingStatus.CANCELLED
-
 @pytest.mark.django_db
 def test_c18_migration_cancels_approval_requests_and_non_performing_open_listings(
     admin_user: Model,
@@ -3424,6 +3386,10 @@ def test_buyer_listing_payloads_mark_the_viewers_own_listing(
     assert buyer_list[0]["is_own_listing"] is False
     assert buyer_detail["is_own_listing"] is False
     assert "seller_user_id" not in buyer_list[0]
+    # The U33 resale row shows "Borrower · Country": the list carries the detail's values.
+    assert buyer_list[0]["borrower_name"] == buyer_detail["borrower_name"]
+    assert buyer_list[0]["borrower_name"]
+    assert buyer_list[0]["borrower_country"] == buyer_detail["borrower_country"]
 
 
 @pytest.mark.django_db

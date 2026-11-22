@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from backend.apps.originator_claims.models import LoanOriginator, LoanOriginatorStatus
 from backend.apps.platform_core.api.sensitive_actions import sensitive_action_pin_field
+from backend.apps.platform_core.domain.day_count import CONVENTIONS as DAY_COUNT_CONVENTIONS
 
 
 def _loan_field_choices(field_name: str) -> list[tuple[str, str]]:
@@ -27,6 +28,11 @@ class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
     default_premium_fee_bps = serializers.IntegerField(
         min_value=0, max_value=10_000, required=False
     )
+    # The service accepts 1800 to the current year; the explicit bounds keep the schema the
+    # same on SQLite and PostgreSQL (CI drift on PR #1: 32767 against the int64 maximum).
+    founded_year = serializers.IntegerField(
+        min_value=1800, max_value=9999, required=False, allow_null=True
+    )
 
     class Meta:
         model = LoanOriginator
@@ -37,6 +43,10 @@ class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
             "registration_number",
             "jurisdiction",
             "registered_address",
+            "founded_year",
+            "about",
+            "city",
+            "sector",
             "contact_info",
             "settlement_account_name",
             "settlement_iban",
@@ -67,6 +77,10 @@ class LoanOriginatorCreateSerializer(serializers.Serializer[dict[str, object]]):
     registration_number = serializers.CharField(max_length=128)
     jurisdiction = serializers.CharField(max_length=64)
     registered_address = serializers.CharField()
+    founded_year = serializers.IntegerField(required=False, allow_null=True, default=None)
+    about = serializers.CharField(max_length=1200, required=False, allow_blank=True, default="")
+    city = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
+    sector = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
     contact_info = serializers.CharField(required=False, allow_blank=True, default="")
     settlement_account_name = serializers.CharField(max_length=255)
     settlement_iban = serializers.CharField(max_length=128)
@@ -93,6 +107,10 @@ class LoanOriginatorUpdateSerializer(serializers.Serializer[dict[str, object]]):
     registration_number = serializers.CharField(max_length=128, required=False)
     jurisdiction = serializers.CharField(max_length=64, required=False)
     registered_address = serializers.CharField(required=False)
+    founded_year = serializers.IntegerField(required=False, allow_null=True)
+    about = serializers.CharField(max_length=1200, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    sector = serializers.CharField(max_length=128, required=False, allow_blank=True)
     contact_info = serializers.CharField(required=False, allow_blank=True)
     settlement_account_name = serializers.CharField(max_length=255, required=False)
     settlement_iban = serializers.CharField(max_length=128, required=False)
@@ -118,8 +136,21 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
     interest_rate_bps = serializers.IntegerField(min_value=1)
     minimum_investment_minor = serializers.IntegerField(min_value=1)
     funding_deadline = serializers.DateField()
-    entitlement_start_date = serializers.DateField()
-    activation_outstanding_principal_minor = serializers.IntegerField(min_value=1)
+    # 18.7 (audit S6-4): a new offer is priced as principal + accrued interest; the removed
+    # boundary-installment rule cannot be chosen here (the replace serializer below keeps it for
+    # a draft created before 18.7).
+    pricing_rule = serializers.ChoiceField(choices=["accrued_interest"], default="accrued_interest")
+    interest_convention = serializers.ChoiceField(
+        choices=[*DAY_COUNT_CONVENTIONS.keys()],
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Day-count convention of the claim contract (F03); required for 18.7 offers.",
+    )
+    entitlement_start_date = serializers.DateField(required=False, allow_null=True, default=None)
+    activation_outstanding_principal_minor = serializers.IntegerField(
+        min_value=1, required=False, allow_null=True, default=None
+    )
     investor_interest_participation_bps = serializers.IntegerField(min_value=0, max_value=10_000)
     investor_penalty_participation_bps = serializers.IntegerField(min_value=0, max_value=10_000)
     repayment_type = serializers.ChoiceField(choices=REPAYMENT_TYPE_CHOICES)
@@ -145,7 +176,29 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
             raise serializers.ValidationError(
                 {"premium_fee_bps": "Primary Loan Originator subscriptions have no purchase fee."}
             )
+        if attrs.get("pricing_rule") == "accrued_interest":
+            if not attrs.get("interest_convention"):
+                raise serializers.ValidationError(
+                    {"interest_convention": "Choose the day-count convention of the claim."}
+                )
+        else:
+            missing = {
+                field: "Required for the boundary-installment price rule."
+                for field in ("entitlement_start_date", "activation_outstanding_principal_minor")
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
         return attrs
+
+
+class OriginatorLoanReplaceSerializer(OriginatorLoanCreateSerializer):
+    """Replace a draft: a draft created before 18.7 may keep the boundary-installment rule (the
+    service refuses it for any other draft)."""
+
+    pricing_rule = serializers.ChoiceField(
+        choices=["accrued_interest", "boundary_installment"], default="accrued_interest"
+    )
 
 
 class OriginatorLoanScheduleRowResponseSerializer(serializers.Serializer[dict[str, object]]):
@@ -179,6 +232,35 @@ class OriginatorLoanPaymentRowResponseSerializer(serializers.Serializer[dict[str
     platform_costs_minor = serializers.IntegerField(allow_null=True)
 
 
+class OriginatorOfferPriceSerializer(serializers.Serializer[dict[str, object]]):
+    """18.7 price facts of a Loan Originator offer (principal + accrued interest)."""
+
+    pricing_rule = serializers.CharField()
+    interest_convention = serializers.CharField()
+    interest_convention_label = serializers.CharField()
+    price_reference_date = serializers.DateField(
+        help_text="Planned settlement day (1 settlement day after the funding deadline)."
+    )
+    accrual_start_date = serializers.DateField()
+    next_due_date = serializers.DateField()
+    next_installment_interest_minor = serializers.IntegerField()
+    next_installment_principal_minor = serializers.IntegerField()
+    next_installment_opening_principal_minor = serializers.IntegerField()
+    accrued_day_units = serializers.IntegerField(
+        help_text=(
+            "Convention day units from the period start to the reference day. Accrued interest "
+            "for a principal P = round half up(interest x P / opening principal x "
+            "accrued_day_units / period_day_units x participation bps / 10000)."
+        )
+    )
+    period_day_units = serializers.IntegerField()
+    investor_interest_participation_bps = serializers.IntegerField()
+    investor_penalty_participation_bps = serializers.IntegerField()
+    principal_minor = serializers.IntegerField(required=False)
+    accrued_interest_minor = serializers.IntegerField(required=False)
+    total_minor = serializers.IntegerField(required=False)
+
+
 class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[str, object]]):
     loan_id = serializers.UUIDField()
     originator_id = serializers.UUIDField()
@@ -202,6 +284,9 @@ class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[st
     premium_fee_bps = serializers.IntegerField()
     funding_deadline = serializers.DateField(allow_null=True)
     entitlement_start_date = serializers.DateField(allow_null=True)
+    pricing_rule = serializers.CharField()
+    interest_convention = serializers.CharField(allow_blank=True)
+    price = OriginatorOfferPriceSerializer(allow_null=True)
     activation_outstanding_principal_minor = serializers.IntegerField(allow_null=True)
     investor_interest_participation_bps = serializers.IntegerField()
     investor_penalty_participation_bps = serializers.IntegerField()
@@ -231,7 +316,8 @@ class OriginatorLoanPublishSerializer(serializers.Serializer[dict[str, object]])
 
 
 class OriginatorFundingRoundCloseRequestSerializer(serializers.Serializer[dict[str, object]]):
-    as_of_date = serializers.DateField()
+    # Audit S6-2: ignored; the close runs on the server's business date (kept for older clients).
+    as_of_date = serializers.DateField(required=False)
     close_reason = serializers.CharField(max_length=64)
     idempotency_key = serializers.CharField(max_length=160)
 
@@ -252,6 +338,17 @@ class OriginatorSubscriptionCancellationRequestSerializer(
     reason = serializers.CharField()
     investor_message = serializers.CharField()
     idempotency_key = serializers.CharField(max_length=160)
+
+
+class OriginatorOfferFailedRequestSerializer(serializers.Serializer[dict[str, object]]):
+    """18.7 (F04): the borrower paid on the claim before the settlement."""
+
+    cause = serializers.ChoiceField(choices=["payment"], default="payment")
+    # Audit step 6 (D3): the bank evidence of the borrower payment.
+    payment_reference = serializers.CharField(max_length=128)
+    value_date = serializers.DateField()
+    amount_minor = serializers.IntegerField(min_value=1)
+    evidence_reference = serializers.CharField(max_length=255)
 
 
 class OriginatorLoanHoldSerializer(serializers.Serializer[dict[str, object]]):
@@ -344,6 +441,15 @@ class OriginatorLoanProfileResponseSerializer(serializers.Serializer[dict[str, o
     premium_fee_bps = serializers.IntegerField()
     funding_deadline = serializers.DateField(allow_null=True)
     entitlement_start_date = serializers.DateField(allow_null=True)
+    pricing_rule = serializers.CharField(
+        help_text="18.7: accrued_interest (principal + accrued interest) or boundary_installment."
+    )
+    interest_convention = serializers.CharField(allow_blank=True)
+    price_accrual_start_date = serializers.DateField(allow_null=True)
+    price_reference_date = serializers.DateField(
+        allow_null=True, help_text="Planned settlement day: the price reference (18.7)."
+    )
+    price_next_due_date = serializers.DateField(allow_null=True)
     activation_outstanding_principal_minor = serializers.IntegerField(allow_null=True)
     investor_interest_participation_bps = serializers.IntegerField()
     investor_penalty_participation_bps = serializers.IntegerField()

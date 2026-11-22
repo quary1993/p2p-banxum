@@ -117,11 +117,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "How are projects selected?",
-        a: "<p>Each company is analysed before it is listed: financial statements of at least two years, credit reports, the value of the security, the owners and the management. Loan originators are checked the same way, and so are the claims they offer. Only projects that pass are listed, with a rating from AAA to D.</p>"
-      },
-      {
-        q: "What do the risk classes mean?",
-        a: "<p>They are our opinion of the borrower's ability to repay and of the security, with ratings from AAA to D: AAA is the lowest risk, D the highest. Higher risk usually comes with a higher rate. A rating is not a guarantee: a loan rated AAA can also be repaid late or not at all.</p>"
+        a: "<p>Each company is analysed before it is listed: financial statements of at least two years, credit reports, the value of the security, the owners and the management. Loan originators are checked the same way, and so are the claims they offer. Only projects that pass are listed.</p>"
       },
       {
         q: "When is my investment final?",
@@ -139,7 +135,7 @@ export const siteFaq: FaqGroup[] = [
     items: [
       {
         q: "What is my Banxum wallet?",
-        a: "<p>Every investor has a segregated electronic wallet with a CHF and a EUR balance. The money is held on Garanta's collection account, apart from Garanta's own money, and recorded investor by investor. The wallet is not a bank account: it earns no interest, and money you do not invest goes back to your bank after 58 days.</p>"
+        a: "<p>Every investor has a segregated electronic wallet with a CHF and a EUR balance. The money is held on Garanta's collection account, apart from Garanta's own money, and recorded investor by investor. The wallet is not a bank account: it earns no interest, and money you do not invest can stay until day 56; then it goes back to your bank.</p>"
       },
       {
         q: "How do I pay for an investment?",
@@ -147,7 +143,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "What happens to money I do not invest?",
-        a: "<p>It stays in your wallet without interest. After 58 days it goes back automatically to your verified bank account in the same currency. Banxum is not a bank and cannot keep money longer than 60 days.</p>"
+        a: "<p>It stays in your wallet without interest until day 56 after it arrives. Then we return it automatically to your verified bank account in the same currency: the return starts on day 57, or earlier when the bank is closed that day. Banxum is not a bank and cannot keep money longer than 60 days.</p>"
       },
       {
         q: "Where are repayments paid?",
@@ -170,7 +166,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "What happens if a borrower pays late?",
-        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. From day 5 after the due date the investment is marked as late and you are informed. From day 16 the loan is in default (calendar days, Swiss time): Garanta enforces the security on behalf of the investors and shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
+        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. During the first 14 days after the due date the payment is shown as due, with the number of days. From day 15 the investment is marked as late and you are informed. From day 60 the loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself: the end of the contract, the enforcement of the security and the recovery are separate steps, shown with their dates on the investment page. Garanta shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
       },
       {
         q: "What if Garanta stops operating?",
@@ -245,14 +241,14 @@ export const siteGuides: SiteGuide[] = [
     date: "2026-09-12",
     icon: "ni-file-text",
     title: "How to read a project page",
-    summary: "Rate, term, security, risk class and the minimum: what each figure means and what to check before you invest.",
+    summary: "Rate, term, security and the minimum: what each figure means and what to check before you invest.",
     body: `<p>Every project on Banxum has the same page, so you can compare loans on the same points. Here is what to look at, in the order we would.</p>
         <h2>1. The company and the purpose</h2>
         <p>Who borrows, since when the company exists, what it does and what the money is for. A clear purpose (a machine, a building, invoices from named customers) is easier to follow than "working capital".</p>
         <h2>2. The security</h2>
         <p>What investors can enforce if the company stops paying: a mortgage note, a pledge on equipment, a personal guarantee, assigned receivables. Look at the loan-to-value ratio when there is one: the lower it is, the more room there is if the asset sells for less than its value.</p>
-        <h2>3. The rate and the rating</h2>
-        <p>The rate is what the borrower owes you each year on the principal. The rating, from AAA to D, is our opinion of the borrower and the security. A higher rate is payment for a higher risk, not a better deal.</p>
+        <h2>3. The rate</h2>
+        <p>The rate is what the borrower owes you each year on the principal. A higher rate is payment for a higher risk, not a better deal.</p>
         <h2>4. The term and the repayment</h2>
         <p>Monthly instalments give your money back step by step. With monthly interest and the principal at the end, or everything at the end, more of your money depends on the last payment.</p>
         <h2>5. The minimum</h2>
@@ -285,7 +281,7 @@ export const siteGuides: SiteGuide[] = [
     icon: "ni-pie",
     title: "Spreading your money across loans",
     summary: "Why several smaller amounts in different companies, sectors and countries protect you better than one large amount.",
-    body: `<p>Every loan can go wrong, whatever its rate or risk class. What you can control is how much depends on a single company.</p>
+    body: `<p>Every loan can go wrong, whatever its rate. What you can control is how much depends on a single company.</p>
         <h2>Different companies</h2>
         <p>If one borrower stops paying, the others keep paying. With ten loans of equal size, one default touches a tenth of your money.</p>
         <h2>Different sectors and countries</h2>
@@ -302,28 +298,14 @@ export const siteGuides: SiteGuide[] = [
     title: "What happens when a borrower pays late",
     summary: "From the first reminder to the enforcement of the security: the steps, who takes them and how you are kept informed.",
     body: `<p>Most late payments are a few days late and are paid after a reminder. Some are the start of real difficulties. Here is what happens in each case.</p>
-        <h2>Day 1 to 4</h2>
-        <p>Garanta reminds the borrower. Many payments arrive in these first days.</p>
-        <h2>Day 5 to 15</h2>
+        <h2>Day 1 to 14</h2>
+        <p>The payment is shown as due in your account, with the number of days. Garanta reminds the borrower. Many payments arrive in these days.</p>
+        <h2>Day 15 to 59</h2>
         <p>The payment is marked as late in your account, in red, with the number of days. Garanta talks to the company and its owners. Investors are informed of every step on the investment page.</p>
-        <h2>From day 16</h2>
-        <p>The loan is in default automatically (calendar days, Swiss time). Garanta then enforces the security (sells the pledged asset, calls the guarantee) on behalf of all investors.</p>
+        <h2>From day 60</h2>
+        <p>The loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
         <h2>Recovery</h2>
-        <p>What is recovered, after the costs of enforcement, is shared in proportion to each share and credited to your Banxum balance. Recovery can take months or years and may not cover the full amount.</p>`
-  },
-  {
-    id: "first-year",
-    kind: "News",
-    date: "2026-01-15",
-    icon: "ni-growth",
-    title: "Our first year in figures",
-    summary: "Loans funded, repayments made, one late payment and what we learned. The same figures are on the statistics page, updated every month.",
-    body: `<p>We publish the same figures every month on the <a href="#/statistics">statistics page</a>: loans funded, repaid, late and in default, per currency. Here are the main points of our first year.</p>
-        <h2>What went well</h2>
-        <p>Loans in Switzerland, Romania and Italy, from new loans and from three loan originators. Repayments were paid to investors' bank accounts on the business day after the borrowers paid.</p>
-        <h2>What we watch</h2>
-        <p>One late payment in the hospitality sector, paid after a reminder. We added the payment history of each borrower to the project page.</p>
-        <div class="site-callout">Sample article of the prototype: the figures are the sample data of the statistics page.</div>`
+        <p>What is recovered, after real external costs (lawyers, courts, enforcement), is shared in proportion to each share and credited to your Banxum balance. Banxum takes no recovery fee, and the investment page shows the gross amount, the costs and the net. Recovery can take months or years and may not cover the full amount.</p>`
   }
 ];
 
@@ -364,7 +346,7 @@ export const siteLegal: SiteLegalDoc[] = [
       "Scope and parties",
       "Opening and closing an account",
       "Identification and anti-money-laundering duties",
-      "The Banxum wallet: payments in, reservations, the 50-day return",
+      "The Banxum wallet: payments in, reservations and the return of money not invested",
       "Interest: daily calculation (actual/365) and payment dates",
       "Investing: reservation, funding period, assignment",
       "Repayments and collection by Garanta",
@@ -379,31 +361,101 @@ export const siteLegal: SiteLegalDoc[] = [
   {
     id: "privacy",
     title: "Privacy notice",
-    version: "1.2",
-    date: "2026-09-01",
-    outline: [
-      "Who is responsible",
-      "Which data we collect (account, online identity check, transactions, website)",
-      "Why we process it and on which legal basis (FADP, GDPR)",
-      "Who receives it (identity provider, banks, authorities, service providers)",
-      "Transfers abroad",
-      "How long we keep it",
-      "Your rights and how to use them",
-      "Contact and supervisory authorities"
-    ]
+    version: "2.1",
+    date: "2026-11-20",
+    body: `<p>This notice tells you which personal data Banxum uses, why, who receives it, how long we keep it and what your rights are. It follows the Swiss Federal Act on Data Protection (FADP) and, for people in the European Economic Area, the EU General Data Protection Regulation (GDPR). [Draft of 20 November 2026: the points marked "to confirm" are completed before launch.]</p>
+        <h2>Who is responsible</h2>
+        <p>Banxum is a brand of Garanta Finanzgruppe AG, Schauplatzgasse 26, CH-3011 Bern, Switzerland (UID CHE-302.757.239). Garanta is responsible for your data. For every question about your data, write to <a href="mailto:support@banxum.com">support@banxum.com</a> or by post to the address above.</p>
+        <h2>Which data we use</h2>
+        <ul>
+          <li><strong>Account:</strong> name, email address, phone number, password (stored only as a hash), your PIN or authenticator app (stored only as a hash or an encrypted secret), recovery codes (hashed), language, number format and your choice about news emails.</li>
+          <li><strong>Identity check:</strong> our identity provider checks your identity document and takes a live photo. We receive the result and, when the provider gives them, your verified address, date of birth and nationality.</li>
+          <li><strong>Declarations:</strong> beneficial owner of the funds, sources of funds, whether you or a close person are politically exposed, your expected yearly investment volume, and for companies the company, its representative and its controlling persons.</li>
+          <li><strong>Money and investments:</strong> your bank accounts (IBAN, holder, bank), deposits, reservations, investments, repayments, resale offers and withdrawals, and the documents you accept (with the time, the version, the amount and the technical data of the confirmation: the IP address and the browser).</li>
+          <li><strong>Security:</strong> signed-in devices and sign-ins (date, device and browser, approximate place, method and result), and the codes we send you. In these account records we keep your IP address only as a keyed hash, not in clear. The approximate place (city and country) comes from an IP database kept on our server; no IP address goes to an outside service for this.</li>
+          <li><strong>IP address in clear:</strong> we keep the IP address itself in two places only. (1) The record of each document you accept (for example an investment confirmation or an assignment), as evidence that the contract was concluded; it is kept with the contract records (see "How long we keep it") and only authorised staff can see it. (2) The technical logs of our web server, for security and error analysis. [To confirm: how long the server logs are kept.]</li>
+          <li><strong>Messages:</strong> emails and notices we send you, and what you send to support (help messages, complaints, account closure requests).</li>
+          <li><strong>Website:</strong> messages sent with the contact forms, newsletter subscriptions (with the confirmation of your consent) and your cookie choice.</li>
+        </ul>
+        <h2>Why we use it</h2>
+        <ul>
+          <li>To open and run your account and your investments under the terms of use (contract).</li>
+          <li>To meet our legal duties: identification and anti-money-laundering checks, accounting, tax and reports to authorities (legal obligation).</li>
+          <li>To protect your account and the platform: sign-in checks, alerts for new devices, prevention of fraud and abuse (legitimate interest).</li>
+          <li>To send news about Banxum, only when you agree; you can stop it at any time (consent).</li>
+          <li>To measure the use of the public website, only when you agree in the cookie settings (consent). This measurement is planned and not active today (see the cookie policy).</li>
+        </ul>
+        <p>We do not sell your data and we do not use it for advertising profiles. We do not make automated decisions that have legal effects on you; a compliance review is always done by a person.</p>
+        <h2>Who receives it</h2>
+        <ul>
+          <li>Our identity provider (Didit) for the identity check. [To confirm: place of processing and contract terms.]</li>
+          <li>Twilio (Twilio Verify) to send sign-in codes by SMS, and SendGrid (part of Twilio) to send emails. [To confirm: SendGrid region and the data processing terms.]</li>
+          <li>Our hosting provider, which runs our server. [To confirm: provider and country.] Backups are stored with Amazon Web Services in Zurich, Switzerland.</li>
+          <li>Banks that execute deposits, payments and returns.</li>
+          <li>Authorities when the law requires it (for example the Money Laundering Reporting Office Switzerland, FINMA, tax authorities, courts), and our auditors and lawyers under professional secrecy.</li>
+          <li>No analytics provider receives data today. If we add one for the public website (for example Google Analytics), it will start only after your consent, and we will name it here first.</li>
+        </ul>
+        <p>To check new passwords against known data breaches, we send only the first five characters of a one-way hash of the password to the "Have I Been Pwned" service; the password itself never leaves our server.</p>
+        <h2>Transfers abroad</h2>
+        <p>Some providers process data outside Switzerland, for example in the European Union or in the United States (Twilio, SendGrid). We send data to a country without an adequate level of protection only with suitable safeguards, such as the standard contractual clauses recognised by the Federal Data Protection and Information Commissioner, or a certification under the Swiss-U.S. Data Privacy Framework. [To confirm per provider.]</p>
+        <h2>How long we keep it</h2>
+        <p>Some data is deleted automatically:</p>
+        <ul>
+          <li>Sign-in history and ended sessions: after 365 days (our current setting).</li>
+          <li>Contact form messages: after 24 months.</li>
+          <li>Newsletter: as long as you are subscribed; the personal data of a subscription that was cancelled or never confirmed is deleted after 30 days.</li>
+        </ul>
+        <p>The other platform records (account, identity checks, declarations and compliance reviews, money, investments and ledger records, accepted documents and contracts, reports, messages and support requests, and the logs of important actions) have no automatic deletion yet. At launch we keep them at least for the periods the law requires, and in any case until our detailed retention schedule is approved:</p>
+        <ul>
+          <li>Identification and anti-money-laundering files: at least 10 years after the end of the business relationship (AMLA art. 7).</li>
+          <li>Accounting, payment and ledger records: at least 10 years (CO art. 958f).</li>
+          <li>Contracts, signed assignments and the evidence of their acceptance: at least 10 years after they end (CO art. 127).</li>
+        </ul>
+        <p>[To confirm: the detailed retention schedule per type of record, with the periods after which data is deleted or anonymised, and the exceptions for legal holds. It will replace this section before launch.]</p>
+        <h2>Your rights</h2>
+        <p>You can ask for a copy of your data, its correction, its deletion (where no legal duty requires us to keep it), a copy in a common electronic format, and you can object to processing based on our legitimate interest. You can withdraw a consent at any time, without effect on processing done before. Write to <a href="mailto:support@banxum.com">support@banxum.com</a>; we check your identity before we answer.</p>
+        <p>You can complain to the Federal Data Protection and Information Commissioner (FDPIC, www.edoeb.admin.ch) or, in the European Economic Area, to the data protection authority of your country.</p>
+        <h2>Security</h2>
+        <p>We protect your data with technical and organisational measures: encrypted connections, sign-in with a password and a second factor, confirmation of sensitive operations, access only for authorised staff, and logs of important actions.</p>
+        <h2>Credits and changes</h2>
+        <p>IP geolocation by <a href="https://db-ip.com" rel="noopener noreferrer" target="_blank">DB-IP</a>, licensed under Creative Commons Attribution 4.0. We may update this notice; the date and version at the top show the current one, and we tell you about important changes.</p>`
   },
   {
     id: "cookies",
     title: "Cookie policy",
-    version: "1.0",
-    date: "2026-09-01",
-    outline: [
-      "What cookies are",
-      "Necessary cookies (sign-in, security, your cookie choice)",
-      "Measurement cookies (only with your consent)",
-      "No advertising cookies",
-      "How to change your choice"
-    ]
+    version: "2.1",
+    date: "2026-11-20",
+    body: `<p>Cookies are small files that a website stores in your browser. Banxum also stores some data in your browser's local storage (kept until you clear it) and session storage (deleted when you close the tab). This page lists all of them.</p>
+        <h2>Necessary cookies</h2>
+        <p>These are needed for the site and the platform to work and to keep your account safe. They are always on.</p>
+        <ul>
+          <li><strong>sessionid</strong>: keeps you signed in. The session ends when you sign out, and at the latest 2 hours after you signed in.</li>
+          <li><strong>csrftoken</strong>: protects forms against requests from other sites. 1 year.</li>
+          <li><strong>banxum_device</strong>: recognises your browser so that we can show your signed-in devices and warn you about a sign-in from a new device. Stored on our side only as a hash. 2 years.</li>
+          <li><strong>banxum_trusted</strong>: only when you choose "Trust this device" at sign-in; the second factor is then not asked on this device. 30 days.</li>
+        </ul>
+        <h2>Local storage (until you clear it)</h2>
+        <ul>
+          <li><strong>bxm-site-cookies</strong>: your cookie choice and its date.</li>
+          <li><strong>banxum.appearance</strong>, <strong>banxum.sidebarCompact</strong>, <strong>banxum.numberFormat</strong>, <strong>banxum-investor-language</strong> (and <strong>banxum-investor-language-unsaved</strong>): appearance, sidebar width, number format and language.</li>
+          <li><strong>banxum:app-route:v1</strong>: the last page you opened in the app, to open it again after a reload. No personal data.</li>
+          <li><strong>banxum:marketplace-layout:v1</strong>, <strong>banxum.overview.returnNotice</strong>, <strong>banxum.overview.paymentUpdates</strong>: the Cards or List view of the opportunities and the notices you closed.</li>
+          <li><strong>banxum:readonly-impersonation-…</strong>: only for Banxum staff who open a read-only support view of an account; removed when the view ends or expires.</li>
+        </ul>
+        <h2>Session storage (deleted when you close the tab)</h2>
+        <ul>
+          <li><strong>banxum:register-flow:v3</strong> and <strong>banxum:login-flow:v1</strong>: the steps of registration and sign-in, with the name, email address, phone number and country you typed, so that a reload does not lose them. Also deleted when you finish registration or sign out.</li>
+          <li><strong>bxm-site-newsletter</strong>: the email address you subscribed with, for the confirmation message.</li>
+          <li><strong>bxm-site-project-filters</strong>: the filters of the projects page.</li>
+          <li><strong>banxum:session-expired:v1</strong> and <strong>banxum:u33-payment-updates-dismissed</strong>: a notice after your session expired, and a notice you closed.</li>
+        </ul>
+        <h2>Measurement (not active)</h2>
+        <p>Banxum does not measure visits today: no analytics script is loaded and no analytics cookie is set. The cookie settings already let you agree to measurement in advance. If we start measuring visits to the public website (for example with Google Analytics), it will run only after your consent, and we will update this page first with the provider and its cookies.</p>
+        <h2>No advertising cookies</h2>
+        <p>Banxum does not use advertising or social media tracking cookies.</p>
+        <h2>How to change your choice</h2>
+        <p>Use "Cookie settings" at the bottom of every page of the website. You can also delete the cookies and site data of Banxum in your browser settings: deleting cookies signs you out; deleting site data (local storage) also removes your cookie choice, and we then ask for it again.</p>
+        <p>More about how we use your data: <a href="/legal/privacy">Privacy notice</a>.</p>`
   },
   {
     id: "imprint",

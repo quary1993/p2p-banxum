@@ -91,8 +91,20 @@ test("admin forms opened right after login use the platform business date, not t
       await delay(300);
       return HttpResponse.json({ user: adminUser, qa_controls_available: true, platform_business_date: "2026-09-09" });
     }),
+    // 18.5: password, then the code of the admin's authenticator app.
     http.post("*/api/v1/auth/admin/login/start/", () =>
-      HttpResponse.json({ code_id: "55555555-5555-4555-8555-555555555555", expires_at: "2026-09-09T11:57:00Z" })
+      HttpResponse.json(
+        {
+          status: "factor_required",
+          challenge_id: "55555555-5555-4555-8555-555555555555",
+          code_id: "",
+          expires_at: null,
+          enrollment_id: "",
+          secret: "",
+          otpauth_uri: ""
+        },
+        { status: 202 }
+      )
     ),
     http.post("*/api/v1/auth/admin/login/confirm/", () => {
       signedIn = true;
@@ -103,7 +115,7 @@ test("admin forms opened right after login use the platform business date, not t
 
   fireEvent.change(await screen.findByLabelText("Admin email", {}, { timeout: 5000 }), { target: { value: "admin@example.com" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
-  fireEvent.click(screen.getByRole("button", { name: "Send email code" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(await screen.findByPlaceholderText("000000"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "Open admin console" }));
   // Right after login the session (with the platform date) is still loading: no form yet.

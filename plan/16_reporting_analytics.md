@@ -257,11 +257,11 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 
 - Total investor balances by currency.
 - Balance source entries by age bucket.
-- Entries approaching day 25, 46, 53, 56, 57, and 58 reminders, on their last day (day 58), and due back to the bank (day 59 on; 2026-10-16).
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Entries approaching day 25, 46, 53, 56, 57, and 58 reminders, on their last day (day 58), and due back to the bank (day 59 on; 2026-10-16).
 - Balance split by investable, withdraw-required, FX-eligible, and penalty/frozen amounts.
 - Entries past day 60 and penalties applied.
 - Forced withdrawals finalized by admin, with optional offline return/failure notes or documents.
-- Missing-IBAN penalty-mode freezes.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Missing-IBAN penalty-mode freezes.
 - Deposits by currency.
 - Withdrawals by currency.
 - Currency exchanges by pair.

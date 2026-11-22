@@ -1,0 +1,684 @@
+// IP of Webby-Soft SRL.
+/*
+ * Opportunity page (design #/projects/:id, slice S2): factual summary, rate and term, the security
+ * (the main security with the loan-to-value comparison when a value is recorded, then the other
+ * securities, U33-DEC-21 / C06; the loan-to-value uses the sum of the counted assets, F16), funding
+ * progress with the minimum funding threshold, the Swiss-borrower places line (today's rule,
+ * MKT-DEC-028), the originator of a claim, the payment schedule, the credit file link and the amount
+ * field. A closed loan shows its state instead of the amount field. No co-investment line
+ * (U33-DEC-15), no ratings (U33-DEC-16).
+ * U33-DEC-18: "Save for later" (design v107-save) saves the opportunity with the amount in the field, or
+ * without an amount when the field is empty. It reserves nothing. A saved amount fills the field on
+ * return; when it no longer fits (minimum, amount still available, balance) a line explains it and the
+ * amount stays as saved.
+ * U33-DEC-17: a Coming soon opportunity shows the design's invest box for soon ("Opens on", "Tell me
+ * when it opens"). The alert is a real request: one email when the loan really opens, which can be
+ * later than the planned date. After the request the box says so and the investor can cancel it.
+ */
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent, type ReactNode } from "react";
+
+import {
+  getV1MarketplacePrimaryComingSoonListQueryKey,
+  getV1MarketplacePrimaryLoansRetrieveQueryKey,
+  useV1MarketplacePrimaryLoansOpeningAlertCreate,
+  useV1MarketplacePrimaryLoansOpeningAlertDestroy,
+  type MarketplaceLoanDetail
+} from "../../../api/generated/banxumApi";
+import { useT } from "../../../i18n";
+import { useFrozenAccount } from "../../../investorPortal/accountState";
+import { isFixturePreview, useBalancesData, useLoanDetailData, usePortfolioData, useSavedOpportunitiesData, useSmartInvestData } from "../../../investorPortal/data";
+import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportunities";
+import { formatAmountInput, formatDate, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, parseMoneyInputToMinorUnits, useNumberFormat } from "../../../investorPortal/format";
+import { currencyBalanceMinor } from "../../../investorPortal/investLimits";
+import { swissInvestorLimitMessage } from "../../../investorPortal/investorLimit";
+import { isNotFoundError } from "../../../investorPortal/session";
+import type { DemoAccountState } from "../../../investorPortal/types";
+import { Button, Dialog, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
+import { checkInvestAmount, investBlockedReason } from "./investRules";
+import {
+  borrowerDisclosure,
+  borrowerName,
+  collateralIcon,
+  collateralLabel,
+  placeName,
+  daysLeftLabel,
+  daysUntil,
+  eligibleLots,
+  fullLoanSchedule,
+  fundedPercent,
+  holdingForLoan,
+  isComingSoonLoan,
+  isOpenLoan,
+  isOriginatorClaimLoan,
+  loanAvailableMinor,
+  paymentFrequencyLabel,
+  securityVocabText,
+  formatLtv,
+  loanLtv,
+  loanTypeLabel,
+  loanYieldBps,
+  minimumFunding,
+  placesInfo,
+  projectIcon,
+  repaymentCadence,
+  repaymentText,
+  sumAvailableMinor,
+  usesImmediateClaimAssignment,
+  usesOriginatorSubscription
+} from "./loanFacts";
+import { LtvFigure } from "./parts/LtvFigure";
+import { BanxumInvestsLabel } from "./parts/BanxumInvestsLabel";
+import { LtvAssets, SecurityTypeRow } from "./parts/SecurityDetails";
+import { ltvValueLabel, splitSecurities } from "./parts/securityParts";
+import { ScheduleTable } from "./parts/ScheduleTable";
+import "./invest.css";
+import { HelpWithThisStep } from "../account/parts/HelpWithThisStep";
+import { errorMessage, isReadonlyView } from "../portfolio/parts/errors";
+
+export function OpportunityScreen({
+  loanId,
+  demoState,
+  fromArchive = false,
+  scheduleOpen: initialScheduleOpen = false,
+  onAddFunds
+}: {
+  loanId: string;
+  demoState: DemoAccountState;
+  fromArchive?: boolean;
+  scheduleOpen?: boolean;
+  onAddFunds: () => void;
+}) {
+  const t = useT();
+  const loanQuery = useLoanDetailData(loanId);
+  const loan = loanQuery.data;
+  const back = fromArchive
+    ? <PortalLink className="ip-back" params={{ view: "archive" }} to="market"><NiIcon name="arrow-left" />{t("Past opportunities")}</PortalLink>
+    : <PortalLink className="ip-back" to="market"><NiIcon name="arrow-left" />{t("Investment opportunities")}</PortalLink>;
+  if (loanQuery.isError && !loan) {
+    const notFound = isNotFoundError(loanQuery.error);
+    return (
+      <main className="bxm-invest-desktop ip-page l8-opportunity u33-invest-state">
+        <div className="l8-back-row">{back}</div>
+        <PageHead title={notFound ? t("Opportunity not found") : t("We could not load this opportunity")} />
+        <EmptyState
+          actions={notFound ? null : <Button onClick={() => void loanQuery.refetch()} variant="primary">{t("Retry")}</Button>}
+          icon={notFound ? "search" : "alert-circle"}
+          title={notFound ? t("This loan does not exist, or it is no longer shown to investors.") : t("Try again in a moment.")}
+        />
+      </main>
+    );
+  }
+  if (!loan) {
+    return (
+      <main className="bxm-invest-desktop ip-page l8-opportunity u33-invest-state">
+        <div className="l8-back-row">{back}</div>
+        <EmptyState icon="clock" title={t("Loading the opportunity")} />
+      </main>
+    );
+  }
+  return <OpportunityPage back={back} demoState={demoState} initialScheduleOpen={initialScheduleOpen} key={loan.loan_id} loan={loan} onAddFunds={onAddFunds} />;
+}
+
+function OpportunityPage({
+  loan,
+  back,
+  demoState,
+  initialScheduleOpen,
+  onAddFunds
+}: {
+  loan: MarketplaceLoanDetail;
+  back: ReactNode;
+  demoState: DemoAccountState;
+  initialScheduleOpen: boolean;
+  onAddFunds: () => void;
+}) {
+  const t = useT();
+  useNumberFormat();
+  const nav = usePortalNav();
+  const frozenAccount = useFrozenAccount();
+  const balances = useBalancesData().data;
+  const holdings = usePortfolioData(true).data?.holdings;
+  const [scheduleOpen, setScheduleOpen] = useState(initialScheduleOpen);
+  const [ltvOpen, setLtvOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  const [typedAmount, setTypedAmount] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; shortfall: boolean } | null>(null);
+  // U33-DEC-19: an active Smart Invest usual amount prepares the amount (never raised to the minimum);
+  // what the investor types replaces it. Without a usual amount nothing is pre-filled (U33-DEC-08).
+  const smartRule = useSmartInvestData().data?.rule;
+  // U33-DEC-18: an amount the investor saved comes first; it is never changed by the platform.
+  const savedItem = (useSavedOpportunitiesData().data?.saved ?? []).find((item) => item.loan_id === loan.loan_id);
+  const savedAmountMinor = savedItem?.amount_minor ?? null;
+  const savedActions = useSavedOpportunityActions();
+  const [saveError, setSaveError] = useState("");
+  const usualMinor =
+    savedAmountMinor === null && smartRule?.state === "active" && smartRule.preferred_amount_minor && (smartRule.currencies.length === 0 || smartRule.currencies.includes(loan.currency as never))
+      ? smartRule.preferred_amount_minor
+      : null;
+  const usingUsual = typedAmount === null && usualMinor !== null;
+  const usingSaved = typedAmount === null && savedAmountMinor !== null;
+  const prefillMinor = savedAmountMinor ?? usualMinor;
+  const amountText = typedAmount ?? (prefillMinor !== null ? formatAmountInput(prefillMinor, loan.currency) : "");
+
+  const open = isOpenLoan(loan);
+  const claim = isOriginatorClaimLoan(loan);
+  const subscription = usesOriginatorSubscription(loan);
+  const immediate = usesImmediateClaimAssignment(loan);
+  const disclosure = borrowerDisclosure(loan);
+  const company = borrowerName(loan);
+  const meta = [company && company !== loan.title ? company : "", placeName(disclosure.city, disclosure.country), disclosure.business_classification || disclosure.industry_activity || ""].filter(Boolean);
+  const ltv = loanLtv(loan);
+  // C06: the main security gives the summary; F16: the loan-to-value uses the counted assets.
+  const securityParts = splitSecurities(loan.securities ?? []);
+  const ltvLabel = ltvValueLabel(securityParts.counted, loan.collateral_type, t);
+  const minimum = minimumFunding(loan);
+  const places = placesInfo(loan);
+  const percent = fundedPercent(loan);
+  const holding = holdingForLoan(holdings, loan.loan_id);
+  const schedule = fullLoanSchedule(loan);
+  const scheduleInterest = schedule.reduce((sum, row) => sum + row.interestMinor, 0);
+  const lots = eligibleLots(balances?.lots, loan);
+  const funds = { balanceMinor: currencyBalanceMinor(balances?.lots, loan.currency), eligibleMinor: sumAvailableMinor(lots) };
+  const blocked = investBlockedReason(demoState, frozenAccount);
+  const days = daysUntil(loan.funding_deadline, balances?.as_of);
+  const statusPill = statusPillOf(loan, t);
+  const cadence = repaymentCadence(loan.repayment_type);
+
+  const fieldAmountMinor = amountText.trim() ? parseMoneyInputToMinorUnits(amountText, loan.currency) : null;
+  const isSaved = Boolean(savedItem) && (fieldAmountMinor === null ? savedAmountMinor === null : !fieldAmountMinor.error && fieldAmountMinor.amountMinor === savedAmountMinor);
+  const savedNote = usingSaved && savedAmountMinor !== null ? savedAmountNote(savedAmountMinor, loan, funds.eligibleMinor, t) : "";
+
+  const toggleSave = async () => {
+    setSaveError("");
+    try {
+      if (isSaved) {
+        await savedActions.remove(loan.loan_id);
+        return;
+      }
+      let amountMinor: number | null = null;
+      if (amountText.trim()) {
+        // The balance does not matter for saving; the minimum and the amount still available do.
+        const check = checkInvestAmount(amountText, loan, { balanceMinor: Number.MAX_SAFE_INTEGER, eligibleMinor: Number.MAX_SAFE_INTEGER });
+        if (!check.ok) {
+          setError({ message: check.message, shortfall: false });
+          return;
+        }
+        amountMinor = check.amountMinor;
+      }
+      setError(null);
+      await savedActions.save(loan, amountMinor);
+    } catch (failure) {
+      setSaveError(errorMessage(failure));
+    }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (blocked) {
+      setError({ message: blocked, shortfall: false });
+      return;
+    }
+    if (error?.shortfall) {
+      onAddFunds();
+      return;
+    }
+    const check = checkInvestAmount(amountText, loan, funds);
+    if (!check.ok) {
+      setError({ message: check.message, shortfall: check.shortfallMinor !== undefined });
+      return;
+    }
+    nav.go("invest", { loanId: loan.loan_id, amount: formatAmountInput(check.amountMinor, loan.currency) });
+  };
+
+  return (
+    <main className={`bxm-invest-desktop ip-page l8-opportunity r34-project-entry r36-opportunity${open ? " v107-compact" : ""}`}>
+      <div className="l8-back-row">{back}</div>
+      <section className="ip-panel">
+        <header className="ip-project l8-project-header">
+          <span className="ip-project-icon"><NiIcon name={projectIcon(loan)} /></span>
+          <div>
+            <h1>{loan.title}</h1>
+            <p>
+              {meta.join(" · ")}
+              {claim ? (
+                <>
+                  {meta.length > 0 ? " · " : ""}
+                  <span className="r58-claim">
+                    <span className="l8-type">{loanTypeLabel(loan)}</span>
+                    <InfoTip label={t("Existing claim")} title={t("Existing claim")}>
+                      {t("A loan that a loan originator has already made to the borrower. You invest in part of the originator's claim against the borrower.")}
+                    </InfoTip>
+                  </span>
+                </>
+              ) : null}
+              {statusPill}
+            </p>
+          </div>
+        </header>
+        <div className="l8-op-grid">
+          <section className="l8-information">
+            <div className="l8-terms">
+              <div><strong>{formatRateBps(loanYieldBps(loan))}</strong><span>{subscription ? t("Investor interest rate") : t("Annual interest rate")}</span></div>
+              {immediate && loan.remaining_term_days !== null ? (
+                <div><strong>{loan.remaining_term_days} <small>{t("days")}</small></strong><span>{t("Remaining term")}</span></div>
+              ) : (
+                <div><strong>{loan.term_months} <small>{t("months")}</small></strong><span>{t("Duration")}</span></div>
+              )}
+            </div>
+            {repaymentText(loan.repayment_type) ? <p className="l8-repayment">{repaymentText(loan.repayment_type)}</p> : null}
+            <div className="l8-project-story">
+              <h2>{t("About this project")}</h2>
+              <p>{loan.purpose_description || loan.investor_summary || collateralLabel(loan.purpose)}</p>
+              {loan.banxum_invests ? <div className="u102-loan-note"><BanxumInvestsLabel /></div> : null}
+            </div>
+            {claim && loan.originator_name ? (
+              <p className="r36-originator">
+                {t("Originator")}
+                <InfoTip label={t("Originator")} title={t("Originator")}>
+                  {t("The company that made the loan to the borrower and offers part of its claim on Banxum.")}
+                </InfoTip>
+                : <span className="u33-invest-originator">{loan.originator_name}</span>
+              </p>
+            ) : null}
+            <section className="refined-security" data-clarity="true">
+              <div className="r36-security-head">
+                <h2>
+                  {t("Security")}
+                  <InfoTip label={t("Security")} title={t("Security")}>{securityVocabText()}</InfoTip>
+                </h2>
+                <PortalLink aria-label={t("Security details & documents")} className="rc-resource" params={{ loanId: loan.loan_id, section: "credit-file", chapter: "security" }} to="loan">
+                  {t("Details")} <NiIcon name="arrow-right" />
+                </PortalLink>
+              </div>
+              <div className="rc-security-types">
+                {ltv !== null && loan.collateral_value_minor > 0 ? (
+                  <div className="r62-collateral-group">
+                    <div className="r62-collateral-head">
+                      <NiIcon name={collateralIcon(loan.collateral_type)} />
+                      <div className="r62-collateral-copy">
+                        <strong>{collateralLabel(loan.collateral_type)}</strong>
+                        {loan.collateral_description && loan.collateral_description !== loan.collateral_type ? <span>{loan.collateral_description}</span> : null}
+                      </div>
+                      <button
+                        aria-controls={`r62-collateral-${loan.loan_id}`}
+                        aria-expanded={ltvOpen}
+                        aria-describedby={`r62-collateral-${loan.loan_id}-explanation`}
+                        aria-label={t("Loan-to-value {ratio}. {valueLabel} comparison", { ratio: formatLtv(ltv), valueLabel: ltvLabel })}
+                        className="r62-toggle"
+                        title={t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: ltvLabel.toLowerCase() })}
+                        onClick={() => setLtvOpen((value) => !value)}
+                        type="button"
+                      >
+                        <span>{t("Loan-to-value")}</span>
+                        <strong>{formatLtv(ltv)}</strong>
+                        <i aria-hidden="true" className="r62-circle" />
+                      </button>
+                    </div>
+                    <div aria-hidden={!ltvOpen} className={`r62-disclosure${ltvOpen ? " is-open" : ""}`} id={`r62-collateral-${loan.loan_id}`} inert={!ltvOpen}>
+                      <div className="r62-clip">
+                        <figure className="r62-figure">
+                          <LtvFigure currency={loan.currency} loanMinor={loan.principal_minor} ltvBps={ltv} valueLabel={ltvLabel} valueMinor={loan.collateral_value_minor} />
+                        </figure>
+                      </div>
+                      <LtvAssets counted={securityParts.counted} currency={loan.currency} main={securityParts.main} />
+                      <span className="sr-only" id={`r62-collateral-${loan.loan_id}-explanation`}>
+                        {t("The loan amount is {ratio} of the stated {value}.", { ratio: formatLtv(ltv), value: ltvLabel.toLowerCase() })}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rc-security-type">
+                    <NiIcon name={collateralIcon(loan.collateral_type)} />
+                    <strong>{collateralLabel(loan.collateral_type)}</strong>
+                    {loan.collateral_description && loan.collateral_description !== loan.collateral_type ? <span>{loan.collateral_description}</span> : null}
+                  </div>
+                )}
+                {securityParts.others.map((security) => <SecurityTypeRow currency={loan.currency} key={security.id} security={security} />)}
+              </div>
+            </section>
+            <div className="r58-project-actions">
+              <div className="r58-action-row">
+                <PortalLink className="btn btn-outline-light r34-credit-file" params={{ loanId: loan.loan_id, section: "credit-file" }} to="loan">
+                  <NiIcon name="folder" /><span>{t("Open credit file")}</span><NiIcon name="arrow-right" />
+                </PortalLink>
+                <button aria-controls="pd-payment-schedule" aria-expanded={scheduleOpen} className="r36-schedule-toggle r60-frequency" onClick={() => setScheduleOpen((value) => !value)} type="button">
+                  <NiIcon name="calendar" />
+                  <span className="r36-toggle-copy">
+                    <strong>{t("Payment schedule")}</strong>
+                    <small>{paymentFrequencyLabel(loan.repayment_type) || cadence || t("Full loan schedule")}</small>
+                  </span>
+                  <span className="r36-chevron"><NiIcon name={scheduleOpen ? "chevron-up" : "chevron-down"} /></span>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {open ? (
+            <div className="v107-right">
+              <FundingCard days={days} loan={loan} minimum={minimum} percent={percent} places={places} />
+              <section aria-labelledby="v107-amount-label" className="v107-amount-card">
+                <form className={`v107-form${error ? (error.shortfall ? " has-warning" : " has-error") : ""}`} noValidate onSubmit={submit}>
+                  <label htmlFor="iv-amount" id="v107-amount-label">{t("Choose investment amount")}</label>
+                  <div className="v107-input">
+                    <span>{loan.currency}</span>
+                    <input
+                      aria-describedby="iv-error"
+                      aria-invalid={Boolean(error) && !error?.shortfall}
+                      aria-labelledby="v107-amount-label"
+                      autoComplete="off"
+                      className="bxm-amount"
+                      id="iv-amount"
+                      inputMode="decimal"
+                      name="amount"
+                      onChange={(event) => {
+                        setTypedAmount(event.target.value);
+                        setError(null);
+                      }}
+                      placeholder={t("Enter an amount")}
+                      type="text"
+                      value={amountText}
+                    />
+                    <label aria-label={t("Edit investment amount")} htmlFor="iv-amount"><NiIcon name="edit" /></label>
+                  </div>
+                  <p aria-live="polite" className="v107-error" id="iv-error">
+                    {error?.message ?? (places?.fullForViewer ? swissInvestorLimitMessage(places.maxInvestors) : "")}
+                  </p>
+                  {savedNote ? <p className="u33-invest-amount-hint u33-saved-amount" role="status">{savedNote}</p> : null}
+                  {/* 18.9 (E-03): a borrower in sandbox mode: short notice here, confirmed in Review & sign. */}
+                  {loan.sandbox_notice ? <p className="u33-invest-amount-hint u33-sandbox-hint">{loan.sandbox_notice.text}</p> : null}
+                  {usingUsual ? (
+                    <p className="u33-invest-amount-hint u33-usual-amount">
+                      {usualMinor !== null && usualMinor < loan.minimum_investment_minor
+                        ? t("Your usual Smart Invest amount is below the minimum here. Enter at least the minimum to invest.")
+                        : t("Your usual Smart Invest amount. You can change it.")}
+                    </p>
+                  ) : null}
+                  {/* Kept (audit A-39): the minimum, what the loan still takes and the balance usable for this
+                      loan's funding window, which can differ from the available balance. */}
+                  <p className="u33-invest-amount-hint">
+                    {t("Minimum {minimum} · {available} available", { minimum: formatMoneyLabel(loan.currency, loan.minimum_investment_minor), available: formatMoneyLabel(loan.currency, loanAvailableMinor(loan)) })}
+                    <br />
+                    {t("Your {currency} balance for this loan: {amount}", { currency: loan.currency, amount: formatMoneyLabel(loan.currency, funds.eligibleMinor) })}
+                  </p>
+                  <div className="v107-amount-actions">
+                    <button className="v107-review" disabled={Boolean(places?.fullForViewer)} type="submit">
+                      {error?.shortfall ? t("Add funds") : t("Review investment")} <NiIcon name="arrow-right" />
+                    </button>
+                    <p className="v107-fees">{t("No investment fees.")}</p>
+                    <button aria-pressed={isSaved} className="v107-save" disabled={savedActions.busy} onClick={() => void toggleSave()} title={isSaved ? t("Remove saved opportunity") : undefined} type="button">
+                      <NiIcon name="bookmark" /><span>{isSaved ? t("Saved") : t("Save for later")}</span>
+                    </button>
+                    {saveError ? <p className="v107-error" role="alert">{saveError}</p> : null}
+                  </div>
+                </form>
+              </section>
+            </div>
+          ) : isComingSoonLoan(loan) ? (
+            <ComingSoonState loan={loan} />
+          ) : (
+            <ClosedState holdingId={holding?.id ?? null} loan={loan} />
+          )}
+        </div>
+        {/* 18.3: help for this step with its live values (design r34-invest-help, "Choosing your amount"). */}
+        <HelpWithThisStep
+          context={loan.title}
+          items={[
+            {
+              question: t("How much can I invest?"),
+              answer: t("The minimum is {minimum}. You have {balance} available in your Banxum account. The project has {available} available to invest.", {
+                minimum: formatMoneyLabel(loan.currency, loan.minimum_investment_minor),
+                balance: formatMoneyLabel(loan.currency, funds.balanceMinor),
+                available: formatMoneyLabel(loan.currency, loanAvailableMinor(loan))
+              })
+            },
+            { question: t("What happens when I continue?"), answer: t("You review your amount and the purchase agreement. Your funds are reserved only after you accept it and confirm.") },
+            { question: t("Where can I see my repayments?"), answer: t("Open Payment schedule to see your projected repayments.") }
+          ]}
+          leading={<button aria-haspopup="dialog" className="l8-how" onClick={() => setHowOpen(true)} type="button"><NiIcon name="info" />{t("How investing works")}</button>}
+          title={t("Choosing your amount")}
+        />
+        <details
+          aria-labelledby="r36-schedule-title"
+          className="pd-inline-details l8-schedule r50-motion-schedule"
+          id="pd-payment-schedule"
+          onToggle={(event) => setScheduleOpen(event.currentTarget.open)}
+          open={scheduleOpen}
+        >
+          <summary aria-expanded={scheduleOpen}>{t("Payment schedule")} <NiIcon name="chevron-down" /></summary>
+          <div className="r50-schedule-body">
+            <div className="pd-disclosure-body">
+              <div className="r36-schedule-head">
+                <div>
+                  <h2 id="r36-schedule-title">{t("Scheduled repayments")}</h2>
+                  <p>
+                    {schedule.length === 1
+                      ? t("Full loan · {amount} · 1 payment", { amount: formatMoneyLabel(loan.currency, loan.principal_minor) })
+                      : t("Full loan · {amount} · {count} payments", { amount: formatMoneyLabel(loan.currency, loan.principal_minor), count: schedule.length })}
+                  </p>
+                </div>
+                {schedule.length > 0 ? (
+                  <div className="r36-total-interest">
+                    <span>{t("Projected interest · full loan")}</span>
+                    <strong>{formatMoneyLabel(loan.currency, scheduleInterest)}</strong>
+                  </div>
+                ) : null}
+              </div>
+              {schedule.length > 0 ? (
+                <ScheduleTable currency={loan.currency} label={t("Full loan payment schedule, {count} payments", { count: schedule.length })} rows={schedule} />
+              ) : (
+                <p className="bxm-muted">{t("The schedule appears once the loan is published with its installments.")}</p>
+              )}
+              <p className="bxm-muted pd-schedule-note">
+                {subscription
+                  ? t("Only installments after the funding deadline count for investors; the first one after it belongs to the Loan Originator. Your share follows your share of the principal.")
+                  : open
+                    ? t("Your repayments depend on the amount invested. If the loan closes at its minimum, the schedule is recalculated on the smaller amount.")
+                    : t("Your repayments depend on the amount invested. Repayments are credited to your Banxum balance.")}
+              </p>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      {howOpen ? (
+        <Dialog className="u33-invest-how" onClose={() => setHowOpen(false)} size="md" title={t("How investing works")}>
+          <ol className="u33-invest-steps-list">
+            <li>{t("You choose an amount and confirm it. The amount is reserved from your balance in the loan currency, first come, first served.")}</li>
+            <li>{t("Only balance with enough holding time left for the loan's funding period can be used. CHF and EUR stay separate.")}</li>
+            <li>{t("When funding closes, the reserved amount becomes your investment. Repayments are credited to your Banxum balance.")}</li>
+            <li>{t("If the funding round is cancelled or does not reach its minimum, the reservation is released to your balance.")}</li>
+          </ol>
+          <p className="bxm-muted">{t("Repayments are not guaranteed. You may lose part or all of your investment.")}</p>
+        </Dialog>
+      ) : null}
+    </main>
+  );
+}
+
+/** U33-DEC-18: why a saved amount cannot be invested now; it is not changed. */
+function savedAmountNote(amountMinor: number, loan: MarketplaceLoanDetail, eligibleMinor: number, t: ReturnType<typeof useT>) {
+  if (amountMinor < loan.minimum_investment_minor) {
+    return t("Your saved amount is below the minimum of {amount} now. Change it to invest.", { amount: formatMoneyLabel(loan.currency, loan.minimum_investment_minor) });
+  }
+  const available = loanAvailableMinor(loan);
+  if (amountMinor > available) {
+    return t("Your saved amount is more than the {amount} still available. Change it to invest.", { amount: formatMoneyLabel(loan.currency, available) });
+  }
+  if (amountMinor > eligibleMinor) {
+    return t("Your saved amount is more than your {currency} balance for this loan. Add funds or change the amount.", { currency: loan.currency });
+  }
+  return t("Your saved amount. You can change it.");
+}
+
+function statusPillOf(loan: MarketplaceLoanDetail, t: ReturnType<typeof useT>) {
+  if (isOpenLoan(loan)) return null;
+  // Design statusOf: Coming soon stays neutral.
+  if (isComingSoonLoan(loan)) return <span className="l8-open r58-project-status">{t("Coming soon")}</span>;
+  const status = loan.loan_status || loan.status;
+  const [label, tone] =
+    status === "defaulted" || status === "written_off"
+      ? [status === "written_off" ? t("Written off") : t("Default"), "is-default"]
+      : status === "late"
+        ? [t("Late"), "is-late"]
+        : status === "repaid"
+          ? [t("Repaid"), "is-muted"]
+          : status === "active"
+            ? [t("Repaying"), "is-solid"]
+            : [t("Funding closed"), "is-solid"];
+  return <span className={`l8-open ${tone} r58-project-status`}>{label}</span>;
+}
+
+function FundingCard({
+  loan,
+  minimum,
+  percent,
+  places,
+  days
+}: {
+  loan: MarketplaceLoanDetail;
+  minimum: ReturnType<typeof minimumFunding>;
+  percent: number;
+  places: ReturnType<typeof placesInfo>;
+  days: number | null;
+}) {
+  const t = useT();
+  const claim = isOriginatorClaimLoan(loan);
+  return (
+    <aside className="l8-funding">
+      <h2>{t("Project funding")}</h2>
+      <section className="card card-bordered bxm-invest-box">
+        <div className="card-inner">
+          <div className="pd-funding-pair">
+            <div><span>{usesOriginatorSubscription(loan) ? t("Reserved") : t("Funded")}</span><strong>{`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency, 0)}`}</strong></div>
+            <div><span>{claim ? t("Claim offered") : t("Total loan amount")}</span><strong>{`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency, 0)}`}</strong></div>
+          </div>
+          <div aria-label={t("Loan funding")} aria-valuemax={100} aria-valuemin={0} aria-valuenow={percent} className="pd-progress" role="progressbar">
+            <span style={{ width: `${percent}%` }} />
+            {minimum ? <i aria-hidden="true" style={{ left: `${minimum.bps / 100}%` }} /> : null}
+          </div>
+          {minimum ? (
+            <div className="pd-threshold">
+              <span>{t("Minimum funding · {percent}", { percent: formatPercent(minimum.bps / 100, 0) })}</span>
+              <strong>{`${loan.currency} ${formatMoneyMinor(minimum.amountMinor, loan.currency, 0)}`}</strong>
+            </div>
+          ) : null}
+          {places ? (
+            <div className="pd-threshold u33-invest-places-line">
+              <span>{t("Swiss borrower (10/20 mode): at most {count} creditors", { count: places.maxInvestors })}</span>
+              <strong>{places.placesLeft === 1 ? t("1 place left") : t("{count} places left", { count: places.placesLeft })}</strong>
+            </div>
+          ) : null}
+          {days !== null && !usesImmediateClaimAssignment(loan) ? (
+            <div className="pd-threshold u33-invest-deadline">
+              <span>{loan.funding_deadline ? t("Funding closes {date}", { date: formatDate(loan.funding_deadline) }) : ""}</span>
+              <strong>{daysLeftLabel(days)}</strong>
+            </div>
+          ) : null}
+          {usesImmediateClaimAssignment(loan) && loan.maturity_date ? (
+            <div className="pd-threshold u33-invest-deadline">
+              <span>{t("Maturity")}</span>
+              <strong>{formatDate(loan.maturity_date)}</strong>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+/** U33-DEC-17: design investBox for p.status "soon", with a real opening alert. */
+function ComingSoonState({ loan }: { loan: MarketplaceLoanDetail }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const ask = useV1MarketplacePrimaryLoansOpeningAlertCreate();
+  const cancel = useV1MarketplacePrimaryLoansOpeningAlertDestroy();
+  const [previewRequested, setPreviewRequested] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const requested = previewRequested ?? loan.opening_alert_requested === true;
+  const busy = ask.isPending || cancel.isPending;
+
+  const change = async (wanted: boolean) => {
+    setError("");
+    if (isReadonlyView()) {
+      setError(t("The opening alert cannot be changed in a read-only view."));
+      return;
+    }
+    if (isFixturePreview) {
+      setPreviewRequested(wanted);
+      return;
+    }
+    try {
+      const response = wanted
+        ? await ask.mutateAsync({ loanId: loan.loan_id })
+        : await cancel.mutateAsync({ loanId: loan.loan_id });
+      queryClient.setQueryData(getV1MarketplacePrimaryLoansRetrieveQueryKey(loan.loan_id), response);
+      void queryClient.invalidateQueries({ queryKey: getV1MarketplacePrimaryComingSoonListQueryKey() });
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
+
+  return (
+    <aside className="l8-funding">
+      <h2>{t("Project funding")}</h2>
+      <div className="card card-bordered bxm-invest-box">
+        <div className="card-inner">
+          <h6 className="title mb-1">{t("Opens on {date}", { date: formatDate(loan.planned_opening_date) })}</h6>
+          <p className="bxm-muted">{t("You can reserve an amount from that day. Funding closes on {date}.", { date: formatDate(loan.funding_deadline) })}</p>
+          {requested ? (
+            <>
+              <p className="u33-opening-alert" role="status"><NiIcon name="bell" /> {t("We will email you when this loan opens")}</p>
+              <button className="btn btn-outline-light btn-block" disabled={busy} onClick={() => void change(false)} type="button">{t("Cancel the opening alert")}</button>
+            </>
+          ) : (
+            <button className="btn btn-lg btn-primary btn-block" disabled={busy} onClick={() => void change(true)} type="button">
+              <NiIcon name="bell" /><span>{t("Tell me when it opens")}</span>
+            </button>
+          )}
+          {error ? <p className="v107-error" role="alert">{error}</p> : null}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function ClosedState({ loan, holdingId }: { loan: MarketplaceLoanDetail; holdingId: string | null }) {
+  const t = useT();
+  const status = loan.loan_status || loan.status;
+  const inDefault = status === "defaulted" || status === "written_off";
+  const title = inDefault
+    ? t("In default")
+    : status === "repaid"
+      ? t("Repaid")
+      : status === "late"
+        ? t("Payment overdue")
+        : t("Funding closed");
+  const text = inDefault
+    ? t("The borrower stopped paying. Banxum follows up on the loan for all investors; recoveries are credited to the investors' Banxum balances.")
+    : status === "repaid"
+      ? t("This loan has been repaid.")
+      : status === "late"
+        ? t("A payment of this loan is overdue. Banxum follows up on overdue payments. No action is needed from you.")
+        : t("This loan is not open for investment.");
+  return (
+    <aside className="l8-funding">
+      <h2>{t("Project funding")}</h2>
+      <div className="card card-bordered bxm-invest-box">
+        <div className="card-inner">
+          <h6 className={`title mb-1${inDefault ? " bxm-signal-text" : ""}`}>{title}</h6>
+          <p className="pd-state-amount">
+            <span>{t("Total loan amount")}</span>
+            <strong>{`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency, 0)}`}</strong>
+          </p>
+          <p className="bxm-muted mb-0">{text}</p>
+          {holdingId ? (
+            <PortalLink className="btn btn-outline-light btn-block mt-3" params={{ holdingId }} to="investment">
+              {inDefault ? t("Your investment and the recovery") : t("Your investment")}
+            </PortalLink>
+          ) : null}
+        </div>
+      </div>
+    </aside>
+  );
+}

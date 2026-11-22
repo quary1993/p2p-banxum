@@ -85,7 +85,80 @@ class PlatformFeaturesSerializer(serializers.Serializer[Any]):
     features = PlatformFeatureSerializer(many=True)
 
 
+class LoanStatusDaysLastChangeSerializer(serializers.Serializer[Any]):
+    changed_at = serializers.DateTimeField()
+    changed_by_email = serializers.CharField(allow_blank=True)
+    reason = serializers.CharField(allow_blank=True)
+
+
+class LoanStatusDaysSerializer(serializers.Serializer[Any]):
+    """U33-DEC-09: the platform's Late and Default days (loans without contract days)."""
+
+    late_days = serializers.IntegerField()
+    default_days = serializers.IntegerField()
+    default_late_days = serializers.IntegerField()
+    default_default_days = serializers.IntegerField()
+    maximum_days = serializers.IntegerField()
+    last_change = LoanStatusDaysLastChangeSerializer(allow_null=True)
+
+
+class LoanStatusDaysUpdateRequestSerializer(serializers.Serializer[Any]):
+    late_days = serializers.IntegerField(min_value=1)
+    default_days = serializers.IntegerField(min_value=2)
+    reason = serializers.CharField(max_length=1000, allow_blank=True)
+
+
 class PlatformFeatureUpdateRequestSerializer(serializers.Serializer[Any]):
     key = serializers.CharField(max_length=128)
     enabled = serializers.BooleanField()
     reason = serializers.CharField(max_length=1000, allow_blank=True)
+
+
+# --- 18.4 (F17): settlement calendars ----------------------------------------------------------
+
+
+class SettlementCalendarDaySerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    date = serializers.DateField()
+    name = serializers.CharField()
+    origin = serializers.CharField(help_text="rule (preloaded) or admin (added by an admin).")
+    is_active = serializers.BooleanField(help_text="False: the admin opened this day.")
+    removal_reason = serializers.CharField()
+
+
+class SettlementCalendarYearSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    year = serializers.IntegerField()
+    stored = serializers.BooleanField(
+        help_text="False: the year is not preloaded yet; the days are the rule list."
+    )
+    preloaded_at = serializers.DateTimeField(allow_null=True)
+    confirmed_at = serializers.DateTimeField(allow_null=True)
+    confirmed_by_admin_id = serializers.CharField(allow_null=True)
+    confirmation_note = serializers.CharField()
+    revision = serializers.IntegerField()
+    reconfirmation_needed_since = serializers.DateTimeField(allow_null=True)
+    days = SettlementCalendarDaySerializer(many=True)
+
+
+class SettlementCalendarQuerySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField(max_length=3, help_text="CHF or EUR.")
+    year = serializers.IntegerField(min_value=2000, max_value=2100)
+
+
+class SettlementCalendarDayAddRequestSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField(max_length=3, help_text="CHF or EUR.")
+    date = serializers.DateField()
+    name = serializers.CharField(max_length=128)
+
+
+class SettlementCalendarDayRemoveRequestSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField(max_length=3, help_text="CHF or EUR.")
+    date = serializers.DateField()
+    reason = serializers.CharField(max_length=2000)
+
+
+class SettlementCalendarConfirmRequestSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField(max_length=3, help_text="CHF or EUR.")
+    year = serializers.IntegerField(min_value=2000, max_value=2100)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=2000)

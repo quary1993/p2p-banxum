@@ -2,12 +2,23 @@ from __future__ import annotations
 
 from django.urls import path
 
+from backend.apps.servicing.api.engine_views import (
+    EnginePaymentPreviewView,
+    LoanDefaultCancellationView,
+    LoanDefaultDeclarationView,
+    LoanExpenseListCreateView,
+    LoanServicingPositionView,
+)
 from backend.apps.servicing.api.views import (
     BorrowerRepaymentAdvancePreviewView,
     BorrowerRepaymentRecordView,
+    LoanContractTerminationView,
     LoanRecoveryPaymentRecordView,
+    LoanRecoveryStageListView,
+    LoanRecoveryStageRemoveView,
     LoanRiskNoteAdminListCreateView,
     LoanServicingStatusScanView,
+    LoanStatusThresholdsView,
     LoanWriteOffRecordView,
     PublicLoanRiskNoteListView,
 )
@@ -44,8 +55,54 @@ urlpatterns = [
         name="servicing-write-off-record",
     ),
     path(
+        "admin/loans/<uuid:loan_id>/status-thresholds/",
+        LoanStatusThresholdsView.as_view(),
+        name="servicing-loan-status-thresholds",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/recovery-stages/",
+        LoanRecoveryStageListView.as_view(),
+        name="servicing-loan-recovery-stages",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/recovery-stages/<uuid:stage_id>/remove/",
+        LoanRecoveryStageRemoveView.as_view(),
+        name="servicing-loan-recovery-stage-remove",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/contract-termination/",
+        LoanContractTerminationView.as_view(),
+        name="servicing-loan-contract-termination",
+    ),
+    path(
         "admin/recoveries/",
         LoanRecoveryPaymentRecordView.as_view(),
         name="servicing-recovery-record",
+    ),
+    # 18.6 interest engine
+    path(
+        "admin/loans/<uuid:loan_id>/servicing-position/",
+        LoanServicingPositionView.as_view(),
+        name="servicing-loan-position",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/payment-preview/",
+        EnginePaymentPreviewView.as_view(),
+        name="servicing-loan-payment-preview",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/expenses/",
+        LoanExpenseListCreateView.as_view(),
+        name="servicing-loan-expenses",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/default-declaration/",
+        LoanDefaultDeclarationView.as_view(),
+        name="servicing-loan-default-declaration",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/default-declaration/cancel/",
+        LoanDefaultCancellationView.as_view(),
+        name="servicing-loan-default-cancellation",
     ),
 ]

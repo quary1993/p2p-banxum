@@ -172,6 +172,7 @@ const pendingInstruction: AdminPayoutInstructionRow = {
   destination_iban: "DE89370400440532013000",
   destination_account_name: "Anna Keller",
   state: "pending",
+  is_default_return: false,
   origin: "investor_request",
   verified_at: null,
   verified_by_admin_id: null,

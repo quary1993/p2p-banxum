@@ -10,6 +10,7 @@ from backend.apps.servicing.models import (
     InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
     LoanRecoveryEvent,
+    LoanRecoveryStageStatus,
     LoanRiskNote,
     LoanRiskNoteType,
     LoanRiskNoteVisibility,
@@ -281,6 +282,7 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
         min_value=0,
         default=0,
     )
+    # U33-DEC-12: no Banxum recovery fee for investors; true or a rate above 0 is refused.
     recovery_fee_applied = serializers.BooleanField(required=False, default=False)
     recovery_fee_bps = serializers.IntegerField(
         required=False,
@@ -486,3 +488,71 @@ def serialize_write_off_event(write_off: LoanWriteOffEvent) -> dict[str, Any]:
 
 def serialize_loss_recognition_line(line: InvestorLossRecognitionLine) -> dict[str, Any]:
     return dict(InvestorLossRecognitionLineSerializer(line).data)
+
+
+class LoanStatusThresholdsRequestSerializer(serializers.Serializer[Any]):
+    """U33-DEC-09: both days, or both null to use the platform settings."""
+
+    late_threshold_days = serializers.IntegerField(allow_null=True, min_value=1, max_value=365)
+    default_threshold_days = serializers.IntegerField(allow_null=True, min_value=2, max_value=365)
+    reason = serializers.CharField(max_length=2000)
+
+
+class LoanContractTerminationRequestSerializer(serializers.Serializer[Any]):
+    terminated_on = serializers.DateField()
+    note = serializers.CharField(max_length=4000)
+
+
+class LoanStatusStagesSerializer(serializers.Serializer[Any]):
+    """A loan's Late / Default days (own or platform) and its contract termination date."""
+
+    loan_id = serializers.UUIDField()
+    loan_status = serializers.CharField()
+    late_threshold_days = serializers.IntegerField(allow_null=True)
+    default_threshold_days = serializers.IntegerField(allow_null=True)
+    effective_late_threshold_days = serializers.IntegerField()
+    effective_default_threshold_days = serializers.IntegerField()
+    threshold_source = serializers.CharField()
+    contract_terminated_on = serializers.DateField(allow_null=True)
+
+
+class LoanRecoveryStageSerializer(serializers.Serializer[Any]):
+    """U33-DEC-22: a recorded stage (done) or the known next step (next) of a loan."""
+
+    id = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
+    title = serializers.CharField()
+    # Q16: the standard stage picked (empty for an own title) and the result of Recovery closed.
+    standard_key = serializers.CharField(allow_blank=True)
+    recovery_result = serializers.CharField(allow_blank=True)
+    occurred_on = serializers.DateField(allow_null=True)
+    investor_note = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()
+    recorded_by_email = serializers.CharField(allow_blank=True)
+    removed_at = serializers.DateTimeField(allow_null=True)
+    removed_reason = serializers.CharField(allow_blank=True)
+    removed_by_email = serializers.CharField(allow_blank=True)
+
+
+class LoanRecoveryStageListSerializer(serializers.Serializer[Any]):
+    stages = LoanRecoveryStageSerializer(many=True)
+
+
+class LoanRecoveryStageRequestSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=LoanRecoveryStageStatus.choices)
+    # An own title, or empty with a standard stage (Q16).
+    title = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    standard_key = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, default=""
+    )
+    recovery_result = serializers.ChoiceField(
+        choices=["", "full", "partial", "none"], required=False, default=""
+    )
+    occurred_on = serializers.DateField(required=False, allow_null=True, default=None)
+    investor_note = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+
+
+class LoanRecoveryStageRemoveRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField(max_length=2000)

@@ -11,9 +11,9 @@
   "whatYouDoHere": [
     "Start with the pending finance-operations table and open the relevant action or owning module for each unresolved item.",
     "Declare a matched incoming lender deposit and credit it to the investor's balance.",
-    "Review and add verified payout IBANs without removing verified accounts already established by deposits.",
-    "Look up an investor's ledger balance broken into investable, withdraw-only, overdue, frozen and penalty buckets.",
-    "Run the balance ageing scan that fires 60-day holding reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
+    "Review and verify payout IBANs. A deposit does not verify its source IBAN: verify it from the deposit (both checks and evidence) or verify the investor's request with a bank statement.",
+    "Look up an investor's ledger balance broken into investable, withdraw-only, due-back and frozen buckets (there is no penalty since November 2026).",
+    "Run the balance ageing scan that sends the return notices (14, 10 and 3 days before) and creates the automatic returns of money not invested (with a safe dry-run mode). Work failed returns, record a returned transfer, and confirm the settlement calendars.",
     "Create a reconciliation snapshot that compares the bank's stated balance against what the ledger expects.",
     "Finalize or cancel investor withdrawals, finalize direct borrower loan disbursements, declare external FX settlements, and settle complete Loan Originator payable batches after the bank transfer executes."
   ],
@@ -79,7 +79,7 @@
     {
       "id": "finance-2-lender-deposit",
       "caption": "Lender deposit: record an incoming bank transfer and credit the investor.",
-      "summary": "This form declares that money from an investor has landed in Garanta's collection account, credits that investor's balance, and establishes the checksum-valid source IBAN from the bank statement as a verified payout account. Use it only when a real incoming transfer has been seen on the bank statement.",
+      "summary": "This form declares that money from an investor has landed in Garanta's collection account, and credits that investor's balance. The source IBAN from the bank statement must be checksum-valid, but the deposit does NOT make it a verified payout account. After the deposit, the form opens 'Verify a return account from a deposit': compare the holder of the transfer with the name from the investor's identity check, confirm that the transfer did not come through a collecting or intermediary account, and give the evidence reference. Use the deposit form only when a real incoming transfer has been seen on the bank statement.",
       "annotations": [
         {
           "item": 1,
@@ -129,12 +129,12 @@
         {
           "item": 10,
           "label": "Declare deposit",
-          "text": "Submits the deposit. On success it creates a reconciled bank-operation record, posts a balanced ledger entry (debit collection cash, credit the investor's balance liability), opens a new balance lot, and creates or updates that exact source IBAN as an active verified payout instruction in the same transaction."
+          "text": "Submits the deposit. On success it creates a reconciled bank-operation record, posts a balanced ledger entry (debit collection cash, credit the investor's balance liability), and opens a new balance lot. It verifies no bank account. If the source IBAN is not yet a verified account of the investor, the verification card opens under the form."
         }
       ],
       "notes": [
         "Only an active admin can declare a deposit. The chosen account must be a lender account that is not restricted, locked, or closed. A pending-KYC lender may receive a deposit; financial actions remain blocked until onboarding gates pass.",
-        "The new source's 60-day holding clock starts on the bank value date. A reservation is permitted only when that source can cover the loan's entire remaining funding window. Shorter campaigns can use older funds. At day 60, uninvested sources enter the return process.",
+        "The new source's 60-day holding clock starts on the bank value date. A reservation is permitted only when that source can cover the loan's entire remaining funding window. Shorter campaigns can use older funds. Since November 2026: day 56 after the value date is the last day the money may stay (withdraw only); the return is requested on day 57, or on the settlement day before when the bank is closed or the debit would come after day 59. A lot can fund a direct loan only if the funding close plus 3 business days is on or before its day 56.",
         "Investor deposit instructions show the investor-specific payment reference as BX-{currency}-{investor_reference}. The CHF screen also shows the verified Garanta_CHF Swiss QR-bill payload. That QR payload identifies the CHF collector account but does not include the investor's BANXUM payment reference, so the investor must still copy the displayed payment reference into the bank transfer reference/description. The EUR collector currently has IBAN/BIC instructions only; no EUR QR payload has been supplied.",
         "Source IBAN is mandatory. It must be the account the deposit actually came from and pass full IBAN validation. A successful deposit makes that exact investor/currency IBAN verified and usable for ordinary and forced withdrawals; this is not a separate manual payout-verification step.",
         "Each deposit gets an automatic idempotency key, so resubmitting the same declaration returns the original result rather than crediting the investor twice."
@@ -143,7 +143,7 @@
     {
       "id": "finance-3-payout-instruction",
       "caption": "Payout instruction: register the verified IBAN used to pay an investor.",
-      "summary": "A payout instruction is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. Deposit source IBANs are verified automatically. Use this form when an investor requests another account: verifying it adds that exact IBAN and does not disable their existing verified deposit account.",
+      "summary": "A payout instruction is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. A deposit source IBAN is NOT verified automatically: verify it in 'Verify a return account from a deposit' (holder against the name from the identity check, no collecting account, evidence), or use this form when an investor requests an account and you have a bank statement or bank confirmation. Verifying an account adds that exact IBAN and does not disable other verified accounts.",
       "annotations": [
         {
           "item": 1,
@@ -205,7 +205,7 @@
         }
       ],
       "notes": [
-        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of business date against each lot's holding deadline; individual loans additionally require source coverage through their final subscription date. Frozen and penalty-mode lots are tracked separately and are not normal spendable balance.",
+        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of business date against each lot's holding deadline; individual loans additionally require source coverage through their final subscription date. Frozen lots are tracked separately and are not normal spendable balance. Money past its last day is 'due back': the investor can withdraw it but not invest it; there is no penalty.",
         "This screen shows Available, Investable, Withdraw-only and Overdue. Use it before a forced withdrawal or to explain to an investor why funds are or are not investable.",
         "Read-only: it never moves money or changes a lot's status."
       ]
@@ -213,7 +213,7 @@
     {
       "id": "finance-5-balance-ageing-scan",
       "caption": "Balance ageing scan: drive the 60-day holding reminders, forced withdrawals and penalties.",
-      "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it raises reminders as lots approach the 60-day limit, and at/after day 60 it either auto-creates a forced withdrawal (if a verified payout IBAN exists) or moves the lot into penalty mode and charges a daily penalty. It can be run safely as a dry run first.",
+      "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it sends the return notices 14, 10 and 3 days before the return date, and on the return date (day 57, or the settlement day before) it creates a forced withdrawal to the investor's default return account. Without a verified account the money stays on the balance, due back and withdraw-only, with urgent notices and no penalty; compliance is alerted when money reaches day 59 not returned. The scan never sends a failed return again by itself. It can be run safely as a dry run first.",
       "annotations": [
         {
           "item": 1,
@@ -232,9 +232,9 @@
         }
       ],
       "notes": [
-        "GOTCHA - Dry run: a 'Dry run only' checkbox is TICKED by default. With dry run on, the scan only reports what WOULD happen (reminders, forced-withdrawal candidates, penalty-mode transitions) and changes nothing. Untick it to actually send reminders, create forced withdrawals, flip lots into penalty mode, and post penalty charges. Always dry-run first.",
+        "GOTCHA - Dry run: a 'Dry run only' checkbox is TICKED by default. With dry run on, the scan only reports what WOULD happen (notices, forced-withdrawal candidates) and changes nothing. Untick it to actually send notices and create forced withdrawals. Always dry-run first.",
         "Reminders fire on holding days 25, 46, 53, 58, 59 and 60; each reminder is only sent once per lot.",
-        "At or after the 60-day withdrawal deadline: if the investor HAS an active verified payout instruction, the scan auto-creates a forced withdrawal for the overdue amount to that IBAN. If they do NOT, the lot is moved into penalty mode and a daily penalty is charged against the balance instead. Penalty-mode balances also block FX exchanges and secondary-market purchases until a usable payout path resolves the overdue money.",
+        "On the return date of a lot (day 57 after the value date, or the settlement day before): if the investor HAS a verified payout account, the scan creates a forced withdrawal for the amount due back to the default return account, with the day and cut-off (12:00 Europe/Zurich) by which you must send the transfer. If they do NOT, the money stays due back and withdraw-only, the investor gets urgent notices, and there is no penalty and no freeze. If you cancel a forced withdrawal before the transfer, the next scan creates a new one, also on the same day.",
         "Only an active admin can run the scan. A live run posts real ledger entries and emails, so treat it like any other money-moving action."
       ]
     },

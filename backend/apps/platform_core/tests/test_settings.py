@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import time
 from importlib import import_module
 from typing import Any
 
@@ -10,7 +11,9 @@ from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.models import AuditEvent, PlatformSetting
 from backend.apps.platform_core.selectors.settings import (
     balance_auto_return_after_days,
-    balance_reminder_days,
+    balance_return_notice_days_before,
+    bank_cutoff_time,
+    bank_processing_business_days,
     get_collection_account_identifier,
     get_platform_setting_value,
     platform_setting_versions,
@@ -66,24 +69,63 @@ def test_seed_default_platform_settings_is_idempotent() -> None:
 
 
 @pytest.mark.django_db
-def test_balance_ageing_settings_seed_the_58_day_return_and_read_back_safely() -> None:
-    assert balance_auto_return_after_days() == 58
-    assert balance_reminder_days(return_after_days=58) == (25, 46, 53, 56, 57, 58)
+def test_balance_return_settings_seed_the_56_day_rule_and_read_back_safely() -> None:
+    assert balance_auto_return_after_days() == 56
+    assert balance_return_notice_days_before() == (14, 10, 3)
+    assert bank_processing_business_days() == 1
+    assert bank_cutoff_time() == time(12, 0)
 
     seed_default_platform_settings(actor=ActorRef.system())
 
-    assert get_platform_setting_value("balance.auto_return_after_days") == 58
-    assert get_platform_setting_value("balance.reminder_days") == [25, 46, 53, 56, 57, 58]
+    assert get_platform_setting_value("balance.auto_return_after_days") == 56
+    assert get_platform_setting_value("balance.return_notice_days_before") == [14, 10, 3]
+    assert get_platform_setting_value("funding.payout_margin_business_days") == 3
     actor = ActorRef("superadmin", "sa-1")
-    for key, value in (("balance.auto_return_after_days", 55), ("balance.reminder_days", [50])):
+    for key, value in (
+        ("balance.auto_return_after_days", 50),
+        ("balance.return_notice_days_before", [7]),
+        ("bank.processing_business_days", 2),
+        ("bank.cutoff_time", "10:30"),
+    ):
         set_platform_setting(SetPlatformSettingCommand(actor=actor, key=key, value=value))
-    assert balance_auto_return_after_days() == 55
-    assert balance_reminder_days(return_after_days=55) == (50,)
-    # A value past the 60-day legal limit falls back to the default.
+    assert balance_auto_return_after_days() == 50
+    assert balance_return_notice_days_before() == (7,)
+    assert bank_processing_business_days() == 2
+    assert bank_cutoff_time() == time(10, 30)
+    # New money never gets more than 56 days: a larger value falls back to the default.
     set_platform_setting(
-        SetPlatformSettingCommand(actor=actor, key="balance.auto_return_after_days", value=75)
+        SetPlatformSettingCommand(actor=actor, key="balance.auto_return_after_days", value=58)
     )
-    assert balance_auto_return_after_days() == 58
+    assert balance_auto_return_after_days() == 56
+
+
+def _return_rule_migration() -> Any:
+    return import_module("backend.apps.platform_core.migrations.0011_return_rule_56_days")
+
+
+@pytest.mark.django_db
+def test_return_rule_migration_moves_the_58_day_default_and_drops_the_old_reminders() -> None:
+    actor = ActorRef.system()
+    set_platform_setting(
+        SetPlatformSettingCommand(actor=actor, key="balance.auto_return_after_days", value=58)
+    )
+    _seed_reminder_days([25, 46, 53, 56, 57, 58])
+
+    _return_rule_migration().forwards(django_apps, None)
+    _return_rule_migration().forwards(django_apps, None)
+
+    setting = PlatformSetting.objects.get(key="balance.auto_return_after_days")
+    assert (setting.value, setting.current_version) == (56, 2)
+    assert not PlatformSetting.objects.filter(key="balance.reminder_days").exists()
+    assert AuditEvent.objects.filter(
+        actor_id="migration:platform_core.0011", action="platform_setting.removed"
+    ).exists()
+    # A value a superadmin chose stays.
+    set_platform_setting(
+        SetPlatformSettingCommand(actor=actor, key="balance.auto_return_after_days", value=40)
+    )
+    _return_rule_migration().forwards(django_apps, None)
+    assert PlatformSetting.objects.get(key="balance.auto_return_after_days").value == 40
 
 
 def _reminder_migration() -> Any:

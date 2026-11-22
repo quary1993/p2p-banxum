@@ -22,6 +22,9 @@ import {
   getV1AdminPlatformFeaturesRetrieveQueryKey,
   useV1AdminPlatformFeaturesCreate,
   useV1AdminPlatformFeaturesRetrieve,
+  getV1AdminLoanStatusDaysRetrieveQueryKey,
+  useV1AdminLoanStatusDaysRetrieve,
+  useV1AdminLoanStatusDaysUpdate,
   useV1AuthAdminUsersAccessCreate,
   useV1AuthAdminUsersCreate,
   useV1AdminOpsUsersDocumentsArtifactCreate,
@@ -42,6 +45,42 @@ import {
   useV1LoansAdminLoansCreate,
   useV1LoansAdminLoansOriginalScheduleList,
   useV1LoansAdminLoansPartialUpdate,
+  useV1LoansAdminLoansComingSoonCreate,
+  getV1LoansAdminLoansCreditChecksRetrieveQueryKey,
+  useV1LoansAdminLoansCreditChecksCreate,
+  useV1LoansAdminLoansCreditChecksDestroy,
+  useV1LoansAdminLoansCreditChecksRetrieve,
+  useV1LoansAdminLoansCreditChecksUpdate,
+  useV1LoansAdminLoansMonitoringCreate,
+  useV1LoansAdminLoansRepaymentSourceCreate,
+  getV1EntitiesAdminBorrowersDebtFacilitiesRetrieveQueryKey,
+  getV1EntitiesAdminBorrowersDocumentsListQueryKey,
+  getV1EntitiesAdminBorrowersFinancialYearsRetrieveQueryKey,
+  useV1EntitiesAdminBorrowersDebtFacilitiesCreate,
+  useV1EntitiesAdminBorrowersDebtFacilitiesDestroy,
+  useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate,
+  useV1LoansAdminLoansCreditChecksMoveCreate,
+  useV1LoansAdminLoansReportingPlanUpdate,
+  useV1EntitiesAdminBorrowersDebtFacilitiesRetrieve,
+  useV1EntitiesAdminBorrowersDebtFacilitiesUpdate,
+  useV1EntitiesAdminBorrowersDocumentsList,
+  useV1EntitiesAdminBorrowersDocumentsMetadataCreate,
+  useV1EntitiesAdminBorrowersFinancialYearsCreate,
+  useV1EntitiesAdminBorrowersFinancialYearsDestroy,
+  useV1EntitiesAdminBorrowersFinancialYearsRetrieve,
+  useV1EntitiesAdminBorrowersFinancialYearsUpdate,
+  type BorrowerDebtFacility,
+  type BorrowerDocument,
+  type BorrowerFinancialYear,
+  type LoanCreditCheck,
+  getV1LoansAdminLoansSecuritiesRetrieveQueryKey,
+  useV1LoansAdminLoansSecuritiesCreate,
+  useV1LoansAdminLoansSecuritiesDestroy,
+  useV1LoansAdminLoansSecuritiesRetrieve,
+  useV1LoansAdminLoansSecuritiesUpdate,
+  type LoanSecurity,
+  type LoanSecurityRequest,
+  useV1LoansAdminLoansComingSoonDestroy,
   useV1LoansAdminLoansPublishCreate,
   useV1LoansAdminLoansScheduleList,
   useOriginatorClaimsAdminLoansCreate,
@@ -50,6 +89,13 @@ import {
   useOriginatorClaimsAdminLoansPublish,
   useOriginatorClaimsAdminLoansRetrieve,
   useOriginatorClaimsAdminLoansSubscriptionCancel,
+  useOriginatorClaimsAdminLoansOfferFailed,
+  useEntitiesAdminCreditorModeRetrieve,
+  getEntitiesAdminCreditorModeRetrieveQueryKey,
+  useEntitiesAdminCreditorModeUpdate,
+  useEntitiesAdminExternalDebtsCreate,
+  useEntitiesAdminExternalDebtsEnd,
+  useEntitiesAdminSnbRatesCreate,
   useOriginatorClaimsAdminLoansSubscriptionResume,
   useOriginatorClaimsAdminLoansUpdate,
   useOriginatorClaimsAdminLoanRepaymentsCreate,
@@ -71,6 +117,24 @@ import {
   useV1ReportingAdminReportsCreate,
   useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
+  getV1ServicingAdminLoansServicingPositionRetrieveQueryKey,
+  useV1ServicingAdminLoansDefaultDeclarationCancelCreate,
+  useV1ServicingAdminLoansDefaultDeclarationCreate,
+  useV1ServicingAdminLoansExpensesCreate,
+  useV1ServicingAdminLoansPaymentPreviewCreate,
+  useV1ServicingAdminLoansServicingPositionRetrieve,
+  type EnginePaymentPreview,
+  type LoanServicingPosition,
+  useV1ServicingAdminLoansContractTerminationCreate,
+  getV1ServicingAdminLoansRecoveryStagesRetrieveQueryKey,
+  useV1ServicingAdminLoansRecoveryStagesCreate,
+  useV1ServicingAdminLoansRecoveryStagesRemoveCreate,
+  useV1ServicingAdminLoansRecoveryStagesRetrieve,
+  useV1LoansAdminLoansHistoryRetrieve,
+  useV1LoansAdminLoansSecuritiesMainCreate,
+  useV1LoansAdminLoansSecuritiesMoveCreate,
+  useV1AdminOpsUsersSupportRequestsRetrieve,
+  useV1ServicingAdminLoansStatusThresholdsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
   useV1ServicingAdminStatusScanCreate,
@@ -124,7 +188,7 @@ import {
   type OriginatorSettlementQueueRow,
   type OriginatorSettlementRequest,
   type PatchedLoanOriginatorUpdate,
-  type PatchedOriginatorLoanCreate,
+  type PatchedOriginatorLoanReplace,
   type PatchedBorrowerEntityUpdateRequest,
   type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
@@ -147,13 +211,15 @@ import {
 import { ApiClientError } from "../api/client/httpClient";
 import { writeReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
-import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
+import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps, minorUnitDecimalsForCurrency } from "../investorPortal/format";
 import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type Tone } from "../investorPortal/ui";
 import { adminFormDefaults } from "./adminFixtures";
+import { financialYearCheckResults, minorToUnits, unitsToMinor } from "./statementUnits";
 import { withIdempotencyKey } from "./adminIdempotency";
+import { DeclarationReviewsCard, InvestorComplianceCard, SecurityProofsPanel, StaffRolesCard } from "./ComplianceDeclarations";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
-import { useAdminParam, useAdminSegments } from "./adminRoute";
+import { adminHref, navigateAdmin, useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   isWithdrawalQueueItem,
   taskTypeLabel,
@@ -184,6 +250,12 @@ import {
   useLoansData
 } from "./data";
 import { useAdminBusinessDate } from "./adminBusinessDate";
+import {
+  DepositAccountVerificationCard,
+  ReturnedTransferForm,
+  ReturnFailuresCard,
+  SettlementCalendarsCard
+} from "./ReturnsAndCalendars";
 import { CollectionAccountSelect } from "./CollectionAccountSelect";
 import { PayoutIbanQueue } from "./PayoutIbans";
 
@@ -518,6 +590,11 @@ function splitMinorAmount(totalMinor: number, parts: number, index: number) {
   const remainder = totalMinor - base * parts;
   return base + (index < remainder ? 1 : 0);
 }
+
+// U33-DEC-38: every loan needs collateral or guarantees; the unsecured exception is not offered.
+const SECURED_COLLATERAL_TYPES = Object.values(CollateralTypeEnum).filter(
+  (value) => value !== CollateralTypeEnum.unsecured_exception
+);
 
 function previewScheduleRows(loan: Loan, businessDate: string): LoanInstallment[] {
   const term = Math.max(1, loan.term_months || 1);
@@ -1367,6 +1444,12 @@ export function CompliancePanel() {
       </section>
 
       <section className="admin-stack">
+        <DeclarationReviewsCard />
+        <InvestorComplianceCard />
+        <StaffRolesCard />
+      </section>
+
+      <section className="admin-stack">
         <Card padded>
           <SectionHeader
             action={<Button icon="refresh" onClick={() => refetchLive(kycQuery.refetch)} size="sm">Refresh</Button>}
@@ -1742,7 +1825,7 @@ function FinancePendingTasksTable({
                     <strong>{item.title}</strong>
                     <span className="mono muted">{labelize(item.kind)}</span>
                     {(item.metadata as { is_forced?: unknown } | null)?.is_forced === true ? (
-                      <Chip dot={false} tone="warn">Forced return (58-day rule)</Chip>
+                      <Chip dot={false} tone="warn">Forced return (day 57 rule)</Chip>
                     ) : null}
                   </td>
                   <td><Chip status={item.status}>{labelize(item.status)}</Chip></td>
@@ -1778,10 +1861,14 @@ export function FinanceOpsPanel() {
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
       <FinancePendingTasksTable onSelectWithdrawal={setSelectedWithdrawalId} />
       <WithdrawalHistoryCard />
+      <ReturnFailuresCard />
       <OriginatorSettlementQueue />
       <section className="admin-module-grid">
         <DepositForm />
         <PayoutIbanQueue />
+        <ReturnedTransferForm />
+        <DepositAccountVerificationCard />
+        <SettlementCalendarsCard />
         <BalanceSummaryLookup />
         <BalanceAgeingScanForm />
         <ReconciliationSnapshotForm />
@@ -1969,16 +2056,25 @@ export function DepositForm() {
   const [payerName, setPayerName] = useState("");
   const [sourceIban, setSourceIban] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  // Audit S3-1 (U33-DEC-05): a deposit never verifies its paying account. After the deposit the
+  // form offers the one verification action, with both checks and the evidence.
+  const [verifyInvestorId, setVerifyInvestorId] = useState<string | null>(null);
   const [duplicateMovementKey, setDuplicateMovementKey] = useState<string | null>(null);
   const [confirmRepeat, setConfirmRepeat] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminLenderDepositsCreate({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (result, variables) => {
         setDuplicateMovementKey(null);
         setConfirmRepeat(false);
-        setSuccess("Deposit was ledgered and its source IBAN was added as a verified payout account.");
+        const alreadyVerified = Boolean(result.payout_instruction);
+        setVerifyInvestorId(alreadyVerified ? null : variables.data.investor_user_id);
+        setSuccess(
+          alreadyVerified
+            ? "Deposit was ledgered. Its source IBAN is already a verified bank account of the investor."
+            : "Deposit was ledgered. Its source IBAN is not a return account yet: verify it below, with both checks and the evidence."
+        );
       },
       onError: (error, variables) => {
         setConfirmRepeat(false);
@@ -2038,7 +2134,7 @@ export function DepositForm() {
   return (
     <Card padded>
       <h2>Lender deposit</h2>
-      <p>Declare a matched incoming transfer. Its valid source IBAN becomes a verified payout account for this investor.</p>
+      <p>Declare only a transfer you have matched to the investor. Unidentified or unclear transfers stay out of the investor's balance until you have checked them by hand. A deposit does not make its source IBAN a return account: after the deposit, verify the account from the deposit (holder compared with the name from the identity check, no collecting account, evidence).</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <InvestorLookupInput
@@ -2083,6 +2179,7 @@ export function DepositForm() {
           submitLabel={duplicatePending && confirmRepeat ? "Declare repeat deposit" : "Declare deposit"}
         />
       </form>
+      {verifyInvestorId ? <DepositAccountVerificationCard investorUserId={verifyInvestorId} key={verifyInvestorId} /> : null}
     </Card>
   );
 }
@@ -2153,7 +2250,7 @@ function BalanceAgeingScanForm() {
   return (
     <Card padded>
       <h2>Balance ageing scan</h2>
-      <p>Find reminders, automatic returns after 58 days and penalty-mode actions after the 60-day holding limit.</p>
+      <p>Find notices before the return date, automatic returns from day 57 and the 60-day holding limit.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <TextInput label="As of timestamp" onChange={setAsOf} type="datetime-local" value={asOf} />
@@ -2756,6 +2853,20 @@ function FxCurrencyTable({ caption, columns }: { caption: string; columns: Array
   );
 }
 
+/** Lines under a loan's status in the admin list: Coming soon, contract days, termination. */
+function loanStatusNotes(loan: Loan): string[] {
+  const lines: string[] = [];
+  if (loan.coming_soon_at && loan.planned_opening_date) {
+    const waiting = loan.opening_alert_count === 1 ? "1 investor waits for the email" : `${loan.opening_alert_count} investors wait for the email`;
+    lines.push(`Coming soon · opens ${formatDate(loan.planned_opening_date)} · ${waiting}`);
+  }
+  if (loan.late_threshold_days !== null && loan.default_threshold_days !== null) {
+    lines.push(`Contract days: Late from day ${loan.late_threshold_days}, Default from day ${loan.default_threshold_days}`);
+  }
+  if (loan.contract_terminated_on) lines.push(`Contract terminated ${formatDate(loan.contract_terminated_on)}`);
+  return lines;
+}
+
 export function LoansPanel() {
   // Filters, the selected rows and the open Manage view live in the URL:
   // /admin/loans/<loanId>/manage/<action>?q=...&status=...&borrower=...
@@ -2815,6 +2926,7 @@ export function LoansPanel() {
   const [showOriginatorCreate, setShowOriginatorCreate] = useState(false);
   const [showOriginatorLoanCreate, setShowOriginatorLoanCreate] = useState(false);
   const [editingBorrower, setEditingBorrower] = useState<BorrowerEntity | null>(null);
+  const [creditFileBorrower, setCreditFileBorrower] = useState<BorrowerEntity | null>(null);
   const [editingOriginator, setEditingOriginator] = useState<LoanOriginator | null>(null);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const selectedDirectLoan =
@@ -2962,6 +3074,7 @@ export function LoansPanel() {
                       <td>
                         <div className="row gap-8 wrap" onClick={(event) => event.stopPropagation()}>
                           <Button onClick={() => setEditingBorrower(borrower)} size="sm">Edit</Button>
+                          <Button onClick={() => setCreditFileBorrower(borrower)} size="sm">Credit file</Button>
                           <UnsupportedRemoveNote label="Borrower" />
                         </div>
                       </td>
@@ -3039,10 +3152,20 @@ export function LoansPanel() {
                               : `Borrower: ${loan.borrower_name ?? "-"}`}
                           </span>
                           <span className="mono muted">{loan.id}</span>
+                          {loan.security_overview.length ? (
+                            <span className="muted">
+                              Securities: {loan.security_overview.map((item) => `${labelize(item.security_type)}${item.status === "released" ? " (released)" : ""}`).join(", ")}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td><Chip tone={loan.product_type === "originator_claim" ? "info" : "neutral"}>{loan.product_type === "originator_claim" ? "Originator claim" : "Direct"}</Chip></td>
-                      <td><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip></td>
+                      <td>
+                        <div className="col gap-4">
+                          <Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip>
+                          {loanStatusNotes(loan).map((line) => <span className="muted" key={line}>{line}</span>)}
+                        </div>
+                      </td>
                       <td><LoanFundingProgress loan={loan} /></td>
                       <td className="admin-loan-rate">{(loan.interest_rate_bps / 100).toFixed(2)}% p.a.</td>
                       <td className="admin-loan-rate">{(loan.yield_bps / 100).toFixed(2)}% p.a.</td>
@@ -3149,6 +3272,11 @@ export function LoansPanel() {
           />
         </Modal>
       ) : null}
+      {creditFileBorrower ? (
+        <Modal title={`Credit file - ${creditFileBorrower.legal_name}`} onClose={() => setCreditFileBorrower(null)} wide>
+          <BorrowerCreditFileEditor borrower={creditFileBorrower} />
+        </Modal>
+      ) : null}
       {editingLoan ? (
         <Modal title={`Edit loan - ${editingLoan.title}`} onClose={() => setEditingLoan(null)}>
           <LoanEditForm
@@ -3176,6 +3304,10 @@ function LoanOriginatorForm({
   const [registrationNumber, setRegistrationNumber] = useState(originator?.registration_number ?? "");
   const [jurisdiction, setJurisdiction] = useState(originator?.jurisdiction ?? "CH");
   const [registeredAddress, setRegisteredAddress] = useState(originator?.registered_address ?? "");
+  const [foundedYear, setFoundedYear] = useState(originator?.founded_year == null ? "" : String(originator.founded_year));
+  const [city, setCity] = useState(originator?.city ?? "");
+  const [sector, setSector] = useState(originator?.sector ?? "");
+  const [about, setAbout] = useState(originator?.about ?? "");
   const [contactInfo, setContactInfo] = useState(originator?.contact_info ?? "");
   const [accountName, setAccountName] = useState(originator?.settlement_account_name ?? "");
   const [iban, setIban] = useState(originator?.settlement_iban ?? "");
@@ -3201,6 +3333,10 @@ function LoanOriginatorForm({
       registration_number: registrationNumber,
       jurisdiction,
       registered_address: registeredAddress,
+      founded_year: optionalMinorValue(foundedYear),
+      about,
+      city,
+      sector,
       contact_info: contactInfo,
       settlement_account_name: accountName,
       settlement_iban: iban,
@@ -3234,6 +3370,9 @@ function LoanOriginatorForm({
         <TextInput label="Public name" onChange={setPublicName} required value={publicName} />
         <TextInput label="Registration number" onChange={setRegistrationNumber} required value={registrationNumber} />
         <TextInput label="Jurisdiction" onChange={setJurisdiction} required value={jurisdiction} />
+        <TextInput hint="Investor-facing. Leave empty when unknown." integer label="Founded (year)" onChange={setFoundedYear} value={foundedYear} />
+        <TextInput hint="Investor-facing, for example Zug." label="City" onChange={setCity} value={city} />
+        <TextInput hint="Investor-facing, one line, for example Equipment leasing for Swiss SMEs." label="Sector" onChange={setSector} value={sector} />
         <SelectInput label="Status" onChange={(value) => setStatus(value as LoanOriginatorCreate["status"])} options={["inactive", "active", "blocked"]} value={status ?? "inactive"} />
         <TextInput integer hint="Default 5000 = BANXUM receives 50% of the originator premium. Never investor-facing." label="BANXUM premium share bps" onChange={setFeeBps} required value={feeBps} />
         <TextInput label="Settlement account name" onChange={setAccountName} required value={accountName} />
@@ -3242,6 +3381,7 @@ function LoanOriginatorForm({
         <TextInput label="Offline KYB reference (optional)" onChange={setKybEvidence} value={kybEvidence} />
       </FieldGrid>
       <TextAreaInput label="Registered address" onChange={setRegisteredAddress} required value={registeredAddress} />
+      <TextAreaInput label="About the originator (investor-facing, up to 1200 characters)" onChange={setAbout} value={about} />
       <TextAreaInput label="Contact information" onChange={setContactInfo} value={contactInfo} />
       <TextAreaInput hint="Internal only." label="KYB / AML observations" onChange={setKybNotes} value={kybNotes} />
       <TextAreaInput hint="Internal only." label="Risk observations" onChange={setRiskNotes} value={riskNotes} />
@@ -3281,6 +3421,11 @@ function OriginatorLoanCreateForm({
   const [couponBps, setCouponBps] = useState(detail ? String(detail.interest_rate_bps) : "");
   const [minimumInvestment, setMinimumInvestment] = useState(detail ? String(detail.minimum_investment_minor) : "100000");
   const [fundingDeadline, setFundingDeadline] = useState(detail?.funding_deadline ?? "");
+  // 18.7: new offers are priced as principal + accrued interest (no boundary installment).
+  const [pricingRule, setPricingRule] = useState<"accrued_interest" | "boundary_installment">(
+    detail?.pricing_rule === "boundary_installment" ? "boundary_installment" : "accrued_interest"
+  );
+  const [interestConvention, setInterestConvention] = useState(detail?.interest_convention || "act_365_fixed");
   const [entitlementStartDate, setEntitlementStartDate] = useState(detail?.entitlement_start_date ?? "");
   const [activationOutstandingPrincipal, setActivationOutstandingPrincipal] = useState(
     detail?.activation_outstanding_principal_minor == null
@@ -3309,7 +3454,12 @@ function OriginatorLoanCreateForm({
   const [borrowerYearFounded, setBorrowerYearFounded] = useState(snapshot.year_founded == null ? "" : String(snapshot.year_founded));
   const [borrowerEntityType, setBorrowerEntityType] = useState(String(snapshot.entity_type ?? "company"));
   const [borrowerCountry, setBorrowerCountry] = useState(String(snapshot.country ?? "CH"));
+  const [borrowerCity, setBorrowerCity] = useState(String(snapshot.city ?? ""));
+  const [borrowerEmployees, setBorrowerEmployees] = useState(snapshot.employees == null ? "" : String(snapshot.employees));
+  const [borrowerEmployeesYear, setBorrowerEmployeesYear] = useState(snapshot.employees_year == null ? "" : String(snapshot.employees_year));
   const [borrowerRegistration, setBorrowerRegistration] = useState(String(snapshot.registration_number ?? ""));
+  const [borrowerUid, setBorrowerUid] = useState(String(snapshot.uid ?? ""));
+  const [underlyingFinancingId, setUnderlyingFinancingId] = useState(String(snapshot.underlying_financing_id ?? ""));
   const [businessClassification, setBusinessClassification] = useState(String(snapshot.business_classification ?? ""));
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(Boolean(snapshot.business_classification_public));
   const [registeredAddress, setRegisteredAddress] = useState(String(snapshot.registered_address ?? ""));
@@ -3346,8 +3496,9 @@ function OriginatorLoanCreateForm({
     setLocalError("");
     try {
       if (!csvContent || !sourceFilename) throw new Error("Select the complete schedule and historical-payments CSV.");
-      if (!fundingDeadline || !entitlementStartDate) {
-        throw new Error("Funding deadline and investor entitlement start date are required.");
+      const boundaryRule = pricingRule === "boundary_installment";
+      if (!fundingDeadline || (boundaryRule && !entitlementStartDate)) {
+        throw new Error(boundaryRule ? "Funding deadline and investor entitlement start date are required." : "Funding deadline is required.");
       }
       const parsedInterestParticipation = intValue(interestParticipationBps);
       const parsedPenaltyParticipation = intValue(penaltyParticipationBps);
@@ -3376,8 +3527,10 @@ function OriginatorLoanCreateForm({
         interest_rate_bps: intValue(couponBps),
         minimum_investment_minor: intValue(minimumInvestment),
         funding_deadline: fundingDeadline,
-        entitlement_start_date: entitlementStartDate,
-        activation_outstanding_principal_minor: intValue(activationOutstandingPrincipal),
+        pricing_rule: "accrued_interest",
+        interest_convention: (boundaryRule ? "" : interestConvention) as OriginatorLoanCreate["interest_convention"],
+        entitlement_start_date: boundaryRule ? entitlementStartDate : null,
+        activation_outstanding_principal_minor: boundaryRule ? intValue(activationOutstandingPrincipal) : null,
         investor_interest_participation_bps: parsedInterestParticipation,
         investor_penalty_participation_bps: parsedPenaltyParticipation,
         repayment_type: repaymentType,
@@ -3396,7 +3549,12 @@ function OriginatorLoanCreateForm({
           year_founded: optionalMinorValue(borrowerYearFounded),
           entity_type: borrowerEntityType,
           country: borrowerCountry,
+          city: borrowerCity,
+          employees: optionalMinorValue(borrowerEmployees),
+          employees_year: optionalMinorValue(borrowerEmployeesYear),
           registration_number: borrowerRegistration,
+          uid: borrowerUid,
+          underlying_financing_id: underlyingFinancingId,
           business_classification: businessClassification,
           business_classification_public: businessClassificationPublic,
           registered_address: registeredAddress,
@@ -3426,7 +3584,7 @@ function OriginatorLoanCreateForm({
         return;
       }
       if (loanId) {
-        updateMutation.mutate({ loanId, data: data as PatchedOriginatorLoanCreate });
+        updateMutation.mutate({ loanId, data: { ...data, pricing_rule: pricingRule } as PatchedOriginatorLoanReplace });
       } else {
         createMutation.mutate({ data });
       }
@@ -3459,13 +3617,38 @@ function OriginatorLoanCreateForm({
         <TextInput integer label="Underlying borrower coupon bps" onChange={setCouponBps} required value={couponBps} />
         <MoneyMinorInput currency={currency} label="Minimum investment minor units" onChange={setMinimumInvestment} required value={minimumInvestment} />
         <TextInput hint="Last inclusive subscription date. Maximum 50 days including the opening date. Reserved sources must cover the remaining window. A full subscription closes earlier automatically." label="Funding deadline" onChange={setFundingDeadline} required type="date" value={fundingDeadline} />
-        <TextInput hint="Due date of the first installment after the funding round. Holdings activate at funding close, but this boundary installment belongs entirely to the Loan Originator." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
-        <MoneyMinorInput currency={currency} label="Expected outstanding principal after boundary payment" onChange={setActivationOutstandingPrincipal} required value={activationOutstandingPrincipal} />
+        {/* Audit S6-4: a new offer is priced with accrued interest; the boundary rule shows only
+            for a draft that was created with it before 18.7. */}
+        {detail?.pricing_rule === "boundary_installment" ? (
+          <SelectInput
+            optionLabel={(value) => (value === "accrued_interest" ? "Principal + accrued interest (18.7)" : "Boundary installment (before 18.7)")}
+            hint="This draft was prepared before 18.7 with the boundary rule. It can keep it or move to the accrued-interest price; a new offer always uses the accrued-interest price."
+            label="Price rule"
+            onChange={(value) => setPricingRule(value as "accrued_interest" | "boundary_installment")}
+            options={["accrued_interest", "boundary_installment"]}
+            value={pricingRule}
+          />
+        ) : null}
+        {pricingRule === "accrued_interest" ? (
+          <SelectInput
+            optionLabel={(value) => DAY_COUNT_LABELS[value] ?? value}
+            hint="F03: the exact convention of the claim contract. Another convention is not supported yet."
+            label="Day-count convention of the claim"
+            onChange={setInterestConvention}
+            options={Object.keys(DAY_COUNT_LABELS)}
+            value={interestConvention}
+          />
+        ) : (
+          <>
+            <TextInput hint="Due date of the first installment after the funding round. Holdings activate at funding close, but this boundary installment belongs entirely to the Loan Originator." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
+            <MoneyMinorInput currency={currency} label="Expected outstanding principal after boundary payment" onChange={setActivationOutstandingPrincipal} required value={activationOutstandingPrincipal} />
+          </>
+        )}
         <TextInput integer hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 7,000 means investors receive 70% of their proportional contractual interest." label="Investor interest participation bps" onChange={setInterestParticipationBps} required type="number" value={interestParticipationBps} />
         <TextInput integer hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 5,000 means investors receive 50% of their proportional penalty." label="Investor penalty participation bps" onChange={setPenaltyParticipationBps} required type="number" value={penaltyParticipationBps} />
         <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
         <TextInput integer label="Interest-only months" onChange={setInterestOnlyMonths} value={interestOnlyMonths} />
-        <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+        <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
         <MoneyMinorInput currency={currency} label="Collateral value minor units" onChange={setCollateralValue} required value={collateralValue} />
         <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
         <TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} />
@@ -3473,9 +3656,15 @@ function OriginatorLoanCreateForm({
         <Field label="Schedule and payment CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field>
       </FieldGrid>
       <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
-      <Banner tone="neutral" title="Par subscription and delayed entitlement">
-        Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. Holdings activate automatically when funding closes. No primary purchase fee applies and no investor interest accrues during funding. The boundary installment belongs entirely to the LO and is recorded through borrower repayments.
-      </Banner>
+      {pricingRule === "boundary_installment" ? (
+        <Banner tone="neutral" title="Par subscription and delayed entitlement (before 18.7)">
+          Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. Holdings activate automatically when funding closes. No primary purchase fee applies and no investor interest accrues during funding. The boundary installment belongs entirely to the LO and is recorded through borrower repayments.
+        </Banner>
+      ) : (
+        <Banner tone="neutral" title="Principal plus accrued interest">
+          Investors pay the principal at the planned settlement day (1 settlement day after the funding deadline) plus the accrued interest of the rights they buy, and receive the whole next payment. The accrued interest they paid is not income. A due date or a borrower payment before the settlement makes the offer fail and releases every reservation.
+        </Banner>
+      )}
       <TextAreaInput label="Purpose description" onChange={setPurposeDescription} value={purposeDescription} />
       <TextAreaInput label="Collateral description" onChange={setCollateralDescription} value={collateralDescription} />
       <h3>Final borrower snapshot</h3>
@@ -3486,7 +3675,12 @@ function OriginatorLoanCreateForm({
         <TextInput label="Year founded" onChange={setBorrowerYearFounded} value={borrowerYearFounded} />
         <TextInput label="Entity type" onChange={setBorrowerEntityType} value={borrowerEntityType} />
         <TextInput label="Country" onChange={setBorrowerCountry} value={borrowerCountry} />
+        <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setBorrowerCity} value={borrowerCity} />
+        <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setBorrowerEmployees} value={borrowerEmployees} />
+        <TextInput integer label="Employees year" onChange={setBorrowerEmployeesYear} value={borrowerEmployeesYear} />
         <TextInput label="Registration number (internal)" onChange={setBorrowerRegistration} value={borrowerRegistration} />
+        <TextInput hint="18.9: required for a Swiss borrower before publication. Creditor modes count per UID across direct loans and Loan Originator claims." label="Borrower Swiss UID (CHE-123.456.789)" onChange={setBorrowerUid} value={borrowerUid} />
+        <TextInput hint="The Loan Originator's own loan or contract number of the underlying financing. Required for a Swiss borrower before publication: one underlying financing counts once, and it cannot be offered twice at the same time." label="Underlying financing ID" onChange={setUnderlyingFinancingId} value={underlyingFinancingId} />
         <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
         <TextInput label="Industry / activity" onChange={setIndustryActivity} value={industryActivity} />
         <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
@@ -3682,7 +3876,7 @@ function OriginatorLoanManageModal({
 }) {
   const businessDate = useAdminBusinessDate();
   const [action, setAction] = useState<
-    "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "resume" | "repayment" | "note"
+    "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "resume" | "repayment" | "note" | "offer_failed" | "coming_soon"
   >("menu");
   const [resumeReason, setResumeReason] = useState("");
   const [asOfDate, setAsOfDate] = useState(businessDate);
@@ -3710,6 +3904,13 @@ function OriginatorLoanManageModal({
   const publishMutation = useOriginatorClaimsAdminLoansPublish({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const closeRoundMutation = useOriginatorClaimsAdminLoansFundingClose({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const cancellationMutation = useOriginatorClaimsAdminLoansSubscriptionCancel({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  // 18.7 (F04): the borrower paid on the claim during the offer; the offer fails.
+  const offerFailedMutation = useOriginatorClaimsAdminLoansOfferFailed({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  // Audit step 6 (D3): the bank evidence of the borrower payment that fails the offer.
+  const [failedPaymentReference, setFailedPaymentReference] = useState("");
+  const [failedValueDate, setFailedValueDate] = useState(businessDate);
+  const [failedAmount, setFailedAmount] = useState("");
+  const [failedEvidence, setFailedEvidence] = useState("");
   const holdMutation = useOriginatorClaimsAdminLoansHold({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const resumeMutation = useOriginatorClaimsAdminLoansSubscriptionResume({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({
@@ -3734,8 +3935,8 @@ function OriginatorLoanManageModal({
   }
 
   function closeRound() {
+    // Audit S6-2: the server closes on its own business date; the form sends no date.
     const data: OriginatorFundingRoundCloseRequest = withIdempotencyKey("originator-funding-close", {
-      as_of_date: asOfDate,
       close_reason: closeReason
     }, { loanId: loan.id });
     if (isFixturePreview) { setPreview("The round would close, create active holdings, and record the LO payable automatically. The boundary installment remains entirely payable to the LO."); return; }
@@ -3801,8 +4002,9 @@ function OriginatorLoanManageModal({
     );
   }
 
-  const mutationError = publishMutation.error || closeRoundMutation.error || cancellationMutation.error || holdMutation.error || resumeMutation.error || repaymentMutation.error;
+  const mutationError = publishMutation.error || closeRoundMutation.error || cancellationMutation.error || offerFailedMutation.error || holdMutation.error || resumeMutation.error || repaymentMutation.error;
   const isParSubscription = detail?.distribution_model === "par_component_v2";
+  const accruedPrice = detail?.pricing_rule === "accrued_interest" ? detail.price : null;
   const failedClose = loan.status === "funding_close_failed";
   const held = Boolean(detail?.is_on_hold);
   // Paused by an admin, not an automatic close-failure hold.
@@ -3822,7 +4024,7 @@ function OriginatorLoanManageModal({
         <span>Outstanding <Money amountMinor={loan.current_outstanding_principal_minor} currency={loan.currency} /></span>
         <span>Originator owned <Money amountMinor={detail?.unsold_principal_minor ?? loan.unsold_principal_minor ?? 0} currency={loan.currency} /></span>
         {detail ? <><span>Required retained <Money amountMinor={detail.retained_principal_minor} currency={loan.currency} /></span><span>Available <Money amountMinor={detail.sellable_principal_minor} currency={loan.currency} /></span></> : null}
-        {isParSubscription && detail ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Entitlement after {formatDate(detail.entitlement_start_date)}</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : <span>Legacy yield {formatRateBps(loan.yield_bps)}</span>}
+        {isParSubscription && detail && accruedPrice ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Planned settlement {formatDate(accruedPrice.price_reference_date)}</span><span>Next due date {formatDate(accruedPrice.next_due_date)}</span><span>Price: principal + accrued interest ({accruedPrice.interest_convention_label})</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : isParSubscription && detail ? <><span>Funding closes {formatDate(detail.funding_deadline)}</span><span>Entitlement after {formatDate(detail.entitlement_start_date)}</span><span>Interest rights {formatRateBps(detail.investor_interest_participation_bps)}</span><span>Penalty rights {formatRateBps(detail.investor_penalty_participation_bps)}</span></> : <span>Legacy yield {formatRateBps(loan.yield_bps)}</span>}
       </div>
       {action === "menu" && paused ? (
         <Banner tone="warn" title="Subscription is paused">
@@ -3837,17 +4039,20 @@ function OriginatorLoanManageModal({
       {action === "menu" ? (
         <div className="admin-action-choice-grid">
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("edit")} type="button"><strong>Edit draft and replace import</strong><span>Correct loan, private borrower, component participation, collateral, boundary terms, or CSV data by creating a new immutable draft revision.</span></button> : null}
+          {loan.opportunity_status === "draft" && isParSubscription ? <button onClick={() => setAction("coming_soon")} type="button"><strong>{loan.coming_soon_at ? "Coming soon: change or withdraw" : "Show as Coming soon"}</strong><span>Q17: investors see the offer with its planned opening date and can ask for an email at the real opening (publication). Nothing can be reserved before.</span></button> : null}
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("publish")} type="button"><strong>Publish funding round</strong><span>Revalidate the active originator, imported schedule, finite deadline, boundary installment and post-payment principal before accepting reservations.</span></button> : null}
           {loan.opportunity_status === "open" && isParSubscription && paused ? <button onClick={() => setAction("resume")} type="button"><strong>Resume subscription</strong><span>End the pause. Before the deadline the round is public again. After the deadline the daily job closes it at its published result.</span></button> : null}
           {loan.opportunity_status === "open" && isParSubscription && (paused ? deadlineReached : !held || failedClose) ? <button onClick={() => setAction("close_round")} type="button"><strong>{paused ? "Close paused round" : failedClose ? "Retry funding close" : "Close funding round"}</strong><span>{paused ? "End the pause and close the round now at the subscribed amount. Holdings activate and the funding escrow becomes payable to the LO." : failedClose ? "Retry the deterministic close after resolving the reported cause. Existing reservations have remained locked and unchanged." : "Close a fully subscribed round now, or a partially subscribed round after its deadline. Holdings activate and the funding escrow becomes payable to the LO."}</span></button> : null}
           {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && (!mandatoryClose || paused) ? <button onClick={() => setAction("cancel")} type="button"><strong>Cancel and refund reservations</strong><span>{paused ? "Release every reservation of this paused round to the investors. Original balance-lot dates are preserved." : "Withdraw a campaign before its deadline, or resolve an empty round. Original balance-lot dates are preserved; qualified expired or failed rounds must close automatically."}</span></button> : null}
           {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && !held ? <button onClick={() => setAction("hold")} type="button"><strong>Pause subscription</strong><span>Hide the opportunity and block close or activation while preserving every investor reservation for investigation.</span></button> : null}
           {loan.opportunity_status === "open" && detail && !isParSubscription ? <button onClick={() => setAction("hold")} type="button"><strong>Place legacy opportunity on hold</strong><span>Close new immediate claim sales while continuing to service claims already sold.</span></button> : null}
+          {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && accruedPrice ? <button onClick={() => setAction("offer_failed")} type="button"><strong>Borrower paid during the offer</strong><span>F04: any payment on the claim before the settlement makes the offer fail. Every participation is cancelled and the reserved money goes back to the investors. The offer never reopens.</span></button> : null}
           {["active", "late", "defaulted"].includes(loan.status) ? <button onClick={() => { repaymentMutation.reset(); setAction("repayment"); }} type="button"><strong>Record borrower repayment / schedule revision</strong><span>Upload the complete revised schedule and payment history. Distribute the banked cash using dated claim ownership.</span></button> : null}
           {LOAN_NOTE_STATUSES.includes(loan.status) ? <button onClick={() => setAction("note")} type="button"><strong>Publish loan note</strong><span>Add a public note on the loan page, email the current lenders, or both.</span></button> : null}
         </div>
       ) : null}
       {action === "note" ? <LoanNoteForm loan={loan} onDone={onChanged} /> : null}
+      {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
       {action === "resume" ? (
         <div className="admin-form-panel">
           <Banner tone="neutral" title="Resume the paused subscription">
@@ -3860,12 +4065,25 @@ function OriginatorLoanManageModal({
         </div>
       ) : null}
       {action === "edit" && detail ? <OriginatorLoanCreateForm detail={detail} loanId={loan.id} originators={originators} onCreated={() => { void detailQuery.refetch(); onChanged(); setAction("menu"); }} /> : null}
-      {action === "publish" ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Holdings activate automatically at funding close. No investor interest accrues during funding, and the boundary installment belongs entirely to the LO." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "offer_failed" ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <TextInput label="Payment reference" onChange={setFailedPaymentReference} required value={failedPaymentReference} />
+            <TextInput label="Value date" onChange={setFailedValueDate} required type="date" value={failedValueDate} />
+            <MoneyMinorInput currency={loan.currency} label="Amount paid" onChange={setFailedAmount} required value={failedAmount} />
+            <TextInput hint="The originator's report or the bank statement line." label="Evidence reference" onChange={setFailedEvidence} required value={failedEvidence} />
+          </FieldGrid>
+          <OperationConfirmButton confirmLabel="The offer failed" description="Record that the borrower paid on the claim before the settlement (F04). All participations are cancelled, the reservations are released and the investors get an email. This cannot be undone." details={[{ label: "Loan", value: loan.title }, { label: "Reserved principal", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }]} onConfirm={() => { if (isFixturePreview) { setPreview("The offer would fail and every reservation would be released."); return; } offerFailedMutation.mutate({ loanId: loan.id, data: { cause: "payment", payment_reference: failedPaymentReference, value_date: failedValueDate, amount_minor: intValue(failedAmount), evidence_reference: failedEvidence } }); }} title="Borrower paid during the offer" variant="danger">Review and record</OperationConfirmButton>
+        </div>
+      ) : null}
+      {action === "publish" && accruedPrice ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts reservations of the principal plus its accrued interest until the deadline. The price is fixed for the planned settlement day; investors receive the next payment. A due date or a borrower payment before the settlement makes the offer fail." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Planned settlement", value: formatDate(accruedPrice.price_reference_date) }, { label: "Next due date", value: formatDate(accruedPrice.next_due_date) }, { label: "Convention", value: accruedPrice.interest_convention_label }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "publish" && !accruedPrice ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Holdings activate automatically at funding close. No investor interest accrues during funding, and the boundary installment belongs entirely to the LO." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
       {action === "close_round" ? (
         <div className="admin-form-panel">
           {paused ? <Banner tone="warn" title="This round is paused">Closing it ends the pause and closes the round at the subscribed amount.</Banner> : null}
           <Banner tone="neutral" title="No minimum subscription threshold">A full round closes automatically. After the deadline, this action closes at whatever principal was actually subscribed; zero-subscription rounds must be cancelled.</Banner>
-          <FieldGrid><TextInput label="Close as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput hint="Short audit reason, maximum 64 characters." label="Close reason" onChange={setCloseReason} required value={closeReason} /></FieldGrid>
+          <p className="muted admin-manage-hint">The round closes on today&apos;s business date ({formatDate(businessDate)}). If an installment fell due before the settlement, the offer fails instead: every participation is cancelled and the money is released.</p>
+          <FieldGrid><TextInput hint="Short audit reason, maximum 64 characters." label="Close reason" onChange={setCloseReason} required value={closeReason} /></FieldGrid>
           <OperationConfirmButton confirmLabel="Close funding round" description="Pending unallocated orders close without investment. Allocated balances become active holdings and are recorded as payable to the LO in the same transaction." details={[{ label: "Loan", value: loan.title }, { label: "Committed", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Reason", value: closeReason || "Required" }]} disabled={!closeReason.trim() || closeRoundMutation.isPending} onConfirm={closeRound} title="Close originator funding round" variant="primary">Review and close round</OperationConfirmButton>
         </div>
       ) : null}
@@ -3911,7 +4129,11 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [entityType, setEntityType] = useState<BorrowerEntityType>(BorrowerEntityTypeEnum.swiss_company);
   const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(BorrowerKybStatusEnum.pending);
   const [country, setCountry] = useState("CH");
+  const [city, setCity] = useState("");
+  const [employees, setEmployees] = useState("");
+  const [employeesYear, setEmployeesYear] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
+  const [uid, setUid] = useState("");
   const [businessClassification, setBusinessClassification] = useState("");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(false);
   const [registeredAddress, setRegisteredAddress] = useState("");
@@ -3947,7 +4169,11 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
       entity_type: entityType,
       kyb_status: kybStatus,
       country,
+      city,
+      employees: optionalMinorValue(employees),
+      employees_year: optionalMinorValue(employeesYear),
       registration_number: registrationNumber,
+      uid,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
       registered_address: registeredAddress,
@@ -3980,7 +4206,11 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
           <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setCity} value={city} />
+          <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
+          <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput hint="18.9: required for a Swiss borrower before publication." label="Swiss UID (CHE-123.456.789)" onChange={setUid} value={uid} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
@@ -4024,7 +4254,11 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(borrower.kyb_status as BorrowerKybStatus);
   const [complianceHold, setComplianceHold] = useState(borrower.compliance_hold);
   const [country, setCountry] = useState(borrower.country || "CH");
+  const [city, setCity] = useState(borrower.city || "");
+  const [employees, setEmployees] = useState(borrower.employees == null ? "" : String(borrower.employees));
+  const [employeesYear, setEmployeesYear] = useState(borrower.employees_year == null ? "" : String(borrower.employees_year));
   const [registrationNumber, setRegistrationNumber] = useState(borrower.registration_number || "");
+  const [uid, setUid] = useState(borrower.uid || "");
   const [businessClassification, setBusinessClassification] = useState(borrower.business_classification || "");
   const [businessClassificationPublic, setBusinessClassificationPublic] = useState(borrower.business_classification_public);
   const [registeredAddress, setRegisteredAddress] = useState(borrower.registered_address || "");
@@ -4065,7 +4299,13 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
       kyb_status: kybStatus,
       compliance_hold: complianceHold,
       country,
+      city,
+      // Both fields empty clears the head count; the backend keeps a stored value it is not sent.
+      ...(employees.trim() || employeesYear.trim()
+        ? { employees: optionalMinorValue(employees), employees_year: optionalMinorValue(employeesYear) }
+        : { clear_employees: true }),
       registration_number: registrationNumber,
+      uid,
       business_classification: businessClassification,
       business_classification_public: businessClassificationPublic,
       registered_address: registeredAddress,
@@ -4110,7 +4350,11 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
           <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput hint="Investor-facing. Leave empty when unknown." label="City" onChange={setCity} value={city} />
+          <TextInput hint="Investor-facing. Give it together with its year, or leave both empty." integer label="Employees" onChange={setEmployees} value={employees} />
+          <TextInput integer label="Employees year" onChange={setEmployeesYear} value={employeesYear} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput hint="18.9: required for a Swiss borrower before publication." label="Swiss UID (CHE-123.456.789)" onChange={setUid} value={uid} />
           <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
@@ -4151,7 +4395,92 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
         <TextAreaInput label="Evidence summary" onChange={setEvidenceSummary} value={evidenceSummary} />
         <ActionFooter disabled={!storyReady} mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save borrower changes" />
       </form>
+      {borrower.uid ? <SwissCreditorModePanel uid={borrower.uid} /> : null}
     </div>
+  );
+}
+
+/**
+ * 18.9 (Q03, E-02, F09): the creditor mode of a Swiss borrower UID (sandbox: total below CHF
+ * 500,000, no creditor limit; 10/20: 10 creditors per financing, 20 per borrower), its external
+ * debts and the SNB reference rate used to count EUR amounts in CHF.
+ */
+function SwissCreditorModePanel({ uid }: { uid: string }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const overview = useEntitiesAdminCreditorModeRetrieve(uid, { query: { enabled: !isFixturePreview, retry: false } });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: getEntitiesAdminCreditorModeRetrieveQueryKey(uid) });
+  const modeMutation = useEntitiesAdminCreditorModeUpdate({ mutation: { onSuccess: refresh } });
+  const debtMutation = useEntitiesAdminExternalDebtsCreate({ mutation: { onSuccess: () => { refresh(); setDebt(emptyDebt); } } });
+  const endMutation = useEntitiesAdminExternalDebtsEnd({ mutation: { onSuccess: refresh } });
+  const rateMutation = useEntitiesAdminSnbRatesCreate({ mutation: { onSuccess: () => { refresh(); setRate(""); } } });
+  const [mode, setMode] = useState<"sandbox" | "ten_twenty">("sandbox");
+  const [note, setNote] = useState("");
+  const emptyDebt = { creditor_name: "", creditor_identification: "", creditor_is_bank: false, financing_id: "", identical_terms_group: "", principal: "", currency: "CHF", start_date: businessDate, declaration_reference: "" };
+  const [debt, setDebt] = useState(emptyDebt);
+  const [rate, setRate] = useState("");
+  const [rateSource, setRateSource] = useState("SNB reference rate (snb.ch)");
+  const data = overview.data;
+  const error = overview.error || modeMutation.error || debtMutation.error || endMutation.error || rateMutation.error;
+  if (isFixturePreview) return <Banner tone="neutral" title="Swiss creditor mode">Shown with live data only.</Banner>;
+  if (!data) return overview.error ? <Banner tone="bad" title="Could not load the creditor mode">{errorMessage(overview.error)}</Banner> : <p className="muted">Loading the creditor mode…</p>;
+  return (
+    <section className="admin-form-panel" aria-label="Swiss creditor mode">
+      <h3>Swiss creditor mode · {data.uid}</h3>
+      {error ? <Banner tone="bad" title="Action refused">{errorMessage(error)}</Banner> : null}
+      <div className="admin-detail-grid">
+        <div className="admin-review-row"><span>Mode</span><strong><Chip tone={data.mode === "sandbox" ? "info" : "warn"}>{data.mode === "sandbox" ? "Sandbox" : "10/20"}</Chip> {data.confirmed ? `confirmed ${formatDate(data.confirmed_at)}` : "pre-selected, not confirmed (confirmed at the first publication)"}</strong></div>
+        <div className="admin-review-row"><span>Total T (CHF)</span><strong>{data.total_chf_minor == null ? data.total_error : <><Money amountMinor={data.total_chf_minor} currency="CHF" /> of <Money amountMinor={data.sandbox_limit_chf_minor} currency="CHF" /> in sandbox mode</>}</strong></div>
+        <div className="admin-review-row"><span>Creditors of the borrower</span><strong>{data.borrower_creditors} (10/20 mode: at most {data.borrower_creditor_limit})</strong></div>
+        {data.financings.map((row) => (
+          <div className="admin-review-row" key={row.loan_id}><span>{row.title} ({labelize(row.status)})</span><strong>{row.creditors} creditors (10/20 mode: at most {data.financing_creditor_limit})</strong></div>
+        ))}
+      </div>
+      <FieldGrid>
+        <SelectInput label="Mode" onChange={(value) => setMode(value as "sandbox" | "ten_twenty")} optionLabel={(value) => (value === "sandbox" ? "Sandbox (total below CHF 500,000)" : "10/20 (10 per financing, 20 per borrower)")} options={["sandbox", "ten_twenty"]} value={mode} />
+        <TextInput label="Note (who confirmed, on what basis)" onChange={setNote} value={note} />
+      </FieldGrid>
+      <Button disabled={modeMutation.isPending} onClick={() => modeMutation.mutate({ uid: data.uid, data: { mode, note } })} variant="primary">{data.confirmed ? "Change the mode" : "Confirm the mode"}</Button>
+      <p className="muted admin-manage-hint">Switching: to 10/20 only with at most 20 creditors and 10 per open financing; to sandbox only below CHF 500,000; never while a project of this borrower is in funding.</p>
+
+      <h4>External debts (signed borrower declaration, F09)</h4>
+      {data.external_debts.length ? (
+        <table className="admin-table">
+          <thead><tr><th>Creditor</th><th>Financing</th><th>Amount</th><th>Since</th><th>Status</th><th /></tr></thead>
+          <tbody>
+            {data.external_debts.map((row) => (
+              <tr key={row.id}>
+                <td>{row.creditor_name} · {row.creditor_identification}{row.creditor_is_bank ? " (bank)" : ""}</td>
+                <td>{row.financing_id}{row.identical_terms_group ? ` · ${row.identical_terms_group}` : ""}</td>
+                <td><Money amountMinor={row.principal_minor} currency={row.currency} /></td>
+                <td>{formatDate(row.start_date)}</td>
+                <td>{row.ended_on ? `Ended ${formatDate(row.ended_on)}` : "Open"}</td>
+                <td>{row.ended_on ? null : <Button onClick={() => endMutation.mutate({ debtId: row.id, data: { ended_on: businessDate } })} size="sm">End today</Button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <p className="muted">No external debt recorded.</p>}
+      <FieldGrid>
+        <TextInput label="Creditor name" onChange={(value) => setDebt({ ...debt, creditor_name: value })} value={debt.creditor_name} />
+        <TextInput label="Creditor identification (UID, LEI or register number)" onChange={(value) => setDebt({ ...debt, creditor_identification: value })} value={debt.creditor_identification} />
+        <TextInput label="Financing ID" onChange={(value) => setDebt({ ...debt, financing_id: value })} value={debt.financing_id} />
+        <TextInput label="Identical-terms group (optional)" onChange={(value) => setDebt({ ...debt, identical_terms_group: value })} value={debt.identical_terms_group} />
+        <MoneyMinorInput currency={debt.currency} label="Principal" onChange={(value) => setDebt({ ...debt, principal: value })} value={debt.principal} />
+        <SelectInput label="Currency" onChange={(value) => setDebt({ ...debt, currency: value })} options={["CHF", "EUR"]} value={debt.currency} />
+        <TextInput label="Start date" onChange={(value) => setDebt({ ...debt, start_date: value })} type="date" value={debt.start_date} />
+        <TextInput label="Signed declaration (reference)" onChange={(value) => setDebt({ ...debt, declaration_reference: value })} value={debt.declaration_reference} />
+      </FieldGrid>
+      <label className="check-row"><input checked={debt.creditor_is_bank} onChange={(event) => setDebt({ ...debt, creditor_is_bank: event.target.checked })} type="checkbox" /> The creditor is a bank (counts in the total, not in the creditor counts).</label>
+      <Button disabled={debtMutation.isPending || !debt.creditor_name.trim() || !debt.financing_id.trim() || intValue(debt.principal) <= 0} onClick={() => debtMutation.mutate({ uid: data.uid, data: { creditor_name: debt.creditor_name, creditor_identification: debt.creditor_identification, creditor_is_bank: debt.creditor_is_bank, financing_id: debt.financing_id, identical_terms_group: debt.identical_terms_group, principal_minor: intValue(debt.principal), currency: debt.currency as "CHF" | "EUR", start_date: debt.start_date, declaration_reference: debt.declaration_reference } })}>Record external debt</Button>
+
+      <h4>SNB reference rate (EUR in CHF)</h4>
+      <FieldGrid>
+        <TextInput hint="CHF for 1 EUR, as published by the SNB for today." label="Rate" onChange={setRate} value={rate} />
+        <TextInput label="Source" onChange={setRateSource} value={rateSource} />
+      </FieldGrid>
+      <Button disabled={rateMutation.isPending || !rate.trim()} onClick={() => rateMutation.mutate({ data: { currency: "EUR", rate_date: businessDate, chf_per_unit: rate.trim(), source: rateSource } })}>Record today's rate</Button>
+    </section>
   );
 }
 
@@ -4373,6 +4702,25 @@ function InterestOnlyMonthsInput({
   );
 }
 
+// F14 (2026-11-16): equal principal ("Amortizing principal and interest") is closed for new direct
+// loans; a loan that already has it keeps it. Originator imports keep their contract's type.
+const NEW_DIRECT_REPAYMENT_TYPES = Object.values(RepaymentTypeEnum).filter((value) => value !== RepaymentTypeEnum.amortizing_principal_interest);
+
+// 18.6 (Q08): the four frequencies; a custom schedule is imported as "due date;principal" rows.
+type PaymentFrequencyValue = "monthly" | "quarterly" | "half_yearly" | "annual";
+const PAYMENT_FREQUENCIES: readonly PaymentFrequencyValue[] = ["monthly", "quarterly", "half_yearly", "annual"];
+
+function parseCustomScheduleRows(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [dueDate = "", principal = ""] = line.split(/[;,\t]/).map((part) => part.trim());
+      return { due_date: dueDate, principal_minor: Number.parseInt(principal.replace(/[' ]/g, ""), 10) || 0 };
+    });
+}
+
 function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
@@ -4391,6 +4739,12 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [loanStartDate, setLoanStartDate] = useState("");
   const [fundingDeadline, setFundingDeadline] = useState("");
   const [minimumSubscriptionBps, setMinimumSubscriptionBps] = useState("5000");
+  // 18.6 interest engine: frequency, grace, penalty X and a custom schedule import.
+  const [frequency, setFrequency] = useState<PaymentFrequencyValue>("monthly");
+  const [graceDays, setGraceDays] = useState("0");
+  const [penaltyRate, setPenaltyRate] = useState("0.05");
+  const [penaltyInvestorSharePercent, setPenaltyInvestorSharePercent] = useState("100");
+  const [customRows, setCustomRows] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LoansAdminLoansCreate({
@@ -4426,7 +4780,14 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating,
-      minimum_subscription_bps: minimumSubscriptionBps ? intValue(minimumSubscriptionBps) : 5000
+      minimum_subscription_bps: minimumSubscriptionBps ? intValue(minimumSubscriptionBps) : 5000,
+      payment_frequency: frequency,
+      grace_business_days: intValue(graceDays),
+      penalty_daily_rate_percent: penaltyRate.trim() || "0",
+      penalty_investor_share_bps: Math.round(Number(penaltyInvestorSharePercent || "100") * 100),
+      ...(repaymentType === RepaymentTypeEnum.custom_schedule
+        ? { manual_schedule_rows: parseCustomScheduleRows(customRows) }
+        : {})
     };
     if (isFixturePreview) {
       setPreview(`${title} loan draft would be created for ${borrowerId}.`);
@@ -4457,18 +4818,22 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <TextInput integer label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput integer label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
-          <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <SelectInput label="Repayment type" onChange={setRepaymentType} options={NEW_DIRECT_REPAYMENT_TYPES} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
-          <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+          <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+          <SelectInput label="Payment frequency" onChange={setFrequency} options={PAYMENT_FREQUENCIES} value={frequency} />
           <TextInput
-            hint="First installment: one month after loan start date."
-            label="Loan start date"
+            hint="Interest starts on the payout day; due dates follow it by the frequency. The schedule is calculated again from the real payout day."
+            label="Planned payout day"
             onChange={setLoanStartDate}
             type="date"
             value={loanStartDate}
           />
+          <TextInput integer hint="Moves every due date forward by this many business days (standard 0)." label="Grace business days" onChange={setGraceDays} value={graceDays} />
+          <TextInput hint="Daily rate from the contract, for example 0.05 (% per day)." label="Penalty X (% per day)" onChange={setPenaltyRate} value={penaltyRate} />
+          <TextInput hint="The rest of penalty X goes to Garanta." label="Investors' share of penalty X (%)" onChange={setPenaltyInvestorSharePercent} value={penaltyInvestorSharePercent} />
           <TextInput hint="Last inclusive subscription date; at most 50 days including today. Funding resolves automatically using the published minimum." label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
           <TextInput
             integer
@@ -4481,6 +4846,16 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
         <Banner tone="neutral" title="Existing-loan acquisitions use Loan Originator claims">
           New refinancing products are disabled. Import an existing performing final-borrower claim through the Loan Originator workflow instead.
         </Banner>
+        {repaymentType === RepaymentTypeEnum.custom_schedule ? (
+          <TextAreaInput
+            hint="One row per installment: due date and principal in minor units, separated by a semicolon (2027-01-15;90000). The server calculates the interest and checks the rows."
+            label="Custom schedule rows"
+            onChange={setCustomRows}
+            required
+            rows={6}
+            value={customRows}
+          />
+        ) : null}
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
       </form>
@@ -4616,9 +4991,9 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <TextInput integer label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput integer label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
-          <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <SelectInput label="Repayment type" onChange={setRepaymentType} options={loan.repayment_type === RepaymentTypeEnum.amortizing_principal_interest ? Object.values(RepaymentTypeEnum) : NEW_DIRECT_REPAYMENT_TYPES} value={repaymentType} />
           <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
-          <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+          <SelectInput label="Collateral type" onChange={setCollateralType} options={SECURED_COLLATERAL_TYPES} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
           <TextInput
@@ -4672,7 +5047,23 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery" | "note";
+type ManageLoanActionId =
+  | "late_payments"
+  | "publish"
+  | "coming_soon"
+  | "securities"
+  | "cancel"
+  | "expiry"
+  | "release"
+  | "disburse"
+  | "servicing"
+  | "recovery"
+  | "status_days"
+  | "terminate"
+  | "recovery_stages"
+  | "credit_checks"
+  | "history"
+  | "note";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -4680,11 +5071,27 @@ const MANAGE_LOAN_ACTIONS: Array<{
   description: string;
   statuses: string[];
   danger?: boolean;
+  // 18.6: actions that apply only to loans with (or without) the interest engine.
+  when?: (loan: Loan) => boolean;
 }> = [
   {
     id: "publish",
     title: "Publish loan",
     description: "Put this draft live on the primary market so investors can place orders.",
+    statuses: ["draft"]
+  },
+  {
+    id: "securities",
+    title: "Securities",
+    description:
+      "Record each security of the loan on its own: asset or right, owner or guarantor, rank, status, value and valuation, or the scope and limit of a guarantee (U33-DEC-21).",
+    statuses: ["draft", "published", "funded", "active", "late", "defaulted", "repaid", "written_off"]
+  },
+  {
+    id: "coming_soon",
+    title: "Show as Coming soon",
+    description:
+      "Show this draft to investors and on the website before it opens, with the planned opening date. Nothing can be invested until you publish it (U33-DEC-17).",
     statuses: ["draft"]
   },
   {
@@ -4722,7 +5129,23 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Record borrower repayment",
     description:
       "Declare a matched incoming borrower payment against the next due installment, or record a repayment in advance with a schedule preview.",
-    statuses: ["active", "late"]
+    statuses: ["active", "late"],
+    when: (loan) => !isEngineLoan(loan)
+  },
+  {
+    id: "servicing",
+    title: "Record a borrower payment",
+    description:
+      "18.6: any amount with its value date. The server pays expenses, penalty X, interest and principal in the loan's order; money beyond everything due repays principal early and recalculates the next installments.",
+    statuses: ["active", "late", "defaulted"],
+    when: (loan) => isEngineLoan(loan)
+  },
+  {
+    id: "late_payments",
+    title: "Late payments and Default",
+    description:
+      "Status (Pending, Due, Late, Default), penalty X and expenses owed, recovery expenses, and the Default declaration (never automatic).",
+    statuses: ["active", "late", "defaulted"]
   },
   {
     id: "recovery",
@@ -4730,7 +5153,44 @@ const MANAGE_LOAN_ACTIONS: Array<{
     description:
       "For a defaulted loan: record recovered funds and distribute them to lenders through the recovery waterfall.",
     statuses: ["defaulted"],
+    danger: true,
+    when: (loan) => !isEngineLoan(loan)
+  },
+  {
+    id: "status_days",
+    title: "Late and default days",
+    description:
+      "Use the contract's own days for Late and Default, or the platform days (U33-DEC-09: Late from day 15, Default from day 60).",
+    statuses: ["draft", "published", "funded", "active", "late"]
+  },
+  {
+    id: "terminate",
+    title: "Record contract termination",
+    description:
+      "Record the date the loan contract was terminated. The status does not change; lenders see the date on their investment.",
+    statuses: ["late", "defaulted"],
     danger: true
+  },
+  {
+    id: "credit_checks",
+    title: "Checks & updates",
+    description:
+      "Record each check with its result, source and date, and how the loan is followed. Shown in the credit file (U33-DEC-20).",
+    statuses: ["draft", "published", "funded", "active", "late", "defaulted", "repaid", "written_off"]
+  },
+  {
+    id: "recovery_stages",
+    title: "Recovery stages",
+    description:
+      "Record what was done with its real date and, when it is known, what comes next. Lenders see the stages on their investment (U33-DEC-22).",
+    statuses: ["late", "defaulted", "written_off"]
+  },
+  {
+    id: "history",
+    title: "Loan history",
+    description:
+      "Every recorded change of the loan, newest first: status changes, publication and funding, late and default days, termination, Coming soon, securities, checks and recovery stages, with who did it and the reason.",
+    statuses: ["draft", "published", "funding_close_failed", "funded", "active", "late", "defaulted", "repaid", "written_off", "cancelled"]
   },
   {
     id: "note",
@@ -5066,7 +5526,8 @@ function ManageLoanModal({
   const [noteEvidence, setNoteEvidence] = useState("");
   // An action from the URL only opens when it is valid for the loan's status.
   const action = requestedAction && MANAGE_LOAN_ACTIONS.some(
-    (item) => item.id === requestedAction && item.statuses.includes(loan.status)
+    (item) =>
+      item.id === requestedAction && item.statuses.includes(loan.status) && (item.when?.(loan) ?? true)
   )
     ? requestedAction
     : null;
@@ -5086,8 +5547,6 @@ function ManageLoanModal({
   const [recGross, setRecGross] = useState("");
   const [recExternalCosts, setRecExternalCosts] = useState("0");
   const [recThirdPartyCosts, setRecThirdPartyCosts] = useState("0");
-  const [recFeeApplied, setRecFeeApplied] = useState(false);
-  const [recFeeBps, setRecFeeBps] = useState("0");
   const [recContractualInterestDue, setRecContractualInterestDue] = useState("0");
   const [recDefaultInterestDue, setRecDefaultInterestDue] = useState("0");
   const [recPenaltiesDue, setRecPenaltiesDue] = useState("0");
@@ -5213,15 +5672,13 @@ function ManageLoanModal({
     setOriginalPaidInitializedFor(scheduleKey);
   }, [action, loan.id, loan.is_refinancing, originalPaidInitializedFor, originalScheduleRows]);
 
-  // The backend owns the allocation. The UI previews the same fixed order after
-  // external costs, third-party costs, and Garanta's recovery fee are deducted.
+  // The backend owns the allocation. The UI previews the same fixed order after external and
+  // third-party costs are deducted. There is no Banxum recovery fee for investors (U33-DEC-12).
   const recGrossMinor = intValue(recGross);
   const recExternalMinor = intValue(recExternalCosts);
   const recThirdPartyMinor = intValue(recThirdPartyCosts);
   const recNetReceivedMinor = recGrossMinor - recExternalMinor;
-  const recFeeBaseMinor = recNetReceivedMinor - recThirdPartyMinor;
-  const recFeeMinor = recFeeApplied ? Math.round((recFeeBaseMinor * intValue(recFeeBps)) / 10000) : 0;
-  const recNetAvailableMinor = recFeeBaseMinor - recFeeMinor;
+  const recNetAvailableMinor = recNetReceivedMinor - recThirdPartyMinor;
   const recPenaltyDueMinor = intValue(recDefaultInterestDue) + intValue(recPenaltiesDue);
   const recPenaltyAppliedMinor = Math.min(Math.max(recNetAvailableMinor, 0), recPenaltyDueMinor);
   const recAfterPenaltyMinor = Math.max(recNetAvailableMinor - recPenaltyAppliedMinor, 0);
@@ -5235,7 +5692,6 @@ function ManageLoanModal({
     recGross,
     recExternalCosts,
     recThirdPartyCosts,
-    recFeeApplied ? recFeeBps : "",
     recDefaultInterestDue,
     recPenaltiesDue,
     recContractualInterestDue
@@ -5262,6 +5718,7 @@ function ManageLoanModal({
   );
   const available = MANAGE_LOAN_ACTIONS.filter((item) =>
     item.statuses.includes(loan.status)
+    && (item.when?.(loan) ?? true)
     && !(fundingEnded && ["cancel", "release"].includes(item.id))
   );
   const active = available.find((item) => item.id === action) ?? null;
@@ -5339,8 +5796,6 @@ function ManageLoanModal({
       gross_recovered_minor: recGrossMinor,
       externally_deducted_costs_minor: recExternalMinor,
       third_party_costs_from_received_minor: recThirdPartyMinor,
-      recovery_fee_applied: recFeeApplied,
-      recovery_fee_bps: recFeeApplied ? intValue(recFeeBps) : 0,
       contractual_interest_due_minor: intValue(recContractualInterestDue),
       default_interest_due_minor: intValue(recDefaultInterestDue),
       penalties_due_minor: intValue(recPenaltiesDue),
@@ -5657,14 +6112,39 @@ function ManageLoanModal({
 
             {action === "disburse" ? <ManageDisbursementForm loan={loan} onDone={onChanged} /> : null}
 
-            {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
+            {action === "servicing" ? (
+              isEngineLoan(loan) ? (
+                <EngineRepaymentForm loan={loan} onDone={onChanged} />
+              ) : (
+                <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} />
+              )
+            ) : null}
+
+            {action === "late_payments" ? <LatePaymentsPanel loan={loan} onDone={onChanged} /> : null}
+
+            {action === "coming_soon" ? <LoanComingSoonForm loan={loan} onDone={onChanged} /> : null}
+
+            {action === "securities" ? <LoanSecuritiesForm loan={loan} onDone={onChanged} /> : null}
+            {action === "securities" ? <SecurityProofsPanel loanId={loan.id} /> : null}
+
+            {action === "status_days" ? <LoanStatusDaysForm loan={loan} onDone={onChanged} /> : null}
+
+            {action === "terminate" ? <LoanTerminationForm loan={loan} onDone={onChanged} /> : null}
+
+            {action === "recovery_stages" ? <LoanRecoveryStagesForm loan={loan} onPublishNote={() => setAction("note")} /> : null}
+
+            {action === "credit_checks" ? <LoanCreditChecksForm loan={loan} /> : null}
+
+            {action === "history" ? <LoanHistoryPanel loan={loan} /> : null}
 
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
-                  Record funds recovered on this defaulted loan. The recovered amount, minus external and
-                  third-party costs and the optional Garanta recovery fee, is allocated by the server in one
-                  non-overridable order: penalty, contractual interest, then principal.
+                  Record funds recovered on this defaulted loan. The recovered amount, minus real external and
+                  third-party costs, is allocated by the server in one non-overridable order: penalty, contractual
+                  interest, then principal. There is no Banxum recovery fee for investors (U33-DEC-12); costs
+                  already recovered from the borrower are not deducted again. Lenders see the gross, the costs and
+                  the net.
                 </p>
                 <FieldGrid>
                   <MoneyMinorInput currency={loan.currency} label="Gross recovered" onChange={setRecGross} value={recGross} />
@@ -5672,19 +6152,10 @@ function ManageLoanModal({
                 </FieldGrid>
                 <FieldGrid>
                   <MoneyMinorInput currency={loan.currency} label="Third-party costs (from received)" onChange={setRecThirdPartyCosts} value={recThirdPartyCosts} />
-                  <Field hint="Applies the configured Garanta recovery fee on the net-of-third-party base.">
-                    <label className="check-row">
-                      <input checked={recFeeApplied} onChange={(event) => setRecFeeApplied(event.target.checked)} type="checkbox" />
-                      Apply Garanta recovery fee
-                    </label>
-                  </Field>
                 </FieldGrid>
-                {recFeeApplied ? (
-                  <TextInput integer hint="Basis points, e.g. 500 = 5%." label="Recovery fee bps" onChange={setRecFeeBps} value={recFeeBps} />
-                ) : null}
                 <div className="admin-context-bar admin-recovery-summary">
                   <span>Net received <Money amountMinor={recNetReceivedMinor} currency={loan.currency} /></span>
-                  <span>Fee <Money amountMinor={recFeeMinor} currency={loan.currency} /></span>
+                  <span>Costs <Money amountMinor={recExternalMinor + recThirdPartyMinor} currency={loan.currency} /></span>
                   <span>
                     Net to distribute <strong><Money amountMinor={recNetAvailableMinor} currency={loan.currency} /></strong>
                   </span>
@@ -5695,7 +6166,7 @@ function ManageLoanModal({
                 </FieldGrid>
                 <MoneyMinorInput currency={loan.currency} label="Outstanding contractual interest" onChange={setRecContractualInterestDue} value={recContractualInterestDue} />
                 <div className="admin-context-bar admin-recovery-summary">
-                  <span>1. Costs and recovery fee <Money amountMinor={Math.max(recGrossMinor - recNetAvailableMinor, 0)} currency={loan.currency} /></span>
+                  <span>1. External costs <Money amountMinor={Math.max(recGrossMinor - recNetAvailableMinor, 0)} currency={loan.currency} /></span>
                   <span>2. Penalty <Money amountMinor={recPenaltyAppliedMinor} currency={loan.currency} /></span>
                   <span>3. Interest <Money amountMinor={recInterestAppliedMinor} currency={loan.currency} /></span>
                   <span>4. Principal <strong><Money amountMinor={recProjectedPrincipalMinor} currency={loan.currency} /></strong></span>
@@ -5735,7 +6206,7 @@ function ManageLoanModal({
                 ) : null}
                 <OperationConfirmButton
                   confirmLabel={recDuplicatePending && recConfirmRepeat ? "Record repeat recovery" : "Record recovery"}
-                  description="Recording a recovery credits affected investor balance lots via the recovery waterfall, reduces current holding principal, and posts Garanta recovery-fee revenue. Recovery is only valid on a defaulted loan."
+                  description="Recording a recovery credits affected investor balance lots via the recovery waterfall and reduces current holding principal. No Banxum recovery fee is charged. Recovery is only valid on a defaulted loan."
                   details={[
                     { label: "Loan", value: loanId },
                     { label: "Gross recovered", value: `${recGrossMinor} minor units` },
@@ -5743,7 +6214,7 @@ function ManageLoanModal({
                     { label: "Penalty applied first", value: `${recPenaltyAppliedMinor} minor units` },
                     { label: "Interest applied next", value: `${recInterestAppliedMinor} minor units` },
                     { label: "Projected principal", value: `${recProjectedPrincipalMinor} minor units` },
-                    { label: "Fee applied", value: recFeeApplied ? `Yes (${intValue(recFeeBps)} bps)` : "No" }
+                    { label: "External costs", value: `${recExternalMinor + recThirdPartyMinor} minor units` }
                   ]}
                   disabled={recordRecovery.isPending || !recCanSubmit}
                   onConfirm={recordRecoveryPayment}
@@ -5939,6 +6410,1314 @@ function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => vo
   );
 }
 
+/** U33-DEC-09: the contract's own Late / Default days of a loan, or the platform days. */
+function LoanStatusDaysForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const ownDays = loan.late_threshold_days !== null && loan.default_threshold_days !== null;
+  const [useContract, setUseContract] = useState(ownDays);
+  const [lateDays, setLateDays] = useState(String(loan.late_threshold_days ?? loan.effective_late_threshold_days));
+  const [defaultDays, setDefaultDays] = useState(String(loan.default_threshold_days ?? loan.effective_default_threshold_days));
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1ServicingAdminLoansStatusThresholdsCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(
+          `The loan now uses Late from day ${result.effective_late_threshold_days} and Default from day ${result.effective_default_threshold_days} (${result.threshold_source === "loan" ? "contract days" : "platform days"}). Status: ${result.loan_status}.`
+        );
+        onDone();
+      }
+    }
+  });
+  const late = intValue(lateDays);
+  const deflt = intValue(defaultDays);
+  const daysInvalid =
+    useContract &&
+    (Boolean(integerInputError(lateDays) || integerInputError(defaultDays)) || late < 1 || deflt <= late || deflt > 365);
+  const blocked = daysInvalid || !reason.trim() || mutation.isPending;
+
+  function submit() {
+    const data = {
+      late_threshold_days: useContract ? late : null,
+      default_threshold_days: useContract ? deflt : null,
+      reason: reason.trim()
+    };
+    if (isFixturePreview) {
+      setPreview(useContract ? `Loan ${loan.id} would use Late from day ${late} and Default from day ${deflt}.` : `Loan ${loan.id} would use the platform days.`);
+      return;
+    }
+    mutation.mutate({ loanId: loan.id, data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Days are Europe/Zurich calendar days after the due date of the first unpaid installment. Before the Late day the
+        payment shows as due. Penalties follow the contract, not these days. An active or late direct loan is checked again
+        at once; a loan in default stays in default.
+      </p>
+      <div className="admin-context-bar">
+        <span>Now: Late from day {loan.effective_late_threshold_days}</span>
+        <span>Default from day {loan.effective_default_threshold_days}</span>
+        <span>{ownDays ? "Contract days" : "Platform days"}</span>
+      </div>
+      <label className="check-row">
+        <input checked={useContract} onChange={(event) => setUseContract(event.target.checked)} type="checkbox" />
+        Use the contract&apos;s own days for this loan.
+      </label>
+      {useContract ? (
+        <FieldGrid>
+          <TextInput integer label="Late from day" onChange={setLateDays} required value={lateDays} />
+          <TextInput integer label="Default from day" onChange={setDefaultDays} required value={defaultDays} />
+        </FieldGrid>
+      ) : null}
+      <TextAreaInput hint="For example the contract clause." label="Reason" onChange={setReason} required value={reason} />
+      {daysInvalid ? (
+        <Banner tone="bad" title="Days not usable">
+          The Late day must be from day 1 and before the Default day. The Default day can be at most day 365.
+        </Banner>
+      ) : null}
+      <OperationConfirmButton
+        confirmLabel="Save days"
+        description="The change is recorded in the loan history with the reason."
+        details={[
+          { label: "Loan", value: loan.id },
+          { label: "Late from day", value: useContract ? String(late) : "Platform" },
+          { label: "Default from day", value: useContract ? String(deflt) : "Platform" }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title="Confirm Late and Default days"
+        variant="primary"
+      >
+        Save days
+      </OperationConfirmButton>
+      {mutation.error ? <Banner tone="bad" title="Could not save the days">{errorMessage(mutation.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Days saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+const GUARANTEE_TYPES: string[] = [CollateralTypeEnum.corporate_guarantee, CollateralTypeEnum.personal_guarantee];
+// New entries: no unsecured exception (U33-DEC-38); "mixed" and "asset backed" stay on old records only;
+// invoices are closed for new securities (Q15: record the claim as Receivables with the invoice attached).
+const NEW_SECURITY_TYPES: LoanCollateralType[] = SECURED_COLLATERAL_TYPES.filter(
+  (value) => value !== CollateralTypeEnum.mixed_collateral && value !== CollateralTypeEnum.asset_backed && value !== CollateralTypeEnum.invoices
+);
+// F16: the asset types that count in the loan-to-value by default when they have a value.
+const LTV_ASSET_TYPES: string[] = [
+  CollateralTypeEnum.real_estate,
+  CollateralTypeEnum.equipment,
+  CollateralTypeEnum.inventory,
+  CollateralTypeEnum.vehicle,
+  CollateralTypeEnum.securities_pledge,
+  CollateralTypeEnum.cash_collateral
+];
+const SECURITY_STATUS_OPTIONS = ["", "in_place", "pending", "released"] as const;
+type SecurityStatusOption = (typeof SECURITY_STATUS_OPTIONS)[number];
+const securityStatusText: Record<SecurityStatusOption, string> = {
+  "": "Not recorded",
+  in_place: "In place",
+  pending: "Being put in place",
+  released: "Released"
+};
+
+type SecurityDraft = {
+  // 18.3: anonymous asset name for the public site.
+  publicName: string;
+  id: string | null;
+  securityType: string;
+  description: string;
+  holderName: string;
+  rank: string;
+  status: SecurityStatusOption;
+  value: string;
+  valuationDate: string;
+  valuationSource: string;
+  appraiser: string;
+  priorDebt: string;
+  insurance: string;
+  scope: string;
+  limit: string;
+  documentIds: string[];
+  // F16: null keeps the server's choice (a new security takes the default of its type).
+  countsInLtv: boolean | null;
+  // Audit S1-3: the asset's stable identifier (one asset never counts twice).
+  assetReference: string;
+  valuationCurrency: string;
+  valuationAmount: string;
+  valuationFxRate: string;
+  valuationFxRateDate: string;
+};
+
+function securityDraft(security?: LoanSecurity): SecurityDraft {
+  const text = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value));
+  return {
+    id: security?.id ?? null,
+    securityType: security?.security_type ?? CollateralTypeEnum.real_estate,
+    description: security?.description ?? "",
+    publicName: security?.public_name ?? "",
+    holderName: security?.holder_name ?? "",
+    rank: text(security?.rank),
+    status: (security?.status ?? "") as SecurityStatusOption,
+    value: text(security?.value_minor),
+    valuationDate: security?.valuation_date ?? "",
+    valuationSource: security?.valuation_source ?? "",
+    appraiser: security?.appraiser ?? "",
+    priorDebt: text(security?.prior_ranking_debt_minor),
+    insurance: security?.insurance ?? "",
+    scope: security?.undertaking_scope ?? "",
+    limit: text(security?.undertaking_limit_minor),
+    documentIds: (security?.documents ?? []).map((document) => document.id),
+    countsInLtv: security ? security.counts_in_ltv : null,
+    assetReference: security?.asset_reference ?? "",
+    valuationCurrency: security?.valuation_currency ?? "",
+    valuationAmount: text(security?.valuation_amount_minor),
+    valuationFxRate: security?.valuation_fx_rate ?? "",
+    valuationFxRateDate: security?.valuation_fx_rate_date ?? ""
+  };
+}
+
+function securityRequest(draft: SecurityDraft, loanCurrency: string): LoanSecurityRequest {
+  const amount = (value: string) => (value.trim() ? intValue(value) : null);
+  const guarantee = GUARANTEE_TYPES.includes(draft.securityType);
+  const foreign = !guarantee && Boolean(draft.valuationCurrency) && draft.valuationCurrency !== loanCurrency;
+  return {
+    security_type: draft.securityType,
+    description: draft.description.trim(),
+    public_name: draft.publicName.trim(),
+    holder_name: draft.holderName.trim(),
+    rank: draft.rank.trim() ? intValue(draft.rank) : null,
+    status: draft.status,
+    // A foreign valuation: the server calculates the value in the loan currency (audit step 1 D4).
+    value_minor: guarantee || foreign ? null : amount(draft.value),
+    valuation_date: guarantee || !draft.valuationDate ? null : draft.valuationDate,
+    valuation_source: guarantee ? "" : draft.valuationSource.trim(),
+    appraiser: guarantee ? "" : draft.appraiser.trim(),
+    prior_ranking_debt_minor: guarantee ? null : amount(draft.priorDebt),
+    insurance: guarantee ? "" : draft.insurance.trim(),
+    undertaking_scope: guarantee ? draft.scope.trim() : "",
+    undertaking_limit_minor: guarantee ? amount(draft.limit) : null,
+    document_ids: draft.documentIds,
+    counts_in_ltv: guarantee ? false : draft.countsInLtv,
+    asset_reference: guarantee ? "" : draft.assetReference.trim(),
+    valuation_currency: foreign ? draft.valuationCurrency : "",
+    valuation_amount_minor: foreign ? amount(draft.valuationAmount) : null,
+    valuation_fx_rate: foreign && draft.valuationFxRate.trim() ? draft.valuationFxRate.trim() : null,
+    valuation_fx_rate_date: foreign && draft.valuationFxRateDate ? draft.valuationFxRateDate : null
+  };
+}
+
+/** U33-DEC-21: the securities of a loan, each managed on its own. */
+function LoanSecuritiesForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const query = useV1LoansAdminLoansSecuritiesRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const [draft, setDraft] = useState<SecurityDraft | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: getV1LoansAdminLoansSecuritiesRetrieveQueryKey(loan.id) });
+    onDone();
+  };
+  const create = useV1LoansAdminLoansSecuritiesCreate({ mutation: { onSuccess: () => { setSuccess("Security added."); setDraft(null); refresh(); } } });
+  const update = useV1LoansAdminLoansSecuritiesUpdate({ mutation: { onSuccess: () => { setSuccess("Security saved."); setDraft(null); refresh(); } } });
+  const remove = useV1LoansAdminLoansSecuritiesDestroy({ mutation: { onSuccess: () => { setSuccess("Security removed."); refresh(); } } });
+  const move = useV1LoansAdminLoansSecuritiesMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
+  const makeMain = useV1LoansAdminLoansSecuritiesMainCreate({ mutation: { onSuccess: () => { setSuccess("Main security saved. It gives the loan's summary."); refresh(); } } });
+  const securities = query.data?.securities ?? [];
+  const borrowerDocuments = query.data?.borrower_documents ?? [];
+  const canMove = loan.status === "draft" && securities.length > 1;
+  const guarantee = draft ? GUARANTEE_TYPES.includes(draft.securityType) : false;
+  const foreignValuation = Boolean(draft && !guarantee && draft.valuationCurrency && draft.valuationCurrency !== loan.currency);
+  // The box shows the server's choice, or the default of the type for a new security.
+  const countsInLtv = draft ? (guarantee ? false : draft.countsInLtv ?? (LTV_ASSET_TYPES.includes(draft.securityType) && Boolean(draft.value.trim() || draft.valuationAmount.trim()))) : false;
+  const set = (patch: Partial<SecurityDraft>) => setDraft((current) => (current ? { ...current, ...patch } : current));
+  const typeOptions = draft && !NEW_SECURITY_TYPES.includes(draft.securityType as LoanCollateralType)
+    ? [draft.securityType as LoanCollateralType, ...NEW_SECURITY_TYPES]
+    : NEW_SECURITY_TYPES;
+  const draftError = !draft
+    ? ""
+    : draft.securityType === CollateralTypeEnum.other && !draft.description.trim()
+      ? "Describe a security of the type Other."
+      : !guarantee && draft.priorDebt.trim() && !draft.value.trim() && !foreignValuation
+        ? "Prior-ranking debt needs the value of the asset."
+        : foreignValuation && (!draft.valuationAmount.trim() || !(Number(draft.valuationFxRate) > 0) || !draft.valuationFxRateDate)
+          ? `Enter the value in ${draft.valuationCurrency}, the rate to ${loan.currency} and the date of the rate.`
+          : countsInLtv && !draft.value.trim() && !foreignValuation
+            ? "Only a security with a documented value counts in the loan-to-value."
+            : "";
+  const busy = create.isPending || update.isPending || remove.isPending || move.isPending || makeMain.isPending;
+  const moveSecurity = (securityId: string, direction: "up" | "down") =>
+    isFixturePreview
+      ? setPreview(`The security would move ${direction} on ${loan.id}.`)
+      : move.mutate({ loanId: loan.id, securityId, data: { direction } });
+
+  function save() {
+    if (!draft) return;
+    const data = securityRequest({ ...draft, countsInLtv: guarantee ? false : countsInLtv }, loan.currency);
+    if (isFixturePreview) {
+      setPreview(`${draft.id ? "The security would be saved" : "A security would be added"} for ${loan.id}.`);
+      return;
+    }
+    if (draft.id) update.mutate({ loanId: loan.id, securityId: draft.id, data });
+    else create.mutate({ loanId: loan.id, data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Fill in only what applies and what the documents show. The main security gives the loan&apos;s summary. The
+        loan-to-value uses the sum of the values that count (real estate, equipment, inventory, vehicles, pledged securities
+        and cash with a documented valuation; receivables only when valued; never a guarantee). Excluding a value is not a
+        release. A guarantee has a scope and a limit, never an asset value. After publication a security that ends is set to
+        Released, not removed.
+      </p>
+      {securities.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr><th>Security</th><th>Holder</th><th>Rank</th><th>Status</th><th>Value or limit</th><th>In loan-to-value</th><th>Documents</th><th><span className="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {securities.map((security, index) => (
+                <tr key={security.id}>
+                  <td>
+                    {labelize(security.security_type)}
+                    {security.is_main ? <> <span className="admin-pill">Main</span></> : null}
+                    {security.description ? <small className="muted"> · {security.description}</small> : null}
+                  </td>
+                  <td>{security.holder_name || "-"}</td>
+                  <td>{security.rank ?? "-"}</td>
+                  <td>{securityStatusText[(security.status || "") as SecurityStatusOption] ?? security.status}</td>
+                  <td>
+                    {security.is_guarantee
+                      ? security.undertaking_limit_minor !== null ? <Money amountMinor={security.undertaking_limit_minor} currency={loan.currency} /> : "-"
+                      : security.value_minor !== null ? <Money amountMinor={security.value_minor} currency={loan.currency} /> : "-"}
+                    {security.valuation_currency && security.valuation_amount_minor !== null ? (
+                      <small className="muted">
+                        {" "}from <Money amountMinor={security.valuation_amount_minor} currency={security.valuation_currency} /> at {security.valuation_fx_rate}
+                        {security.valuation_fx_rate_date ? ` (${formatDate(security.valuation_fx_rate_date)})` : ""}
+                      </small>
+                    ) : null}
+                  </td>
+                  <td>{security.is_guarantee ? "Never" : security.status === "released" ? "No (released)" : security.counts_in_ltv ? "Yes" : "No"}</td>
+                  <td>{security.documents.length ? security.documents.map((document) => document.display_name || "Document").join(", ") : "-"}</td>
+                  <td>
+                    {canMove ? (
+                      <>
+                        <button aria-label={`Move ${labelize(security.security_type)} up`} className="link" disabled={busy || index === 0} onClick={() => moveSecurity(security.id, "up")} type="button">↑</button>{" "}
+                        <button aria-label={`Move ${labelize(security.security_type)} down`} className="link" disabled={busy || index === securities.length - 1} onClick={() => moveSecurity(security.id, "down")} type="button">↓</button>{" · "}
+                      </>
+                    ) : null}
+                    <button className="link" onClick={() => setDraft(securityDraft(security))} type="button">Edit</button>
+                    {!security.is_main && security.status !== "released" ? (
+                      <>
+                        {" · "}
+                        <button className="link" disabled={busy} onClick={() => (isFixturePreview ? setPreview(`The security would become the main security of ${loan.id}.`) : makeMain.mutate({ loanId: loan.id, securityId: security.id }))} type="button">Make main</button>
+                      </>
+                    ) : null}
+                    {loan.status === "draft" && securities.length > 1 ? (
+                      <>
+                        {" · "}
+                        <button className="link" disabled={busy} onClick={() => (isFixturePreview ? setPreview(`The security would be removed from ${loan.id}.`) : remove.mutate({ loanId: loan.id, securityId: security.id }))} type="button">Remove</button>
+                      </>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">{query.isLoading ? "Loading the securities..." : "No security is recorded yet. The loan's collateral fields create the first one."}</p>
+      )}
+      {draft ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <SelectInput<LoanCollateralType> label="Security type" onChange={(value) => set({ securityType: value })} options={typeOptions} value={draft.securityType as LoanCollateralType} />
+            <TextInput label={guarantee ? "Guarantor" : "Owner / rights holder"} onChange={(value) => set({ holderName: value })} value={draft.holderName} />
+            <TextInput hint="1 is first rank." integer label="Rank" onChange={(value) => set({ rank: value })} value={draft.rank} />
+            <SelectInput<SecurityStatusOption> label="Status" onChange={(value) => set({ status: value })} optionLabel={(option) => securityStatusText[option]} options={SECURITY_STATUS_OPTIONS} value={draft.status} />
+          </FieldGrid>
+          <TextAreaInput label="Description" onChange={(value) => set({ description: value })} value={draft.description} />
+          <TextInput hint="Public site, a few words, no borrower name or address, for example Residential building in Biel. Empty: the type is shown." label="Public asset name" onChange={(value) => set({ publicName: value })} value={draft.publicName} />
+          {guarantee ? (
+            <FieldGrid>
+              <MoneyMinorInput currency={loan.currency} label="Guarantee limit minor units" onChange={(value) => set({ limit: value })} value={draft.limit} />
+              <TextAreaInput label="Scope of the guarantee" onChange={(value) => set({ scope: value })} value={draft.scope} />
+            </FieldGrid>
+          ) : (
+            <FieldGrid>
+              <TextInput hint={`Empty or ${loan.currency} for a valuation in the loan currency.`} label="Valuation currency" onChange={(value) => set({ valuationCurrency: value.trim().toUpperCase().slice(0, 3) })} value={draft.valuationCurrency} />
+              {foreignValuation ? (
+                <>
+                  <MoneyMinorInput currency={draft.valuationCurrency} label={`Value in ${draft.valuationCurrency} minor units`} onChange={(value) => set({ valuationAmount: value })} value={draft.valuationAmount} />
+                  <TextInput hint={`One ${draft.valuationCurrency} in ${loan.currency}. The value in ${loan.currency} is calculated.`} label="Rate" onChange={(value) => set({ valuationFxRate: value })} value={draft.valuationFxRate} />
+                  <TextInput label="Date of the rate" onChange={(value) => set({ valuationFxRateDate: value })} type="date" value={draft.valuationFxRateDate} />
+                </>
+              ) : (
+                <MoneyMinorInput currency={loan.currency} label="Value minor units" onChange={(value) => set({ value })} value={draft.value} />
+              )}
+              <TextInput label="Valuation date" onChange={(value) => set({ valuationDate: value })} type="date" value={draft.valuationDate} />
+              <TextInput label="Valuation basis" onChange={(value) => set({ valuationSource: value })} value={draft.valuationSource} />
+              <TextInput label="Appraiser" onChange={(value) => set({ appraiser: value })} value={draft.appraiser} />
+              <MoneyMinorInput currency={loan.currency} label="Prior-ranking debt minor units" onChange={(value) => set({ priorDebt: value })} value={draft.priorDebt} />
+              <TextAreaInput label="Insurance" onChange={(value) => set({ insurance: value })} value={draft.insurance} />
+              <label className="admin-checkbox-line">
+                <input checked={countsInLtv} onChange={(event) => set({ countsInLtv: event.target.checked })} type="checkbox" />
+                Counts in the loan-to-value (a documented valuation of a distinct asset)
+              </label>
+              <TextInput
+                hint="Land register number, serial or chassis number, ISIN or securities account. Needed when several assets count in the loan-to-value; the same asset never counts twice."
+                label="Asset reference"
+                onChange={(value) => set({ assetReference: value })}
+                value={draft.assetReference}
+              />
+            </FieldGrid>
+          )}
+          <fieldset className="col gap-8 admin-security-documents">
+            <legend>Documents of the borrower that show this security</legend>
+            {borrowerDocuments.length ? (
+              borrowerDocuments.map((document) => (
+                <label className="admin-checkbox-line" key={document.id}>
+                  <input
+                    checked={draft.documentIds.includes(document.id)}
+                    onChange={(event) =>
+                      set({ documentIds: event.target.checked ? [...draft.documentIds, document.id] : draft.documentIds.filter((id) => id !== document.id) })
+                    }
+                    type="checkbox"
+                  />
+                  {document.display_name || "Document"}
+                </label>
+              ))
+            ) : (
+              <p className="muted">The borrower has no documents yet. Add them in the borrower&apos;s Credit file.</p>
+            )}
+          </fieldset>
+          {draftError ? <Banner tone="bad" title="Check the security">{draftError}</Banner> : null}
+          <Button disabled={Boolean(draftError) || busy} onClick={save} variant="primary">{draft.id ? "Save security" : "Add security"}</Button>{" "}
+          <Button onClick={() => setDraft(null)}>Cancel</Button>
+        </div>
+      ) : (
+        <Button onClick={() => setDraft(securityDraft())}>Add a security</Button>
+      )}
+      {create.error || update.error || remove.error || move.error || makeMain.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? move.error ?? makeMain.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+/** U33-DEC-17: show a draft Direct loan as Coming soon with the planned opening date, or stop. */
+function LoanComingSoonForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const shown = Boolean(loan.coming_soon_at);
+  const [plannedDate, setPlannedDate] = useState(loan.planned_opening_date ?? businessDate);
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const announce = useV1LoansAdminLoansComingSoonCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(`The loan is shown as Coming soon. Planned opening: ${formatDate(result.planned_opening_date ?? plannedDate)}.`);
+        onDone();
+      }
+    }
+  });
+  const withdraw = useV1LoansAdminLoansComingSoonDestroy({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("The loan is no longer shown. The opening alerts asked for it will not be sent.");
+        onDone();
+      }
+    }
+  });
+  const past = Boolean(plannedDate) && plannedDate < businessDate;
+  const afterDeadline = Boolean(plannedDate && loan.funding_deadline && plannedDate > loan.funding_deadline);
+  const unsecured = loan.collateral_type === "unsecured_exception";
+  const directDraft = loan.product_type === "direct" && loan.status === "draft";
+  const busy = announce.isPending || withdraw.isPending;
+  const blocked = !directDraft || unsecured || !plannedDate || past || afterDeadline || busy;
+
+  function save() {
+    if (isFixturePreview) {
+      setPreview(`Loan ${loan.id} would be shown as Coming soon, planned opening ${plannedDate}.`);
+      return;
+    }
+    announce.mutate({ loanId: loan.id, data: { planned_opening_date: plannedDate, note: note.trim() } });
+  }
+
+  function stop() {
+    if (isFixturePreview) {
+      setPreview(`Loan ${loan.id} would no longer be shown as Coming soon.`);
+      return;
+    }
+    withdraw.mutate({ loanId: loan.id });
+  }
+
+  const failure = announce.error ?? withdraw.error;
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        The loan stays a draft. Investors see it in Investment opportunities and on the website with the planned opening
+        date, and they can ask for an email when it opens. The email goes out when you publish the loan, not on the planned
+        date. Only a secured draft Direct loan can be shown.
+      </p>
+      {shown ? (
+        <div className="admin-context-bar">
+          <span>Shown as Coming soon since {formatDate(loan.coming_soon_at)}</span>
+          <span>Planned opening: {formatDate(loan.planned_opening_date)}</span>
+        </div>
+      ) : null}
+      <FieldGrid>
+        <TextInput label="Planned opening date" onChange={setPlannedDate} required type="date" value={plannedDate} />
+      </FieldGrid>
+      <TextAreaInput hint="Internal: for example why the opening waits." label="Note" onChange={setNote} value={note} />
+      {!directDraft ? <Banner tone="bad" title="Not possible for this loan">Only a draft Direct loan can be shown as Coming soon.</Banner> : null}
+      {unsecured ? <Banner tone="bad" title="Security needed">A loan without an eligible security cannot be shown to investors.</Banner> : null}
+      {past ? <Banner tone="bad" title="Date in the past">The planned opening date cannot be in the past.</Banner> : null}
+      {afterDeadline ? <Banner tone="bad" title="Date after the funding deadline">The planned opening date must be before the funding deadline ({formatDate(loan.funding_deadline)}).</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel={shown ? "Change the date" : "Show as Coming soon"}
+        description="Investors and website visitors see the loan and the planned opening date. Nothing can be invested yet."
+        details={[
+          { label: "Loan", value: loan.title },
+          { label: "Planned opening date", value: plannedDate },
+          { label: "Funding deadline", value: formatDate(loan.funding_deadline) }
+        ]}
+        disabled={blocked}
+        onConfirm={save}
+        title="Confirm Coming soon"
+        variant="primary"
+      >
+        {shown ? "Change the date" : "Show as Coming soon"}
+      </OperationConfirmButton>
+      {shown ? (
+        <OperationConfirmButton
+          confirmLabel="Stop showing"
+          description="The loan is hidden again. Investors who asked for an opening alert do not get it."
+          details={[{ label: "Loan", value: loan.title }]}
+          disabled={busy}
+          onConfirm={stop}
+          title="Stop showing as Coming soon"
+          variant="danger"
+        >
+          Stop showing as Coming soon
+        </OperationConfirmButton>
+      ) : null}
+      {failure ? <Banner tone="bad" title="Could not save">{errorMessage(failure)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+// U33-DEC-20: the figures of a financial year, by statement. Costs, assets and debts are positive.
+function MoneyUnitsInput({ label, value, onChange, currency, hint, required = false }: { label: string; value: string; onChange: (value: string) => void; currency: string; hint?: string; required?: boolean }) {
+  const decimals = minorUnitDecimalsForCurrency(currency);
+  const minor = unitsToMinor(value, currency);
+  const error = value.trim() && minor === null ? `Write the amount in ${currency} without separators, with at most ${decimals} decimals, for example 1250000.50.` : undefined;
+  const helper = [minor !== null ? `${currency} ${formatMoneyMinor(minor, currency)}` : "", hint].filter(Boolean).join(" · ");
+  return (
+    <Field error={error} hint={helper} label={label}>
+      <input aria-invalid={error ? true : undefined} aria-label={label} inputMode="decimal" onChange={(event) => onChange(event.target.value)} required={required} value={value} />
+    </Field>
+  );
+}
+
+const FINANCIAL_YEAR_GROUPS: Array<{ title: string; fields: Array<[keyof BorrowerFinancialYear, string]> }> = [
+  {
+    title: "Profit & loss",
+    fields: [
+      ["revenue_minor", "Revenue"],
+      ["materials_costs_minor", "Materials & purchased services"],
+      ["staff_costs_minor", "Staff costs"],
+      ["other_operating_costs_minor", "Other operating costs"],
+      ["depreciation_minor", "Depreciation"],
+      ["operating_profit_minor", "Operating profit"],
+      ["interest_expense_minor", "Interest expense"],
+      ["profit_before_tax_minor", "Profit before tax"],
+      ["income_tax_minor", "Income tax"],
+      ["net_profit_minor", "Net profit"]
+    ]
+  },
+  {
+    title: "Balance sheet",
+    fields: [
+      ["cash_minor", "Cash"],
+      ["trade_receivables_minor", "Trade receivables"],
+      ["inventories_minor", "Inventories"],
+      ["other_current_assets_minor", "Other current assets"],
+      ["current_assets_minor", "Current assets"],
+      ["property_plant_equipment_minor", "Property, plant & equipment"],
+      ["other_non_current_assets_minor", "Other non-current assets"],
+      ["total_assets_minor", "Total assets"],
+      ["current_financial_debt_minor", "Current financial debt"],
+      ["non_current_financial_debt_minor", "Non-current financial debt"],
+      ["financial_debt_minor", "Financial debt"],
+      ["trade_payables_minor", "Trade payables"],
+      ["other_operating_liabilities_minor", "Other operating liabilities"],
+      ["equity_minor", "Equity"]
+    ]
+  }
+];
+
+type YearDraft = { id: string | null; year: string; periodEnd: string; currency: string; sourceDocumentId: string; amounts: Record<string, string> };
+
+function yearDraft(row?: BorrowerFinancialYear): YearDraft {
+  const amounts: Record<string, string> = {};
+  const currency = row?.currency ?? "CHF";
+  for (const group of FINANCIAL_YEAR_GROUPS) {
+    for (const [field] of group.fields) {
+      const value = row?.[field];
+      amounts[field] = typeof value === "number" ? minorToUnits(value, currency) : "";
+    }
+  }
+  const year = row?.year ?? new Date().getFullYear() - 1;
+  return { id: row?.id ?? null, year: String(year), periodEnd: row?.period_end ?? `${year}-12-31`, currency: row?.currency ?? "CHF", sourceDocumentId: row?.source_document?.id ?? "", amounts };
+}
+
+/** U33-DEC-20: the borrower's financial years, existing debt and document metadata. */
+function BorrowerCreditFileEditor({ borrower }: { borrower: BorrowerEntity }) {
+  const queryClient = useQueryClient();
+  const enabled = !isFixturePreview;
+  const yearsQuery = useV1EntitiesAdminBorrowersFinancialYearsRetrieve(borrower.id, { query: { enabled, staleTime: 0 } });
+  const debtQuery = useV1EntitiesAdminBorrowersDebtFacilitiesRetrieve(borrower.id, { query: { enabled, staleTime: 0 } });
+  const documentsQuery = useV1EntitiesAdminBorrowersDocumentsList(borrower.id, { query: { enabled, staleTime: 0 } });
+  const [yearEdit, setYearEdit] = useState<YearDraft | null>(null);
+  const [debtEdit, setDebtEdit] = useState<{ id: string | null; facilityType: string; currency: string; balance: string; current: string; security: string; asAt: string; sourceDocumentId: string } | null>(null);
+  const [documentEdit, setDocumentEdit] = useState<{ id: string; category: string; documentDate: string; periodLabel: string; issuer: string; version: string; status: string } | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = (key: readonly unknown[]) => void queryClient.invalidateQueries({ queryKey: key });
+  const yearsKey = getV1EntitiesAdminBorrowersFinancialYearsRetrieveQueryKey(borrower.id);
+  const debtKey = getV1EntitiesAdminBorrowersDebtFacilitiesRetrieveQueryKey(borrower.id);
+  const documentsKey = getV1EntitiesAdminBorrowersDocumentsListQueryKey(borrower.id);
+  const done = (message: string, key: readonly unknown[]) => () => { setSuccess(message); setYearEdit(null); setDebtEdit(null); setDocumentEdit(null); refresh(key); };
+  const createYear = useV1EntitiesAdminBorrowersFinancialYearsCreate({ mutation: { onSuccess: done("Financial year saved.", yearsKey) } });
+  const updateYear = useV1EntitiesAdminBorrowersFinancialYearsUpdate({ mutation: { onSuccess: done("Financial year saved.", yearsKey) } });
+  const removeYear = useV1EntitiesAdminBorrowersFinancialYearsDestroy({ mutation: { onSuccess: done("Financial year removed.", yearsKey) } });
+  const createDebt = useV1EntitiesAdminBorrowersDebtFacilitiesCreate({ mutation: { onSuccess: done("Facility saved.", debtKey) } });
+  const updateDebt = useV1EntitiesAdminBorrowersDebtFacilitiesUpdate({ mutation: { onSuccess: done("Facility saved.", debtKey) } });
+  const removeDebt = useV1EntitiesAdminBorrowersDebtFacilitiesDestroy({ mutation: { onSuccess: done("Facility removed.", debtKey) } });
+  const moveDebt = useV1EntitiesAdminBorrowersDebtFacilitiesMoveCreate({ mutation: { onSuccess: done("Order saved.", debtKey) } });
+  const saveMetadata = useV1EntitiesAdminBorrowersDocumentsMetadataCreate({ mutation: { onSuccess: done("Document details saved.", documentsKey) } });
+  const years: BorrowerFinancialYear[] = yearsQuery.data?.financial_years ?? [];
+  const facilities: BorrowerDebtFacility[] = debtQuery.data?.debt_facilities ?? [];
+  const documents: BorrowerDocument[] = documentsQuery.data ?? [];
+  const error = createYear.error ?? updateYear.error ?? removeYear.error ?? createDebt.error ?? updateDebt.error ?? removeDebt.error ?? moveDebt.error ?? saveMetadata.error;
+  const busy = createYear.isPending || updateYear.isPending || createDebt.isPending || updateDebt.isPending || saveMetadata.isPending;
+
+  const yearAmounts: Record<string, number | null> = {};
+  if (yearEdit) for (const [field, value] of Object.entries(yearEdit.amounts)) yearAmounts[field] = unitsToMinor(value, yearEdit.currency);
+  const yearInvalid = yearEdit ? Object.values(yearEdit.amounts).some((value) => value.trim() !== "" && unitsToMinor(value, yearEdit.currency) === null) : false;
+  const yearChecks = yearEdit ? financialYearCheckResults(yearAmounts) : [];
+  // The year before the one being entered, as a reference next to each figure.
+  const priorYear = yearEdit ? years.find((row) => row.year === Number(yearEdit.year) - 1 && row.id !== yearEdit.id) : undefined;
+
+  function saveYear() {
+    if (!yearEdit) return;
+    const amounts = yearAmounts;
+    const data = { year: intValue(yearEdit.year), period_end: yearEdit.periodEnd, currency: yearEdit.currency, source_document_id: yearEdit.sourceDocumentId || null, amounts };
+    if (isFixturePreview) return setPreview(`Financial year ${data.year} would be saved for ${borrower.id}.`);
+    if (yearEdit.id) updateYear.mutate({ borrowerId: borrower.id, financialYearId: yearEdit.id, data });
+    else createYear.mutate({ borrowerId: borrower.id, data });
+  }
+
+  function saveDebt() {
+    if (!debtEdit) return;
+    const data = { facility_type: debtEdit.facilityType.trim(), currency: debtEdit.currency, balance_minor: unitsToMinor(debtEdit.balance, debtEdit.currency) ?? 0, current_portion_minor: debtEdit.current.trim() ? unitsToMinor(debtEdit.current, debtEdit.currency) : null, security_description: debtEdit.security.trim(), as_at: debtEdit.asAt, source_document_id: debtEdit.sourceDocumentId || null };
+    if (isFixturePreview) return setPreview(`The facility "${data.facility_type}" would be saved for ${borrower.id}.`);
+    if (debtEdit.id) updateDebt.mutate({ borrowerId: borrower.id, facilityId: debtEdit.id, data });
+    else createDebt.mutate({ borrowerId: borrower.id, data });
+  }
+
+  function saveDocument() {
+    if (!documentEdit) return;
+    const data = { category: documentEdit.category.trim(), document_date: documentEdit.documentDate || null, period_label: documentEdit.periodLabel.trim(), issuer: documentEdit.issuer.trim(), version: documentEdit.version.trim(), document_status: documentEdit.status.trim() };
+    if (isFixturePreview) return setPreview(`The document details would be saved for ${documentEdit.id}.`);
+    saveMetadata.mutate({ borrowerId: borrower.id, documentId: documentEdit.id, data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Enter the figures once, from the financial statements, in currency units (for example 1250000 or 1250000.50, no
+        separators). Costs, assets and debts are positive amounts. Leave a detail empty when it is not in the statements;
+        the details must add up to the totals, and the form shows each check while you type. Investors see the years, the
+        key ratios and the existing debt in the credit file.
+      </p>
+      <h3>Financial years</h3>
+      {years.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Year</th><th>Revenue</th><th>Net profit</th><th>Total assets</th><th>Equity</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {years.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.year}</td>
+                  <td>{row.revenue_minor !== null ? <Money amountMinor={row.revenue_minor} currency={row.currency} /> : "-"}</td>
+                  <td>{row.net_profit_minor !== null ? <Money amountMinor={row.net_profit_minor} currency={row.currency} /> : "-"}</td>
+                  <td>{row.total_assets_minor !== null ? <Money amountMinor={row.total_assets_minor} currency={row.currency} /> : "-"}</td>
+                  <td>{row.equity_minor !== null ? <Money amountMinor={row.equity_minor} currency={row.currency} /> : "-"}</td>
+                  <td>
+                    <button className="link" onClick={() => setYearEdit(yearDraft(row))} type="button">Edit</button>{" · "}
+                    <button className="link" onClick={() => (isFixturePreview ? setPreview(`Financial year ${row.year} would be removed.`) : removeYear.mutate({ borrowerId: borrower.id, financialYearId: row.id }))} type="button">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted">No financial year is recorded.</p>}
+      {yearEdit ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <TextInput integer label="Financial year" onChange={(value) => setYearEdit({ ...yearEdit, year: value })} required value={yearEdit.year} />
+            <TextInput label="Period end" onChange={(value) => setYearEdit({ ...yearEdit, periodEnd: value })} required type="date" value={yearEdit.periodEnd} />
+            <SelectInput<string> label="Currency" onChange={(value) => setYearEdit({ ...yearEdit, currency: value })} optionLabel={(option) => option} options={["CHF", "EUR"]} value={yearEdit.currency} />
+            <SelectInput<string> label="Source document" onChange={(value) => setYearEdit({ ...yearEdit, sourceDocumentId: value })} optionLabel={(option) => (option ? documents.find((item) => item.id === option)?.display_name ?? option : "None")} options={["", ...documents.map((item) => item.id)]} value={yearEdit.sourceDocumentId} />
+          </FieldGrid>
+          {FINANCIAL_YEAR_GROUPS.map((group) => (
+            <fieldset key={group.title}>
+              <legend>{group.title}</legend>
+              <FieldGrid>
+                {group.fields.map(([field, label]) => {
+                  const prior = priorYear?.[field];
+                  return (
+                    <MoneyUnitsInput
+                      currency={yearEdit.currency}
+                      hint={typeof prior === "number" ? `${priorYear?.year}: ${priorYear?.currency} ${formatMoneyMinor(prior, priorYear?.currency ?? yearEdit.currency)}` : undefined}
+                      key={field}
+                      label={label}
+                      onChange={(value) => setYearEdit({ ...yearEdit, amounts: { ...yearEdit.amounts, [field]: value } })}
+                      value={yearEdit.amounts[field] ?? ""}
+                    />
+                  );
+                })}
+              </FieldGrid>
+            </fieldset>
+          ))}
+          {yearChecks.length ? (
+            <ul aria-label="Checks of the figures" className="admin-year-checks">
+              {yearChecks.map((check) => (
+                <li className={check.ok ? "ok" : "bad"} key={check.label}>
+                  {check.ok ? "✓" : "✗"} {check.label}: {yearEdit.currency} {formatMoneyMinor(check.computed, yearEdit.currency)}
+                  {check.ok ? null : ` (entered ${yearEdit.currency} ${formatMoneyMinor(check.total, yearEdit.currency)})`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <Button disabled={busy || yearInvalid || yearChecks.some((check) => !check.ok)} onClick={saveYear} variant="primary">Save financial year</Button>{" "}
+          <Button onClick={() => setYearEdit(null)}>Cancel</Button>
+        </div>
+      ) : <Button onClick={() => setYearEdit(yearDraft())}>Add a financial year</Button>}
+
+      <h3>Existing debt</h3>
+      {facilities.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Facility</th><th>Balance</th><th>Due within a year</th><th>Security</th><th>At</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {facilities.map((row, index) => (
+                <tr key={row.id}>
+                  <td>{row.facility_type}</td>
+                  <td><Money amountMinor={row.balance_minor} currency={row.currency} /></td>
+                  <td>{row.current_portion_minor !== null ? <Money amountMinor={row.current_portion_minor} currency={row.currency} /> : "-"}</td>
+                  <td>{row.security_description || "-"}</td>
+                  <td>{formatDate(row.as_at)}</td>
+                  <td>
+                    <button aria-label={`Move ${row.facility_type} up`} className="link" disabled={busy || moveDebt.isPending || index === 0} onClick={() => (isFixturePreview ? setPreview("The facility would move up.") : moveDebt.mutate({ borrowerId: borrower.id, facilityId: row.id, data: { direction: "up" } }))} type="button">↑</button>{" "}
+                    <button aria-label={`Move ${row.facility_type} down`} className="link" disabled={busy || moveDebt.isPending || index === facilities.length - 1} onClick={() => (isFixturePreview ? setPreview("The facility would move down.") : moveDebt.mutate({ borrowerId: borrower.id, facilityId: row.id, data: { direction: "down" } }))} type="button">↓</button>{" · "}
+                    <button className="link" onClick={() => setDebtEdit({ id: row.id, facilityType: row.facility_type, currency: row.currency, balance: minorToUnits(row.balance_minor, row.currency), current: minorToUnits(row.current_portion_minor, row.currency), security: row.security_description, asAt: row.as_at, sourceDocumentId: row.source_document?.id ?? "" })} type="button">Edit</button>{" · "}
+                    <button className="link" onClick={() => (isFixturePreview ? setPreview("The facility would be removed.") : removeDebt.mutate({ borrowerId: borrower.id, facilityId: row.id }))} type="button">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted">No existing debt is recorded.</p>}
+      {debtEdit ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <TextInput label="Facility" onChange={(value) => setDebtEdit({ ...debtEdit, facilityType: value })} required value={debtEdit.facilityType} />
+            <SelectInput<string> label="Facility currency" onChange={(value) => setDebtEdit({ ...debtEdit, currency: value })} optionLabel={(option) => option} options={["CHF", "EUR"]} value={debtEdit.currency} />
+            <MoneyUnitsInput currency={debtEdit.currency} label="Balance" onChange={(value) => setDebtEdit({ ...debtEdit, balance: value })} required value={debtEdit.balance} />
+            <MoneyUnitsInput currency={debtEdit.currency} label="Due within a year" onChange={(value) => setDebtEdit({ ...debtEdit, current: value })} value={debtEdit.current} />
+            <TextInput label="At date" onChange={(value) => setDebtEdit({ ...debtEdit, asAt: value })} required type="date" value={debtEdit.asAt} />
+            <SelectInput<string> label="Facility source document" onChange={(value) => setDebtEdit({ ...debtEdit, sourceDocumentId: value })} optionLabel={(option) => (option ? documents.find((item) => item.id === option)?.display_name ?? option : "None")} options={["", ...documents.map((item) => item.id)]} value={debtEdit.sourceDocumentId} />
+          </FieldGrid>
+          <TextAreaInput label="Security of the facility" onChange={(value) => setDebtEdit({ ...debtEdit, security: value })} value={debtEdit.security} />
+          <Button disabled={busy || !debtEdit.facilityType.trim() || unitsToMinor(debtEdit.balance, debtEdit.currency) === null || (debtEdit.current.trim() !== "" && unitsToMinor(debtEdit.current, debtEdit.currency) === null) || !debtEdit.asAt} onClick={saveDebt} variant="primary">Save facility</Button>{" "}
+          <Button onClick={() => setDebtEdit(null)}>Cancel</Button>
+        </div>
+      ) : <Button onClick={() => setDebtEdit({ id: null, facilityType: "", currency: borrower.financials_currency || "CHF", balance: "", current: "", security: "", asAt: "", sourceDocumentId: "" })}>Add a facility</Button>}
+
+      <h3>Documents</h3>
+      {documents.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Document</th><th>Category</th><th>Date or period</th><th>Issuer</th><th>Version</th><th>Status</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {documents.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.display_name}{row.investor_visible ? null : <small className="muted"> · internal</small>}</td>
+                  <td>{row.category || "-"}</td>
+                  <td>{[row.document_date ? formatDate(row.document_date) : "", row.period_label].filter(Boolean).join(" · ") || "-"}</td>
+                  <td>{row.issuer || "-"}</td>
+                  <td>{row.version || "-"}</td>
+                  <td>{row.document_status || "-"}</td>
+                  <td><button className="link" onClick={() => setDocumentEdit({ id: row.id, category: row.category, documentDate: row.document_date ?? "", periodLabel: row.period_label, issuer: row.issuer, version: row.version, status: row.document_status })} type="button">Edit details</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted">No document is uploaded for this borrower.</p>}
+      {documentEdit ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <TextInput hint="For example Financial statements, Company, Security, Contract." label="Category" onChange={(value) => setDocumentEdit({ ...documentEdit, category: value })} value={documentEdit.category} />
+            <TextInput label="Document date" onChange={(value) => setDocumentEdit({ ...documentEdit, documentDate: value })} type="date" value={documentEdit.documentDate} />
+            <TextInput hint="For example FY 2025." label="Period" onChange={(value) => setDocumentEdit({ ...documentEdit, periodLabel: value })} value={documentEdit.periodLabel} />
+            <TextInput label="Issuer" onChange={(value) => setDocumentEdit({ ...documentEdit, issuer: value })} value={documentEdit.issuer} />
+            <TextInput label="Version" onChange={(value) => setDocumentEdit({ ...documentEdit, version: value })} value={documentEdit.version} />
+            <TextInput hint="For example Final, Signed, Registered." label="Document status" onChange={(value) => setDocumentEdit({ ...documentEdit, status: value })} value={documentEdit.status} />
+          </FieldGrid>
+          <Button disabled={busy} onClick={saveDocument} variant="primary">Save details</Button>{" "}
+          <Button onClick={() => setDocumentEdit(null)}>Cancel</Button>
+        </div>
+      ) : null}
+      {error ? <Banner tone="bad" title="Could not save">{errorMessage(error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+const LOAN_HISTORY_LABELS: Record<string, string> = {
+  created: "Loan created",
+  updated: "Loan details changed",
+  published: "Published",
+  funding_closed: "Funding closed",
+  funding_close_failed: "Funding close failed",
+  disbursed: "Paid out to the borrower",
+  funding_cancelled: "Funding cancelled",
+  originator_subscription_activated: "Originator subscription activated",
+  schedule_generated: "Schedule generated",
+  servicing_status_changed: "Servicing status changed",
+  recovery_recorded: "Recovery payment recorded",
+  write_off_recorded: "Write-off recorded",
+  status_thresholds_changed: "Late and default days changed",
+  contract_terminated: "Contract terminated",
+  coming_soon_announced: "Shown as Coming soon",
+  coming_soon_withdrawn: "No longer shown as Coming soon",
+  "loan.security_added": "Security added",
+  "loan.security_changed": "Security changed",
+  "loan.security_removed": "Security removed",
+  "loan.security_moved": "Security moved",
+  "loan.credit_check_saved": "Check saved",
+  "loan.credit_check_removed": "Check removed",
+  "loan.credit_check_moved": "Check moved",
+  "loan.monitoring_set": "Monitoring changed",
+  "loan.reporting_plan_set": "Reporting plan changed",
+  "loan.schedule_recalculated_after_early_repayment": "Schedule recalculated after an early repayment",
+  "servicing.recovery_stage_recorded": "Recovery stage recorded",
+  "servicing.recovery_stage_removed": "Recovery stage removed"
+};
+
+// Details worth a line in the history; ids and technical keys stay in the audit log.
+const LOAN_HISTORY_DETAIL_LABELS: Array<[string, string]> = [
+  ["reason", "Reason"],
+  ["title", "Title"],
+  ["security_type", "Security"],
+  ["status", "Status"],
+  ["occurred_on", "Date"],
+  ["planned_opening_date", "Planned opening"],
+  ["terminated_on", "Terminated on"],
+  ["late_threshold_days", "Late from day"],
+  ["default_threshold_days", "Default from day"],
+  ["changed_fields", "Changed"]
+];
+
+function loanHistoryDetails(details: unknown): string {
+  if (!details || typeof details !== "object") return "";
+  const record = details as Record<string, unknown>;
+  // U33-DEC-09: the late/default days now in use and where they come from.
+  const effective = record.effective && typeof record.effective === "object" ? (record.effective as Record<string, unknown>) : null;
+  const days = effective ? [`Late from day ${String(effective.late_days)}, Default from day ${String(effective.default_days)} (${labelize(String(effective.source ?? ""))})`] : [];
+  return days.concat(LOAN_HISTORY_DETAIL_LABELS.flatMap(([key, label]) => {
+    const value = record[key];
+    if (value === null || value === undefined || value === "") return [];
+    const text = Array.isArray(value) ? value.map(String).join(", ") : typeof value === "object" ? "" : String(value);
+    return text ? [`${label}: ${key.endsWith("_type") || key === "status" ? labelize(text) : text}`] : [];
+  })).join(" · ");
+}
+
+/** The loan's events and the audit entries about it, newest first (loan Manage -> "Loan history"). */
+function LoanHistoryPanel({ loan }: { loan: Loan }) {
+  const historyQuery = useV1LoansAdminLoansHistoryRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const entries = historyQuery.data?.entries ?? [];
+  if (isFixturePreview) return <p className="muted admin-manage-hint">The loan history is read from the server; the preview has none.</p>;
+  if (historyQuery.error) return <Banner tone="bad" title="Could not load the loan history">{errorMessage(historyQuery.error)}</Banner>;
+  if (historyQuery.isLoading) return <p className="muted admin-manage-hint">Loading the loan history...</p>;
+  if (!entries.length) return <Empty icon="clock" title="Nothing recorded yet" />;
+  return (
+    <div className="admin-table-wrap">
+      <table aria-label="Loan history" className="admin-table">
+        <thead><tr><th>When</th><th>What</th><th>Details</th><th>By</th></tr></thead>
+        <tbody>
+          {entries.map((entry) => {
+            const statusChange = entry.previous_status && entry.new_status && entry.previous_status !== entry.new_status ? `${labelize(entry.previous_status)} → ${labelize(entry.new_status)}` : "";
+            const details = [statusChange, entry.note, loanHistoryDetails(entry.details)].filter(Boolean).join(" · ");
+            return (
+              <tr key={`${entry.kind}-${entry.id}`}>
+                <td className="mono">{formatDateTime(entry.occurred_at)}</td>
+                <td>{LOAN_HISTORY_LABELS[entry.code] ?? labelize(entry.code.replace(/^[a-z_]+\./, ""))}</td>
+                <td>{details || "-"}</td>
+                <td>{entry.actor}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** U33-DEC-20: the loan's recorded checks and how it is followed ("Checks & updates"). */
+type CheckStatusOption = "" | "received" | "reviewed";
+const CHECK_STATUS_OPTIONS: CheckStatusOption[] = ["reviewed", "received", ""];
+const checkStatusText: Record<CheckStatusOption, string> = { reviewed: "Reviewed", received: "Received", "": "No status" };
+// The design's standard reporting plan (U33-DEC-20), offered as a starting point.
+const STANDARD_REPORTING_PLAN = [
+  { when: "At closing", title: "Signed loan & security records", body: "Executed agreements and confirmation of the security arrangements." },
+  { when: "After each year-end", title: "Annual financial statements", body: "Balance sheet and profit & loss for the completed financial year." },
+  { when: "When something changes", title: "Project & security updates", body: "Relevant changes to the project, repayments or security documents." }
+];
+
+function LoanCreditChecksForm({ loan }: { loan: Loan }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const query = useV1LoansAdminLoansCreditChecksRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const [draft, setDraft] = useState<{ id: string | null; name: string; result: string; source: string; checkedOn: string; status: CheckStatusOption } | null>(null);
+  const [frequency, setFrequency] = useState<string | null>(null);
+  const [plan, setPlan] = useState<{ status: "" | "proposed" | "agreed"; milestones: Array<{ when: string; title: string; body: string }> } | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [repaymentSource, setRepaymentSource] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: getV1LoansAdminLoansCreditChecksRetrieveQueryKey(loan.id) });
+  const create = useV1LoansAdminLoansCreditChecksCreate({ mutation: { onSuccess: () => { setSuccess("Check saved."); setDraft(null); refresh(); } } });
+  const update = useV1LoansAdminLoansCreditChecksUpdate({ mutation: { onSuccess: () => { setSuccess("Check saved."); setDraft(null); refresh(); } } });
+  const remove = useV1LoansAdminLoansCreditChecksDestroy({ mutation: { onSuccess: () => { setSuccess("Check removed."); refresh(); } } });
+  const moveCheck = useV1LoansAdminLoansCreditChecksMoveCreate({ mutation: { onSuccess: () => { setSuccess("Order saved."); refresh(); } } });
+  const monitoring = useV1LoansAdminLoansMonitoringCreate({ mutation: { onSuccess: () => { setSuccess("Monitoring saved."); refresh(); } } });
+  const sourceMutation = useV1LoansAdminLoansRepaymentSourceCreate({ mutation: { onSuccess: () => { setSuccess("Source of repayment saved."); setRepaymentSource(null); refresh(); } } });
+  const savePlan = useV1LoansAdminLoansReportingPlanUpdate({ mutation: { onSuccess: () => { setSuccess("Reporting plan saved."); setPlan(null); refresh(); } } });
+  const recordedPlan = { status: (query.data?.reporting_plan_status ?? "") as "" | "proposed" | "agreed", milestones: (query.data?.reporting_milestones ?? []).map((item) => ({ when: item.when, title: item.title, body: item.body ?? "" })) };
+  const planDraft = plan ?? recordedPlan;
+  const planIncomplete = planDraft.milestones.some((item) => !item.when.trim() || !item.title.trim()) || (planDraft.milestones.length > 0 && !planDraft.status);
+  const checks: LoanCreditCheck[] = query.data?.checks ?? [];
+  const frequencyText = frequency ?? query.data?.monitoring_frequency ?? "";
+  const focusText = focus ?? query.data?.monitoring_focus ?? "";
+  const sourceText = repaymentSource ?? query.data?.repayment_source ?? "";
+  const future = Boolean(draft?.checkedOn) && (draft?.checkedOn ?? "") > businessDate;
+  const blocked = !draft || !draft.name.trim() || !draft.result.trim() || future || create.isPending || update.isPending;
+
+  function saveCheck() {
+    if (!draft) return;
+    const data = { name: draft.name.trim(), result: draft.result.trim(), source: draft.source.trim(), checked_on: draft.checkedOn || null, status: draft.status };
+    if (isFixturePreview) return setPreview(`The check "${data.name}" would be saved for ${loan.id}.`);
+    if (draft.id) update.mutate({ loanId: loan.id, checkId: draft.id, data });
+    else create.mutate({ loanId: loan.id, data });
+  }
+
+  function saveReportingPlan() {
+    const data = { status: planDraft.milestones.length ? planDraft.status : "", milestones: planDraft.milestones.map((item) => ({ when: item.when.trim(), title: item.title.trim(), body: item.body.trim() })) } as const;
+    if (isFixturePreview) return setPreview(`The reporting plan (${data.milestones.length} steps) would be saved for ${loan.id}.`);
+    savePlan.mutate({ loanId: loan.id, data });
+  }
+
+  function saveRepaymentSource() {
+    if (isFixturePreview) return setPreview(`The source of repayment would be saved for ${loan.id}.`);
+    sourceMutation.mutate({ loanId: loan.id, data: { text: sourceText.trim() } });
+  }
+
+  function saveMonitoring() {
+    if (isFixturePreview) return setPreview(`The monitoring text would be saved for ${loan.id}.`);
+    monitoring.mutate({ loanId: loan.id, data: { frequency: frequencyText.trim(), focus: focusText.trim() } });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Write what was checked, the result as a fact, the source and the date. No rating and no opinion on the business.
+        Loan notes and recovery stages are shown with the checks.
+      </p>
+      {checks.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Check</th><th>Result</th><th>Source</th><th>Date</th><th>Status</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {checks.map((check, index) => (
+                <tr key={check.id}>
+                  <td>{check.name}</td>
+                  <td>{check.result}</td>
+                  <td>{check.source || "-"}</td>
+                  <td>{check.checked_on ? formatDate(check.checked_on) : "-"}</td>
+                  <td>{checkStatusText[(check.status || "") as CheckStatusOption] ?? check.status}</td>
+                  <td>
+                    <button aria-label={`Move ${check.name} up`} className="link" disabled={moveCheck.isPending || index === 0} onClick={() => (isFixturePreview ? setPreview("The check would move up.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "up" } }))} type="button">↑</button>{" "}
+                    <button aria-label={`Move ${check.name} down`} className="link" disabled={moveCheck.isPending || index === checks.length - 1} onClick={() => (isFixturePreview ? setPreview("The check would move down.") : moveCheck.mutate({ loanId: loan.id, checkId: check.id, data: { direction: "down" } }))} type="button">↓</button>{" · "}
+                    <button className="link" onClick={() => setDraft({ id: check.id, name: check.name, result: check.result, source: check.source, checkedOn: check.checked_on ?? "", status: (check.status || "") as CheckStatusOption })} type="button">Edit</button>{" · "}
+                    <button className="link" onClick={() => (isFixturePreview ? setPreview("The check would be removed.") : remove.mutate({ loanId: loan.id, checkId: check.id }))} type="button">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted">{query.isLoading ? "Loading the checks..." : "No check is recorded for this loan."}</p>}
+      {draft ? (
+        <div className="admin-form-panel">
+          <FieldGrid>
+            <TextInput label="What was checked" onChange={(value) => setDraft({ ...draft, name: value })} required value={draft.name} />
+            <TextInput label="Source" onChange={(value) => setDraft({ ...draft, source: value })} value={draft.source} />
+            <TextInput label="Check date" onChange={(value) => setDraft({ ...draft, checkedOn: value })} type="date" value={draft.checkedOn} />
+            <SelectInput<CheckStatusOption> hint="Investors see it as a chip next to the check." label="Check status" onChange={(value) => setDraft({ ...draft, status: value })} optionLabel={(option) => checkStatusText[option]} options={CHECK_STATUS_OPTIONS} value={draft.status} />
+          </FieldGrid>
+          <TextAreaInput label="Result" onChange={(value) => setDraft({ ...draft, result: value })} required value={draft.result} />
+          {future ? <Banner tone="bad" title="Date in the future">The date of a check cannot be in the future.</Banner> : null}
+          <Button disabled={blocked} onClick={saveCheck} variant="primary">Save check</Button>{" "}
+          <Button onClick={() => setDraft(null)}>Cancel</Button>
+        </div>
+      ) : <Button onClick={() => setDraft({ id: null, name: "", result: "", source: "", checkedOn: businessDate, status: "reviewed" })}>Add a check</Button>}
+      <h3>Monitoring</h3>
+      <TextAreaInput hint="For example Quarterly, with the annual financial statements." label="How often" onChange={setFrequency} value={frequencyText} />
+      <TextAreaInput hint="For example order intake and cash generation." label="What is followed" onChange={setFocus} value={focusText} />
+      <Button disabled={monitoring.isPending} onClick={saveMonitoring}>Save monitoring</Button>
+      <h3>Source of repayment</h3>
+      <TextAreaInput hint="Investor-facing (credit file, Financials). Where the money to repay comes from, as facts." label="Source of repayment" onChange={setRepaymentSource} value={sourceText} />
+      <Button disabled={sourceMutation.isPending} onClick={saveRepaymentSource}>Save source of repayment</Button>
+      <h3>Reporting over the loan term</h3>
+      <p className="muted admin-manage-hint">
+        What the borrower reports and when. A proposed plan tells investors that the requirements and dates are still to be
+        agreed. Leave the plan empty when nothing is planned.
+      </p>
+      {planDraft.milestones.map((item, index) => (
+        <div className="admin-form-panel" key={index}>
+          <FieldGrid>
+            <TextInput label={`When (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, when: value } : row)) })} required value={item.when} />
+            <TextInput label={`What is reported (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, title: value } : row)) })} required value={item.title} />
+          </FieldGrid>
+          <TextAreaInput label={`Details (step ${index + 1})`} onChange={(value) => setPlan({ ...planDraft, milestones: planDraft.milestones.map((row, at) => (at === index ? { ...row, body: value } : row)) })} rows={2} value={item.body} />
+          <button className="link" onClick={() => setPlan({ ...planDraft, milestones: planDraft.milestones.filter((_, at) => at !== index) })} type="button">Remove step {index + 1}</button>
+        </div>
+      ))}
+      <div className="row gap-8 wrap">
+        {planDraft.milestones.length < 8 ? <Button onClick={() => setPlan({ ...planDraft, milestones: [...planDraft.milestones, { when: "", title: "", body: "" }] })}>Add a step</Button> : null}
+        {planDraft.milestones.length === 0 ? <Button onClick={() => setPlan({ status: "proposed", milestones: STANDARD_REPORTING_PLAN })}>Use the standard plan</Button> : null}
+      </div>
+      {planDraft.milestones.length > 0 ? (
+        <SelectInput<"" | "proposed" | "agreed"> label="Plan status" onChange={(value) => setPlan({ ...planDraft, status: value })} optionLabel={(option) => ({ "": "Choose", proposed: "Proposed plan (still to be agreed)", agreed: "Agreed plan" })[option]} options={["", "proposed", "agreed"]} value={planDraft.status} />
+      ) : null}
+      {plan ? (
+        <div className="row gap-8 wrap">
+          <Button disabled={savePlan.isPending || planIncomplete} onClick={saveReportingPlan} variant="primary">{planDraft.milestones.length ? "Save reporting plan" : "Remove the reporting plan"}</Button>
+          <Button onClick={() => setPlan(null)}>Discard changes</Button>
+        </div>
+      ) : null}
+      {create.error || update.error || remove.error || monitoring.error || moveCheck.error || savePlan.error ? <Banner tone="bad" title="Could not save">{errorMessage(create.error ?? update.error ?? remove.error ?? monitoring.error ?? moveCheck.error ?? savePlan.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Saved">{success}</Banner> : null}
+    </>
+  );
+}
+
+// Examples only: the admin writes the title of the real step; there is no fixed workflow (U33-DEC-22).
+// Q16 (2026-11-13): the standard English stage names (the server keeps the key for the German names
+// of 18.13); "own" lets the admin type an own title.
+const STANDARD_RECOVERY_STAGES: Array<[string, string]> = [
+  ["reminder_sent", "Reminder sent"],
+  ["formal_notice", "Formal notice"],
+  ["enforcement_of_security", "Enforcement of the security"],
+  ["debt_collection", "Debt collection proceedings"],
+  ["claim_in_insolvency", "Claim filed in insolvency"],
+  ["sale_of_security", "Sale of the security"],
+  ["recovery_closed", "Recovery closed"],
+  ["agreement_terminated", "Loan agreement terminated"]
+];
+const STAGE_OPTIONS = [...STANDARD_RECOVERY_STAGES.map(([key]) => key), "own"];
+const RECOVERY_RESULTS: Array<[string, string]> = [
+  ["full", "Full recovery"],
+  ["partial", "Partial recovery"],
+  ["none", "No recovery"]
+];
+const recoveryResultText = (value: string | undefined) => RECOVERY_RESULTS.find(([key]) => key === value)?.[1] ?? "";
+
+/** U33-DEC-22: the real stages of a late or defaulted loan, and the next step when it is known. */
+function LoanRecoveryStagesForm({ loan, onPublishNote }: { loan: Loan; onPublishNote?: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const stagesQuery = useV1ServicingAdminLoansRecoveryStagesRetrieve(loan.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const [kind, setKind] = useState<"done" | "next">("done");
+  const [stageKey, setStageKey] = useState<string>("reminder_sent");
+  const [result, setResult] = useState("");
+  const [title, setTitle] = useState("");
+  const [occurredOn, setOccurredOn] = useState(businessDate);
+  const [investorNote, setInvestorNote] = useState("");
+  const [removeId, setRemoveId] = useState<string | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: getV1ServicingAdminLoansRecoveryStagesRetrieveQueryKey(loan.id) });
+  const record = useV1ServicingAdminLoansRecoveryStagesCreate({
+    mutation: {
+      onSuccess: (stage) => {
+        setSuccess(stage.status === "next" ? `Next step saved: ${stage.title}.` : `Stage recorded: ${stage.title}.`);
+        setTitle("");
+        setResult("");
+        setInvestorNote("");
+        refresh();
+      }
+    }
+  });
+  const remove = useV1ServicingAdminLoansRecoveryStagesRemoveCreate({
+    mutation: {
+      onSuccess: (stage) => {
+        setSuccess(`Removed: ${stage.title}.`);
+        setRemoveId(null);
+        setRemoveReason("");
+        refresh();
+      }
+    }
+  });
+  const stages = stagesQuery.data?.stages ?? [];
+  const active = stages.filter((stage) => !stage.removed_at);
+  const removed = stages.filter((stage) => stage.removed_at);
+  const futureDone = kind === "done" && occurredOn > businessDate;
+  const pastNext = kind === "next" && Boolean(occurredOn) && occurredOn < businessDate;
+  const own = stageKey === "own";
+  const closing = stageKey === "recovery_closed";
+  const missingResult = closing && kind === "done" && !result;
+  const blocked = (own && !title.trim()) || (kind === "done" && !occurredOn) || futureDone || pastNext || missingResult || record.isPending;
+  const shownTitle = own ? title.trim() : STANDARD_RECOVERY_STAGES.find(([key]) => key === stageKey)?.[1] ?? "";
+
+  function submit() {
+    const data = {
+      status: kind,
+      title: own ? title.trim() : "",
+      standard_key: own ? "" : stageKey,
+      recovery_result: (closing ? result : "") as "" | "full" | "partial" | "none",
+      occurred_on: occurredOn || null,
+      investor_note: investorNote.trim()
+    };
+    if (isFixturePreview) {
+      setPreview(`${kind === "next" ? "Next step" : "Stage"} "${shownTitle}" would be recorded for ${loan.id}.`);
+      return;
+    }
+    record.mutate({ loanId: loan.id, data });
+  }
+
+  function confirmRemove() {
+    if (!removeId) return;
+    if (isFixturePreview) {
+      setPreview(`The stage would be removed for ${loan.id}.`);
+      return;
+    }
+    remove.mutate({ loanId: loan.id, stageId: removeId, data: { reason: removeReason.trim() } });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Write what really happened, with its real date and a short note for lenders. Add the next step only when you know
+        it; its date can stay empty. Lenders see the stages on their investment. Banxum follows up: do not ask lenders to
+        act. To email lenders, publish a loan note.
+      </p>
+      {active.length > 0 ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr><th>Stage</th><th>Date</th><th>Note for lenders</th><th><span className="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {active.map((stage) => (
+                <tr key={stage.id}>
+                  <td>
+                    {stage.status === "next" ? `Next step: ${stage.title}` : stage.title}
+                    {stage.recovery_result ? <small className="muted"> · {recoveryResultText(stage.recovery_result)}</small> : null}
+                  </td>
+                  <td>{stage.occurred_on ? formatDate(stage.occurred_on) : "Not known"}</td>
+                  <td>{stage.investor_note || "-"}</td>
+                  <td><button className="link" onClick={() => setRemoveId(stage.id)} type="button">Remove</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">{stagesQuery.isLoading ? "Loading the stages..." : "No stage is recorded for this loan."}</p>
+      )}
+      {removed.length > 0 ? (
+        <details className="admin-removed-stages">
+          <summary>{removed.length} removed {removed.length === 1 ? "entry is" : "entries are"} kept for the audit</summary>
+          <div className="table-wrap admin-table-wrap">
+            <table aria-label="Removed recovery entries" className="admin-table">
+              <thead><tr><th>Entry</th><th>Recorded</th><th>Removed</th><th>Reason</th></tr></thead>
+              <tbody>
+                {removed.map((stage) => (
+                  <tr key={stage.id}>
+                    <td>{stage.title}{stage.occurred_on ? <small className="muted"> · {formatDate(stage.occurred_on)}</small> : null}</td>
+                    <td>{formatDateTime(stage.created_at)}{stage.recorded_by_email ? ` · ${stage.recorded_by_email}` : ""}</td>
+                    <td>{stage.removed_at ? formatDateTime(stage.removed_at) : "-"}{stage.removed_by_email ? ` · ${stage.removed_by_email}` : ""}</td>
+                    <td>{stage.removed_reason || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+      {removeId ? (
+        <div className="admin-form-panel">
+          <TextAreaInput label="Reason for the removal" onChange={setRemoveReason} required value={removeReason} />
+          <Button disabled={!removeReason.trim() || remove.isPending} onClick={confirmRemove} variant="danger">Remove the stage</Button>{" "}
+          <Button onClick={() => setRemoveId(null)}>Cancel</Button>
+        </div>
+      ) : null}
+      <FieldGrid>
+        <SelectInput<"done" | "next">
+          label="Type"
+          onChange={(value) => {
+            setKind(value);
+            setOccurredOn(value === "done" ? businessDate : "");
+          }}
+          optionLabel={(option) => (option === "done" ? "It happened" : "Next step")}
+          options={["done", "next"]}
+          value={kind}
+        />
+        <SelectInput<string>
+          hint="A standard name, or your own title for a step that has none."
+          label="Stage"
+          onChange={(value) => {
+            setStageKey(value);
+            if (value !== "recovery_closed") setResult("");
+          }}
+          optionLabel={(option) => (option === "own" ? "Own title" : STANDARD_RECOVERY_STAGES.find(([key]) => key === option)?.[1] ?? option)}
+          options={STAGE_OPTIONS}
+          value={stageKey}
+        />
+        {own ? <TextInput label="Title" onChange={setTitle} required value={title} /> : null}
+        {closing ? (
+          <SelectInput<string>
+            label="Result"
+            onChange={setResult}
+            optionLabel={(option) => (option ? recoveryResultText(option) : "Choose the result")}
+            options={["", ...RECOVERY_RESULTS.map(([key]) => key)]}
+            value={result}
+          />
+        ) : null}
+        <TextInput hint={kind === "next" ? "Leave empty when the date is not known." : undefined} label={kind === "next" ? "Planned date" : "Date"} onChange={setOccurredOn} required={kind === "done"} type="date" value={occurredOn} />
+      </FieldGrid>
+      <TextAreaInput hint="Shown to the loan's lenders. Facts only." label="Note for lenders" onChange={setInvestorNote} value={investorNote} />
+      {futureDone ? <Banner tone="bad" title="Date in the future">A stage that happened cannot have a future date.</Banner> : null}
+      {pastNext ? <Banner tone="bad" title="Date in the past">The date of the next step cannot be in the past.</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel={kind === "next" ? "Save next step" : "Record stage"}
+        description={kind === "next" ? "The next step replaces the current one. Lenders see it on their investment." : "The stage is shown to the loan's lenders with its date and note."}
+        details={[
+          { label: "Loan", value: loan.title },
+          { label: "Title", value: title.trim() || "-" },
+          { label: "Date", value: occurredOn || "Not known" }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title={kind === "next" ? "Confirm the next step" : "Confirm the stage"}
+        variant="primary"
+      >
+        {kind === "next" ? "Save next step" : "Record stage"}
+      </OperationConfirmButton>
+      {record.error || remove.error ? <Banner tone="bad" title="Could not save">{errorMessage(record.error ?? remove.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? (
+        <Banner tone="ok" title="Saved">
+          {success} Lenders see it on their investment; they get no email for a stage.
+          {onPublishNote ? <> <button className="link" onClick={onPublishNote} type="button">Email the lenders with a loan note</button></> : null}
+        </Banner>
+      ) : null}
+    </>
+  );
+}
+
+/** U33-DEC-09: record the contract termination date (separate from Default; never automatic). */
+function LoanTerminationForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const [terminatedOn, setTerminatedOn] = useState(loan.contract_terminated_on ?? businessDate);
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1ServicingAdminLoansContractTerminationCreate({
+    mutation: {
+      onSuccess: (result) => {
+        setSuccess(`Contract termination recorded for ${formatDate(result.contract_terminated_on ?? terminatedOn)}. The loan stays ${result.loan_status}.`);
+        onDone();
+      }
+    }
+  });
+  const recorded = Boolean(loan.contract_terminated_on);
+  const future = terminatedOn > businessDate;
+  const blocked = recorded || !terminatedOn || future || !note.trim() || mutation.isPending;
+
+  function submit() {
+    if (isFixturePreview) {
+      setPreview(`Contract termination on ${terminatedOn} would be recorded for ${loan.id}.`);
+      return;
+    }
+    mutation.mutate({ loanId: loan.id, data: { terminated_on: terminatedOn, note: note.trim() } });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Default does not end the contract by itself. Record the termination when it happened, with the evidence in the
+        note. It is recorded once. To tell lenders more, publish a loan note.
+      </p>
+      {recorded ? (
+        <Banner tone="info" title="Termination already recorded">
+          The contract was terminated on {formatDate(loan.contract_terminated_on ?? "")}.
+        </Banner>
+      ) : null}
+      <FieldGrid>
+        <TextInput label="Termination date" onChange={setTerminatedOn} required type="date" value={terminatedOn} />
+      </FieldGrid>
+      <TextAreaInput hint="Internal: for example the letter reference." label="Note" onChange={setNote} required value={note} />
+      {future ? <Banner tone="bad" title="Date in the future">The termination date cannot be after today.</Banner> : null}
+      <OperationConfirmButton
+        confirmLabel="Record termination"
+        description="The termination date is recorded in the loan history and shown to the loan's lenders. The loan status does not change."
+        details={[
+          { label: "Loan", value: loan.id },
+          { label: "Status", value: loan.status },
+          { label: "Termination date", value: terminatedOn }
+        ]}
+        disabled={blocked}
+        onConfirm={submit}
+        title="Confirm contract termination"
+        variant="danger"
+      >
+        Record termination
+      </OperationConfirmButton>
+      {mutation.error ? <Banner tone="bad" title="Could not record the termination">{errorMessage(mutation.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Termination recorded">{success}</Banner> : null}
+    </>
+  );
+}
+
 function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentScheduleRow[]; currency: string }) {
   const totals = rows.reduce(
     (acc, row) => {
@@ -5981,6 +7760,396 @@ function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentSchedu
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 18.6 interest engine: borrower payments, late payments, expenses and the Default declaration.
+
+// 18.7 (F03): the day-count conventions an imported claim may use.
+const DAY_COUNT_LABELS: Record<string, string> = {
+  act_365_fixed: "Actual/365 Fixed",
+  act_360: "Actual/360",
+  act_act_isda: "Actual/Actual ISDA",
+  thirty_360_bond_basis: "30/360 Bond Basis",
+  thirty_e_360: "30E/360"
+};
+
+function isEngineLoan(loan: Loan) {
+  // A direct loan on the 18.6 engine; a Loan Originator claim never is (audit S5-7).
+  return loan.interest_convention === "act_365_fixed" && (loan.product_type ?? "direct") === "direct";
+}
+
+const SERVICING_STATUS_LABELS: Record<string, { label: string; tone: Tone }> = {
+  on_schedule: { label: "On schedule", tone: "ok" },
+  pending: { label: "Pending", tone: "info" },
+  due: { label: "Due", tone: "warn" },
+  late: { label: "Late", tone: "bad" },
+  default: { label: "Default", tone: "bad" },
+  repaid: { label: "Repaid", tone: "ok" },
+  active: { label: "Active", tone: "ok" }
+};
+
+function ServicingStatusChip({ status }: { status: string }) {
+  const known = SERVICING_STATUS_LABELS[status] ?? { label: labelize(status), tone: "neutral" as Tone };
+  return <Chip tone={known.tone}>{known.label}</Chip>;
+}
+
+function EnginePaymentPreviewTable({ loan, preview }: { loan: Loan; preview: EnginePaymentPreview }) {
+  const money = (value: number) => <Money amountMinor={value} currency={loan.currency} />;
+  return (
+    <div className="admin-detail-grid" data-testid="engine-payment-preview">
+      <div className="admin-review-row"><span>Expenses</span><strong>{money(preview.expenses_minor)}</strong></div>
+      <div className="admin-review-row"><span>Penalty X</span><strong>{money(preview.penalty_minor)}</strong></div>
+      <div className="admin-review-row"><span>Interest</span><strong>{money(preview.interest_minor)}</strong></div>
+      <div className="admin-review-row"><span>Principal</span><strong>{money(preview.principal_minor)}</strong></div>
+      <div className="admin-review-row"><span>To investors (penalty part)</span><strong>{money(preview.penalty_to_investors_minor)}</strong></div>
+      <div className="admin-review-row"><span>To Garanta (expenses and penalty part)</span><strong>{money(preview.to_garanta_minor)}</strong></div>
+      {preview.prepayment_minor ? (
+        <div className="admin-review-row">
+          <span>Paid early (interest for {preview.accrued_interest_days} days, then principal)</span>
+          <strong>{money(preview.prepayment_minor)}</strong>
+        </div>
+      ) : null}
+      {preview.installments.map((row) => (
+        <div className="admin-review-row" key={`${row.installment_number}-${row.due_date}`}>
+          <span>Installment {row.installment_number} (due {formatDate(row.due_date)})</span>
+          <strong>
+            X {formatMoneyMinor(row.penalty_minor, loan.currency)} · interest {formatMoneyMinor(row.interest_minor, loan.currency)} · principal {formatMoneyMinor(row.principal_minor, loan.currency)}
+          </strong>
+        </div>
+      ))}
+      {preview.schedule_changes ? (
+        <Banner tone="info" title="The next installments are recalculated">
+          {preview.new_schedule.length
+            ? `New amounts from installment ${preview.new_schedule[0].installment_number}; the last due date stays ${formatDate(preview.new_schedule[preview.new_schedule.length - 1].due_date)}.`
+            : "The current installment is reduced; the later ones do not change."}
+        </Banner>
+      ) : null}
+      {preview.fully_repaid ? (
+        <Banner tone="ok" title="This payment repays the loan in full">
+          The carried cent fractions are paid to the investors with it.
+        </Banner>
+      ) : null}
+    </div>
+  );
+}
+
+function EngineRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const [amountMinor, setAmountMinor] = useState("");
+  const [valueDate, setValueDate] = useState(businessDate);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
+  const [payerAccount, setPayerAccount] = useState("");
+  const [bankReference, setBankReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<EnginePaymentPreview | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const [fixtureMessage, setFixtureMessage] = useState<string | null>(null);
+  const previewMutation = useV1ServicingAdminLoansPaymentPreviewCreate({
+    mutation: { onSuccess: (data) => setPreview(data) }
+  });
+  const repayment = useV1ServicingAdminBorrowerRepaymentsCreate({
+    mutation: {
+      onSuccess: () => {
+        setPreview(null);
+        setSuccess("The payment was recorded and distributed.");
+        void queryClient.invalidateQueries({
+          queryKey: getV1ServicingAdminLoansServicingPositionRetrieveQueryKey(loan.id)
+        });
+        onDone();
+      }
+    }
+  });
+  const amount = intValue(amountMinor);
+  const ready = amount > 0 && Boolean(valueDate) && Boolean(payerAccount.trim());
+
+  function requestPreview() {
+    setSuccess(undefined);
+    if (isFixturePreview) {
+      setFixtureMessage(`The payment of ${formatMoneyMinor(amount, loan.currency)} ${loan.currency} would be previewed.`);
+      return;
+    }
+    previewMutation.mutate({ loanId: loan.id, data: { amount_minor: amount, value_date: valueDate } });
+  }
+
+  function record() {
+    repayment.mutate({
+      data: withIdempotencyKey("borrower-repayment", {
+        loan_id: loan.id,
+        amount_minor: amount,
+        booking_date: bookingDate,
+        value_date: valueDate,
+        payer_name: payerName,
+        payer_account_identifier: payerAccount.trim(),
+        bank_reference: bankReference || undefined,
+        evidence_reference: evidenceReference || undefined,
+        admin_notes: notes || undefined,
+        repayment_in_advance: false
+      })
+    });
+  }
+
+  return (
+    <div className="admin-form-panel">
+      <p className="muted admin-manage-hint">
+        Enter the amount and the value date from the bank statement. The server uses the payment in the
+        loan's order: expenses (with their penalty X), then the oldest due installment in full (penalty X,
+        interest, principal), then the next; after a Default declaration: expenses, penalties, interest,
+        principal. Money beyond everything due repays principal early.
+      </p>
+      <FieldGrid>
+        <MoneyMinorInput currency={loan.currency} label="Amount received" onChange={setAmountMinor} required value={amountMinor} />
+        <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+        <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
+        <TextInput label="Payer name" onChange={setPayerName} required value={payerName} />
+        <TextInput hint="The account the borrower paid from (bank evidence)." label="Payer account" onChange={setPayerAccount} required value={payerAccount} />
+        <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
+        <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
+      </FieldGrid>
+      <TextAreaInput label="Notes" onChange={setNotes} value={notes} />
+      <div className="admin-action-footer">
+        <Button disabled={!ready || previewMutation.isPending} onClick={requestPreview}>
+          Preview how the payment is used
+        </Button>
+      </div>
+      {previewMutation.error ? <Banner tone="bad" title="Preview failed">{errorMessage(previewMutation.error)}</Banner> : null}
+      {fixtureMessage ? <Banner tone="info" title="Preview action recorded">{fixtureMessage}</Banner> : null}
+      {preview ? (
+        <>
+          <EnginePaymentPreviewTable loan={loan} preview={preview} />
+          <OperationConfirmButton
+            confirmLabel="Record payment"
+            description="The payment is recorded with this allocation, the investors are credited and the Garanta part is booked. It cannot be edited later."
+            details={[
+              { label: "Loan", value: loan.title },
+              { label: "Amount", value: <Money amountMinor={amount} currency={loan.currency} /> },
+              { label: "Value date", value: formatDate(valueDate) }
+            ]}
+            disabled={repayment.isPending}
+            onConfirm={record}
+            title="Confirm borrower payment"
+            variant="primary"
+          >
+            Record payment
+          </OperationConfirmButton>
+        </>
+      ) : null}
+      {repayment.error ? <Banner tone="bad" title="Payment not recorded">{errorMessage(repayment.error)}</Banner> : null}
+      {success ? <Banner tone="ok" title="Payment recorded">{success}</Banner> : null}
+    </div>
+  );
+}
+
+function LatePaymentsPanel({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
+  const queryClient = useQueryClient();
+  const positionQuery = useV1ServicingAdminLoansServicingPositionRetrieve(loan.id, {
+    query: { enabled: !isFixturePreview, staleTime: 0 }
+  });
+  const documentsQuery = useV1EntitiesAdminBorrowersDocumentsList(loan.borrower_id ?? "", {
+    query: { enabled: !isFixturePreview && Boolean(loan.borrower_id) && isEngineLoan(loan) }
+  });
+  const position: LoanServicingPosition | undefined = isFixturePreview
+    ? {
+        loan_id: loan.id,
+        interest_engine: isEngineLoan(loan),
+        currency: loan.currency,
+        status: loan.status === "defaulted" ? "default" : loan.status === "late" ? "late" : "on_schedule",
+        days_late: 0,
+        default_possible: false,
+        late_days: loan.effective_late_threshold_days,
+        default_days: loan.effective_default_threshold_days,
+        declarations: [],
+        expenses: []
+      }
+    : positionQuery.data;
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: getV1ServicingAdminLoansServicingPositionRetrieveQueryKey(loan.id) });
+    onDone();
+  };
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDate, setExpenseDate] = useState(businessDate);
+  const [expenseNote, setExpenseNote] = useState("");
+  const [expenseEvidence, setExpenseEvidence] = useState("");
+  const [expenseDocument, setExpenseDocument] = useState("");
+  const [defaultNote, setDefaultNote] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const expense = useV1ServicingAdminLoansExpensesCreate({
+    mutation: {
+      onSuccess: () => {
+        setExpenseAmount("");
+        setExpenseNote("");
+        setExpenseEvidence("");
+        setExpenseDocument("");
+        refresh();
+      }
+    }
+  });
+  const declare = useV1ServicingAdminLoansDefaultDeclarationCreate({ mutation: { onSuccess: refresh } });
+  const cancel = useV1ServicingAdminLoansDefaultDeclarationCancelCreate({
+    mutation: { onSuccess: () => { setCancelReason(""); refresh(); } }
+  });
+  if (!position) {
+    return positionQuery.error ? (
+      <Banner tone="bad" title="Could not load the loan's position">{errorMessage(positionQuery.error)}</Banner>
+    ) : (
+      <p className="muted">Loading the loan's position…</p>
+    );
+  }
+  const activeDeclaration = position.declarations.find((item) => !item.cancelled_at);
+  const money = (value: number | undefined) => <Money amountMinor={value ?? 0} currency={loan.currency} />;
+  const documents = documentsQuery.data ?? [];
+  return (
+    <div className="admin-form-panel" data-testid="late-payments-panel">
+      <div className="admin-detail-grid">
+        <div className="admin-review-row"><span>Status</span><strong><ServicingStatusChip status={position.status} /></strong></div>
+        <div className="admin-review-row"><span>Days late (oldest unpaid installment)</span><strong>{position.days_late}</strong></div>
+        <div className="admin-review-row"><span>Late / Default days</span><strong>{position.late_days} / {position.default_days}</strong></div>
+        {position.interest_engine ? (
+          <>
+            <div className="admin-review-row"><span>Due now (all included)</span><strong>{money(position.due_now_minor)}</strong></div>
+            <div className="admin-review-row"><span>Penalty X owed</span><strong>{money(position.penalty_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Expenses owed</span><strong>{money(position.expenses_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Principal still owed</span><strong>{money(position.principal_owed_minor)}</strong></div>
+            <div className="admin-review-row"><span>Penalty X</span><strong>{position.penalty_daily_rate_percent}% per day ({((position.penalty_investor_share_bps ?? 10_000) / 100).toFixed(2)}% to investors)</strong></div>
+          </>
+        ) : null}
+      </div>
+      {position.interest_engine && position.installment_penalties?.length ? (
+        <div className="admin-detail-grid">
+          {position.installment_penalties.map((row) => (
+            <div className="admin-review-row" key={`${row.installment_number}-${row.due_date}`}>
+              <span>Installment {row.installment_number} (due {formatDate(row.due_date)})</span>
+              <strong>owed {formatMoneyMinor(row.owed_minor, loan.currency)} · X {formatMoneyMinor(row.penalty_owed_minor, loan.currency)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {position.interest_engine ? (
+        <>
+          <h3>Recovery expenses</h3>
+          {position.expenses.length ? (
+            <div className="admin-detail-grid">
+              {position.expenses.map((item) => (
+                <div className="admin-review-row" key={item.id}>
+                  <span>{formatDate(item.value_date)} · {item.note}{item.evidence_reference ? ` (${item.evidence_reference})` : ""}</span>
+                  <strong>{formatMoneyMinor(item.amount_minor, loan.currency)} · owed {formatMoneyMinor(item.owed_minor, loan.currency)} · X {formatMoneyMinor(item.penalty_owed_minor, loan.currency)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No expense recorded.</p>
+          )}
+          {position.expenses_allowed ? (
+            <>
+              <p className="muted admin-manage-hint">
+                Only real outside costs (for example a lawyer's notice). The borrower owes them; they are paid
+                first and carry penalty X from the day after their value date. Upload the invoice to the
+                borrower's documents first, then choose it here.
+              </p>
+              <FieldGrid>
+                <MoneyMinorInput currency={loan.currency} label="Expense amount" onChange={setExpenseAmount} required value={expenseAmount} />
+                <TextInput label="Expense value date" onChange={setExpenseDate} required type="date" value={expenseDate} />
+                <TextInput label="Invoice or reference" onChange={setExpenseEvidence} value={expenseEvidence} />
+                <Field label="Document">
+                  <select aria-label="Document" onChange={(event) => setExpenseDocument(event.target.value)} value={expenseDocument}>
+                    <option value="">No document</option>
+                    {documents.map((document) => (
+                      <option key={document.id} value={document.id}>{document.display_name}</option>
+                    ))}
+                  </select>
+                </Field>
+              </FieldGrid>
+              <TextAreaInput label="What the expense is for" onChange={setExpenseNote} required value={expenseNote} />
+              <OperationConfirmButton
+                confirmLabel="Record expense"
+                description="The expense is owed by the borrower and paid first from the next payments. It cannot be edited later."
+                details={[
+                  { label: "Amount", value: <Money amountMinor={intValue(expenseAmount)} currency={loan.currency} /> },
+                  { label: "Value date", value: formatDate(expenseDate) },
+                  { label: "Note", value: expenseNote || "Required" }
+                ]}
+                disabled={expense.isPending || intValue(expenseAmount) <= 0 || !expenseNote.trim()}
+                onConfirm={() =>
+                  expense.mutate({
+                    loanId: loan.id,
+                    data: withIdempotencyKey("loan-expense", {
+                      amount_minor: intValue(expenseAmount),
+                      value_date: expenseDate,
+                      note: expenseNote.trim(),
+                      evidence_reference: expenseEvidence.trim(),
+                      document_id: expenseDocument
+                    })
+                  })
+                }
+                title="Confirm recovery expense"
+                variant="primary"
+              >
+                Record expense
+              </OperationConfirmButton>
+            </>
+          ) : (
+            <p className="muted">Expenses can be recorded when an installment was Due (after the Pending days), in Late or after a Default declaration on the expense's value date. After an expense, a payment cannot have an earlier value date.</p>
+          )}
+          {expense.error ? <Banner tone="bad" title="Expense not recorded">{errorMessage(expense.error)}</Banner> : null}
+        </>
+      ) : null}
+
+      <h3>Default</h3>
+      {activeDeclaration ? (
+        <>
+          <Banner tone="bad" title={`Default declared on ${formatDate(activeDeclaration.declared_on)}`}>
+            Everything became due at once
+            {position.interest_engine
+              ? `: principal ${formatMoneyMinor(activeDeclaration.whole_principal_minor, loan.currency)}, interest ${formatMoneyMinor(activeDeclaration.whole_interest_minor, loan.currency)}, penalties until then ${formatMoneyMinor(activeDeclaration.frozen_penalty_minor, loan.currency)}. Penalty X now runs on the whole amount.`
+              : "."}
+          </Banner>
+          <p className="muted admin-manage-hint">Only a super admin can cancel a declaration made by mistake, with a written reason, and only while no money was recorded after it (no payment, recovery receipt, expense or write-off). Both events stay in the history and the investors get a correction.</p>
+          <TextAreaInput label="Reason for the cancellation" onChange={setCancelReason} value={cancelReason} />
+          <OperationConfirmButton
+            confirmLabel="Cancel the declaration"
+            description="The payment plan returns and the investors get a correction notice. Not possible after a payment or an expense was recorded."
+            details={[{ label: "Declared on", value: formatDate(activeDeclaration.declared_on) }, { label: "Reason", value: cancelReason || "Required" }]}
+            disabled={cancel.isPending || cancelReason.trim().length < 10}
+            onConfirm={() => cancel.mutate({ loanId: loan.id, data: { reason: cancelReason.trim() } })}
+            title="Cancel the Default declaration"
+            variant="danger"
+          >
+            Cancel the Default declaration
+          </OperationConfirmButton>
+          {cancel.error ? <Banner tone="bad" title="Not cancelled">{errorMessage(cancel.error)}</Banner> : null}
+        </>
+      ) : position.default_possible ? (
+        <>
+          <Banner tone="warn" title="Default can be declared">
+            The oldest unpaid installment is late by {position.days_late} days (Default days: {position.default_days}). Default is
+            your decision: the loan ends early and everything becomes due at once. You can also wait.
+          </Banner>
+          <TextAreaInput label="Note for the history" onChange={setDefaultNote} value={defaultNote} />
+          <OperationConfirmButton
+            confirmLabel="Declare Default"
+            description="The payment plan stops and the whole amount becomes due today. Normal interest runs to today; from tomorrow penalty X runs on the whole amount. The investors are told."
+            details={[{ label: "Loan", value: loan.title }, { label: "Days late", value: position.days_late }]}
+            disabled={declare.isPending}
+            onConfirm={() => declare.mutate({ loanId: loan.id, data: { note: defaultNote } })}
+            title="Declare Default"
+            variant="danger"
+          >
+            Declare Default
+          </OperationConfirmButton>
+          {declare.error ? <Banner tone="bad" title="Default not declared">{errorMessage(declare.error)}</Banner> : null}
+        </>
+      ) : (
+        <p className="muted">
+          Default can be declared once the oldest unpaid installment is late by {position.default_days} days. It is never automatic.
+        </p>
+      )}
     </div>
   );
 }
@@ -7004,6 +9173,97 @@ function PlatformFeatureRow({ feature }: { feature: PlatformFeature }) {
   );
 }
 
+/** U33-DEC-09: the platform's Late and Default days, for loans without contract days (superadmin). */
+function LoanStatusDaysCard() {
+  const queryClient = useQueryClient();
+  const daysQuery = useV1AdminLoanStatusDaysRetrieve({ query: { enabled: !isFixturePreview, retry: false, staleTime: 0 } });
+  const days = daysQuery.data;
+  const [late, setLate] = useState("");
+  const [defaulted, setDefaulted] = useState("");
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1AdminLoanStatusDaysUpdate({
+    mutation: {
+      onSuccess: (result) => {
+        queryClient.setQueryData(getV1AdminLoanStatusDaysRetrieveQueryKey(), result);
+        setSuccess(`Loans without contract days are Late from day ${result.late_days} and in Default from day ${result.default_days}. The change was audit-logged.`);
+        setReason("");
+      }
+    }
+  });
+  useEffect(() => {
+    if (!days) return;
+    setLate(String(days.late_days));
+    setDefaulted(String(days.default_days));
+  }, [days]);
+  const lateDays = Number(late);
+  const defaultDays = Number(defaulted);
+  const maximum = days?.maximum_days ?? 365;
+  const pairValid = Number.isInteger(lateDays) && Number.isInteger(defaultDays) && lateDays >= 1 && lateDays < defaultDays && defaultDays <= maximum;
+  const changed = Boolean(days) && (lateDays !== days?.late_days || defaultDays !== days?.default_days);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setSuccess(undefined);
+    setPreview(null);
+    if (isFixturePreview) {
+      setPreview(`Late from day ${lateDays}, Default from day ${defaultDays}. Reason: ${reason.trim()}`);
+      return;
+    }
+    mutation.mutate({ data: { late_days: lateDays, default_days: defaultDays, reason: reason.trim() } });
+  }
+
+  return (
+    <Card padded>
+      <SectionHeader
+        description="Days after the due date of the first unpaid installment (Europe/Zurich). Before the Late day the payment is Due. A loan with its contract's own days keeps them. Loans follow new days at their next status check."
+        title="Late and default days"
+      />
+      {isFixturePreview ? <p className="muted admin-manage-hint">The days are read from the server; the preview has none.</p> : null}
+      {daysQuery.error ? <Banner tone="bad" title="Could not load the late and default days">{errorMessage(daysQuery.error)}</Banner> : null}
+      {days ? (
+        <form className="admin-action-form" onSubmit={submit}>
+          <div className="admin-detail-grid">
+            <div className="admin-review-row">
+              <span>In use</span>
+              <strong>Late from day {days.late_days}, Default from day {days.default_days}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>U33-DEC-09 default</span>
+              <strong>Late from day {days.default_late_days}, Default from day {days.default_default_days}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Last change</span>
+              <strong>{days.last_change ? `${formatDateTime(days.last_change.changed_at)} · ${days.last_change.changed_by_email || "System"}${days.last_change.reason ? ` · ${days.last_change.reason}` : ""}` : "Never changed"}</strong>
+            </div>
+          </div>
+          <div className="admin-form-grid">
+            <TextInput integer label="Late from day" onChange={setLate} required type="number" value={late} />
+            <TextInput integer label="Default from day" onChange={setDefaulted} required type="number" value={defaulted} />
+          </div>
+          {!pairValid ? <Banner tone="warn" title="Check the days">Late must start before Default: 1 ≤ Late &lt; Default ≤ {maximum}.</Banner> : null}
+          {changed && pairValid ? (
+            <>
+              <TextAreaInput
+                hint="Required. Saved with the change in the settings history and the audit log."
+                label="Reason for the new days"
+                onChange={setReason}
+                required
+                rows={2}
+                value={reason}
+              />
+              <ActionFooter disabled={reason.trim().length === 0} mutation={mutation} previewMessage={preview} submitLabel="Save the days" />
+            </>
+          ) : success ? (
+            <Banner tone="ok" title="Days saved">{success}</Banner>
+          ) : null}
+        </form>
+      ) : null}
+    </Card>
+  );
+}
+
 function PlatformFeaturesCard() {
   const featuresQuery = useV1AdminPlatformFeaturesRetrieve({
     query: {
@@ -7052,6 +9312,9 @@ export function SettingsPanel() {
       <PreviewNotice>Superadmin settings use dummy templates in preview. Live template changes create immutable document versions.</PreviewNotice>
       <section className="admin-section">
         <PlatformFeaturesCard />
+      </section>
+      <section className="admin-section">
+        <LoanStatusDaysCard />
       </section>
       <section className="admin-section">
         <Card padded>
@@ -7638,7 +9901,7 @@ export function UserAccountsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [userSegments, setUserSegments] = useAdminSegments("users");
   const dialogUserId = userSegments[0] ?? "";
-  const dialog = userSegments[1] === "access" || userSegments[1] === "documents" ? userSegments[1] : "";
+  const dialog = userSegments[1] === "access" || userSegments[1] === "documents" || userSegments[1] === "messages" ? userSegments[1] : "";
   const [impersonationNotice, setImpersonationNotice] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const pageSize = 25;
@@ -7665,7 +9928,8 @@ export function UserAccountsPanel() {
     : null;
   const accessUser = dialog === "access" ? dialogUser : null;
   const documentsUser = dialog === "documents" ? dialogUser : null;
-  const openUserDialog = (user: AdminUserDirectoryRow | null, kind: "access" | "documents" = "access") =>
+  const messagesUser = dialog === "messages" ? dialogUser : null;
+  const openUserDialog = (user: AdminUserDirectoryRow | null, kind: "access" | "documents" | "messages" = "access") =>
     setUserSegments(user ? [user.id, kind] : []);
 
   function userDisplay(user: AdminUserDirectoryRow) {
@@ -7768,6 +10032,7 @@ export function UserAccountsPanel() {
                         <div className="row gap-8 wrap">
                           <Button onClick={() => openUserDialog(user, "access")} size="sm">Access controls</Button>
                           <Button onClick={() => openUserDialog(user, "documents")} size="sm" variant="ghost">Documents</Button>
+                          <Button onClick={() => openUserDialog(user, "messages")} size="sm" variant="ghost">Help messages</Button>
                           <Button
                             disabled={!user.can_impersonate_readonly || impersonationMutation.isPending}
                             onClick={() => startReadOnlyImpersonation(user)}
@@ -7824,7 +10089,53 @@ export function UserAccountsPanel() {
           user={documentsUser}
         />
       ) : null}
+      {messagesUser ? <UserSupportRequestsModal onClose={() => openUserDialog(null)} user={messagesUser} /> : null}
     </div>
+  );
+}
+
+/** U33-DEC-28/35: the investor's portal Help messages (SUP-) and closure requests (CLS-). */
+function UserSupportRequestsModal({ onClose, user }: { onClose: () => void; user: AdminUserDirectoryRow }) {
+  const requestsQuery = useV1AdminOpsUsersSupportRequestsRetrieve(user.id, { query: { enabled: !isFixturePreview, staleTime: 0 } });
+  const rows = requestsQuery.data?.support_requests ?? [];
+  return (
+    <Modal onClose={onClose} title={`Help messages - ${user.full_name || user.email}`} wide>
+      <p className="muted admin-manage-hint">
+        Messages the investor sent from the portal and requests to close the account. Answers go by email from the support
+        mailbox; a closure request opened an account access review task.
+      </p>
+      {isFixturePreview ? <p className="muted">The messages are read from the server; the preview has none.</p> : null}
+      {requestsQuery.error ? <Banner tone="bad" title="Could not load the messages">{errorMessage(requestsQuery.error)}</Banner> : null}
+      {rows.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table aria-label="Help messages and closure requests" className="admin-table">
+            <thead><tr><th>Reference</th><th>Sent</th><th>Topic</th><th>Message</th><th>Email to the team</th></tr></thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="mono">
+                    {row.reference}
+                    {row.kind === "account_closure" ? (
+                      <>
+                        <br />
+                        <Chip tone="warn">Closure request</Chip>{" "}
+                        {row.admin_task_id ? <button className="link" onClick={() => navigateAdmin(adminHref("tasks", [row.admin_task_id as string]))} type="button">Open task</button> : null}
+                      </>
+                    ) : null}
+                  </td>
+                  <td>{formatDateTime(row.created_at)}</td>
+                  <td>{row.topic || "-"}{row.context_label ? <small className="muted"> · {row.context_label}</small> : null}</td>
+                  <td className="admin-message-cell">{row.message || "-"}</td>
+                  <td>{row.team_email_status ? labelize(row.team_email_status) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : requestsQuery.isLoading || isFixturePreview ? null : (
+        <Empty icon="docs" title="No messages">The investor has not sent a message from the portal.</Empty>
+      )}
+    </Modal>
   );
 }
 

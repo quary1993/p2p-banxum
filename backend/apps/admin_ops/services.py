@@ -23,11 +23,10 @@ from backend.apps.admin_ops.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
-from backend.apps.platform_core.domain.funding import balance_last_day
 from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
-from backend.apps.platform_core.selectors.settings import balance_auto_return_after_days
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
     OutboxCommand,
@@ -350,6 +349,9 @@ class CreateAdminTaskCommand:
     notes: str = ""
     related_object_type: str = ""
     related_object_id: str = ""
+    # Audit step 7 (D3): a platform rule raises the task because of a user's own action (an
+    # investor's declaration). The user is recorded as the origin; it cannot manage tasks.
+    raised_by_platform: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +379,18 @@ class EnsurePayoutInstructionVerificationTaskCommand:
     currency: str
     destination_iban: str
     destination_account_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAccountClosureRequestTaskCommand:
+    """U33-DEC-28: an investor asked the team to close their account."""
+
+    requested_by: Model
+    support_request_id: str
+    reference: str
+    investor_user_id: str
+    investor_label: str
+    message: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +428,9 @@ class EnsureLoanDefaultReviewTaskCommand:
     days_past_due: int
     outstanding_minor: int
     triggering_due_date: date | None = None
+    # 18.6: the oldest unpaid installment is late by the Default days. Default is no longer
+    # automatic: the task asks the admin to decide whether to declare it.
+    default_possible: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,6 +456,22 @@ def _document_subject_user(user_id: str) -> Model:
     if user is None:
         raise AdminTaskValidationError("User was not found.")
     return cast(Model, user)
+
+
+def list_admin_user_support_requests(*, actor: Model, user_id: str) -> list[dict[str, Any]]:
+    """U33-DEC-28/35: the investor's portal Help messages and closure requests (admin)."""
+    _require_admin_actor(actor)
+    subject = _document_subject_user(user_id)
+    support = import_module("backend.apps.communications.support_requests")
+    return list(support.admin_support_requests(investor_user_id=str(subject.pk)))
+
+
+def closure_request_investor_ids(request_ids: list[str]) -> dict[str, str]:
+    """Closure request (support request) id -> investor user id, for task links."""
+    if not request_ids:
+        return {}
+    support = import_module("backend.apps.communications.support_requests")
+    return dict(support.support_request_investor_ids(request_ids))
 
 
 def list_admin_user_documents(command: ListAdminUserDocumentsCommand) -> dict[str, Any]:
@@ -523,7 +556,8 @@ def render_admin_user_document(command: RenderAdminUserDocumentCommand) -> dict[
 
 @transaction.atomic
 def create_admin_task(command: CreateAdminTaskCommand) -> AdminTask:
-    _require_admin_actor(command.actor)
+    if not command.raised_by_platform:
+        _require_admin_actor(command.actor)
     assigned_admin = _resolve_assignable_admin(command.assigned_admin_id)
     task = AdminTask.objects.create(
         task_type=_task_type(command.task_type),
@@ -572,6 +606,102 @@ def create_admin_task(command: CreateAdminTaskCommand) -> AdminTask:
         )
     )
     return task
+
+
+@transaction.atomic
+def ensure_related_admin_task(
+    *,
+    actor: Model,
+    task_type: str,
+    related_object_type: str,
+    related_object_id: str,
+    title: str,
+    priority: str = AdminTaskPriority.NORMAL,
+    notes: str = "",
+    due_at: datetime | None = None,
+    reopen_closed: bool = False,
+    assigned_admin_id: str | None = None,
+    raised_by_platform: bool = False,
+) -> tuple[AdminTask, bool]:
+    """The single task for one object and one task type; created once (18.4).
+
+    Returns (task, opened). An existing task, open or closed, is returned unchanged with
+    ``opened=False``: callers that need a new task for a new occurrence use a new related
+    object id. With ``reopen_closed`` (audit S3-3, S3-4) a closed task is opened again with the
+    new notes, because its object needs work again; then ``opened`` is True.
+    """
+    task_filter = {
+        "task_type": _task_type(task_type),
+        "related_object_type": related_object_type,
+        "related_object_id": related_object_id,
+    }
+    existing = AdminTask.objects.select_for_update().filter(**task_filter).first()
+    if existing is not None:
+        if raised_by_platform and not is_admin_actor(actor):
+            return existing, False
+        if reopen_closed and existing.status in TERMINAL_ADMIN_TASK_STATUSES:
+            reopened = update_admin_task(
+                UpdateAdminTaskCommand(
+                    actor=actor,
+                    task_id=str(existing.id),
+                    status=AdminTaskStatus.OPEN,
+                    title=title[:255],
+                    priority=priority,
+                    notes=notes,
+                    due_at=due_at or now_utc(),
+                )
+            )
+            return reopened, True
+        return existing, False
+    try:
+        with transaction.atomic():
+            task = create_admin_task(
+                CreateAdminTaskCommand(
+                    actor=actor,
+                    task_type=task_filter["task_type"],
+                    title=title[:255],
+                    priority=priority,
+                    due_at=due_at or now_utc(),
+                    notes=notes,
+                    related_object_type=related_object_type,
+                    related_object_id=related_object_id,
+                    assigned_admin_id=assigned_admin_id,
+                    raised_by_platform=raised_by_platform,
+                )
+            )
+    except IntegrityError:
+        return AdminTask.objects.get(**task_filter), False
+    return task, True
+
+
+@transaction.atomic
+def resolve_related_admin_task(
+    *,
+    actor: Model,
+    related_object_type: str,
+    related_object_id: str,
+    completion_note: str,
+    task_type: str | None = None,
+) -> list[AdminTask]:
+    """Resolve the open tasks of one object (18.4); closed tasks stay as they are."""
+    queryset = AdminTask.objects.select_for_update().filter(
+        related_object_type=related_object_type, related_object_id=related_object_id
+    )
+    if task_type is not None:
+        queryset = queryset.filter(task_type=_task_type(task_type))
+    resolved: list[AdminTask] = []
+    for task in queryset.exclude(status__in=TERMINAL_ADMIN_TASK_STATUSES):
+        resolved.append(
+            update_admin_task(
+                UpdateAdminTaskCommand(
+                    actor=actor,
+                    task_id=str(task.id),
+                    status=AdminTaskStatus.RESOLVED,
+                    completion_note=completion_note,
+                )
+            )
+        )
+    return resolved
 
 
 @transaction.atomic
@@ -810,6 +940,17 @@ def _loan_default_review_notes(command: EnsureLoanDefaultReviewTaskCommand) -> s
             "Start offline recovery follow-up. Record recovered funds with Loans > Manage > "
             "Record a recovery payment."
         )
+    if command.default_possible:
+        lines[2] = f"Default possible since: {command.as_of_date.isoformat()}"
+        return "\n".join(
+            [
+                "The oldest unpaid installment is late by the loan's Default days. Default is "
+                "not automatic: decide whether to declare it (Loans > Manage > Declare Default) "
+                "or to wait. The loan stays Late until you decide.",
+                "",
+                *lines,
+            ]
+        )
     return "\n".join(
         [
             "The loan moved to Defaulted after the day-16 servicing check. Review the risk "
@@ -840,17 +981,35 @@ def _enqueue_loan_default_alert_email(
             topic="email.loan_defaulted",
             payload={
                 "email": operations_email,
-                "subject": f"{brand} loan defaulted: {loan_title}",
+                "subject": (
+                    f"{brand} Default can be declared: {loan_title}"
+                    if command.default_possible
+                    else f"{brand} loan defaulted: {loan_title}"
+                ),
                 "notice_label": "Operations alert",
-                "headline": "A loan has defaulted",
+                "headline": (
+                    "Default can be declared"
+                    if command.default_possible
+                    else "A loan has defaulted"
+                ),
                 "status_label": "Review needed",
                 "status_tone": "danger",
                 "body_text": (
-                    f"Loan {loan_title} ({command.loan_id}) moved to Defaulted on "
-                    f"{command.as_of_date.isoformat()}, {command.days_past_due} days after a "
-                    f"missed installment ({outstanding} outstanding).\n\n"
-                    "A loan risk review task was opened in the admin console. Review the "
-                    "position and decide on investor communication."
+                    (
+                        f"The oldest unpaid installment of loan {loan_title} "
+                        f"({command.loan_id}) is {command.days_past_due} days late on "
+                        f"{command.as_of_date.isoformat()} ({outstanding} outstanding), which "
+                        "is the loan's Default days.\n\nDefault is not automatic. A task was "
+                        "opened in the admin console: decide whether to declare Default."
+                    )
+                    if command.default_possible
+                    else (
+                        f"Loan {loan_title} ({command.loan_id}) moved to Defaulted on "
+                        f"{command.as_of_date.isoformat()}, {command.days_past_due} days after "
+                        f"a missed installment ({outstanding} outstanding).\n\n"
+                        "A loan risk review task was opened in the admin console. Review the "
+                        "position and decide on investor communication."
+                    )
                 ),
                 "template_key": "ops.loan_defaulted.v1",
                 "data_rows": [
@@ -885,7 +1044,8 @@ def ensure_loan_default_review_task(command: EnsureLoanDefaultReviewTaskCommand)
 
     _require_admin_actor(command.actor)
     loan_title = _clean_required(command.loan_title, "Loan title")
-    title = f"Loan defaulted: {loan_title}"[:255]
+    prefix = "Default can be declared" if command.default_possible else "Loan defaulted"
+    title = f"{prefix}: {loan_title}"[:255]
     notes = _loan_default_review_notes(command)
     task_filter = {
         "task_type": AdminTaskType.LOAN_RISK_REVIEW,
@@ -1194,6 +1354,10 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
             "Verify or reject the IBAN first. This task closes when the IBAN is verified "
             "or rejected."
         )
+    if "status" in changes and task.status in TERMINAL_ADMIN_TASK_STATUSES:
+        blocker = _task_close_blocker(task)
+        if blocker:
+            raise AdminTaskValidationError(blocker)
 
     task.save(
         update_fields=[
@@ -1249,6 +1413,38 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
     # An IBAN request is rejected only through the ledger reject action, which sends the
     # investor notice; the verification task cannot be closed while the request is pending.
     return task
+
+
+def _task_close_blocker(task: AdminTask) -> str:
+    """Audit S3-2, S3-4: a task that mirrors an open state closes with that state, not alone."""
+    if (
+        task.task_type == AdminTaskType.SETTLEMENT_CALENDAR
+        and task.related_object_type == "SettlementCalendarYear"
+    ):
+        calendars: Any = import_module("backend.apps.platform_core.services.settlement_calendar")
+        if not calendars.calendar_year_is_confirmed(task.related_object_id):
+            return (
+                "Confirm the year in Settlement calendars first. This task closes when the "
+                "calendar is confirmed."
+            )
+    if (
+        task.task_type == AdminTaskType.RETURN_FAILED
+        and task.related_object_type == "BalanceReturnFailure"
+    ):
+        try:
+            failure_open = bool(
+                _model("ledger", "BalanceReturnFailure")
+                .objects.filter(pk=task.related_object_id, status="open")
+                .exists()
+            )
+        except (ValueError, DjangoValidationError):
+            failure_open = False
+        if failure_open:
+            return (
+                "The failed return is still open. Send the money again to a verified account; "
+                "this task closes when no money of the failed return is left on the balance."
+            )
+    return ""
 
 
 def _payout_instruction_is_pending(instruction_id: str) -> bool:
@@ -1851,8 +2047,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
             withdrawal_item_metadata["destination_reason"] = str(selection.get("reason", ""))
         revoked = request_metadata.get("destination_revoked")
         if isinstance(revoked, dict):
-            withdrawal_item_metadata["destination_revoked"] = (
-                "IBAN revoked: " + str(revoked.get("reason", ""))
+            withdrawal_item_metadata["destination_revoked"] = "IBAN revoked: " + str(
+                revoked.get("reason", "")
             )
         item = _queue_item(
             kind="withdrawal_request",
@@ -1886,8 +2082,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
     )
     balance_lots_overdue_count = 0
     balance_lots_penalty_mode_count = 0
-    # Same rule as the ledger scan: money not invested goes back to the bank after day 58.
-    return_after_days = balance_auto_return_after_days()
+    # Same rule as the ledger scan (18.4): day 56 last day, return requested on the return date.
+    scheduler = BalanceScheduler()
     today = business_date(as_of)
     for lot in active_lots.only(
         "id",
@@ -1898,6 +2094,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "investment_deadline_at",
         "withdrawal_deadline_at",
         "source_type",
+        "return_after_days",
     ):
         lot_ref = cast(Any, lot)
         currency_code = _currency_code(lot)
@@ -1906,10 +2103,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         summary["available_balance_minor"] += amount
         status = str(lot_ref.status)
         if status == BALANCE_AVAILABLE_STATUS:
-            last_day = balance_last_day(
-                withdrawal_deadline_at=lot_ref.withdrawal_deadline_at,
-                return_after_days=return_after_days,
-            )
+            lot_schedule = scheduler.schedule(lot_ref)
+            last_day = lot_schedule.last_day
             if today > last_day:
                 summary["overdue_available_minor"] += amount
                 balance_lots_overdue_count += 1
@@ -1919,8 +2114,9 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                             kind="balance_lot_overdue",
                             item_id=str(lot.pk),
                             title=(
-                                f"Balance lot not invested after {return_after_days} days: "
-                                "due back to the investor's bank"
+                                "Balance lot not invested by day "
+                                f"{lot_schedule.return_after_days}: due back to the "
+                                "investor's bank"
                             ),
                             status=status,
                             due_at=getattr(lot, "withdrawal_deadline_at", None),
@@ -1937,7 +2133,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                                 "withdrawal_deadline_at": (
                                     lot_ref.withdrawal_deadline_at.isoformat()
                                 ),
-                                "return_date": (last_day + timedelta(days=1)).isoformat(),
+                                "return_date": lot_schedule.return_date.isoformat(),
                             },
                         )
                     )
@@ -2220,3 +2416,74 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "currency_summaries": sorted(currency_summaries.values(), key=lambda row: row["currency"]),
         "queues": queues,
     }
+
+
+ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE = "InvestorSupportRequest"
+
+
+@transaction.atomic
+def open_account_closure_request_task(command: OpenAccountClosureRequestTaskCommand) -> AdminTask:
+    """One account access review task per closure request (U33-DEC-28, ACC-DEC-006).
+
+    The team checks balances, investments, pending orders, payments and compliance before it
+    closes the account; the investor gets a separate email when the account is closed.
+    """
+    existing = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.ACCOUNT_ACCESS_REVIEW,
+            related_object_type=ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+            related_object_id=command.support_request_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    notes_lines = [
+        f"Account closure request {command.reference}.",
+        f"Investor: {command.investor_label}",
+        f"Investor user ID: {command.investor_user_id}",
+        "Check balances, running investments, open orders and listings, pending payments "
+        "and open KYC/compliance items before closing (ACC-DEC-006). Tell the investor by "
+        "email when the account is closed; receiving the request did not close it.",
+    ]
+    if command.message.strip():
+        notes_lines.append(f"Message from the investor: {command.message.strip()}")
+    notes = "\n".join(notes_lines)
+    task = AdminTask.objects.create(
+        task_type=AdminTaskType.ACCOUNT_ACCESS_REVIEW,
+        title=f"Account closure request {command.reference}"[:255],
+        priority=AdminTaskPriority.NORMAL,
+        status=AdminTaskStatus.OPEN,
+        created_by=cast(Any, command.requested_by),
+        due_at=now_utc(),
+        notes=notes,
+        related_object_type=ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+        related_object_id=command.support_request_id,
+    )
+    metadata = {
+        "task_type": task.task_type,
+        "status": task.status,
+        "related_object_type": ACCOUNT_CLOSURE_REQUEST_RELATED_OBJECT_TYPE,
+        "related_object_id": command.support_request_id,
+        "reference": command.reference,
+        "investor_user_id": command.investor_user_id,
+    }
+    _record_task_event(
+        task=task,
+        actor=command.requested_by,
+        event_type=AdminTaskEventType.CREATED,
+        new_status=task.status,
+        note=notes,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.requested_by),
+            action="admin_task.account_closure_requested",
+            target_type="AdminTask",
+            target_id=str(task.id),
+            metadata=metadata,
+        )
+    )
+    return task

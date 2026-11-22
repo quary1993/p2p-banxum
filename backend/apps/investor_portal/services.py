@@ -3,30 +3,36 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
 from uuid import UUID
 
 from django.apps import apps
-from django.conf import settings
 from django.db.models import Model, Q, Sum
 
-from backend.apps.platform_core.domain.access import user_can_access_financial_features
-from backend.apps.platform_core.domain.funding import balance_last_day
+from backend.apps.platform_core.domain.access import (
+    account_status_of,
+    has_lender_role,
+    user_can_access_financial_features,
+)
+from backend.apps.platform_core.domain.money import clean_number_format, localize_number_text
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import (
     balance_auto_return_after_days,
     get_platform_setting_value,
 )
 from backend.apps.platform_core.services.activity_archive import merge_archived_activity
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 
 # Email bodies are private by default in the investor portal. Add a topic here only after
 # confirming the body cannot contain one-time codes, login links, bank details, or third-party PII.
 PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
     {
         "email.investor_notice",
+        # 18.3: "Document ready" (in-app only).
+        "notice.document_ready",
         "email.balance_ageing_reminder",
         "email.deposit_reconciled",
         "email.withdrawal_status",
@@ -40,11 +46,18 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.loan_status_changed",
         "email.loan_risk_note_published",
         "email.smart_invest_opportunity_match",
+        "notice.smart_invest_opportunity_match",
+        "email.loan_opening_alert",
+        "email.saved_opportunity_closing",
+        "notice.saved_opportunity_closing",
+        "email.support_request_received",
+        "email.security_new_sign_in",
         "email.originator_claim_purchase_confirmation",
         "email.originator_claim_repayment_credited",
         "email.originator_subscription_activated",
         "email.originator_subscription_cancelled",
         "email.balance_forced_return",
+        "email.balance_return_failed",
         "email.balance_penalty_mode",
         "email.payout_account_status",
         "email.loan_funding_status",
@@ -59,6 +72,7 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.deposit_reconciled": "Deposit",
     "email.withdrawal_status": "Withdrawal",
     "email.balance_forced_return": "Balance return",
+    "email.balance_return_failed": "Return failed",
     "email.balance_penalty_mode": "Penalty mode",
     "email.payout_account_status": "Payout IBAN",
     "email.fx_exchange_confirmation": "Currency exchange",
@@ -77,6 +91,13 @@ NOTIFICATION_TOPIC_LABELS = {
     "email.secondary_market_purchase_confirmation": "Secondary market",
     "email.secondary_market_sale_confirmation": "Secondary market",
     "email.smart_invest_opportunity_match": "Smart-Invest",
+    "notice.smart_invest_opportunity_match": "Smart-Invest",
+    "email.loan_opening_alert": "Opportunity open",
+    "email.saved_opportunity_closing": "Saved opportunity",
+    "notice.saved_opportunity_closing": "Saved opportunity",
+    "notice.document_ready": "Documents",
+    "email.support_request_received": "Support",
+    "email.security_new_sign_in": "Security",
     "email.document_acceptance_pdf": "Documents",
     "email.account_login_blocked": "Account",
 }
@@ -170,13 +191,7 @@ def _effective_fx_rate(exchange: Any) -> str:
     return str((target_major / source_major).quantize(Decimal("0.000000000001")))
 
 
-def _lot_last_day(lot: Any, *, return_after_days: int) -> date:
-    return balance_last_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at, return_after_days=return_after_days
-    )
-
-
-def _balance_bucket(lot: Any, *, as_of: datetime, return_after_days: int) -> str:
+def _balance_bucket(lot: Any, *, as_of: datetime, scheduler: BalanceScheduler) -> str:
     status = str(lot.status)
     if status == "frozen":
         return "frozen"
@@ -186,12 +201,12 @@ def _balance_bucket(lot: Any, *, as_of: datetime, return_after_days: int) -> str
         return "penalty_exhausted"
     if status != "available":
         return status
-    last_day = _lot_last_day(lot, return_after_days=return_after_days)
+    last_day = scheduler.schedule(lot).last_day
     if business_date(as_of) > last_day:
-        # Due back to the bank (day 59 on); without a usable IBAN it waits here.
+        # Due back to the bank (from the return date); without a usable IBAN it waits here.
         return "overdue"
     if business_date(as_of) == last_day:
-        # Last day (day 58): it can still be withdrawn today, but no longer invested.
+        # Last day (day 56): it can still be withdrawn today, but no longer invested.
         return "withdraw_only"
     return "investable"
 
@@ -200,9 +215,37 @@ def _days_until(value: datetime, *, as_of: datetime) -> int:
     return (business_date(value) - business_date(as_of)).days
 
 
-def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[str, Any]:
-    bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
-    last_day = _lot_last_day(lot, return_after_days=return_after_days)
+def _reserved_minor_by_lot(investor_user_id: str) -> dict[str, int]:
+    """18.3: money of each lot reserved for primary investments still waiting for the closing.
+
+    A reservation takes the money out of the lot's available amount (it counts as invested in the
+    lot until the closing or the release); the design's "Reserved" column shows that part.
+    """
+    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
+    reserved: dict[str, int] = defaultdict(int)
+    for allocations in order_model.objects.filter(
+        investor_user_id=investor_user_id,
+        status__in=["balance_allocated", "partially_allocated"],
+    ).values_list("lot_allocations", flat=True):
+        for allocation in cast(list[dict[str, Any]], allocations or []):
+            lot_id = str(allocation.get("lot_id") or "")
+            amount = allocation.get("amount_minor")
+            if lot_id and type(amount) is int and amount > 0:
+                reserved[lot_id] += amount
+    return dict(reserved)
+
+
+def _lot_payload(
+    lot: Any,
+    *,
+    as_of: datetime,
+    scheduler: BalanceScheduler,
+    failed_lot_ids: set[str],
+) -> dict[str, Any]:
+    bucket = _balance_bucket(lot, as_of=as_of, scheduler=scheduler)
+    schedule = scheduler.schedule(lot)
+    last_day = schedule.last_day
+    return_failed = bucket == "overdue" and str(lot.pk) in failed_lot_ids
     return {
         "id": str(lot.pk),
         "currency": _currency_code(lot.currency),
@@ -220,9 +263,17 @@ def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[s
             lot.withdrawal_deadline_at,
             as_of=as_of,
         ),
+        "return_after_days": schedule.return_after_days,
         "last_day": last_day,
-        "return_date": last_day + timedelta(days=1),
+        # Q01: the day the return is requested, with the calendar adjustment.
+        "return_date": schedule.return_date,
+        "return_date_adjusted": schedule.adjusted,
         "days_until_last_day": (last_day - business_date(as_of)).days,
+        # F01: the latest last subscription date of a direct loan this money can fund.
+        "direct_funding_until": (
+            scheduler.direct_funding_until(lot, as_of=as_of) if bucket == "investable" else None
+        ),
+        "return_failed": return_failed,
         "original_amount_minor": int(lot.original_amount_minor),
         "available_amount_minor": int(lot.available_amount_minor),
         "invested_amount_minor": int(lot.invested_amount_minor),
@@ -230,6 +281,7 @@ def _lot_payload(lot: Any, *, as_of: datetime, return_after_days: int) -> dict[s
         "withdrawn_amount_minor": int(lot.withdrawn_amount_minor),
         "penalized_amount_minor": int(lot.penalized_amount_minor),
         "requires_withdrawal": bucket in {"withdraw_only", "overdue", "penalty_mode"},
+        # Penalty mode is gone (U33-DEC-04); a failed return does not block other actions.
         "blocks_financial_actions": bucket == "penalty_mode",
     }
 
@@ -258,7 +310,7 @@ def _balance_summaries(
     investor_user_id: str,
     as_of: datetime,
     lots: Iterable[Any],
-    return_after_days: int,
+    scheduler: BalanceScheduler,
 ) -> list[dict[str, Any]]:
     summaries = {
         _currency_code(currency): _empty_balance_summary(
@@ -281,7 +333,7 @@ def _balance_summaries(
             continue
         summary["active_lot_count"] += 1
         summary["total_available_minor"] += available
-        bucket = _balance_bucket(lot, as_of=as_of, return_after_days=return_after_days)
+        bucket = _balance_bucket(lot, as_of=as_of, scheduler=scheduler)
         if bucket == "investable":
             summary["investable_minor"] += available
         elif bucket == "withdraw_only":
@@ -309,9 +361,7 @@ def _balance_summaries(
                 summary["next_withdrawal_deadline_at"] = withdrawal_deadline
         if bucket in {"investable", "withdraw_only"}:
             # The next return still ahead; money already due back has its own figure.
-            return_date = _lot_last_day(lot, return_after_days=return_after_days) + timedelta(
-                days=1
-            )
+            return_date = scheduler.schedule(lot).return_date
             if summary["next_return_date"] is None or return_date < summary["next_return_date"]:
                 summary["next_return_date"] = return_date
     return [summaries[key] for key in sorted(summaries)]
@@ -329,11 +379,35 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .order_by("withdrawal_deadline_at", "received_at", "created_at", "id")
     )
     return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
+    reserved_by_lot = _reserved_minor_by_lot(investor_user_id)
+    return_failures = _open_return_failures(investor_user_id)
+    failed_lot_ids = {
+        str(lot_id) for failure in return_failures for lot_id in failure.pop("lot_ids")
+    }
     visible_lots = [
-        _lot_payload(lot, as_of=as_of_value, return_after_days=return_after_days)
+        {
+            **_lot_payload(
+                lot, as_of=as_of_value, scheduler=scheduler, failed_lot_ids=failed_lot_ids
+            ),
+            "reserved_amount_minor": reserved_by_lot.get(str(lot.pk), 0),
+        }
         for lot in lots
-        if int(lot.available_amount_minor) > 0
+        if int(lot.available_amount_minor) > 0 or reserved_by_lot.get(str(lot.pk), 0) > 0
     ]
+    active_instructions = list(
+        payout_model.objects.filter(
+            investor_user_id=investor_user_id,
+            status="active",
+        )
+        .select_related("currency")
+        .order_by("currency", "-created_at")
+    )
+    # 18.3: the bank name (SIX bank master for CH and LI IBANs, else the name the investor typed).
+    bank_master = import_module("backend.apps.platform_core.services.bank_master")
+    master_names = bank_master.bank_names_for_ibans(
+        [str(instruction.destination_iban) for instruction in active_instructions]
+    )
     payout_instructions = [
         {
             "id": str(instruction.pk),
@@ -341,24 +415,27 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
             "status": str(instruction.status),
             "destination_iban": str(instruction.destination_iban),
             "destination_account_name": str(instruction.destination_account_name),
+            "bank_name": master_names.get(str(instruction.destination_iban))
+            or (
+                ""
+                if bank_master.uses_bank_master(str(instruction.destination_iban))
+                else str((instruction.metadata or {}).get("bank_name") or "")
+            ),
             "is_verified_usable": bool(instruction.is_verified_usable),
+            # U33-DEC-05: "Verified" and "Pending verification" are shown separately.
+            "verification_status": "verified" if instruction.is_verified_usable else "pending",
+            "is_default_return": bool(instruction.is_default_return),
             "verified_at": instruction.verified_at,
             "created_at": instruction.created_at,
         }
-        for instruction in payout_model.objects.filter(
-            investor_user_id=investor_user_id,
-            status="active",
-        )
-        .select_related("currency")
-        .order_by("currency", "-created_at")
+        for instruction in active_instructions
     ]
     summaries = _balance_summaries(
         investor_user_id=investor_user_id,
         as_of=as_of_value,
         lots=lots,
-        return_after_days=return_after_days,
+        scheduler=scheduler,
     )
-    penalty_mode_minor = sum(item["penalty_mode_minor"] for item in summaries)
     # Requested withdrawals (voluntary and forced) wait for the bank transfer; their amount is
     # already out of the balance.
     withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
@@ -385,10 +462,47 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         "lots": visible_lots,
         "payout_instructions": payout_instructions,
         "pending_withdrawals": pending_withdrawals,
-        "has_penalty_mode_balance": penalty_mode_minor > 0,
-        "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
         "auto_return_after_days": return_after_days,
+        "return_failures": return_failures,
     }
+
+
+# Q02: the cause shown follows the bank's answer; a bank-side cause is not the investor's fault.
+RETURN_FAILURE_INVESTOR_TEXT = {
+    "account_closed": "Your bank says the account is closed.",
+    "account_unknown": "Your bank does not know this account number.",
+    "name_mismatch": "The account holder name does not match the account.",
+    "account_blocked": "Your bank says the account is blocked or restricted.",
+    "bank_restriction": "The receiving bank could not accept the transfer.",
+    "technical": "The transfer came back because of a technical error. This is not your fault.",
+    "other": "Your bank sent the transfer back.",
+}
+
+
+def _open_return_failures(investor_user_id: str) -> list[dict[str, Any]]:
+    """18.4 (Q02): the investor's open failed returns, for the Account page."""
+    failure_model = _model("ledger", "BalanceReturnFailure")
+    return [
+        {
+            "id": str(failure.pk),
+            "currency": _currency_code(failure.currency),
+            "amount_minor": int(failure.amount_minor),
+            "is_forced": bool(failure.is_forced),
+            "reason_code": str(failure.reason_code),
+            "reason_text": RETURN_FAILURE_INVESTOR_TEXT.get(
+                str(failure.reason_code), RETURN_FAILURE_INVESTOR_TEXT["other"]
+            ),
+            "destination_iban": str(failure.failed_destination_iban),
+            "returned_value_date": failure.returned_value_date,
+            "recorded_at": failure.recorded_at,
+            "lot_ids": list(failure.lot_ids or []),
+        }
+        for failure in failure_model.objects.filter(
+            investor_user_id=investor_user_id, status="open"
+        )
+        .select_related("currency")
+        .order_by("recorded_at", "id")
+    ]
 
 
 def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
@@ -645,6 +759,74 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
     }
 
 
+def _investor_reports() -> Any:
+    return import_module("backend.apps.reporting.investor_reports")
+
+
+def list_investor_reports(*, actor: Model) -> dict[str, Any]:
+    """18.3: the reports the investor created and the monthly statements, newest first."""
+    investor_user_id = _require_financial_access(actor)
+    return {"reports": _investor_reports().list_investor_reports(investor_user_id=investor_user_id)}
+
+
+def create_investor_report(
+    *,
+    actor: Model,
+    audit_actor: Model,
+    kind: str,
+    start_date: date,
+    end_date: date,
+    currency: str,
+    output_format: str,
+) -> dict[str, Any]:
+    """18.3: generate and keep a report; a "Document ready" notice announces it."""
+    _require_financial_access(actor)
+    if str(audit_actor.pk) != str(actor.pk):
+        raise InvestorPortalAuthorizationError(
+            "A read-only view cannot create reports for the investor."
+        )
+    reports = _investor_reports()
+    reporting = _reporting_services()
+    try:
+        return cast(
+            dict[str, Any],
+            reports.create_investor_report(
+                reports.CreateInvestorReportCommand(
+                    actor=actor,
+                    kind=kind,
+                    start_date=start_date,
+                    end_date=end_date,
+                    currency=currency,
+                    output_format=output_format,
+                )
+            ),
+        )
+    except reporting.ReportingAuthorizationError as exc:
+        raise InvestorPortalAuthorizationError(str(exc)) from exc
+    except (reporting.ReportingError, reports.InvestorReportError) as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
+
+
+def download_investor_report(*, actor: Model, report_id: str) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    reports = _investor_reports()
+    try:
+        return cast(
+            dict[str, Any],
+            reports.investor_report_file(investor_user_id=investor_user_id, report_id=report_id),
+        )
+    except reports.InvestorReportError as exc:
+        raise InvestorPortalNotFoundError(str(exc)) from exc
+
+
+def investor_report_summary(*, actor: Model, year: int | None) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    return cast(
+        dict[str, Any],
+        _investor_reports().investor_report_summary(investor_user_id=investor_user_id, year=year),
+    )
+
+
 def notification_topic_label(topic: str) -> str:
     label = NOTIFICATION_TOPIC_LABELS.get(topic)
     if label:
@@ -676,7 +858,12 @@ def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | N
 # Receipts of emails the investor triggered for themselves (sign-in links, investor and admin
 # confirmation codes) are not notices: the notification centre never lists or counts them.
 SELF_TRIGGERED_EMAIL_TOPICS = frozenset(
-    {"email.magic_link_requested", "email.sensitive_action_code_requested"}
+    {
+        "email.magic_link_requested",
+        "email.sensitive_action_code_requested",
+        # 18.5: the forgotten-password link the investor asked for.
+        "email.password_reset",
+    }
 )
 NOTIFICATION_UNREAD_WINDOW = 250
 
@@ -689,6 +876,10 @@ NOTIFICATION_TARGET_PORTFOLIO = "portfolio"
 NOTIFICATION_TARGET_BALANCES = "balances"
 NOTIFICATION_TARGET_SECONDARY_MARKET = "secondary_market"
 NOTIFICATION_TARGET_FX = "fx"
+# 18.3: the design's targets for movements, reports and documents.
+NOTIFICATION_TARGET_TRANSACTIONS = "transactions"
+NOTIFICATION_TARGET_REPORTS = "reports"
+NOTIFICATION_TARGET_DOCUMENTS = "documents"
 NOTIFICATION_TARGET_TYPES = (
     NOTIFICATION_TARGET_NONE,
     NOTIFICATION_TARGET_LOAN,
@@ -697,7 +888,41 @@ NOTIFICATION_TARGET_TYPES = (
     NOTIFICATION_TARGET_BALANCES,
     NOTIFICATION_TARGET_SECONDARY_MARKET,
     NOTIFICATION_TARGET_FX,
+    NOTIFICATION_TARGET_TRANSACTIONS,
+    NOTIFICATION_TARGET_REPORTS,
+    NOTIFICATION_TARGET_DOCUMENTS,
 )
+# 18.3: the design's tones of a notification (positive, late, default, neutral).
+NOTIFICATION_CATEGORIES = ("positive", "late", "default", "neutral")
+_POSITIVE_NOTIFICATION_TOPICS = frozenset(
+    {
+        "email.repayment_distribution_credited",
+        "email.recovery_distribution_credited",
+        "email.originator_claim_repayment_credited",
+        "email.deposit_reconciled",
+        "email.secondary_market_sale_confirmation",
+    }
+)
+
+
+def _notification_category(*, topic: str, payload: Any) -> str:
+    """The tone of a notice: an explicit category, money credited, or a loan that turned late
+    or defaulted; everything else is neutral."""
+    payload_dict = payload if isinstance(payload, dict) else {}
+    metadata = payload_dict.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    explicit = str(metadata_dict.get("category") or "")
+    if explicit in NOTIFICATION_CATEGORIES:
+        return explicit
+    if topic == "email.loan_status_changed":
+        status = str(metadata_dict.get("new_status") or "")
+        if status == "late":
+            return "late"
+        if status in {"defaulted", "written_off"}:
+            return "default"
+    if topic in _POSITIVE_NOTIFICATION_TOPICS:
+        return "positive"
+    return "neutral"
 _PORTFOLIO_NOTIFICATION_TOPICS = frozenset(
     {
         "email.primary_investment_confirmation",
@@ -716,6 +941,7 @@ _BALANCE_NOTIFICATION_TOPICS = frozenset(
         "email.deposit_reconciled",
         "email.withdrawal_status",
         "email.balance_forced_return",
+        "email.balance_return_failed",
         "email.balance_penalty_mode",
         "email.payout_account_status",
         "email.primary_order_released",
@@ -726,6 +952,58 @@ _TARGETS_WITH_ID = frozenset({NOTIFICATION_TARGET_LOAN, NOTIFICATION_TARGET_HOLD
 
 def _communications_services() -> Any:
     return import_module("backend.apps.communications.services")
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitInvestorSupportRequestCommand:
+    actor: Model
+    kind: str
+    idempotency_key: str
+    topic: str = ""
+    message: str = ""
+    context_type: str = ""
+    context_id: str = ""
+
+
+def submit_investor_support_request(command: SubmitInvestorSupportRequestCommand) -> dict[str, Any]:
+    """A Help message (U33-DEC-35) or an account closure request (U33-DEC-28) by email.
+
+    Open to every signed-in lender whose account is not closed, also before KYC approval:
+    support must stay reachable. Returns the receipt shown in the portal.
+    """
+    actor: Any = command.actor
+    if (
+        not bool(getattr(actor, "is_active", False))
+        or not has_lender_role(actor)
+        or str(account_status_of(actor)) == "closed"
+    ):
+        raise InvestorPortalAuthorizationError("Only an investor account can send this request.")
+    support = import_module("backend.apps.communications.support_requests")
+    try:
+        request = support.submit_support_request(
+            support.SubmitSupportRequestCommand(
+                actor=actor,
+                kind=command.kind,
+                idempotency_key=command.idempotency_key,
+                topic=command.topic,
+                message=command.message,
+                context_type=command.context_type,
+                context_id=command.context_id,
+            )
+        )
+    except support.SupportRequestThrottled:
+        raise
+    except support.SupportRequestConflict:
+        raise
+    except support.SupportRequestError as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
+    return {
+        "reference": str(request.reference),
+        "kind": str(request.kind),
+        "received_at": request.created_at,
+        "context_label": str(request.context_label),
+        "receipt_email": str(request.investor_email),
+    }
 
 
 def _uuid_text(value: Any) -> str:
@@ -767,9 +1045,10 @@ def _notification_target(*, actor: Model, topic: str, payload: Any) -> dict[str,
         if first_holding:
             return target(NOTIFICATION_TARGET_HOLDING, first_holding)
         return target(NOTIFICATION_TARGET_PORTFOLIO)
-    if topic == "email.loan_risk_note_published" and str(
-        metadata_dict.get("visibility") or ""
-    ) == "public":
+    if (
+        topic == "email.loan_risk_note_published"
+        and str(metadata_dict.get("visibility") or "") == "public"
+    ):
         holding_id = field("holding_id")
         loan_id = field("loan_id")
         if not holding_id and loan_id:
@@ -810,6 +1089,7 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     for record in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_DELIVERY)
         .select_related("outbox_message")
         .defer("body_html")
         .order_by("-outbox_message__created_at", "-created_at", "-id")[: window * 3]
@@ -837,6 +1117,9 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 # When the event happened (platform clock), not when the email went out.
                 "created_at": record.outbox_message.created_at,
                 "sent_at": record.sent_at,
+                "category": _notification_category(
+                    topic=topic, payload=record.outbox_message.payload
+                ),
                 **_notification_target(
                     actor=actor,
                     topic=topic,
@@ -858,7 +1141,9 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
             {
                 "id": str(outbox.id),
                 "outbox_message_id": int(outbox.id),
-                "notification_source": "email_outbox",
+                "notification_source": (
+                    "in_app" if topic.startswith(IN_APP_TOPIC_PREFIX) else "email_outbox"
+                ),
                 "topic": topic,
                 "topic_label": notification_topic_label(topic),
                 "status": str(outbox.status),
@@ -866,6 +1151,7 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
                 "body": _notification_body(topic=topic, outbox=outbox),
                 "created_at": outbox.created_at,
                 "sent_at": outbox.processed_at,
+                "category": _notification_category(topic=topic, payload=outbox.payload),
                 **_notification_target(actor=actor, topic=topic, payload=outbox.payload),
             }
         )
@@ -874,10 +1160,23 @@ def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[st
     return entries[:window]
 
 
+# U33-DEC-30: in-app notices (never emailed) are listed with the emails; an email whose payload
+# says `in_app: false` (the investor switched the in-app channel off) is not listed.
+IN_APP_TOPIC_PREFIX = "notice."
+# A JSON key that is missing compares as NULL: has_key keeps the rows without the flag listed.
+_IN_APP_OFF_OUTBOX = Q(payload__has_key="in_app") & Q(payload__in_app=False)
+_IN_APP_OFF_DELIVERY = Q(outbox_message__payload__has_key="in_app") & Q(
+    outbox_message__payload__in_app=False
+)
+
+
 def _investor_outbox_queryset(outbox_model: Any, *, investor_user_id: str, email: str) -> Any:
     return (
-        outbox_model.objects.filter(topic__startswith="email.")
+        outbox_model.objects.filter(
+            Q(topic__startswith="email.") | Q(topic__startswith=IN_APP_TOPIC_PREFIX)
+        )
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_OUTBOX)
         .filter(
             Q(payload__user_id=investor_user_id)
             | Q(payload__email=email)
@@ -896,6 +1195,7 @@ def _investor_notification_index(actor: Model, *, window: int) -> list[tuple[int
     for outbox_message_id, topic, created_at in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
         .exclude(topic__in=SELF_TRIGGERED_EMAIL_TOPICS)
+        .exclude(_IN_APP_OFF_DELIVERY)
         .order_by("-outbox_message__created_at", "-created_at", "-id")
         .values_list("outbox_message_id", "topic", "outbox_message__created_at")[: window * 3]
     ):
@@ -939,9 +1239,13 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
         investor_user_id=investor_user_id,
         index=[(entry["outbox_message_id"], entry["topic"]) for entry in entries],
     )
+    # U33-DEC-32: amounts and percentages in the investor's number format.
+    number_format = clean_number_format(getattr(actor, "number_format", None))
     notifications = [
         {
             **{key: value for key, value in entry.items() if key != "outbox_message_id"},
+            "title": localize_number_text(str(entry.get("title", "")), number_format),
+            "body": localize_number_text(str(entry.get("body", "")), number_format),
             "unread": entry["outbox_message_id"] in unread_ids,
         }
         for entry in entries
@@ -1049,7 +1353,6 @@ def _loan_projection(
         "collateral_value_minor": int(loan.collateral_value_minor),
         "collateral_description": str(loan.collateral_description),
         "skin_in_the_game_bps": int(getattr(loan, "skin_in_the_game_bps", 0)),
-        "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "yield_bps": int(loan.interest_rate_bps),
         "underlying_interest_rate_bps": int(loan.interest_rate_bps),
@@ -1075,12 +1378,48 @@ def _loan_projection(
         "first_payment_date": loan.first_payment_date,
         "ltv_bps": getattr(loan, "ltv_bps", None),
         "days_past_due": _loan_days_past_due(loan, as_of=as_of),
+        "contract_terminated_on": getattr(loan, "contract_terminated_on", None),
         "schedule_version": int(loan.schedule_version),
         "schedule": [
             {key: value for key, value in asdict(row).items() if key != "admin_overridden"}
             for row in schedule
         ],
     }
+
+
+def _recovery_events_by_holding(
+    *, investor_user_id: str, holding_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """U33-DEC-12: each recovery of the loan with its gross, costs and net, and the investor's
+    own credited share, per holding. Closed recoveries are shown as recorded."""
+    if not holding_ids:
+        return {}
+    line_model = _model("servicing", "InvestorRecoveryDistributionLine")
+    events: dict[str, dict[str, dict[str, Any]]] = {}
+    lines = (
+        line_model.objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("recovery_event")
+        .order_by("recovery_event__value_date", "recovery_event__created_at", "id")
+    )
+    for line in lines:
+        event = line.recovery_event
+        by_event = events.setdefault(str(line.holding_id), {})
+        entry = by_event.get(str(event.pk))
+        if entry is None:
+            entry = {
+                "recovery_event_id": str(event.pk),
+                "value_date": event.value_date,
+                "gross_recovered_minor": int(event.gross_recovered_minor),
+                "external_costs_minor": int(event.externally_deducted_costs_minor)
+                + int(event.third_party_costs_from_received_minor),
+                "recovery_fee_minor": int(event.recovery_fee_minor),
+                "net_distributed_minor": int(event.net_available_for_distribution_minor)
+                - int(event.rounding_difference_minor),
+                "credited_to_you_minor": 0,
+            }
+            by_event[str(event.pk)] = entry
+        entry["credited_to_you_minor"] += int(line.amount_minor)
+    return {holding_id: list(rows.values()) for holding_id, rows in events.items()}
 
 
 def _aggregate_by_holding(
@@ -1102,6 +1441,90 @@ def _aggregate_by_holding(
     return {
         str(row["holding_id"]): {field: int(row[field] or 0) for field in fields} for row in rows
     }
+
+
+def _received_payments_by_holding(
+    *, investor_user_id: str, holding_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """18.3: the investor's share of each payment already received ("Paid" rows of All payments).
+
+    Direct loans: one row per borrower installment (several partial payments of one installment
+    are added up), with its number and due date. Loan Originator claims: one row per payment the
+    originator passed on, dated by its value date. Recoveries are listed with the recovery events.
+    """
+    if not holding_ids:
+        return {}
+    rows: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(dict)
+
+    def add(holding_id: str, key: str, values: dict[str, Any], line: Any) -> None:
+        row = rows[holding_id].setdefault(
+            (holding_id, key),
+            {
+                **values,
+                "principal_minor": 0,
+                "interest_minor": 0,
+                "penalty_minor": 0,
+                "fee_minor": 0,
+                "credited_minor": 0,
+                "principal_after_minor": int(line.current_principal_after_minor),
+            },
+        )
+        row["principal_minor"] += int(line.principal_minor)
+        row["interest_minor"] += int(line.interest_minor)
+        row["penalty_minor"] += int(getattr(line, "penalty_minor", 0) or 0)
+        row["fee_minor"] += int(getattr(line, "fee_minor", 0) or 0)
+        row["credited_minor"] += int(line.amount_minor)
+        row["principal_after_minor"] = min(
+            int(row["principal_after_minor"]), int(line.current_principal_after_minor)
+        )
+        if values["paid_on"] > row["paid_on"]:
+            row["paid_on"] = values["paid_on"]
+
+    for line in (
+        _model("servicing", "InvestorRepaymentDistributionLine")
+        .objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("repayment_event__installment")
+    ):
+        installment = line.repayment_event.installment
+        add(
+            str(line.holding_id),
+            f"installment:{installment.pk}",
+            {
+                "installment_number": int(installment.installment_number),
+                "due_date": installment.due_date,
+                "paid_on": line.repayment_event.value_date,
+            },
+            line,
+        )
+    for line in (
+        _model("originator_claims", "InvestorOriginatorRepaymentDistributionLine")
+        .objects.filter(investor_user_id=investor_user_id, holding_id__in=holding_ids)
+        .select_related("repayment")
+    ):
+        add(
+            str(line.holding_id),
+            f"originator:{line.repayment_id}",
+            {
+                "installment_number": None,
+                "due_date": None,
+                "paid_on": line.repayment.value_date,
+            },
+            line,
+        )
+    result: dict[str, list[dict[str, Any]]] = {}
+    for holding_id, by_key in rows.items():
+        payments = sorted(
+            by_key.values(),
+            key=lambda row: (row["due_date"] or row["paid_on"], row["paid_on"]),
+        )
+        for payment in payments:
+            payment["total_minor"] = (
+                int(payment["principal_minor"])
+                + int(payment["interest_minor"])
+                + int(payment["penalty_minor"])
+            )
+        result[holding_id] = payments
+    return result
 
 
 def _latest_public_notes_by_loan(loan_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -1179,6 +1602,13 @@ def _exposure_dimension(
     )
 
 
+def _earned_originator_interest(totals: dict[str, Any], bought_minor: int) -> int:
+    """Audit S6-3: Loan Originator interest received less the accrued interest paid in the
+    price (it comes back with the first payments and is not interest earned)."""
+    received = int(totals.get("interest_minor", 0) or 0)
+    return received - min(received, bought_minor)
+
+
 def get_investor_portfolio(
     *,
     actor: Model,
@@ -1214,7 +1644,8 @@ def get_investor_portfolio(
         model_label=("servicing", "InvestorRepaymentDistributionLine"),
         investor_user_id=investor_user_id,
         holding_ids=all_holding_ids,
-        fields=["amount_minor", "principal_minor", "interest_minor", "fee_minor"],
+        # Audit S5-9: direct loans on the 18.6 engine pay penalty X to the investors too.
+        fields=["amount_minor", "principal_minor", "interest_minor", "penalty_minor", "fee_minor"],
     )
     originator_repayment_totals = _aggregate_by_holding(
         model_label=("originator_claims", "InvestorOriginatorRepaymentDistributionLine"),
@@ -1222,6 +1653,19 @@ def get_investor_portfolio(
         holding_ids=all_holding_ids,
         fields=["amount_minor", "principal_minor", "interest_minor", "penalty_minor"],
     )
+    recovery_events = _recovery_events_by_holding(
+        investor_user_id=investor_user_id, holding_ids=all_holding_ids
+    )
+    bought_interest: dict[str, int] = import_module(
+        "backend.apps.originator_claims.services"
+    ).bought_accrued_interest_by_holding(all_holding_ids)
+    received_payments = _received_payments_by_holding(
+        investor_user_id=investor_user_id, holding_ids=all_holding_ids
+    )
+    # U33-DEC-22: the recorded stages and the known next step of each loan.
+    recovery_stages = import_module(
+        "backend.apps.servicing.recovery_stages"
+    ).investor_recovery_stages(sorted({str(holding.loan_id) for holding in holdings}))
     recovery_totals = _aggregate_by_holding(
         model_label=("servicing", "InvestorRecoveryDistributionLine"),
         investor_user_id=investor_user_id,
@@ -1266,9 +1710,13 @@ def get_investor_portfolio(
     originator_purchase_model = _model("originator_claims", "OriginatorClaimPurchase")
     originator_purchases_by_holding_id = {
         str(purchase.holding_id): purchase
-        for purchase in originator_purchase_model.objects.filter(
-            holding_id__in=[holding.pk for holding in holdings]
-        ).prefetch_related("entitlements")
+        for purchase in (
+            originator_purchase_model.objects.filter(
+                holding_id__in=[holding.pk for holding in holdings]
+            )
+            .select_related("loan_profile")
+            .prefetch_related("entitlements")
+        )
     }
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     open_listings_by_holding_id = {
@@ -1276,8 +1724,28 @@ def get_investor_portfolio(
         for listing in listing_model.objects.filter(
             holding_id__in=[holding.pk for holding in holdings],
             status__in=["active", "approval_requested"],
-        ).order_by("holding_id", "-updated_at", "-id")
+        )
+        .select_related("loan", "loan__originator_profile")
+        .order_by("holding_id", "-updated_at", "-id")
     }
+    # C03: an open listing is "Pending" while an installment of its loan is due and unpaid.
+    paused_loan_ids = (
+        import_module("backend.apps.secondary_market.services").loan_ids_closed_to_new_buyers(
+            loans=list(
+                {
+                    str(listing.loan_id): listing.loan
+                    for listing in open_listings_by_holding_id.values()
+                }.values()
+            ),
+            as_of_date=business_date(now_utc()),
+        )
+        if open_listings_by_holding_id
+        else set()
+    )
+    # Q04: the "Banxum invests" label on the investment page (no amount).
+    banxum_loan_ids = import_module(
+        "backend.apps.marketplace_primary.services"
+    ).banxum_invests_loan_ids(list({str(holding.loan_id) for holding in holdings}))
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
@@ -1296,17 +1764,22 @@ def get_investor_portfolio(
                 "currency": _currency_code(holding.currency),
                 "loan_share_ppm": int(holding.loan_share_ppm),
                 "assignment_effective_at": holding.assignment_effective_at,
-                "loan": _loan_projection(
-                    loan,
-                    as_of=as_of_value,
-                    schedule=schedules_by_loan_id.get(str(holding.loan_id), []),
-                ),
+                "loan": {
+                    **_loan_projection(
+                        loan,
+                        as_of=as_of_value,
+                        schedule=schedules_by_loan_id.get(str(holding.loan_id), []),
+                    ),
+                    "banxum_invests": str(holding.loan_id) in banxum_loan_ids,
+                },
                 "received_principal_minor": int(repayment.get("principal_minor", 0))
                 + int(originator_repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0))
                 + int(originator_repayment.get("interest_minor", 0)),
-                "received_penalty_minor": int(originator_repayment.get("penalty_minor", 0)),
+                "received_penalty_minor": int(repayment.get("penalty_minor", 0))
+                + int(originator_repayment.get("penalty_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),
+                "received_payments": received_payments.get(str(holding.pk), []),
                 "investment_schedule": [
                     asdict(row) if not isinstance(row, dict) else row
                     for row in investment_schedules_by_holding_id.get(
@@ -1318,6 +1791,18 @@ def get_investor_portfolio(
                     int(originator_purchase.cash_consideration_minor)
                     if originator_purchase is not None
                     else None
+                ),
+                # 18.7: the accrued interest paid in the price of a Loan Originator offer. It
+                # comes back with the next payment and is not interest earned.
+                "bought_accrued_interest_minor": (
+                    max(
+                        0,
+                        int(originator_purchase.cash_consideration_minor)
+                        - int(originator_purchase.assigned_principal_minor),
+                    )
+                    if originator_purchase is not None
+                    and str(originator_purchase.loan_profile.pricing_rule) == "accrued_interest"
+                    else 0
                 ),
                 "acquisition_cash_flow": (
                     [
@@ -1342,6 +1827,13 @@ def get_investor_portfolio(
                 "recovered_default_interest_minor": int(recovery.get("default_interest_minor", 0)),
                 "recovered_penalties_minor": int(recovery.get("penalties_minor", 0)),
                 "recovered_other_costs_minor": int(recovery.get("other_costs_minor", 0)),
+                "recovery_events": recovery_events.get(str(holding.pk), []),
+                "recovery_stages": recovery_stages.get(str(holding.loan_id), {}).get(
+                    "stages", []
+                ),
+                "recovery_next_step": recovery_stages.get(str(holding.loan_id), {}).get(
+                    "next_step"
+                ),
                 "latest_public_note": latest_notes.get(str(holding.loan_id)),
                 "open_secondary_listing": (
                     {
@@ -1353,6 +1845,7 @@ def get_investor_portfolio(
                         "seller_net_proceeds_minor": int(open_listing.seller_net_proceeds_minor),
                         "listed_at": open_listing.listed_at,
                         "updated_at": open_listing.updated_at,
+                        "paused_for_due_installment": str(open_listing.loan_id) in paused_loan_ids,
                     }
                     if open_listing is not None
                     else None
@@ -1384,11 +1877,16 @@ def get_investor_portfolio(
             )
             for holding in all_holdings
         ),
+        # Audit S6-3: without the accrued interest paid in the price of a Loan Originator offer
+        # (it comes back with the first payments and is not interest earned).
         "realized_interest_by_currency": _currency_totals(
             (
                 _currency_code(holding.currency),
                 repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
-                + originator_repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
+                + _earned_originator_interest(
+                    originator_repayment_totals.get(str(holding.pk), {}),
+                    bought_interest.get(str(holding.pk), 0),
+                )
                 + recovery_totals.get(str(holding.pk), {}).get("contractual_interest_minor", 0)
                 + recovery_totals.get(str(holding.pk), {}).get("default_interest_minor", 0),
             )
@@ -1428,10 +1926,6 @@ def get_investor_portfolio(
         "by_purpose": _exposure_dimension(
             active_holdings,
             key_func=lambda _holding, loan: str(loan.purpose),
-        ),
-        "by_risk_rating": _exposure_dimension(
-            active_holdings,
-            key_func=lambda _holding, loan: str(loan.risk_rating),
         ),
         "by_collateral_type": _exposure_dimension(
             active_holdings,
@@ -1497,13 +1991,59 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
     }
 
 
+def get_investor_transactions(
+    *, actor: Model, filters: Any, offset: int = 0, limit: int = 15
+) -> dict[str, Any]:
+    """18.3: the Transactions page from the server (filters, pages, available after)."""
+    investor_user_id = _require_financial_access(actor)
+    transactions = import_module("backend.apps.investor_portal.transactions")
+    entries = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="portfolio",
+        entries=_investor_activity_entries(investor_user_id, None),
+        # Audit S2-1: the whole history; no cap that would hide the oldest movements.
+        limit=None,
+    )
+    return cast(
+        dict[str, Any],
+        transactions.transaction_page(
+            investor_user_id=investor_user_id,
+            entries=entries,
+            filters=filters,
+            offset=offset,
+            limit=limit,
+        ),
+    )
+
+
+def export_investor_transactions_csv(*, actor: Model, filters: Any) -> str:
+    """18.3: the whole filtered history as CSV, in the investor's number format."""
+    investor_user_id = _require_financial_access(actor)
+    transactions = import_module("backend.apps.investor_portal.transactions")
+    entries = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="portfolio",
+        entries=_investor_activity_entries(investor_user_id, None),
+        # Audit S2-1: the whole history; no cap that would hide the oldest movements.
+        limit=None,
+    )
+    return cast(
+        str,
+        transactions.transactions_csv(
+            investor_user_id=investor_user_id,
+            entries=entries,
+            filters=filters,
+            number_format=clean_number_format(getattr(actor, "number_format", None)),
+        ),
+    )
+
+
 def _investor_activity_entries(
     investor_user_id: str, limit_value: int | None
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     lot_model = _model("ledger", "InvestorBalanceLot")
     withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
-    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
     repayment_line_model = _model("servicing", "InvestorRepaymentDistributionLine")
     originator_repayment_line_model = _model(
         "originator_claims", "InvestorOriginatorRepaymentDistributionLine"
@@ -1546,7 +2086,9 @@ def _investor_activity_entries(
         )
     for line in (
         repayment_line_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency", "repayment_event", "repayment_event__loan")
+        .select_related(
+            "currency", "repayment_event", "repayment_event__loan", "repayment_event__installment"
+        )
         .order_by("-occurred_at")[:limit_value]
     ):
         loan = line.repayment_event.loan
@@ -1564,11 +2106,13 @@ def _investor_activity_entries(
                 metadata={
                     "principal_minor": int(line.principal_minor),
                     "interest_minor": int(line.interest_minor),
+                    "penalty_minor": int(line.penalty_minor),
                     "fee_minor": int(line.fee_minor),
+                    "installment_number": int(line.repayment_event.installment.installment_number),
                 },
             )
         )
-    for line in (
+    originator_lines = list(
         originator_repayment_line_model.objects.filter(investor_user_id=investor_user_id)
         .select_related(
             "currency",
@@ -1577,8 +2121,17 @@ def _investor_activity_entries(
             "repayment__loan_profile__originator",
         )
         .order_by("-created_at")[:limit_value]
-    ):
+    )
+    # Audit S6-3: the part of an interest payment that gives back the accrued interest paid in
+    # the price is shown apart, not as interest.
+    returned_by_line: dict[str, int] = import_module(
+        "backend.apps.originator_claims.services"
+    ).bought_interest_returned_by_line(
+        sorted({str(line.holding_id) for line in originator_lines})
+    )
+    for line in originator_lines:
         profile = line.repayment.loan_profile
+        price_returned = returned_by_line.get(str(line.pk), 0)
         entries.append(
             _activity(
                 activity_id=str(line.pk),
@@ -1593,7 +2146,8 @@ def _investor_activity_entries(
                 loan_title=str(profile.loan.title),
                 metadata={
                     "principal_minor": int(line.principal_minor),
-                    "interest_minor": int(line.interest_minor),
+                    "interest_minor": int(line.interest_minor) - price_returned,
+                    "bought_interest_returned_minor": price_returned,
                     "penalty_minor": int(line.penalty_minor),
                     "originator_name": str(profile.originator.public_name),
                 },
@@ -1627,7 +2181,7 @@ def _investor_activity_entries(
         )
     for withdrawal in (
         withdrawal_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency")
+        .select_related("currency", "return_failure")
         .order_by("-requested_at")[:limit_value]
     ):
         withdrawal_status = str(withdrawal.status)
@@ -1660,6 +2214,35 @@ def _investor_activity_entries(
                 },
             )
         )
+        returned = (
+            getattr(withdrawal, "return_failure", None)
+            if withdrawal_status == "returned"
+            else None
+        )
+        if returned is not None:
+            # 18.4 (Q02): the bank sent the transfer back; the money is on the balance again.
+            entries.append(
+                _activity(
+                    activity_id=f"{withdrawal.pk}:returned",
+                    activity_type="withdrawal_returned",
+                    occurred_at=returned.recorded_at,
+                    direction="in",
+                    title=(
+                        "Return sent back by the bank"
+                        if withdrawal.is_forced
+                        else "Withdrawal sent back by the bank"
+                    ),
+                    amount_minor=int(withdrawal.amount_minor),
+                    currency=_currency_code(withdrawal.currency),
+                    status="returned",
+                    metadata={
+                        "withdrawal_request_id": str(withdrawal.pk),
+                        "is_forced": bool(withdrawal.is_forced),
+                        "reason_code": str(returned.reason_code),
+                        "value_date": returned.returned_value_date.isoformat(),
+                    },
+                )
+            )
         if withdrawal_status == "cancelled" and withdrawal.cancelled_at is not None:
             # The cancellation reverses the request journal entry and restores the reserved
             # lots; show that credit as its own line instead of leaving it implied.
@@ -1710,26 +2293,7 @@ def _investor_activity_entries(
                 },
             )
         )
-    for order in (
-        order_model.objects.filter(investor_user_id=investor_user_id)
-        .select_related("currency", "loan")
-        .order_by("-created_at")[:limit_value]
-    ):
-        loan = order.loan
-        entries.append(
-            _activity(
-                activity_id=str(order.pk),
-                activity_type="primary_order",
-                occurred_at=order.created_at,
-                direction="internal",
-                title="Primary-market investment order",
-                amount_minor=int(order.allocated_amount_minor) or int(order.requested_amount_minor),
-                currency=_currency_code(order.currency),
-                status=str(order.status),
-                loan_id=str(loan.pk),
-                loan_title=str(loan.title),
-            )
-        )
+    entries.extend(_primary_order_activity(investor_user_id, limit_value))
     for purchase in (
         originator_purchase_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency", "loan_profile__loan", "loan_profile__originator")
@@ -1842,6 +2406,163 @@ def _investor_activity_entries(
     return entries[:limit_value]
 
 
+# Q26 (2026-11-13): why a reservation ended without an investment, from the order event's code.
+PRIMARY_ORDER_END_REASONS = {
+    "no_capacity_at_allocation": "No amount was left in the project when the order was processed.",
+    "remaining_capacity_below_loan_minimum": (
+        "The amount left in the project was below the minimum investment."
+    ),
+    "loan_funding_closed": "The funding closed without this order.",
+    "loan_funding_cancelled": "The project's funding was cancelled.",
+    "replaced_by_new_order": "Replaced by a newer order on the same loan before confirmation.",
+    "pending_order_expired": "Not confirmed within the pending-order time limit.",
+    "released_by_banxum": "Released by Banxum.",
+}
+
+
+def _primary_order_activity(investor_user_id: str, limit_value: int | None) -> list[dict[str, Any]]:
+    """Q26: the reservation, its release and the closing are separate entries in Transactions.
+
+    Each entry has the project, amount, currency, date, the reason of a release and the order it
+    belongs to. An order still waiting for allocation is one "order placed" entry.
+    """
+    order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
+    event_model = _model("marketplace_primary", "PrimaryInvestmentOrderEvent")
+    orders = {
+        str(order.pk): order
+        for order in order_model.objects.filter(investor_user_id=investor_user_id)
+        .select_related("currency", "loan")
+        .order_by("-created_at")[:limit_value]
+    }
+    if not orders:
+        return []
+    events = list(
+        event_model.objects.filter(order_id__in=list(orders)).order_by("occurred_at", "id")
+    )
+    released_order_ids = {
+        str(event.order_id) for event in events if event.event_type == "balance_released"
+    }
+    allocated_order_ids = {
+        str(event.order_id) for event in events if event.event_type == "balance_allocated"
+    }
+    entries: list[dict[str, Any]] = []
+
+    def entry(
+        order: Any, event: Any, activity_type: str, amount_minor: int, direction: str, title: str
+    ) -> dict[str, Any]:
+        metadata = dict(cast(dict[str, Any], event.metadata or {}))
+        # The admin's note stays internal (it is never shown to the investor); the reason comes
+        # from the event's code.
+        code = str(metadata.get("reason_code") or metadata.get("reason") or "")
+        reason = PRIMARY_ORDER_END_REASONS.get(code, "")
+        if not reason and activity_type == "primary_reservation_released":
+            reason = (
+                "Released by Banxum."
+                if str(event.event_type) == "balance_released"
+                else "The order ended without an investment."
+            )
+        return _activity(
+            activity_id=f"{order.pk}:{event.pk}",
+            activity_type=activity_type,
+            occurred_at=event.occurred_at,
+            direction=direction,
+            title=title,
+            amount_minor=amount_minor,
+            currency=_currency_code(order.currency),
+            status=str(order.status),
+            loan_id=str(order.loan_id),
+            loan_title=str(order.loan.title),
+            metadata={"order_id": str(order.pk), "reason": reason},
+        )
+
+    for event in events:
+        order = orders[str(event.order_id)]
+        metadata = dict(cast(dict[str, Any], event.metadata or {}))
+        event_type = str(event.event_type)
+        if event_type == "created" and str(order.pk) not in allocated_order_ids:
+            if str(order.status) in {"pending", "pending_allocation"}:
+                entries.append(
+                    entry(
+                        order,
+                        event,
+                        "primary_order",
+                        int(order.requested_amount_minor),
+                        "internal",
+                        "Investment order placed",
+                    )
+                )
+        elif event_type == "balance_allocated":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation",
+                    int(metadata.get("allocated_amount_minor") or order.allocated_amount_minor),
+                    "internal",
+                    "Amount reserved",
+                )
+            )
+        elif event_type == "balance_released":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation_released",
+                    int(metadata.get("released_amount_minor") or order.allocated_amount_minor),
+                    "internal",
+                    "Reservation released",
+                )
+            )
+        elif event_type == "closed_invested":
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_investment",
+                    int(metadata.get("allocated_amount_minor") or order.allocated_amount_minor),
+                    "out",
+                    "Investment",
+                )
+            )
+        elif event_type == "closed_not_invested":
+            had_reservation = (
+                str(order.pk) in allocated_order_ids and str(order.pk) not in released_order_ids
+            )
+            entries.append(
+                entry(
+                    order,
+                    event,
+                    "primary_reservation_released" if had_reservation else "primary_order_ended",
+                    int(order.allocated_amount_minor)
+                    if had_reservation
+                    else int(order.requested_amount_minor),
+                    "internal",
+                    "Reservation released" if had_reservation else "Investment order not invested",
+                )
+            )
+    # An order without recorded events (older records): one entry with its current state.
+    ordered_ids = {str(event.order_id) for event in events}
+    for order_id, order in orders.items():
+        if order_id in ordered_ids:
+            continue
+        entries.append(
+            _activity(
+                activity_id=order_id,
+                activity_type="primary_order",
+                occurred_at=order.created_at,
+                direction="internal",
+                title="Primary-market investment order",
+                amount_minor=int(order.allocated_amount_minor) or int(order.requested_amount_minor),
+                currency=_currency_code(order.currency),
+                status=str(order.status),
+                loan_id=str(order.loan_id),
+                loan_title=str(order.loan.title),
+                metadata={"order_id": order_id, "reason": ""},
+            )
+        )
+    return entries
+
+
 def get_primary_orders(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
@@ -1885,10 +2606,40 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
     return result
 
 
+def _listing_state(status: str) -> str:
+    """18.3: the design's state of a seller's listing: listed, sold or cancelled.
+
+    A listing removed or refused by Banxum is shown as cancelled (it is no longer on sale).
+    """
+    if status in {"active", "approval_requested"}:
+        return "listed"
+    if status == "sold":
+        return "sold"
+    return "cancelled"
+
+
 def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -> dict[str, Any]:
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     listing_event_model = _model("secondary_market", "SecondaryMarketListingEvent")
     purchase_model = _model("secondary_market", "SecondaryMarketPurchase")
+    seller_listings = list(
+        listing_model.objects.filter(seller_user_id=investor_user_id)
+        .select_related("currency", "loan", "loan__originator_profile")
+        .order_by("-created_at", "-id")[:limit_value]
+    )
+    open_loans = {
+        str(listing.loan_id): listing.loan
+        for listing in seller_listings
+        if str(listing.status) in {"active", "approval_requested"}
+    }
+    # C03: an open listing is "Pending" while an installment of its loan is due and unpaid.
+    paused_loan_ids = (
+        import_module("backend.apps.secondary_market.services").loan_ids_closed_to_new_buyers(
+            loans=list(open_loans.values()), as_of_date=business_date(now_utc())
+        )
+        if open_loans
+        else set()
+    )
     listings: list[dict[str, Any]] = [
         {
             "id": str(listing.pk),
@@ -1909,12 +2660,19 @@ def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -
             "public_disclosure_note": str(listing.public_disclosure_note),
             "listed_at": listing.listed_at,
             "created_at": listing.created_at,
+            # 18.3: My listings states (listed, sold, cancelled) and the day the listing closed.
+            "state": _listing_state(str(listing.status)),
+            "closed_at": (
+                listing.cancelled_at or listing.removed_at or listing.rejected_at
+                if str(listing.status) in {"cancelled", "removed", "rejected"}
+                else None
+            ),
+            "paused_for_due_installment": (
+                str(listing.status) in {"active", "approval_requested"}
+                and str(listing.loan_id) in paused_loan_ids
+            ),
         }
-        for listing in (
-            listing_model.objects.filter(seller_user_id=investor_user_id)
-            .select_related("currency", "loan")
-            .order_by("-created_at", "-id")[:limit_value]
-        )
+        for listing in seller_listings
     ]
     purchases_as_buyer: list[dict[str, Any]] = [
         {

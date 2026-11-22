@@ -14,6 +14,7 @@ from backend.apps.loans.management.commands.seed_marketplace_demo_loans import (
     SEED_NAME,
 )
 from backend.apps.loans.models import Loan, LoanEvent, LoanEventType, LoanStatus
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 
 
 def _superadmin() -> Any:
@@ -35,6 +36,7 @@ def _borrower(*, actor: Model, legal_name: str) -> Model:
             kyb_status="approved",
             compliance_hold=False,
             country="Switzerland",
+            uid=next_test_uid(),
             created_by_admin_id=actor.pk,
         ),
     )

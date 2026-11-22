@@ -12,19 +12,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
-import { captureMagicLinkTokenFromLocation } from "./magicLinkToken";
-import "./styles.css";
-import "./banxumSkin.css";
-import "./skin/projects.css";
-import "./skin/loans.css";
-import "./skin/investments.css";
-import "./skin/account.css";
-import "./skin/auth.css";
-import "./skin/pin.css";
-import "./skin/help.css";
-// The public site: the design's CSS scoped to html.bxs (SiteSkin), then the hand-made fixes.
-import "./site/site.css";
-import "./site/site-overrides.css";
+import { preloadPreferredLanguage } from "./i18n/language";
+import { captureMagicLinkTokenFromLocation, captureSecurityLinkTokenFromLocation } from "./magicLinkToken";
+import "./base.css";
+// Audit G-07: one stylesheet entry per area. The investor area (sign-in, registration, the portal)
+// loads the U33 design CSS scoped to html.bxu (U33Skin) and its fixes here; the public site
+// (site/siteStyles.ts) and the admin console (adminConsole/adminStyles.ts, styles.css) load theirs
+// with their lazy bundles (lazyAreas.ts). base.css (tokens and element rules) is global.
+import "./portal/u33/u33.css";
+import "./portal/u33/u33-overrides.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,11 +32,15 @@ const queryClient = new QueryClient({
 
 // Take a login-link token out of the address bar before the first request (audit A-49).
 captureMagicLinkTokenFromLocation();
+captureSecurityLinkTokenFromLocation();
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </StrictMode>
+// U33-DEC-31: a visitor who chose German gets the German texts before the first render.
+void preloadPreferredLanguage().then(() =>
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </StrictMode>
+  )
 );

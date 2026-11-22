@@ -243,6 +243,18 @@ def _clear_operational_tables() -> None:
             cursor.execute(sql)
 
 
+def _qa_creditor_modes(*, actor: Any, uids: tuple[str, ...]) -> None:
+    """18.9: the QA catalogue lends more than CHF 500,000 per borrower, so its synthetic Swiss
+    borrowers are in the 10/20 mode (confirmed by the QA admin)."""
+    regimes = import_module("backend.apps.entities.creditor_regime")
+    for uid in uids:
+        regimes.set_creditor_mode(
+            regimes.SetCreditorModeCommand(
+                actor=actor, uid=uid, mode="ten_twenty", note="Synthetic QA borrower."
+            )
+        )
+
+
 def _seed_catalogue(*, actor: Any) -> None:
     entity_services = import_module("backend.apps.entities.services")
     loan_services = import_module("backend.apps.loans.services")
@@ -255,6 +267,8 @@ def _seed_catalogue(*, actor: Any) -> None:
                 year_founded=2016,
                 country="Switzerland",
                 registration_number=f"BANXUM-QA-RESET-BORROWER-{index}",
+                # 18.9: synthetic valid UIDs (mod-11) for the Swiss creditor modes.
+                uid=("CHE-110.000.019", "CHE-110.001.013")[index],
                 kyb_status="approved",
                 business_classification="Manufacturing" if index == 0 else "Wholesale",
                 business_classification_public=True,
@@ -263,6 +277,7 @@ def _seed_catalogue(*, actor: Any) -> None:
         )
         for index, name in enumerate(("QA Alpine Equipment AG", "QA Lake Trading SA"))
     ]
+    _qa_creditor_modes(actor=actor, uids=("CHE-110.000.019", "CHE-110.001.013"))
     specs = (
         *catalogue.DEMO_LOAN_SPECS,
         replace(
@@ -300,6 +315,10 @@ def _seed_catalogue(*, actor: Any) -> None:
                 minimum_subscription_bps=5000,
                 note="Synthetic QA reset catalogue.",
             )
+        )
+        # Re-audit P-2: engine loans (18.6) with placeholder proofs (always-on proof rule).
+        import_module("backend.apps.loans.security_proofs").seed_verified_securities(
+            actor=actor, loan_id=str(loan.pk)
         )
         loan_services.publish_loan(
             loan_services.PublishLoanCommand(actor=actor, loan_id=str(loan.pk))

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+from importlib import import_module
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -8,19 +10,54 @@ from rest_framework import serializers
 
 from backend.apps.loans.models import (
     CollateralType,
+    InterestConvention,
     Loan,
     LoanEvent,
     LoanPurpose,
+    LoanSecurity,
     LoanStatus,
+    PaymentFrequency,
     RepaymentType,
     RiskRating,
+)
+from backend.apps.platform_core.domain.loan_status import LoanStatusThresholds
+from backend.apps.platform_core.selectors.settings import (
+    loan_status_thresholds,
+    platform_loan_status_thresholds,
 )
 
 
 class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField(min_value=0)
-    interest_minor = serializers.IntegerField(min_value=0)
+    # 18.6: a custom schedule imports due date + principal; the engine calculates the interest.
+    interest_minor = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class LoanSecurityOverviewSerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: a security of the loan in the admin loan list (type and status only)."""
+
+    security_type = serializers.CharField()
+    status = serializers.CharField(allow_blank=True)
+
+
+def admin_loan_list_context(loans: list[Loan]) -> dict[str, Any]:
+    """One query per list for the securities and the opening alerts of the rows."""
+    loan_ids = [str(loan.pk) for loan in loans]
+    overview: dict[str, list[dict[str, str]]] = {loan_id: [] for loan_id in loan_ids}
+    for security in LoanSecurity.objects.filter(loan_id__in=loan_ids).order_by(
+        "position", "created_at"
+    ):
+        overview[str(security.loan_id)].append(
+            {"security_type": security.security_type, "status": security.status}
+        )
+    coming_soon = [str(loan.pk) for loan in loans if loan.coming_soon_at is not None]
+    counts = (
+        import_module("backend.apps.marketplace_primary.services").opening_alert_counts(coming_soon)
+        if coming_soon
+        else {}
+    )
+    return {"security_overview": overview, "opening_alert_counts": counts}
 
 
 class LoanSerializer(serializers.Serializer[Any]):
@@ -67,6 +104,28 @@ class LoanSerializer(serializers.Serializer[Any]):
     lender_payment_fee_minor = serializers.IntegerField()
     default_penalty_interest_bps = serializers.IntegerField()
     recovery_fee_bps = serializers.IntegerField()
+    # U33-DEC-09: the contract's own Late / Default days (null = platform settings), the days
+    # in use, and the contract termination date.
+    late_threshold_days = serializers.IntegerField(allow_null=True)
+    default_threshold_days = serializers.IntegerField(allow_null=True)
+    effective_late_threshold_days = serializers.SerializerMethodField()
+    effective_default_threshold_days = serializers.SerializerMethodField()
+    contract_terminated_on = serializers.DateField(allow_null=True)
+    # 18.6 interest engine: convention, frequency, grace, penalty X and its investors' share, the
+    # real payout day and the admin's Default declaration.
+    interest_convention = serializers.CharField()
+    payment_frequency = serializers.CharField()
+    grace_business_days = serializers.IntegerField()
+    penalty_daily_rate_percent = serializers.DecimalField(max_digits=7, decimal_places=4)
+    penalty_investor_share_bps = serializers.IntegerField()
+    payout_date = serializers.DateField(allow_null=True)
+    default_declared_on = serializers.DateField(allow_null=True)
+    # U33-DEC-17: shown as Coming soon since, and the planned opening date.
+    coming_soon_at = serializers.DateTimeField(allow_null=True)
+    planned_opening_date = serializers.DateField(allow_null=True)
+    # Admin list: the loan's securities and the investors waiting for the opening email.
+    security_overview = serializers.SerializerMethodField()
+    opening_alert_count = serializers.SerializerMethodField()
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
     recovery_waterfall_version = serializers.CharField()
     schedule_version = serializers.IntegerField()
@@ -80,6 +139,45 @@ class LoanSerializer(serializers.Serializer[Any]):
     updated_by_admin_id = serializers.UUIDField(allow_null=True)
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def _thresholds(self, obj: Loan) -> LoanStatusThresholds:
+        # One settings read per response, shared by the rows of a list.
+        platform = self.context.get("platform_loan_status_thresholds")
+        if platform is None:
+            platform = platform_loan_status_thresholds()
+            if isinstance(self.context, dict):
+                self.context["platform_loan_status_thresholds"] = platform
+        return loan_status_thresholds(obj, platform=platform)
+
+    @extend_schema_field(LoanSecurityOverviewSerializer(many=True))
+    def get_security_overview(self, obj: Loan) -> list[dict[str, str]]:
+        batch = self.context.get("security_overview") if isinstance(self.context, dict) else None
+        if batch is not None:
+            return list(batch.get(str(obj.pk), []))
+        return [
+            {"security_type": security.security_type, "status": security.status}
+            for security in obj.securities.order_by("position", "created_at")
+        ]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_opening_alert_count(self, obj: Loan) -> int:
+        batch = self.context.get("opening_alert_counts") if isinstance(self.context, dict) else None
+        if batch is not None:
+            return int(batch.get(str(obj.pk), 0))
+        if obj.coming_soon_at is None:
+            return 0
+        counts = import_module("backend.apps.marketplace_primary.services").opening_alert_counts(
+            [str(obj.pk)]
+        )
+        return int(counts.get(str(obj.pk), 0))
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_effective_late_threshold_days(self, obj: Loan) -> int:
+        return self._thresholds(obj).late_days
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_effective_default_threshold_days(self, obj: Loan) -> int:
+        return self._thresholds(obj).default_days
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_original_repayment_type(self, obj: Loan) -> str | None:
@@ -193,6 +291,25 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
         allow_empty=False,
     )
     note = serializers.CharField(required=False, allow_blank=True)
+    # 18.6 (audit S5-7): every loan created here uses the Actual/365 Fixed engine; the earlier
+    # monthly schedule cannot be chosen (it exists only for contracts signed before the engine).
+    interest_convention = serializers.ChoiceField(
+        choices=[(InterestConvention.ACT_365_FIXED.value, InterestConvention.ACT_365_FIXED.label)],
+        required=False,
+        default=InterestConvention.ACT_365_FIXED,
+    )
+    payment_frequency = serializers.ChoiceField(
+        choices=PaymentFrequency.choices, required=False, default=PaymentFrequency.MONTHLY
+    )
+    grace_business_days = serializers.IntegerField(
+        required=False, default=0, min_value=0, max_value=30
+    )
+    penalty_daily_rate_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, default=Decimal("0"), min_value=Decimal("0")
+    )
+    penalty_investor_share_bps = serializers.IntegerField(
+        required=False, default=10_000, min_value=0, max_value=10_000
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs.get("is_refinancing"):
@@ -244,6 +361,14 @@ class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
     )
     investor_message = serializers.CharField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True)
+    payment_frequency = serializers.ChoiceField(choices=PaymentFrequency.choices, required=False)
+    grace_business_days = serializers.IntegerField(required=False, min_value=0, max_value=30)
+    penalty_daily_rate_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, min_value=Decimal("0")
+    )
+    penalty_investor_share_bps = serializers.IntegerField(
+        required=False, min_value=0, max_value=10_000
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if not attrs:
@@ -292,6 +417,10 @@ class LoanInstallmentSerializer(serializers.Serializer[Any]):
     label = serializers.CharField()  # type: ignore[assignment]
     payment_date = serializers.DateField(allow_null=True)
     admin_overridden = serializers.BooleanField()
+    # 18.6: the unadjusted due date (before the business-day move and the grace) and the start of
+    # the row's interest period; empty for earlier schedules.
+    original_due_date = serializers.DateField(allow_null=True, required=False)
+    interest_start = serializers.DateField(allow_null=True, required=False)
 
 
 class OriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -317,9 +446,206 @@ class LoanEventSerializer(serializers.Serializer[Any]):
     occurred_at = serializers.DateTimeField()
 
 
+class LoanHistoryEntrySerializer(serializers.Serializer[Any]):
+    """One line of a loan's admin history: a loan event or an audit entry about the loan."""
+
+    id = serializers.CharField()
+    kind = serializers.ChoiceField(choices=["event", "change"])
+    code = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+    actor = serializers.CharField()
+    previous_status = serializers.CharField(allow_blank=True)
+    new_status = serializers.CharField(allow_blank=True)
+    note = serializers.CharField(allow_blank=True)
+    details = serializers.JSONField()
+
+
+class LoanHistoryResponseSerializer(serializers.Serializer[Any]):
+    entries = LoanHistoryEntrySerializer(many=True)
+
+
 def serialize_loan(loan: Loan) -> dict[str, Any]:
     return dict(LoanSerializer(loan).data)
 
 
 def serialize_loan_event(event: LoanEvent) -> dict[str, Any]:
     return dict(LoanEventSerializer(event).data)
+
+
+class LoanComingSoonRequestSerializer(serializers.Serializer[Any]):
+    planned_opening_date = serializers.DateField()
+    note = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
+
+
+class LoanSecurityDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+class LoanSecuritySerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: one security of a loan; only the fields that apply are filled."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    security_type = serializers.CharField()
+    is_guarantee = serializers.BooleanField()
+    description = serializers.CharField(allow_blank=True)
+    # 18.3: the anonymous asset name of the public site.
+    public_name = serializers.CharField(allow_blank=True, required=False, default="")
+    holder_name = serializers.CharField(
+        allow_blank=True, help_text="Owner of the asset or right, or the guarantor."
+    )
+    rank = serializers.IntegerField(allow_null=True, help_text="1 is first rank.")
+    status = serializers.CharField(
+        allow_blank=True, help_text="in_place, pending, released, or empty when not recorded."
+    )
+    value_minor = serializers.IntegerField(allow_null=True)
+    valuation_date = serializers.DateField(allow_null=True)
+    valuation_source = serializers.CharField(allow_blank=True)
+    appraiser = serializers.CharField(allow_blank=True)
+    prior_ranking_debt_minor = serializers.IntegerField(allow_null=True)
+    insurance = serializers.CharField(allow_blank=True)
+    undertaking_scope = serializers.CharField(allow_blank=True)
+    undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    # C06: the security the loan's summary shows (one per loan).
+    is_main = serializers.BooleanField()
+    # F16: its value counts in the loan-to-value (the loan's collateral value is the sum).
+    counts_in_ltv = serializers.BooleanField()
+    # Audit S1-3: the asset's stable identifier (one asset never counts twice).
+    asset_reference = serializers.CharField(allow_blank=True)
+    # F16: a valuation in another currency (value_minor is then the converted value).
+    valuation_currency = serializers.CharField(allow_blank=True)
+    valuation_amount_minor = serializers.IntegerField(allow_null=True)
+    valuation_fx_rate = serializers.CharField(allow_null=True)
+    valuation_fx_rate_date = serializers.DateField(allow_null=True)
+    documents = LoanSecurityDocumentSerializer(many=True)
+
+
+class LoanSecurityListSerializer(serializers.Serializer[Any]):
+    securities = LoanSecuritySerializer(many=True)
+    # The borrower's documents that can be attached to a security.
+    borrower_documents = LoanSecurityDocumentSerializer(many=True)
+
+
+class LoanSecurityMoveRequestSerializer(serializers.Serializer[Any]):
+    direction = serializers.ChoiceField(choices=["up", "down"])
+
+
+class LoanSecurityRequestSerializer(serializers.Serializer[Any]):
+    security_type = serializers.CharField(max_length=32)
+    description = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+    public_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=120,
+        help_text="18.3: anonymous asset name for the public site (no borrower name or address).",
+    )
+    holder_name = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    rank = serializers.IntegerField(required=False, allow_null=True, default=None, min_value=1)
+    status = serializers.ChoiceField(
+        choices=["", "in_place", "pending", "released"], required=False, default=""
+    )
+    value_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    valuation_date = serializers.DateField(required=False, allow_null=True, default=None)
+    valuation_source = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    appraiser = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
+    prior_ranking_debt_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    insurance = serializers.CharField(required=False, allow_blank=True, default="", max_length=4000)
+    undertaking_scope = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=4000
+    )
+    undertaking_limit_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    document_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=False, default=list
+    )
+    # F16: omitted keeps the current choice; a new security takes the default of its type.
+    counts_in_ltv = serializers.BooleanField(required=False, allow_null=True, default=None)
+    asset_reference = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=160
+    )
+    valuation_currency = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=3
+    )
+    valuation_amount_minor = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=0
+    )
+    valuation_fx_rate = serializers.DecimalField(
+        max_digits=18, decimal_places=8, required=False, allow_null=True, default=None
+    )
+    valuation_fx_rate_date = serializers.DateField(required=False, allow_null=True, default=None)
+
+
+class LoanCreditCheckSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: a recorded check (what, result, source, date)."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    name = serializers.CharField()
+    result = serializers.CharField()
+    # "source" is also a DRF Field attribute; the stubs type it differently.
+    source = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
+    checked_on = serializers.DateField(allow_null=True)
+    # "received" or "reviewed" (the design's chip); empty for older checks.
+    status = serializers.CharField(allow_blank=True)
+
+
+class LoanReportingMilestoneSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: one step of the reporting over the loan term (when, what, details)."""
+
+    when = serializers.CharField(max_length=80)
+    title = serializers.CharField(max_length=120)
+    body = serializers.CharField(max_length=500, allow_blank=True, required=False, default="")
+
+
+class LoanReportingPlanSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=["proposed", "agreed"])
+    milestones = LoanReportingMilestoneSerializer(many=True)
+
+
+class LoanReportingPlanRequestSerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(choices=["", "proposed", "agreed"], allow_blank=True)
+    milestones = LoanReportingMilestoneSerializer(many=True)
+
+
+class LoanCreditChecksSerializer(serializers.Serializer[Any]):
+    checks = LoanCreditCheckSerializer(many=True)
+    monitoring_frequency = serializers.CharField(allow_blank=True)
+    monitoring_focus = serializers.CharField(allow_blank=True)
+    # 18.3: the credit file's "Source of repayment".
+    repayment_source = serializers.CharField(allow_blank=True, required=False, default="")
+    reporting_plan_status = serializers.CharField(allow_blank=True)
+    reporting_milestones = LoanReportingMilestoneSerializer(many=True)
+
+
+class LoanCreditCheckRequestSerializer(serializers.Serializer[Any]):
+    name = serializers.CharField(max_length=255)
+    result = serializers.CharField(max_length=4000)
+    source = serializers.CharField(  # type: ignore[assignment]
+        required=False, allow_blank=True, default="", max_length=255
+    )
+    checked_on = serializers.DateField(required=False, allow_null=True, default=None)
+    status = serializers.ChoiceField(
+        choices=["", "received", "reviewed"], required=False, allow_blank=True, default=""
+    )
+
+
+class LoanRepaymentSourceRequestSerializer(serializers.Serializer[Any]):
+    text = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
+
+
+class LoanMonitoringRequestSerializer(serializers.Serializer[Any]):
+    frequency = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)
+    focus = serializers.CharField(required=False, allow_blank=True, default="", max_length=2000)

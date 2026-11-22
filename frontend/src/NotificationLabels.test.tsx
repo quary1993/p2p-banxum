@@ -51,7 +51,7 @@ const notifications = {
   ]
 };
 
-test("notifications page shows topic labels, not raw topic keys", async () => {
+test("notifications page shows the design row and never raw topic keys", async () => {
   server.use(
     http.get("*/api/v1/auth/me/", () =>
       HttpResponse.json({
@@ -81,8 +81,9 @@ test("notifications page shows topic labels, not raw topic keys", async () => {
   );
 
   const title = await screen.findByText("Deposit credited: CHF 25'000.00", {}, { timeout: 5000 });
-  const row = title.closest(".notice-row") as HTMLElement;
-  expect(within(row).getByText("Deposit")).toBeInTheDocument();
-  expect(screen.getByText("Withdrawal")).toBeInTheDocument();
+  const row = title.closest(".nd-row") as HTMLElement;
+  // The design's row: title, text, time and destination; no topic label and never a raw topic key.
+  expect(within(row).getByText("View account")).toBeInTheDocument();
+  expect(within(row).queryByText("Deposit")).not.toBeInTheDocument();
   expect(screen.queryByText(/email\.deposit_reconciled|email\.withdrawal_status/)).not.toBeInTheDocument();
 });

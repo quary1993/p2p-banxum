@@ -13,7 +13,8 @@ from django.db.models import Model
 from django.test import override_settings
 from django.utils import timezone
 
-from backend.apps.ledger.models import InvestorPayoutInstruction
+from backend.apps.ledger import services as ledger_services
+from backend.apps.ledger.models import InvestorPayoutInstruction, InvestorWithdrawalRequest
 from backend.apps.ledger.notices import notify_payout_instruction_saved
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
@@ -25,7 +26,6 @@ from backend.apps.ledger.services import (
     RunBalanceAgeingScanCommand,
     VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
-    declare_lender_deposit,
     finalize_investor_withdrawal,
     register_investor_self_service_payout_instruction,
     request_investor_withdrawal,
@@ -34,6 +34,12 @@ from backend.apps.ledger.services import (
     verify_investor_payout_instruction,
 )
 from backend.apps.platform_core.domain.time import business_timezone
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.platform_core.tests.notices import (
     assert_renders_to,
@@ -114,6 +120,29 @@ def _code(user: Model, action: str) -> dict[str, str]:
     }
 
 
+def _deposit_only(
+    admin_user: Model, investor: Model, *, key: str, amount_minor: int, day: date
+) -> Any:
+    """A deposit whose paying account nobody verified (no return account)."""
+    return ledger_services.declare_lender_deposit(
+        DeclareLenderDepositCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            amount_minor=amount_minor,
+            currency="CHF",
+            booking_date=day,
+            value_date=day,
+            collection_account_identifier="CH00GARANTALEDGER",
+            payer_name="Notice Investor",
+            payer_account_identifier="CH5604835012345678009",
+            bank_reference=f"BANK-{key}",
+            payment_reference=f"BX-CHF-{key}",
+            evidence_reference=f"statement:{key}",
+            idempotency_key=key,
+        )
+    )
+
+
 def _deposit(
     admin_user: Model,
     investor: Model,
@@ -159,14 +188,16 @@ def test_deposit_credit_sends_one_notice_with_amount_value_date_and_hold_limit(
     body = notice.payload["body_text"]
     assert "CHF 25'000.00" in body
     assert "Value date: 2026-01-05" in body
-    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 58, 2026-03-04, and
-    # what is not invested goes back to the bank on 2026-03-05.
-    assert "goes back to your bank automatically after 58 days" in body
-    assert "it can stay until 2026-03-04, and we return what is left on 2026-03-05" in body
-    assert ["Goes back to your bank on", "2026-03-05"] in notice.payload["data_rows"]
+    # Received 2026-01-05 (Europe/Zurich): the money can stay until day 56, 2026-03-02, and
+    # the return of what is not invested starts on day 57, 2026-03-03 (18.4, Q01).
+    assert (
+        "it can stay until 2026-03-02 (day 56 after the value date), and we start the return "
+        "of what is left on 2026-03-03" in body
+    )
+    assert ["Goes back to your bank on", "2026-03-03"] in notice.payload["data_rows"]
     assert notice.payload["metadata"]["navigation_target"] == "balances"
     assert notice.payload["metadata"]["bank_operation_id"] == str(result.bank_operation.id)
-    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-05")
+    assert_renders_to(notice, investor, "CHF 25'000.00", "2026-03-03")
 
     # The deposit verified the sending IBAN: one notice, IBAN masked, never in full.
     iban_notice = only_notice(investor, "email.payout_account_status")
@@ -259,62 +290,76 @@ def test_withdrawal_requested_sent_and_cancelled_each_send_one_notice(
     assert len(investor_notices(investor, "email.withdrawal_status")) == 4
 
 
-def test_day_59_return_and_day_61_penalty_mode_send_one_notice_each(
+def test_day_59_return_and_day_60_limit_send_one_notice_each_and_no_penalty(
     admin_user: Model, investor: Model
 ) -> None:
     other = _investor("notice-penalty@example.test")
     _deposit(admin_user, investor, key="forced", amount_minor=1_000_00, value_date=date(2026, 1, 1))
-    first = _deposit(
-        admin_user, other, key="pen-1", amount_minor=600_00, value_date=date(2026, 1, 1)
-    )
-    _deposit(admin_user, other, key="pen-2", amount_minor=400_00, value_date=date(2026, 1, 2))
-    # No usable IBAN for the second investor: day 59 cannot return it, and after the
-    # 60-day legal limit (day 61) it enters penalty mode.
-    InvestorPayoutInstruction.objects.filter(investor_user_id=other.pk).update(status="disabled")
-    assert first.payout_instruction is not None
+    # No verified IBAN for the second investor (his deposits come from another account that
+    # nobody verified, audit S3-1): day 59 cannot return it; after the 60-day legal limit it
+    # stays on the balance with no penalty (U33-DEC-04).
+    first = _deposit_only(admin_user, other, key="pen-1", amount_minor=600_00, day=date(2026, 1, 1))
+    _deposit_only(admin_user, other, key="pen-2", amount_minor=400_00, day=date(2026, 1, 2))
+    assert first.payout_instruction is None
 
+    # 18.4: value date 2026-01-01 -> day 57 is Friday 02-27, but the debit must come by day 59
+    # (Sunday -> Friday), so the return is requested on Thursday 02-26 (day 56). The lot of
+    # 01-02 goes back on Friday 02-27 (its day 56).
     for day in (
-        date(2026, 3, 1),
-        date(2026, 3, 1),
+        date(2026, 2, 26),
+        date(2026, 2, 26),
+        date(2026, 2, 27),
         date(2026, 3, 2),
         date(2026, 3, 3),
         date(2026, 3, 3),
         date(2026, 3, 4),
-        date(2026, 3, 5),
     ):
         run_balance_ageing_scan(RunBalanceAgeingScanCommand(actor=admin_user, as_of=_at(day)))
 
     forced = only_notice(investor, "email.balance_forced_return")
     assert forced.payload["subject"] == "We are returning CHF 1'000.00 to your bank account"
     assert forced.payload["headline"] == "Your money goes back to your bank"
-    assert "was not invested within 58 days" in forced.payload["body_text"]
+    assert "was not invested in time" in forced.payload["body_text"]
     assert "IBAN ending 2957" in forced.payload["body_text"]
-    assert "Started on" in [row[0] for row in forced.payload["data_rows"]]
-    assert ["Started on", "2026-03-01"] in forced.payload["data_rows"]
+    # Audit S3-5: at the request the transfer is planned; "sent" comes only after the transfer.
+    assert ["Planned transfer date", "2026-02-26"] in forced.payload["data_rows"]
+    assert not [row for row in forced.payload["data_rows"] if row[0] == "Transfer sent on"]
+    assert forced.payload["template_key"] == "ledger.forced_return_created.v3"
     # Without IBAN: one urgent notice when the money is due back, one on day 60, per lot.
     blocked = [
         (notice.payload["metadata"]["lot_id"], notice.payload["metadata"]["day"])
         for notice in investor_notices(other, "email.balance_ageing_reminder")
-        if notice.payload["metadata"]["day"] > 58
+        if notice.payload["metadata"]["kind"] != "reminder"
     ]
-    assert sorted(day for _lot, day in blocked) == [59, 59, 60, 60]
+    assert sorted(day for _lot, day in blocked) == [56, 56, 60, 60]
     assert len(set(blocked)) == 4
     assert_renders_to(forced, investor, "CHF 1'000.00")
     assert not investor_notices(investor, "email.balance_penalty_mode")
 
-    # Two lots entered penalty mode on different days, daily charges followed: the investor
-    # gets one notice per entry day, never one per charge.
-    penalty = investor_notices(other, "email.balance_penalty_mode")
-    assert [notice.payload["metadata"]["as_of"][:10] for notice in penalty] == [
-        "2026-03-03",
-        "2026-03-04",
-    ]
-    assert penalty[0].payload["metadata"]["amount_minor"] == 600_00
-    assert "CHF 600.00" in penalty[0].payload["body_text"]
-    assert "1% per day" in penalty[0].payload["body_text"]
-    assert "frozen" in penalty[0].payload["body_text"]
-    assert_renders_to(penalty[0], other, "CHF 600.00")
+    # No penalty-mode notice any more, and no notice after day 60.
+    assert not investor_notices(other, "email.balance_penalty_mode")
     assert not investor_notices(other, "email.balance_forced_return")
+
+    # The second stage: the team made the transfer.
+    request = InvestorWithdrawalRequest.objects.get(investor_user_id=investor.pk, is_forced=True)
+    finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(request.id),
+            booking_date=date(2026, 2, 26),
+            value_date=date(2026, 2, 26),
+            collection_account_identifier="CH00GARANTALEDGER",
+            bank_reference="OUT-FORCED",
+            idempotency_key="finalize-forced",
+        )
+    )
+    [sent] = [
+        notice
+        for notice in investor_notices(investor, "email.withdrawal_status")
+        if notice.payload["metadata"]["withdrawal_event"] == "finalized"
+    ]
+    assert ["Transfer sent on", "2026-02-26"] in sent.payload["data_rows"]
+    assert "This confirms that we made the transfer" in sent.payload["body_text"]
 
 
 def test_payout_iban_added_rejected_verified_and_revoked_notices(

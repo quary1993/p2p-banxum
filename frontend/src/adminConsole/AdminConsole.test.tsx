@@ -79,6 +79,19 @@ test("a loan's Manage view and the chosen action reopen after a reload", () => {
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
+test("18.6: a late loan offers Late payments and Default; Default is never automatic", () => {
+  renderAdmin("/admin/loans?status=late");
+  const row = screen.getAllByText("Basel Riverside refurbishment")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  fireEvent.click(screen.getByRole("button", { name: /Late payments and Default/ }));
+  expect(currentUrl()).toBe("/admin/loans/loan-basel-riverside/manage/late_payments?status=late&loan=loan-basel-riverside");
+  const panel = screen.getByTestId("late-payments-panel");
+  expect(within(panel).getByText("Late / Default days")).toBeInTheDocument();
+  // A loan from before the engine: no penalty X or expenses, but the Default declaration applies.
+  expect(within(panel).queryByText("Penalty X owed")).not.toBeInTheDocument();
+  expect(within(panel).getByRole("heading", { name: "Default" })).toBeInTheDocument();
+});
+
 test("dashboard queue selection is kept in the URL", () => {
   renderAdmin("/admin?queue=withdrawals_requested");
   expect(screen.getByRole("button", { name: /^Withdrawals:/ })).toHaveAttribute("aria-selected", "true");
@@ -165,6 +178,127 @@ test("a defaulted loan can still publish a loan note as public note, email or bo
   fireEvent.click(within(screen.getByRole("dialog", { name: "Confirm loan note" })).getByRole("button", { name: "Publish and send" }));
   expect(within(dialog).getByText(/update email would be sent to the current lenders/)).toBeInTheDocument();
   expect(currentUrl()).toBe("/admin/loans/loan-luzern-quartier/manage/note?loan=loan-luzern-quartier");
+});
+
+test("U33-DEC-09: a defaulted loan records the contract termination; its days no longer change", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Luzern Quartier renovation")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Luzern Quartier renovation" });
+  // A loan in default stays in default: the Late / Default days are not offered.
+  expect(within(dialog).queryByRole("button", { name: /Late and default days/ })).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: /Record contract termination/ }));
+
+  expect(within(dialog).getByText(/Default does not end the contract by itself\./)).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Note"), { target: { value: "Letter of 2 Nov." } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Record termination" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Confirm contract termination" })).getByRole("button", { name: "Record termination" }));
+  expect(within(dialog).getByText(/Contract termination on .* would be recorded/)).toBeInTheDocument();
+});
+
+test("a draft loan can be shown as Coming soon only with a planned date before the funding deadline (U33-DEC-17)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Show as Coming soon/ }));
+
+  expect(within(dialog).getByText(/The email goes out when you publish the loan, not on the planned/)).toBeInTheDocument();
+  // The fixture's funding deadline (25 Jul 2026) has passed: no planned date can be valid.
+  expect(within(dialog).getByText("Date after the funding deadline")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Show as Coming soon" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("Planned opening date"), { target: { value: "2026-07-01" } });
+  expect(within(dialog).getByText("Date in the past")).toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: "Stop showing as Coming soon" })).not.toBeInTheDocument();
+});
+
+test("recovery stages are written by the admin with real dates, and the next step only when known (U33-DEC-22)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Luzern Quartier renovation")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Luzern Quartier renovation" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Recovery stages/ }));
+
+  expect(within(dialog).getByText(/Add the next step only when you know/)).toBeInTheDocument();
+  expect(within(dialog).getByText("No stage is recorded for this loan.")).toBeInTheDocument();
+  const record = within(dialog).getByRole("button", { name: "Record stage" });
+  // Q16: an own title must be typed; a standard stage gives its name.
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "own" } });
+  expect(record).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "recovery_closed" } });
+  expect(within(dialog).getByLabelText("Result")).toBeInTheDocument();
+  expect(record).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText(/^Stage/), { target: { value: "formal_notice" } });
+  expect(within(dialog).queryByLabelText("Result")).not.toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2099-01-01" } });
+  expect(within(dialog).getByText("Date in the future")).toBeInTheDocument();
+  expect(record).toBeDisabled();
+
+  // A next step can have no date.
+  fireEvent.change(within(dialog).getByLabelText("Type"), { target: { value: "next" } });
+  expect(within(dialog).getByLabelText("Planned date")).toHaveValue("");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save next step" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Confirm the next step" })).getByRole("button", { name: "Save next step" }));
+  expect(within(dialog).getByText(/Next step "Formal notice" would be recorded/)).toBeInTheDocument();
+});
+
+test("each security of a loan is managed on its own; a guarantee has a scope and a limit (U33-DEC-21)", () => {
+  renderAdmin("/admin/loans");
+  const row = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /^Securities/ }));
+
+  expect(within(dialog).getByText(/A guarantee has a scope and a limit, never an asset value/)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add a security" }));
+  const type = within(dialog).getByLabelText("Security type");
+  // "Mixed" and "asset backed" are not offered for new entries; "unsecured" never.
+  const options = Array.from((type as HTMLSelectElement).options).map((option) => option.value);
+  expect(options).not.toContain("mixed_collateral");
+  expect(options).not.toContain("asset_backed");
+  expect(options).not.toContain("unsecured_exception");
+  expect(within(dialog).getByLabelText("Value minor units")).toBeInTheDocument();
+
+  fireEvent.change(type, { target: { value: "personal_guarantee" } });
+  expect(within(dialog).queryByLabelText("Value minor units")).not.toBeInTheDocument();
+  expect(within(dialog).getByLabelText("Guarantee limit minor units")).toBeInTheDocument();
+  expect(within(dialog).getByLabelText("Guarantor")).toBeInTheDocument();
+
+  fireEvent.change(type, { target: { value: "other" } });
+  expect(within(dialog).getByText("Describe a security of the type Other.")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Add security" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("Description"), { target: { value: "Assignment of rental income" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add security" }));
+  expect(within(dialog).getByText(/A security would be added/)).toBeInTheDocument();
+});
+
+test("the credit file editors take the financial years, existing debt, document details and checks (U33-DEC-20)", () => {
+  renderAdmin("/admin/loans");
+  const borrowerRow = screen.getAllByText("Helvetic Wohnbau AG").map((cell) => cell.closest("tr")).find((row) => row && within(row).queryByRole("button", { name: "Credit file" })) as HTMLElement;
+  fireEvent.click(within(borrowerRow).getByRole("button", { name: "Credit file" }));
+  const editor = screen.getByRole("dialog", { name: "Credit file - Helvetic Wohnbau AG" });
+  expect(within(editor).getByText(/the details must add up to the totals/)).toBeInTheDocument();
+  fireEvent.click(within(editor).getByRole("button", { name: "Add a financial year" }));
+  // Figures are typed in currency units (statementUnits.ts).
+  expect(within(editor).getByLabelText("Revenue")).toBeInTheDocument();
+  expect(within(editor).getByLabelText("Non-current financial debt")).toBeInTheDocument();
+  fireEvent.change(within(editor).getByLabelText("Revenue"), { target: { value: "1000000" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "Save financial year" }));
+  expect(within(editor).getByText(/Financial year \d{4} would be saved/)).toBeInTheDocument();
+  fireEvent.click(within(editor).getByRole("button", { name: "Add a facility" }));
+  expect(within(editor).getByRole("button", { name: "Save facility" })).toBeDisabled();
+  fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
+
+  const loanRow = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr") as HTMLElement;
+  fireEvent.click(within(loanRow).getByRole("button", { name: "Manage" }));
+  const dialog = screen.getByRole("dialog", { name: "Manage loan - Seefeld refinancing takeover" });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Checks & updates/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add a check" }));
+  expect(within(dialog).getByRole("button", { name: "Save check" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("What was checked"), { target: { value: "Company and owners" } });
+  fireEvent.change(within(dialog).getByLabelText("Result"), { target: { value: "Register details reconciled." } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save check" }));
+  expect(within(dialog).getByText(/The check "Company and owners" would be saved/)).toBeInTheDocument();
 });
 
 test("direct loan forms ask for interest-only months for interest-only then amortizing", () => {

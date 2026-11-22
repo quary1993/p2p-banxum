@@ -119,8 +119,8 @@ export function Statistics() {
             <div>
               <h3 className="site-h4">How we count</h3>
               <p className="site-text">
-                A payment is late from day 5 after its due date. A loan is in default from day 16 (calendar days, Swiss
-                time); recovery continues after that and is shown on the project page.
+                A payment is late from day 15 after its due date. A loan is in default from day 60 (calendar days, Swiss
+                time), unless its contract sets other days; recovery continues after that and is shown on the project page.
               </p>
             </div>
             <div>
@@ -219,7 +219,8 @@ function FundedTable({ projects }: { projects: PublicProject[] }) {
                 <td>
                   <SiteLink href={`/projects/${encodeURIComponent(p.loan_id)}`}>{p.title}</SiteLink>
                   <span className="site-table-sub">
-                    {funded ? `Funded ${date(funded)} · risk ${p.risk_rating}` : `Risk ${p.risk_rating}`}
+                    {/* No risk rating on the public site (U33-DEC-16). */}
+                    {funded ? `Funded ${date(funded)}` : ""}
                   </span>
                 </td>
                 <td className="site-hide-sm">{countryName(p.borrower_country)}</td>

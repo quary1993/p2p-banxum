@@ -1,6 +1,7 @@
-// Real-API Buy modal checks (QA audit 2026-10-09, A-01): the buyer must review and
+// Real-API purchase checks (QA audit 2026-10-09, A-01): the buyer must review and
 // accept the fresh listing price, the purchase must carry those reviewed economics,
 // and a "price changed" conflict must reload the new price for a second review.
+// U33: "View offer" opens the offer page; "Buy for ..." opens the "Confirm purchase" dialog.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -46,7 +47,6 @@ const listRow = {
   risk_acknowledgement_required: false,
   loan_status_at_listing: "active",
   collateral_type: "real_estate",
-  risk_rating: "A",
   // Another investor's listing (the generated mock picks this flag at random).
   is_own_listing: false
 };
@@ -78,6 +78,24 @@ function detailAt(priceBps: number, takerFeeBps = 75) {
   };
 }
 
+// Enough investable CHF for every price in these tests (the offer page blocks a purchase above the balance).
+const chfBalance = {
+  investor_user_id: "u2",
+  currency: "CHF",
+  total_available_minor: 5_000_000,
+  investable_minor: 5_000_000,
+  withdraw_only_minor: 0,
+  overdue_minor: 0,
+  frozen_minor: 0,
+  penalty_mode_minor: 0,
+  penalty_charged_minor: 0,
+  lot_count: 1,
+  active_lot_count: 1,
+  next_investment_deadline_at: null,
+  next_withdrawal_deadline_at: null,
+  next_return_date: null
+};
+
 function useInvestorApi(state: {
   detailPriceBps: number;
   takerFeeBps?: number;
@@ -107,7 +125,7 @@ function useInvestorApi(state: {
     ),
     http.get("*/api/v1/investor/portal/notifications/", () => HttpResponse.json({ notifications: [], unread_count: 0 })),
     http.get("*/api/v1/investor/portal/balances/", () =>
-      HttpResponse.json({ as_of: "2026-10-09T11:47:00Z", summaries: [], lots: [], payout_instructions: [], has_penalty_mode_balance: false })
+      HttpResponse.json({ as_of: "2026-10-09T11:47:00Z", summaries: [chfBalance], lots: [], payout_instructions: [] })
     ),
     http.get("*/api/v1/marketplace/primary/loans/", () => HttpResponse.json([])),
     http.get("*/api/v1/marketplace/primary/opportunities/", () => HttpResponse.json([])),
@@ -127,7 +145,6 @@ function useInvestorApi(state: {
           by_borrower: [],
           by_country: [],
           by_purpose: [],
-          by_risk_rating: [],
           by_collateral_type: [],
           by_maturity: [],
           by_loan_status: []
@@ -176,27 +193,38 @@ async function openBuyDialog() {
       <App />
     </QueryClientProvider>
   );
-  const row = await screen.findByText("Price lock listing", {}, { timeout: 5000 });
-  fireEvent.click(row.closest("button") as HTMLElement);
-  const dialog = await screen.findByRole("dialog");
-  await within(dialog).findByText(/Borrower: Price Lock AG/, {}, { timeout: 5000 });
-  return dialog;
+  fireEvent.click(await screen.findByRole("button", { name: "View offer Price lock listing" }, { timeout: 5000 }));
+  await screen.findByText(/Price Lock AG/, {}, { timeout: 5000 });
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Buy for / })).toBeEnabled(), { timeout: 5000 });
+  fireEvent.click(screen.getByRole("button", { name: /^Buy for / }));
+  return screen.findByRole("dialog", { name: "Confirm purchase" });
 }
 
+/** The value next to a label of the purchase breakdown. */
 function reviewValue(dialog: HTMLElement, label: string) {
   return within(dialog).getByText(label).nextElementSibling?.textContent ?? "";
+}
+
+/** "Total price" of the review and its discount or premium. */
+function totalPrice(dialog: HTMLElement) {
+  return dialog.querySelector(".s106-money")?.textContent ?? "";
+}
+
+function priceAdjustment(dialog: HTMLElement) {
+  return reviewValue(dialog, "Total price");
 }
 
 test("no buyer fee (owner decision 2026-10-16): the review has no taker fee line", async () => {
   const api = useInvestorApi({ detailPriceBps: 9_800, takerFeeBps: 0, purchaseResponses: [] });
   const dialog = await openBuyDialog();
 
-  expect(reviewValue(dialog, "Sale price")).toBe("2.0% discount");
-  expect(within(dialog).queryByText("Taker fee")).not.toBeInTheDocument();
-  expect(reviewValue(dialog, "Total cost")).toMatch(/9.800\.00/);
+  expect(priceAdjustment(dialog)).toBe("2,0% discount");
+  expect(reviewValue(dialog, "Purchase price")).toMatch(/CHF 9\.800,00/);
+  expect(within(dialog).queryByText("Buyer fee")).not.toBeInTheDocument();
+  expect(totalPrice(dialog)).toMatch(/9\.800,00/);
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
-  fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
@@ -209,13 +237,14 @@ test("buy modal shows, accepts and sends the fresh listing price, not the stale 
   const api = useInvestorApi({ detailPriceBps: 12_000, purchaseResponses: [] });
   const dialog = await openBuyDialog();
 
-  expect(reviewValue(dialog, "Sale price")).toBe("20.0% premium");
-  expect(reviewValue(dialog, "Total cost")).toMatch(/12.090\.00/);
+  expect(priceAdjustment(dialog)).toBe("20,0% premium");
+  expect(totalPrice(dialog)).toMatch(/12\.090,00/);
+  expect(reviewValue(dialog, "Accrued interest")).toMatch(/CHF 0,00/);
   // A configured buyer fee is still shown.
-  expect(reviewValue(dialog, "Taker fee")).toMatch(/CHF 90\.00/);
+  expect(reviewValue(dialog, "Buyer fee")).toMatch(/CHF 90,00/);
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
-  fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
@@ -255,11 +284,11 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
   };
   const api = useInvestorApi(state);
   const dialog = await openBuyDialog();
-  expect(reviewValue(dialog, "Total cost")).toMatch(/10.075\.00/);
+  expect(totalPrice(dialog)).toMatch(/10\.075,00/);
 
   const ack = within(dialog).getByRole("checkbox");
   fireEvent.click(ack);
-  fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
@@ -267,13 +296,18 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
 
   await within(dialog).findByText("Price changed", {}, { timeout: 5000 });
   expect(within(dialog).getByText(/Review the new price and confirm again\. Nothing was charged\./)).toBeInTheDocument();
-  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11.082\.50/));
-  expect(reviewValue(dialog, "Sale price")).toBe("10.0% premium");
+  await waitFor(() => expect(totalPrice(dialog)).toMatch(/11\.082,50/));
+  expect(priceAdjustment(dialog)).toBe("10,0% premium");
   // The buyer must accept the terms again for the new price.
   expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
   expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeDisabled();
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
+  // 18.5: the email code was for the old total; the new price needs a new code at once.
+  expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeDisabled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "654321" } });
+  enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
   await screen.findAllByText("Purchase confirmed", {}, { timeout: 5000 });
@@ -289,7 +323,7 @@ test("a price change at confirm reloads the new price and asks for a fresh revie
     expected_buyer_total_cost_minor: 1_108_250,
     expected_price_bps: 11_000,
     expected_current_principal_minor: 1_000_000,
-    sensitive_action_code: "123456"
+    sensitive_action_code: "654321"
   });
 }, 30_000);
 
@@ -316,14 +350,14 @@ test("a price change found when the terms are accepted reloads the price before 
   const dialog = await openBuyDialog();
 
   fireEvent.click(within(dialog).getByRole("checkbox"));
-  fireEvent.click(within(dialog).getByRole("button", { name: /Send email code/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send email code" }));
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   enterPin();
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm purchase" })).toBeEnabled());
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm purchase" }));
 
   await within(dialog).findByText("Price changed", {}, { timeout: 5000 });
-  await waitFor(() => expect(reviewValue(dialog, "Total cost")).toMatch(/11.082\.50/));
+  await waitFor(() => expect(totalPrice(dialog)).toMatch(/11\.082,50/));
   expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
   expect(api.purchases).toHaveLength(0);
 }, 30_000);

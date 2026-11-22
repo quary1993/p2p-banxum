@@ -1,7 +1,7 @@
 // IP of Webby-Soft SRL.
-// Currency exchange switched off by the platform setting fx.enabled (owner decision
-// 2026-10-16, row 6): no FX menu item and /fx shows the dashboard; when the switch is on,
-// FX is back. Real-API mode: the app reads GET /api/v1/investor/portal/features/.
+// Currency exchange: off by the platform setting fx.enabled (owner decision 2026-10-16), and the
+// exchange screen removed from the investor area (Q25, 2026-11-13): no FX menu item and /fx shows
+// the dashboard, also when the switch is on. Real-API mode: GET /api/v1/investor/portal/features/.
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
@@ -36,27 +36,24 @@ function useFeatures(fxEnabled: boolean) {
   );
 }
 
-function portalNav() {
-  return screen.getByRole("navigation", { name: "Investor portal navigation" });
-}
-
 test("FX off: no FX menu item, and /fx shows the dashboard at /dashboard", async () => {
   useFeatures(false);
   renderLiveApp(App, "/fx");
 
   await waitFor(() => expect(window.location.pathname).toBe("/dashboard"), { timeout: 5000 });
   const nav = await screen.findByRole("navigation", { name: "Investor portal navigation" }, { timeout: 5000 });
-  expect(within(nav).getByRole("button", { name: "Account" })).toBeInTheDocument();
-  expect(within(nav).queryByRole("button", { name: "FX" })).not.toBeInTheDocument();
+  expect(within(nav).getByRole("link", { name: "Account" })).toBeInTheDocument();
+  expect(within(nav).queryByRole("link", { name: "Currency exchange" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Currency exchange" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Convert" })).not.toBeInTheDocument();
 }, 30_000);
 
-test("FX on: the FX menu item and the currency exchange page are back", async () => {
+test("Q25: even with the FX switch on there is no exchange screen in the investor area", async () => {
   useFeatures(true);
   renderLiveApp(App, "/fx");
 
-  expect(await screen.findByRole("heading", { name: "Currency exchange" }, { timeout: 5000 })).toBeInTheDocument();
-  expect(window.location.pathname).toBe("/fx");
-  expect(within(portalNav()).getByRole("button", { name: "FX" })).toBeInTheDocument();
+  await waitFor(() => expect(window.location.pathname).toBe("/dashboard"), { timeout: 5000 });
+  const nav = await screen.findByRole("navigation", { name: "Investor portal navigation" }, { timeout: 5000 });
+  expect(within(nav).queryByRole("link", { name: "Currency exchange" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Currency exchange" })).not.toBeInTheDocument();
 }, 30_000);

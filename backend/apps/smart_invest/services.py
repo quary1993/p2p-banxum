@@ -17,7 +17,9 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import now_utc
+from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -29,8 +31,8 @@ from backend.apps.smart_invest.models import (
     SMART_INVEST_BANXUM_SOURCE,
     SmartInvestCollateralOption,
     SmartInvestCurrency,
-    SmartInvestLoanKind,
     SmartInvestMatchNotification,
+    SmartInvestRepaymentOption,
     SmartInvestRule,
     SmartInvestRuleEvent,
     SmartInvestRuleEventType,
@@ -50,13 +52,16 @@ class SaveSmartInvestRuleCommand:
     actor: Model
     minimum_yield_bps: int | None = None
     maximum_term_months: int | None = None
+    maximum_ltv_bps: int | None = None
+    # Optional usual amount (U33-DEC-19); it never restricts matching.
+    preferred_amount_minor: int | None = None
     # Every list criterion is multi-select; an empty list does not restrict.
     originators: Sequence[str] = ()
     collateral: Sequence[str] = ()
     currencies: Sequence[str] = ()
-    risk_ratings: Sequence[str] = ()
-    purposes: Sequence[str] = ()
-    loan_kinds: Sequence[str] = ()
+    countries: Sequence[str] = ()
+    # 18.3: SmartInvestRepaymentOption values; empty = no preference.
+    repayment: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,10 +95,38 @@ _LIST_CRITERIA = (
     "originators",
     "collateral",
     "currencies",
-    "risk_ratings",
-    "purposes",
-    "loan_kinds",
+    "countries",
+    "repayment",
 )
+# 18.3 / 18.6: the repayment types in the design's groups (U33-DEC-11, Q08). A loan with one
+# payment pays principal and interest at maturity, whatever its type. A custom schedule is a
+# periodic repayment (its principal is spread over its rows).
+_INTEREST_ONLY_TYPES = {"bullet_periodic_interest", "interest_only_then_bullet"}
+_PRINCIPAL_AND_INTEREST_TYPES = {
+    "equal_installments",
+    "amortizing_principal_interest",
+    "interest_only_then_amortizing",
+    "custom_schedule",
+}
+_AT_MATURITY_TYPES = {"full_at_maturity", "bullet", "bullet_at_maturity"}
+
+
+def opportunity_repayment_option(opportunity: dict[str, Any]) -> str | None:
+    """The Repayments group of an opportunity, or None for a structure without a group."""
+    if int(opportunity.get("term_months") or 0) == 1:
+        return str(SmartInvestRepaymentOption.AT_MATURITY)
+    repayment_type = str(opportunity.get("repayment_type") or "")
+    if repayment_type in _INTEREST_ONLY_TYPES:
+        return str(SmartInvestRepaymentOption.INTEREST_ONLY)
+    if repayment_type in _PRINCIPAL_AND_INTEREST_TYPES:
+        return str(SmartInvestRepaymentOption.PRINCIPAL_AND_INTEREST)
+    if repayment_type in _AT_MATURITY_TYPES:
+        return str(SmartInvestRepaymentOption.AT_MATURITY)
+    return None
+# Smart Invest states (U33-DEC-19). A rule without an effective criterion is not set up.
+STATE_NOT_SET_UP = "not_set_up"
+STATE_ACTIVE = "active"
+STATE_PAUSED = "paused"
 
 
 def loan_field_choices(field_name: str) -> list[tuple[str, str]]:
@@ -173,40 +206,54 @@ def _validated_originators(values: Sequence[str]) -> list[str]:
     return banxum + sorted(originator_ids)
 
 
+def _validated_countries(values: Sequence[str]) -> list[str]:
+    """Borrower countries as the opportunities carry them, without duplicates."""
+    countries: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw).strip()
+        if not value or len(value) > 64:
+            raise SmartInvestValidationError(f"Country {value!r} is not valid.")
+        if value.casefold() not in seen:
+            seen.add(value.casefold())
+            countries.append(value)
+    return countries
+
+
 def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
     minimum_yield_bps = command.minimum_yield_bps
     maximum_term_months = command.maximum_term_months
+    maximum_ltv_bps = command.maximum_ltv_bps
+    preferred_amount_minor = command.preferred_amount_minor
     if minimum_yield_bps is not None and not 0 <= minimum_yield_bps <= 100_000:
         raise SmartInvestValidationError("Minimum yield must be between 0 and 1000%.")
     if minimum_yield_bps == 0:
         minimum_yield_bps = None
     if maximum_term_months is not None and maximum_term_months < 1:
         raise SmartInvestValidationError("Maximum term must be at least one month.")
+    if maximum_ltv_bps is not None and not 1 <= maximum_ltv_bps <= 10_000:
+        raise SmartInvestValidationError("Maximum loan-to-value must be between 0.01% and 100%.")
+    if preferred_amount_minor is not None and preferred_amount_minor < 0:
+        raise SmartInvestValidationError("The usual amount cannot be negative.")
+    if preferred_amount_minor == 0:
+        preferred_amount_minor = None
 
     criteria = {
         "minimum_yield_bps": minimum_yield_bps,
         "maximum_term_months": maximum_term_months,
+        "maximum_ltv_bps": maximum_ltv_bps,
+        "preferred_amount_minor": preferred_amount_minor,
         "originators": _validated_originators(command.originators),
         "collateral": _validated_collateral(command.collateral),
         "currencies": _validated_choices(
             command.currencies, SmartInvestCurrency.values, "Currency"
         ),
-        "risk_ratings": _validated_choices(
-            command.risk_ratings,
-            _choice_values(loan_field_choices("risk_rating")),
-            "Risk rating",
-        ),
-        "purposes": _validated_choices(
-            command.purposes, _choice_values(loan_field_choices("purpose")), "Purpose"
-        ),
-        "loan_kinds": _validated_choices(
-            command.loan_kinds, SmartInvestLoanKind.values, "Loan type"
+        "countries": _validated_countries(command.countries),
+        "repayment": _validated_choices(
+            command.repayment, SmartInvestRepaymentOption.values, "Repayment"
         ),
     }
-    if not _has_effective_criterion(criteria):
-        raise SmartInvestValidationError(
-            "Choose at least one Smart-Invest criterion before activating the rule."
-        )
+    # 18.3: "No preference" everywhere is allowed; such a rule matches every open opportunity.
     return criteria
 
 
@@ -218,19 +265,20 @@ def _restricts(selected: Sequence[str], every_option: Sequence[str] | None = Non
 
 
 def _has_effective_criterion(criteria: dict[str, Any]) -> bool:
+    """A criterion that limits the matches; the usual amount never does (U33-DEC-19)."""
     return any(
         (
             criteria["minimum_yield_bps"] is not None,
             criteria["maximum_term_months"] is not None,
+            criteria.get("maximum_ltv_bps") is not None,
             _restricts(criteria["originators"]),
             _restricts(
                 criteria["collateral"],
                 SmartInvestCollateralOption.values,
             ),
             _restricts(criteria["currencies"], SmartInvestCurrency.values),
-            _restricts(criteria["risk_ratings"], _choice_values(loan_field_choices("risk_rating"))),
-            _restricts(criteria["purposes"], _choice_values(loan_field_choices("purpose"))),
-            _restricts(criteria["loan_kinds"], SmartInvestLoanKind.values),
+            _restricts(criteria.get("countries") or []),
+            _restricts(criteria.get("repayment") or [], SmartInvestRepaymentOption.values),
         )
     )
 
@@ -239,8 +287,23 @@ def _criteria_snapshot(rule: SmartInvestRule) -> dict[str, Any]:
     return {
         "minimum_yield_bps": rule.minimum_yield_bps,
         "maximum_term_months": rule.maximum_term_months,
+        "maximum_ltv_bps": rule.maximum_ltv_bps,
+        "preferred_amount_minor": rule.preferred_amount_minor,
         **{field: [str(value) for value in getattr(rule, field) or []] for field in _LIST_CRITERIA},
     }
+
+
+def _rule_state(rule: SmartInvestRule | None) -> str:
+    """Active or paused; not set up without a rule.
+
+    18.3: an active rule may have no limiting criterion (it matches every open opportunity). A
+    paused rule without any criterion (also one cleared before U33-DEC-19) counts as not set up.
+    """
+    if rule is None:
+        return STATE_NOT_SET_UP
+    if rule.is_active:
+        return STATE_ACTIVE
+    return STATE_PAUSED if _has_effective_criterion(_criteria_snapshot(rule)) else STATE_NOT_SET_UP
 
 
 def _rule_payload(rule: SmartInvestRule | None) -> dict[str, Any] | None:
@@ -249,6 +312,7 @@ def _rule_payload(rule: SmartInvestRule | None) -> dict[str, Any] | None:
     return {
         "id": str(rule.id),
         "is_active": rule.is_active,
+        "state": _rule_state(rule),
         "revision": rule.revision,
         **_criteria_snapshot(rule),
         "activated_at": rule.activated_at,
@@ -292,27 +356,34 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
         if _opportunity_is_unsecured(opportunity):
             collateral_matches = SmartInvestCollateralOption.UNSECURED in collateral
         else:
-            collateral_matches = (
-                SmartInvestCollateralOption.ANY_SECURED in collateral
-                or str(opportunity.get("collateral_type") or "") in collateral
+            # U33-DEC-21: any security of the loan can match.
+            types = set(opportunity.get("security_types") or []) or {
+                str(opportunity.get("collateral_type") or "")
+            }
+            collateral_matches = SmartInvestCollateralOption.ANY_SECURED in collateral or bool(
+                types & collateral
             )
         if not collateral_matches:
             return False
 
-    single_value_lists = (
-        ("currencies", str(opportunity.get("currency") or "")),
-        ("risk_ratings", str(opportunity.get("risk_rating") or "")),
-        ("purposes", str(opportunity.get("purpose") or "")),
-        (
-            "loan_kinds",
-            SmartInvestLoanKind.REFINANCING
-            if bool(opportunity.get("is_refinancing"))
-            else SmartInvestLoanKind.NEW,
-        ),
-    )
-    for field, value in single_value_lists:
-        selected = criteria.get(field) or []
-        if selected and value not in selected:
+    maximum_ltv_bps = criteria.get("maximum_ltv_bps")
+    if maximum_ltv_bps is not None:
+        # Without a loan-to-value figure the limit cannot be checked: no match.
+        ltv_bps = opportunity.get("ltv_bps")
+        if ltv_bps is None or int(ltv_bps) > int(maximum_ltv_bps):
+            return False
+
+    currencies = criteria.get("currencies") or []
+    if currencies and str(opportunity.get("currency") or "") not in currencies:
+        return False
+
+    countries = {str(value).casefold() for value in criteria.get("countries") or []}
+    if countries and str(opportunity.get("borrower_country") or "").casefold() not in countries:
+        return False
+
+    repayment = set(criteria.get("repayment") or [])
+    if repayment and not set(SmartInvestRepaymentOption.values).issubset(repayment):
+        if opportunity_repayment_option(opportunity) not in repayment:
             return False
     return True
 
@@ -337,21 +408,93 @@ def _matching_opportunities(rule: SmartInvestRule) -> tuple[list[dict[str, Any]]
     )
 
 
+def _coming_soon_matches(rule: SmartInvestRule) -> list[dict[str, Any]]:
+    """U33-DEC-17: Coming soon opportunities that match, apart from the open matches."""
+    criteria = _criteria_snapshot(rule)
+    return [
+        item
+        for item in _marketplace_services().coming_soon_marketplace_payloads(
+            viewer_user_id=str(rule.user_id)
+        )
+        if opportunity_matches_criteria(item, criteria)
+    ]
+
+
 def get_smart_invest(*, actor: Model) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
     matches: list[dict[str, Any]] = []
-    open_opportunity_count = len(
-        _marketplace_services().list_open_marketplace_loans(limit=10_000)
-    )
+    coming_soon: list[dict[str, Any]] = []
+    open_opportunity_count = len(_marketplace_services().list_open_marketplace_loans(limit=10_000))
+    # A paused rule shows no matches (U33-DEC-19); resuming recalculates them.
     if rule is not None and rule.is_active:
         matches, open_opportunity_count = _matching_opportunities(rule)
+        coming_soon = _coming_soon_matches(rule)
     return {
         "rule": _rule_payload(rule),
+        "notification_channels": _channels_payload(rule),
+        # Open matches only: the counters never include Coming soon (U33-DEC-17).
         "match_count": len(matches),
         "open_opportunity_count": open_opportunity_count,
         "matches": matches,
+        "coming_soon_matches": coming_soon,
     }
+
+
+def _channels_payload(rule: SmartInvestRule | None) -> dict[str, bool]:
+    """U33-DEC-30: both channels are on until the investor switches one off."""
+    if rule is None:
+        return {"in_app": True, "email": True}
+    return {"in_app": bool(rule.notify_in_app), "email": bool(rule.notify_email)}
+
+
+@dataclass(frozen=True, slots=True)
+class SetSmartInvestChannelsCommand:
+    actor: Model
+    in_app: bool
+    email: bool
+
+
+@transaction.atomic
+def set_smart_invest_channels(command: SetSmartInvestChannelsCommand) -> dict[str, Any]:
+    """U33-DEC-30: switch the in-app and email match alerts separately.
+
+    Also before set-up: the choice is kept for when the investor saves preferences. Neither
+    channel stops matching or service messages; Pause stops both.
+    """
+    investor_user_id = _require_financial_access(command.actor)
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.select_for_update().get(pk=investor_user_id)
+    rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
+    if rule is None:
+        # Nothing saved yet: an empty, inactive rule only holds the channels (state not_set_up).
+        rule = SmartInvestRule(user_id=investor_user_id, is_active=False)
+    previous = _channels_payload(rule if rule.pk else None)
+    new = {"in_app": bool(command.in_app), "email": bool(command.email)}
+    if rule.pk and previous == new:
+        return get_smart_invest(actor=command.actor)
+    rule.notify_in_app = new["in_app"]
+    rule.notify_email = new["email"]
+    rule.save()
+    SmartInvestRuleEvent.objects.create(
+        rule=rule,
+        investor_user_id=investor_user_id,
+        actor_user_id=command.actor.pk,
+        event_type=SmartInvestRuleEventType.CHANNELS_CHANGED,
+        revision=rule.revision,
+        criteria_snapshot=_criteria_snapshot(rule),
+        metadata={"previous": previous, "new": new},
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="smart_invest.channels_changed",
+            target_type="SmartInvestRule",
+            target_id=str(rule.id),
+            metadata={"previous": previous, "new": new},
+        )
+    )
+    return get_smart_invest(actor=command.actor)
 
 
 @transaction.atomic
@@ -362,14 +505,17 @@ def save_smart_invest_rule(command: SaveSmartInvestRuleCommand) -> dict[str, Any
     user_model.objects.select_for_update().get(pk=investor_user_id)
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
     now = now_utc()
+    # Editing a paused rule keeps it paused (U33-DEC-19); a new set-up is active at once.
+    keep_paused = _rule_state(rule) == STATE_PAUSED
     if rule is None:
         rule = SmartInvestRule(user_id=investor_user_id)
     for field, value in criteria.items():
         setattr(rule, field, value)
-    rule.is_active = True
     rule.revision += 1
-    rule.activated_at = now
-    rule.deactivated_at = None
+    if not keep_paused:
+        rule.is_active = True
+        rule.activated_at = now
+        rule.deactivated_at = None
     rule.save()
     snapshot = _criteria_snapshot(rule)
     SmartInvestRuleEvent.objects.create(
@@ -379,6 +525,7 @@ def save_smart_invest_rule(command: SaveSmartInvestRuleCommand) -> dict[str, Any
         event_type=SmartInvestRuleEventType.SAVED,
         revision=rule.revision,
         criteria_snapshot=snapshot,
+        metadata={"paused": keep_paused},
     )
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
@@ -387,7 +534,7 @@ def save_smart_invest_rule(command: SaveSmartInvestRuleCommand) -> dict[str, Any
             action="smart_invest.rule_saved",
             target_type="SmartInvestRule",
             target_id=str(rule.id),
-            metadata={"revision": rule.revision, "criteria": snapshot},
+            metadata={"revision": rule.revision, "criteria": snapshot, "paused": keep_paused},
         )
     )
     record_domain_event(
@@ -402,36 +549,21 @@ def save_smart_invest_rule(command: SaveSmartInvestRuleCommand) -> dict[str, Any
     return get_smart_invest(actor=command.actor)
 
 
-@transaction.atomic
-def deactivate_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
-    investor_user_id = _require_financial_access(actor)
-    user_model = apps.get_model("accounts_auth", "User")
-    user_model.objects.select_for_update().get(pk=investor_user_id)
-    rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
-    if rule is None or not rule.is_active:
-        return get_smart_invest(actor=actor)
-    previous_snapshot = _criteria_snapshot(rule)
-    rule.is_active = False
-    rule.minimum_yield_bps = None
-    rule.maximum_term_months = None
-    for field in _LIST_CRITERIA:
-        setattr(rule, field, [])
-    rule.revision += 1
-    rule.deactivated_at = now_utc()
-    rule.save()
+def _record_state_change(
+    *, rule: SmartInvestRule, actor: Model, event_type: str, action: str, domain_event: str
+) -> None:
     SmartInvestRuleEvent.objects.create(
         rule=rule,
-        investor_user_id=investor_user_id,
+        investor_user_id=rule.user_id,
         actor_user_id=actor.pk,
-        event_type=SmartInvestRuleEventType.DEACTIVATED,
+        event_type=event_type,
         revision=rule.revision,
-        criteria_snapshot=previous_snapshot,
+        criteria_snapshot=_criteria_snapshot(rule),
     )
-    actor_ref = actor_ref_for_user(actor)
     record_audit_event(
         AuditCommand(
-            actor=actor_ref,
-            action="smart_invest.rule_deactivated",
+            actor=actor_ref_for_user(actor),
+            action=action,
             target_type="SmartInvestRule",
             target_id=str(rule.id),
             metadata={"revision": rule.revision},
@@ -439,12 +571,63 @@ def deactivate_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
     )
     record_domain_event(
         DomainEventCommand(
-            event_type="SmartInvestRuleDeactivated",
+            event_type=domain_event,
             aggregate_type="SmartInvestRule",
             aggregate_id=str(rule.id),
-            payload={"investor_user_id": investor_user_id, "revision": rule.revision},
+            payload={"investor_user_id": str(rule.user_id), "revision": rule.revision},
             idempotency_key=f"smart-invest-rule:{rule.id}:revision:{rule.revision}",
         )
+    )
+
+
+@transaction.atomic
+def pause_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
+    """U33-DEC-19: stop matches and alerts, keep the preferences and the history."""
+    investor_user_id = _require_financial_access(actor)
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.select_for_update().get(pk=investor_user_id)
+    rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
+    if rule is None or not rule.is_active:
+        return get_smart_invest(actor=actor)
+    rule.is_active = False
+    rule.revision += 1
+    rule.deactivated_at = now_utc()
+    rule.save(update_fields=["is_active", "revision", "deactivated_at", "updated_at"])
+    _record_state_change(
+        rule=rule,
+        actor=actor,
+        event_type=SmartInvestRuleEventType.PAUSED,
+        action="smart_invest.rule_paused",
+        domain_event="SmartInvestRulePaused",
+    )
+    return get_smart_invest(actor=actor)
+
+
+@transaction.atomic
+def resume_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
+    """U33-DEC-19: use the saved preferences again; the matches are calculated anew."""
+    investor_user_id = _require_financial_access(actor)
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.select_for_update().get(pk=investor_user_id)
+    rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
+    state = _rule_state(rule)
+    if rule is None or state == STATE_NOT_SET_UP:
+        raise SmartInvestValidationError("Set up Smart Invest before you resume it.")
+    if state == STATE_ACTIVE:
+        return get_smart_invest(actor=actor)
+    rule.is_active = True
+    rule.revision += 1
+    rule.activated_at = now_utc()
+    rule.deactivated_at = None
+    rule.save(
+        update_fields=["is_active", "revision", "activated_at", "deactivated_at", "updated_at"]
+    )
+    _record_state_change(
+        rule=rule,
+        actor=actor,
+        event_type=SmartInvestRuleEventType.RESUMED,
+        action="smart_invest.rule_resumed",
+        domain_event="SmartInvestRuleResumed",
     )
     return get_smart_invest(actor=actor)
 
@@ -473,7 +656,9 @@ def _public_opportunity(*, loan_id: str, product_type: str) -> dict[str, Any] | 
     return cast(dict[str, Any], _marketplace_services().public_marketplace_listing_payload(loan))
 
 
-def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any]:
+def _email_payload(
+    *, user: Model, opportunity: dict[str, Any], in_app: bool = True
+) -> dict[str, Any]:
     currency = str(opportunity.get("currency", ""))
     yield_bps = int(opportunity.get("yield_bps") or 0)
     term_months = int(opportunity.get("term_months") or 0)
@@ -508,7 +693,82 @@ def _email_payload(*, user: Model, opportunity: dict[str, Any]) -> dict[str, Any
         ),
         "loan_id": str(opportunity["loan_id"]),
         "action_url": action_url,
+        # Q14: the email carries a one-click "Stop these alerts" link.
+        "stop_alerts": {"kind": "smart_invest"},
+        # U33-DEC-30: false keeps the email out of Notifications (in-app channel off).
+        **({} if in_app else {"in_app": False}),
     }
+
+
+IN_APP_MATCH_TOPIC = "notice.smart_invest_opportunity_match"
+
+
+def stop_smart_invest_emails(*, investor_user_id: str) -> bool:
+    """Q14: "Stop these alerts" in a Smart Invest email switches its email channel off.
+
+    The preferences, the in-app channel and the matching stay. Returns True when it changed.
+    """
+    with transaction.atomic():
+        rule = (
+            SmartInvestRule.objects.select_for_update().filter(user_id=investor_user_id).first()
+        )
+        if rule is None or not rule.notify_email:
+            return False
+        rule.notify_email = False
+        rule.save(update_fields=["notify_email", "updated_at"])
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef("investor", str(investor_user_id)),
+                action="smart_invest.email_alerts_stopped",
+                target_type="SmartInvestRule",
+                target_id=str(rule.pk),
+                metadata={"decision": "Q14", "source": "email_stop_link"},
+            )
+        )
+    return True
+
+
+def _opening_alert_sent(*, investor_user_id: str, loan_id: str) -> bool:
+    alert_model = apps.get_model("marketplace_primary", "LoanOpeningAlert")
+    return bool(
+        alert_model.objects.filter(
+            loan_id=loan_id, investor_user_id=investor_user_id, notified_at__isnull=False
+        ).exists()
+    )
+
+
+def _enqueue_match_alert(
+    *, rule: SmartInvestRule, user: Model, loan_id: str, opportunity: dict[str, Any]
+) -> Any:
+    """U33-DEC-30: one message per match, shaped by the investor's channels.
+
+    Email on: the email (listed in Notifications unless in-app is off). Email off, in-app on:
+    an in-app notice that is never emailed. Both off: nothing; the match is still recorded.
+    """
+    if rule.notify_email:
+        return enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
+                topic="email.smart_invest_opportunity_match",
+                payload=_email_payload(
+                    user=user, opportunity=opportunity, in_app=rule.notify_in_app
+                ),
+            )
+        )
+    if rule.notify_in_app:
+        notice = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
+                topic=IN_APP_MATCH_TOPIC,
+                payload=_email_payload(user=user, opportunity=opportunity),
+            )
+        )
+        # Not an email topic, so no sender picks it up: it is done once it is listed.
+        type(notice).objects.filter(pk=notice.pk).update(
+            status=OutboxStatus.PROCESSED, processed_at=now_utc()
+        )
+        return notice
+    return None
 
 
 @transaction.atomic
@@ -535,11 +795,12 @@ def notify_smart_invest_matches_for_published_loan(
             investor_user_id=user.pk, loan_id=loan_id
         ).exists():
             continue
-        outbox = enqueue_outbox_message(
-            OutboxCommand(
-                idempotency_key=f"smart-match:{user.pk}:{loan_id}",
-                topic="email.smart_invest_opportunity_match",
-                payload=_email_payload(user=user, opportunity=opportunity),
+        # U33-DEC-17: no second alert for an investor who just got this loan's opening alert.
+        outbox = (
+            None
+            if _opening_alert_sent(investor_user_id=str(user.pk), loan_id=loan_id)
+            else _enqueue_match_alert(
+                rule=rule, user=user, loan_id=loan_id, opportunity=opportunity
             )
         )
         try:

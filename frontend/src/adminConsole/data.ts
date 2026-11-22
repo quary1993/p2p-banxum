@@ -426,6 +426,7 @@ const payoutInstructionFixture: AdminPayoutInstructionRow[] = [
     destination_iban: "CH5604835012345678009",
     destination_account_name: "Anna Keller",
     state: "pending",
+    is_default_return: false,
     origin: "investor_request",
     verified_at: null,
     verified_by_admin_id: null,

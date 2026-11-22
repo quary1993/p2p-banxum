@@ -8,15 +8,14 @@ from backend.apps.accounts_auth import session_lifetime
 from backend.apps.accounts_auth.models import (
     AccountStatus,
     AccountType,
-    EmailLoginToken,
-    SensitiveActionCode,
     User,
 )
-from backend.apps.accounts_auth.services import (
-    MagicLinkRequestCommand,
-    delivery_secret_for_magic_link,
-    delivery_secret_for_sensitive_action_code,
-    issue_magic_link,
+from backend.apps.accounts_auth.tests.signin_helpers import (
+    TEST_PASSWORD,
+    admin_sign_in,
+    ready_investor,
+    sign_in,
+    sms_code_for_challenge,
 )
 from backend.apps.platform_core.models import AuditEvent
 from backend.apps.platform_core.services.impersonation import (
@@ -79,32 +78,12 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
 
 
 def _magic_link_login(client: Client, user: User) -> None:
-    result = issue_magic_link(MagicLinkRequestCommand(email=user.email))
-    response = client.post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": result.raw_token},
-        content_type="application/json",
-    )
-    assert response.status_code == 200
+    """18.5: password + SMS code (the name is kept from the email-link era)."""
+    sign_in(client, ready_investor(user))
 
 
 def _admin_login(client: Client, user: User, password: str) -> None:
-    start = client.post(
-        "/api/v1/auth/admin/login/start/",
-        data={"email": user.email, "password": password},
-        content_type="application/json",
-    )
-    assert start.status_code == 202
-    code_record = SensitiveActionCode.objects.get(id=start.json()["code_id"])
-    confirm = client.post(
-        "/api/v1/auth/admin/login/confirm/",
-        data={
-            "code_id": str(code_record.id),
-            "code": delivery_secret_for_sensitive_action_code(code_record),
-        },
-        content_type="application/json",
-    )
-    assert confirm.status_code == 200
+    admin_sign_in(client, user, password)
 
 
 def _assert_session_expired(response: object) -> None:
@@ -168,20 +147,23 @@ def test_expired_session_does_not_block_public_and_login_endpoints(
     _magic_link_login(client, investor)
     clock.offset = TWO_HOURS
 
+    # The sign-in step is open to an expired browser and signs the investor in again.
     response = client.post(
-        "/api/v1/auth/magic-link/request/",
-        data={"email": investor.email},
+        "/api/v1/auth/login/",
+        data={"email": investor.email, "password": TEST_PASSWORD},
         content_type="application/json",
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 200
     _assert_session_expired(client.get("/api/v1/auth/me/"))
 
-    # The link that request sent signs the investor in again.
-    sent = EmailLoginToken.objects.filter(user=investor, used_at__isnull=True).get()
+    body = response.json()
     consumed = client.post(
-        "/api/v1/auth/magic-link/consume/",
-        data={"token": delivery_secret_for_magic_link(sent)},
+        "/api/v1/auth/login/verify/",
+        data={
+            "challenge_id": body["challenge_id"],
+            "code": sms_code_for_challenge(body["challenge_id"]),
+        },
         content_type="application/json",
     )
     assert consumed.status_code == 200

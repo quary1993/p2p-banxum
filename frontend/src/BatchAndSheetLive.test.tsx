@@ -1,22 +1,15 @@
-// Real-API checks for the Smart-Invest batch and the loan quick-view sheet (QA audit
-// 2026-10-09): A-31 (a batch needs the same risk acknowledgement as one investment),
-// A-42 (balances refresh after a batch), A-39 (the sheet projects what can really be
-// lent, names the borrower, and pre-fills an amount that parses).
+// Real-API checks for Smart-Invest matches and the opportunity page (QA audit 2026-10-09):
+// A-31 / A-42 are superseded by U33-DEC-19 (no batch approval: every match is confirmed on its own
+// opportunity page), A-39 (the opportunity names the borrower and what can really be invested here,
+// and the amount parses with or without separators; nothing is pre-filled, U33-DEC-08).
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
-import {
-  getMarketplacePrimaryOrdersBatchCreateResponseMock,
-  getV1DocumentsAcceptancesCreateResponseMock,
-  getV1DocumentsTemplatesCurrentRetrieveResponseMock,
-  getV1MarketplacePrimaryLoansRetrieveResponseMock,
-  getV1MarketplacePrimaryOrdersCreateResponseMock
-} from "./api/generated/banxumApi";
+import { getV1MarketplacePrimaryLoansRetrieveResponseMock } from "./api/generated/banxumApi";
 import { balancesPayload, emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
-import { enterPin } from "./test/pin";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -28,7 +21,7 @@ beforeAll(async () => {
 
 let calls: RecordedCalls;
 beforeEach(() => {
-  calls = emptyCalls("codes", "acceptances", "batches");
+  calls = emptyCalls("codes", "acceptances", "batches", "channels");
 });
 
 const LOAN_ID = "88888888-8888-4888-8888-888888888888";
@@ -45,7 +38,6 @@ const preview = {
   underlying_interest_rate_bps: 1200,
   term_months: 12,
   remaining_term_days: null,
-  risk_rating: "A",
   funding_deadline: "2026-10-30",
   maturity_date: null,
   status: "published",
@@ -78,91 +70,81 @@ function loanDetail(overrides: Record<string, unknown> = {}) {
     default_penalty_interest_bps: 0,
     repayment_type: "amortizing_principal_interest",
     entitlement_start_date: null,
+    // Not a Swiss-borrower loan: the generated mock fills these at random (a "full" loan blocks investing).
+    max_investors: null,
+    places_left: null,
+    is_existing_investor: false,
     ...overrides
   };
 }
 
-test("A-31 / A-42: a Smart-Invest batch needs the risk acknowledgement and refreshes balances", async () => {
-  server.use(
-    ...investorShellHandlers(calls, {
-      balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
-      marketplaceLoans: () => [preview]
-    }),
-    http.get("*/api/v1/investor/smart-invest/", () =>
-      HttpResponse.json({
+// U33-DEC-19 replaces the Smart-Invest batch (A-31 / A-42): a match opens its opportunity page, where
+// the single-investment flow asks for the terms, the risk acknowledgement and the code on its own.
+test("U33-DEC-19: a Smart-Invest match opens its opportunity page; there is no batch approval", async () => {
+  const smart = {
         rule: {
           id: "rule-1",
           is_active: true,
+          state: "active",
           revision: 1,
           minimum_yield_bps: null,
           maximum_term_months: null,
+          maximum_ltv_bps: null,
+          preferred_amount_minor: null,
           originators: [],
           collateral: [],
           currencies: ["CHF"],
-          risk_ratings: [],
-          purposes: [],
-          loan_kinds: [],
+          countries: [],
           activated_at: "2026-10-01T00:00:00Z",
           deactivated_at: null,
           created_at: "2026-10-01T00:00:00Z",
           updated_at: "2026-10-01T00:00:00Z"
         },
+        notification_channels: { in_app: true, email: true },
         match_count: 1,
         open_opportunity_count: 1,
         matches: [preview]
-      })
-    ),
-    http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail())),
-    http.get("*/api/v1/documents/templates/current/", () =>
-      HttpResponse.json({ ...getV1DocumentsTemplatesCurrentRetrieveResponseMock(), id: "tpl-1", title: "Investment terms", version_number: 3, checkbox_labels: ["I accept."] })
-    ),
-    http.post("*/api/v1/documents/acceptances/", async ({ request }) => {
-      calls.acceptances.push((await request.json()) as Record<string, unknown>);
-      return HttpResponse.json({ ...getV1DocumentsAcceptancesCreateResponseMock(), id: "acc-1" }, { status: 201 });
+      };
+  server.use(
+    ...investorShellHandlers(calls, {
+      balances: () => balancesPayload([{ currency: "CHF", investableMinor: 1_000_000 }]),
+      marketplaceLoans: () => [preview]
     }),
+    http.get("*/api/v1/investor/smart-invest/", () => HttpResponse.json(smart)),
+    http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail())),
     http.post("*/api/v1/marketplace/primary/orders/batch/", async ({ request }) => {
-      const body = (await request.json()) as { items: Array<{ amount_minor: number }> };
-      calls.batches.push(body);
-      return HttpResponse.json({
-        ...getMarketplacePrimaryOrdersBatchCreateResponseMock(),
-        orders: [{
-          ...getV1MarketplacePrimaryOrdersCreateResponseMock(),
-          loan_id: LOAN_ID,
-          status: "balance_allocated",
-          requested_amount_minor: body.items[0].amount_minor,
-          allocated_amount_minor: body.items[0].amount_minor,
-          closed_reason: ""
-        }],
-        originator_purchases: [],
-        order_count: 1,
-        originator_purchase_count: 0
-      }, { status: 201 });
+      calls.batches.push((await request.json()) as Record<string, unknown>);
+      return HttpResponse.json({}, { status: 400 });
+    }),
+    http.post("*/api/v1/investor/smart-invest/notifications/", async ({ request }) => {
+      const body = (await request.json()) as { in_app: boolean; email: boolean };
+      calls.channels.push(body);
+      return HttpResponse.json({ ...smart, notification_channels: body });
     })
   );
   renderLiveApp(App, "/smart-invest");
-  fireEvent.click(await screen.findByRole("button", { name: "Review & confirm →" }, { timeout: 5000 }));
-  const dialog = screen.getByRole("dialog", { name: "Approve this allocation." });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
-  await within(dialog).findByText(/one terms acceptance and one email code cover every investment/, {}, { timeout: 5000 });
-  fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
-  enterPin();
-  await waitFor(() => expect(calls.codes).toHaveLength(1));
-  // Without the risk acknowledgement nothing can be placed.
-  expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeDisabled();
-  fireEvent.click(within(dialog).getByRole("checkbox", { name: /risk disclosure/i }));
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Place 1 investment" })).toBeEnabled());
-  const balanceReadsBefore = calls.balanceReads.length;
-  fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
-  await within(dialog).findByText("Every selected investment is in.", {}, { timeout: 5000 });
+  const review = await screen.findByRole("button", { name: "Review investment in Audit Direct Loan" }, { timeout: 5000 });
 
-  expect(calls.batches).toHaveLength(1);
-  // The balance pills and the plan are reloaded after the money moved.
-  await waitFor(() => expect(calls.balanceReads.length).toBeGreaterThan(balanceReadsBefore));
-  expect(within(dialog).getByText(/One order reserves balance until the applicable funding round closes\./)).toBeInTheDocument();
+  // U33-DEC-30: the channels are saved with their own request.
+  fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));
+  const channels = screen.getByRole("dialog", { name: "Notify me about matching investment opportunities" });
+  fireEvent.click(within(channels).getByRole("checkbox", { name: "By email" }));
+  fireEvent.click(within(channels).getByRole("button", { name: "Save preferences" }));
+  await waitFor(() => expect(calls.channels).toEqual([{ in_app: true, email: false }]));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Notify me about matching investment opportunities" })).not.toBeInTheDocument());
+  expect(screen.getByText("CHF · Any interest rate · Any duration")).toBeInTheDocument();
+  // Nothing to select, approve or confirm in bulk on the Smart Invest page.
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Review & confirm|Approve|Place \d/ })).not.toBeInTheDocument();
+
+  fireEvent.click(review);
+  await waitFor(() => expect(window.location.pathname).toBe(`/marketplace/${LOAN_ID}`));
+  expect(calls.batches).toHaveLength(0);
+  expect(calls.codes).toHaveLength(0);
+  expect(calls.acceptances).toHaveLength(0);
 }, 30_000);
 
-test("A-39: the quick-view sheet projects what can be lent here, names the borrower, and its amount parses", async () => {
+test("A-39: the opportunity page names the borrower and what can be invested here, and its amount parses", async () => {
   server.use(
     ...investorShellHandlers(calls, {
       // A wallet of CHF 100,500.01 and a loan with CHF 10,000.00 left.
@@ -171,27 +153,41 @@ test("A-39: the quick-view sheet projects what can be lent here, names the borro
     }),
     http.get(`*/api/v1/marketplace/primary/loans/${LOAN_ID}/`, () => HttpResponse.json(loanDetail()))
   );
-  renderLiveApp(App, "/marketplace");
-  fireEvent.click(await screen.findByText("Audit Direct Loan", {}, { timeout: 5000 }));
-  const sheet = await screen.findByRole("dialog", { name: "Audit Direct Loan" });
-  await within(sheet).findByText(/Your claim is against Audit Borrower AG/, {}, { timeout: 5000 });
+  renderLiveApp(App, `/marketplace/${LOAN_ID}`);
+  await screen.findByRole("heading", { level: 1, name: "Audit Direct Loan" }, { timeout: 5000 });
 
-  expect(within(sheet).getByText(/What your CHF 10.000\.00 does here/)).toBeInTheDocument();
-  expect(within(sheet).queryByText(/100.500\.01 does here/)).not.toBeInTheDocument();
-  expect(within(sheet).queryByText(/paid at maturity/)).not.toBeInTheDocument();
-  expect(within(sheet).getByText(/capital and interest every month/)).toBeInTheDocument();
-  expect(within(sheet).queryByText(/claim is against Audit Direct Loan/)).not.toBeInTheDocument();
+  // The claim is against the borrower, not the loan title; the limits come from the loan.
+  expect(screen.getByText(/Audit Borrower AG/)).toBeInTheDocument();
+  expect(screen.getByText(/Minimum CHF 1\.000,00 · CHF 10\.000,00 available/)).toBeInTheDocument();
+  expect(screen.getByText("Principal and interest paid monthly")).toBeInTheDocument();
+  const amount = screen.getByRole("textbox", { name: "Choose investment amount" });
+  expect(amount).toHaveValue("");
+  await screen.findByText(/Your CHF balance for this loan: CHF 100\.500,01/, {}, { timeout: 5000 });
 
-  fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
-  const amount = within(sheet).getByRole("textbox", { name: "Amount to invest" });
-  expect(amount).toHaveValue("10000.00");
-  // Editing the pre-filled amount works, with or without separators.
-  fireEvent.change(amount, { target: { value: "9500.00" } });
-  expect(within(sheet).getByText(/^CHF 9.500\.00$/)).toBeInTheDocument();
-  fireEvent.change(amount, { target: { value: "9’000,50" } });
-  expect(within(sheet).getByText(/^CHF 9.000\.50$/)).toBeInTheDocument();
-  expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeEnabled();
+  // 18.3: "Help with this step" answers with the live minimum, balance and capacity.
+  fireEvent.click(screen.getByRole("button", { name: "Help with this step" }));
+  const help = screen.getByRole("dialog", { name: "Choosing your amount" });
+  expect(help).toHaveTextContent("The minimum is CHF 1.000,00. You have CHF 100.500,01 available in your Banxum account. The project has CHF 10.000,00 available to invest.");
+  fireEvent.keyDown(help, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Choosing your amount" })).not.toBeInTheDocument();
+
+  // More than the loan still takes names the capacity, not the wallet.
+  fireEvent.change(amount, { target: { value: "50000" } });
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  const error = document.getElementById("iv-error") as HTMLElement;
+  expect(error).toHaveTextContent(/This opportunity has only CHF 10\.000,00 left/);
+  expect(error).not.toHaveTextContent(/100\.500,01/);
+
+  // An ambiguous comma is refused with a hint, never guessed.
   fireEvent.change(amount, { target: { value: "1,000" } });
-  expect(within(sheet).getByRole("alert")).toHaveTextContent(/A comma is the decimal sign/);
-  expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  expect(screen.getByText(/Write thousands as 1\.000\./)).toBeInTheDocument();
+
+  // A Swiss-style amount is read and handed to Review & sign.
+  fireEvent.change(amount, { target: { value: "9’000,50" } });
+  fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
+  expect(window.location.pathname).toBe(`/marketplace/${LOAN_ID}/invest`);
+  expect(await screen.findByRole("textbox", { name: "Your investment amount" })).toHaveValue("9.000,50");
+  fireEvent.click(screen.getByRole("button", { name: "Help with this step" }));
+  expect(screen.getByRole("dialog", { name: "Reviewing and signing" })).toHaveTextContent("The purchase agreement for CHF 9.000,50 in Audit Direct Loan.");
 }, 30_000);

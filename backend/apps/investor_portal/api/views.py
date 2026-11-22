@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, cast
 
 from django.db.models import Model
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -23,17 +26,30 @@ from backend.apps.investor_portal.api.serializers import (
     InvestorNotificationsSerializer,
     InvestorPortalFeaturesSerializer,
     InvestorPortfolioSerializer,
+    InvestorReportCreateRequestSerializer,
+    InvestorReportSerializer,
+    InvestorReportsSerializer,
+    InvestorReportSummaryQuerySerializer,
+    InvestorReportSummarySerializer,
+    InvestorSupportRequestCreateSerializer,
+    InvestorSupportRequestReceiptSerializer,
     PortalLimitQuerySerializer,
     PortfolioQuerySerializer,
     PrimaryOrdersPortalSerializer,
     SecondaryMarketActivityPortalSerializer,
+    TransactionPageSerializer,
+    TransactionQuerySerializer,
 )
 from backend.apps.investor_portal.services import (
     InvestorDocumentDownloadCommand,
     InvestorPortalAuthorizationError,
     InvestorPortalNotFoundError,
     InvestorPortalValidationError,
+    SubmitInvestorSupportRequestCommand,
+    create_investor_report,
     download_investor_document,
+    download_investor_report,
+    export_investor_transactions_csv,
     get_deposit_instructions,
     get_fx_history,
     get_investor_activity,
@@ -43,10 +59,14 @@ from backend.apps.investor_portal.services import (
     get_investor_notifications,
     get_investor_portal_features,
     get_investor_portfolio,
+    get_investor_transactions,
     get_primary_orders,
     get_secondary_market_activity,
+    investor_report_summary,
+    list_investor_reports,
     mark_all_investor_notifications_read,
     mark_investor_notification_read,
+    submit_investor_support_request,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -154,6 +174,85 @@ class InvestorDocumentDownloadView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class InvestorReportsView(APIView):
+    """18.3: the investor's kept reports (GET) and a new report (POST)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: InvestorReportsSerializer})
+    def get(self, request: Request) -> Response:
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = list_investor_reports(actor=actor)
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(InvestorReportsSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=InvestorReportCreateRequestSerializer,
+        responses={201: InvestorReportSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorReportCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            actor, audit_actor = _portal_read_actor(request)
+            payload = create_investor_report(
+                actor=actor,
+                audit_actor=audit_actor,
+                kind=data["kind"],
+                start_date=data["start_date"],
+                end_date=data["end_date"],
+                currency=data["currency"],
+                output_format=data["output_format"],
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(InvestorReportSerializer(payload).data, status=status.HTTP_201_CREATED)
+
+
+class InvestorReportDownloadView(APIView):
+    """18.3: the file of a kept report, as it was issued."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: InvestorDocumentDownloadResponseSerializer})
+    def get(self, request: Request, report_id: str) -> Response:
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = download_investor_report(actor=actor, report_id=report_id)
+        except (
+            InvestorPortalAuthorizationError,
+            InvestorPortalValidationError,
+            InvestorPortalNotFoundError,
+        ) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorReportSummaryView(APIView):
+    """18.3: invested, principal repaid and interest received per currency (year or all)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[InvestorReportSummaryQuerySerializer],
+        responses={200: InvestorReportSummarySerializer},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = InvestorReportSummaryQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        raw = str(serializer.validated_data["year"])
+        year = int(raw) if raw.isdigit() and len(raw) == 4 else None
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = investor_report_summary(actor=actor, year=year)
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(InvestorReportSummarySerializer(payload).data, status=status.HTTP_200_OK)
+
+
 class InvestorNotificationsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -251,6 +350,67 @@ class InvestorActivityView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+def _transaction_filters(data: dict[str, Any]) -> Any:
+    from backend.apps.investor_portal.transactions import TransactionFilters
+
+    return TransactionFilters(
+        currency=str(data["currency"] or ""),
+        group=str(data["group"] or ""),
+        date_from=data["date_from"],
+        date_to=data["date_to"],
+        search=str(data["q"] or ""),
+    )
+
+
+class InvestorTransactionsView(APIView):
+    """18.3: the Transactions page with server filters, pages and the available balance."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[TransactionQuerySerializer], responses={200: TransactionPageSerializer}
+    )
+    def get(self, request: Request) -> Response:
+        serializer = TransactionQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_investor_transactions(
+                actor=actor,
+                filters=_transaction_filters(data),
+                offset=data["offset"],
+                limit=data["limit"],
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(TransactionPageSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class InvestorTransactionsExportView(APIView):
+    """18.3: the whole filtered history as CSV in the investor's number format."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[TransactionQuerySerializer],
+        responses={(200, "text/csv"): OpenApiTypes.STR},
+    )
+    def get(self, request: Request) -> HttpResponse | Response:
+        serializer = TransactionQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        try:
+            actor, _audit_actor = _portal_read_actor(request)
+            content = export_investor_transactions_csv(
+                actor=actor, filters=_transaction_filters(serializer.validated_data)
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="banxum-transactions.csv"'
+        return response
+
+
 class InvestorPrimaryOrdersView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -323,3 +483,49 @@ class InvestorPortalFeaturesView(APIView):
     @extend_schema(responses={200: InvestorPortalFeaturesSerializer})
     def get(self, request: Request) -> Response:
         return Response(get_investor_portal_features(), status=status.HTTP_200_OK)
+
+
+class InvestorSupportRequestView(APIView):
+    """Send a Help message or an account closure request to the team by email.
+
+    201 with the receipt (reference, time, receipt email). 409 when the request key was used
+    for another message; 429 with Retry-After after too many messages.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorSupportRequestCreateSerializer,
+        responses={
+            201: InvestorSupportRequestReceiptSerializer,
+            200: InvestorSupportRequestReceiptSerializer,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorSupportRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        support = import_module("backend.apps.communications.support_requests")
+        try:
+            receipt = submit_investor_support_request(
+                SubmitInvestorSupportRequestCommand(
+                    actor=cast(Model, request.user),
+                    kind=data["kind"],
+                    idempotency_key=data["idempotency_key"],
+                    topic=data["topic"],
+                    message=data["message"],
+                    context_type=data["context_type"],
+                    context_id=data["context_id"],
+                )
+            )
+        except support.SupportRequestThrottled as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(exc.wait_seconds)},
+            )
+        except support.SupportRequestConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(receipt, status=status.HTTP_201_CREATED)

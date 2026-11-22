@@ -199,11 +199,10 @@ jobs:
 
           rm -rf "$app_dir"
 
-          # Keep the currently running images, containers, and volumes. Remove only
-          # unused build data before the next image build so repeated releases do not
-          # exhaust the deployment host.
-          docker builder prune -af
-          docker image prune -af
+          # Pre-deployment review P-3: the host is shared with other projects, so no global
+          # Docker cleanup here (no "builder prune" or "image prune -a"). Only dangling images
+          # of this BANXUM project are removed after the new release starts (below). Disk
+          # maintenance of the host is a separate operator task (runbook).
 
           mkdir -p "$app_dir"
           tar -xzf "$REMOTE_ARCHIVE" -C "$app_dir"
@@ -269,11 +268,76 @@ jobs:
           chmod 600 "$backend_env"
 
           cd "$app_dir"
-          docker compose \
+          compose() {
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              "$@"
+          }
+          compose build
+          # Pre-deployment review P-4: the settings check and the migrations run as visible
+          # one-shot steps with their own time limit, before the application restarts.
+          # 1. The settings check of the new release. The running release keeps serving.
+          echo "Running the settings check of the new release for $TARGET..."
+          if ! compose run --rm --no-TTY backend \
+            .venv/bin/python backend/manage.py check --deploy --fail-level ERROR; then
+            echo "$TARGET settings check failed; nothing was changed." >&2
+            exit 5
+          fi
+          # 2. The old release stops before the backup, so that the backup is the exact cut-off
+          #    (GPT confirmation run: no write may land after the dump). The backend is the only
+          #    writer; the cron jobs run inside it and fail while it is stopped. This release
+          #    also removes old columns, so the old code must not run against the new schema.
+          compose stop backend
+          # 3. A database backup before any schema change (migration rehearsal 2026-11-20).
+          #    The off-site settings come from /etc/banxum/<target>-backup.env when it exists.
+          backup_env="/etc/banxum/${TARGET}-backup.env"
+          backup_dir=$(
+            if [ -f "$backup_env" ]; then set -a; . "$backup_env"; set +a; fi
+            echo "${BANXUM_BACKUP_DIR:-$app_root/backups}"
+          )
+          echo "Taking a database backup of $TARGET into $backup_dir before the migrations..."
+          if ! (
+            set -e
+            if [ -f "$backup_env" ]; then set -a; . "$backup_env"; set +a; fi
+            export BANXUM_APP_DIR="$app_dir" BANXUM_COMPOSE_PROJECT="$project_name"
+            export BANXUM_BACKUP_DIR="$backup_dir"
+            mkdir -p "$BANXUM_BACKUP_DIR"
+            infra/deploy/backup_postgres.sh
+          ); then
+            compose start backend
+            echo "$TARGET backup failed; nothing was changed and the previous release was started again." >&2
+            exit 5
+          fi
+          latest_backup=$(ls -t "$backup_dir"/"$project_name"-postgres-*.dump 2>/dev/null | head -1 || true)
+          applied_migrations() {
+            compose exec -T postgres sh -c \
+              'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -Atc "select count(*) from django_migrations"'
+          }
+          if ! applied_before=$(applied_migrations); then
+            compose start backend
+            echo "$TARGET could not read the applied migrations; nothing was changed and the previous release was started again." >&2
+            exit 5
+          fi
+          # 4. The migrations run with their time limit.
+          echo "Running the migrations for $TARGET..."
+          if ! timeout "${MIGRATION_TIMEOUT_SECONDS:-1800}" docker compose \
             --project-name "$project_name" \
             --env-file infra/deploy/.env \
             -f infra/deploy/docker-compose.yml \
-            up -d --build
+            run --rm --no-TTY backend .venv/bin/python backend/manage.py migrate --noinput; then
+            applied_after=$(applied_migrations || echo unknown)
+            if [ "$applied_after" = "$applied_before" ]; then
+              compose start backend
+              echo "$TARGET migration failed before any change; the previous release was started again." >&2
+            else
+              echo "$TARGET migration failed after a part of the changes. The backend stays stopped." >&2
+              echo "Restore the backup ${latest_backup:-in $app_root/backups} and deploy the previous release (runbook: rollback)." >&2
+            fi
+            exit 5
+          fi
+          compose up -d
 
           check_health() {
             curl -fsS --connect-timeout 3 --max-time 10 \
@@ -281,7 +345,7 @@ jobs:
               python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status") == "ok" and data.get("environment") == sys.argv[1]' "$TARGET"
           }
           healthy=false
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 60); do
             if check_health; then
               echo "$TARGET health check passed: $health_url"
               healthy=true
@@ -292,13 +356,11 @@ jobs:
 
           if [ "$healthy" != "true" ]; then
             echo "$TARGET health check failed: $health_url" >&2
-            docker compose \
-              --project-name "$project_name" \
-              --env-file infra/deploy/.env \
-              -f infra/deploy/docker-compose.yml \
-              ps
+            compose ps
             exit 4
           fi
+          # Only dangling images of this project (old builds of this release line).
+          docker image prune -f --filter "label=com.docker.compose.project=$project_name" || true
 
           if [ "${SEED_MARKETPLACE_DEMO_LOANS:-false}" = "true" ]; then
             seed_args=""

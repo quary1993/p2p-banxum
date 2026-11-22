@@ -99,6 +99,8 @@ Legal counsel must approve the final wording and whether any document is merged 
 
 ### DOC-DEC-002: English-Only Launch Documents
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-31: interface, messages and backend emails in EN and de-CH (public EN/DE/FR); contracts may stay in English at first, announced before acceptance.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta product / legal.
@@ -117,6 +119,8 @@ Follow-ups:
 Define whether future German, French, Italian, or other language support requires a language preference model and separate legal review.
 
 ### DOC-DEC-003: Checkbox Acceptance Instead of E-Signature in v1
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-13: investors still confirm with the PIN (not a QES); after successful closing, one assignment declaration per investment is signed with a Swiss QES (ZertES) by Garanta Finanzgruppe AG and stored in Documents.
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -140,6 +144,10 @@ Legal counsel must confirm which acceptance evidence is sufficient for each docu
 
 ### DOC-DEC-004: Offline Borrower Documents as Optional Admin Uploads
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: the credit file keeps seven chapters with structured financial data, template-based texts/media, structured securities and a document library with metadata.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-20): `BorrowerFinancialYear` (one per borrower and year: revenue, operating costs, operating profit, interest, profit before tax, tax, net profit, the asset, debt and liability lines and equity, in minor units; costs, assets and debts positive; details must add up to the totals; optional source document), `BorrowerDebtFacility` (existing debt explained from the documents: facility, balance, part due within a year, its security, the date, the source) and `LoanCreditCheck` (what was checked, result, source, date) with the loan's monitoring text. Admin API under `/api/v1/entities/admin/borrowers/<id>/financial-years/`, `/debt-facilities/`, `/documents/<document_id>/metadata/` and `/api/v1/loans/admin/loans/<id>/credit-checks/`, `/monitoring/`; audit for each change. The opportunity detail carries `financial_years`, `debt_facilities`, `credit_checks`, `monitoring` and `recovery_stages`; the investor credit file always has the seven chapters and calculates the four key ratios (equity / total assets, financial debt / equity, operating margin, interest coverage) from the recorded figures. A source document is named to investors only when they can see it. Texts and media stay the borrower story; no projection is stored.
+
 Status: Accepted.
 Date: 2026-05-20.
 Owner: Garanta operations.
@@ -159,6 +167,8 @@ Follow-ups:
 Define which offline borrower documents are internal-only and which, if any, can be investor-visible.
 
 ### DOC-DEC-005: Claim Assignment Document Per Investment Order
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-13: a QES-signed assignment declaration per investment is issued after successful closing (see DOC-DEC-003 note).
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -182,6 +192,10 @@ Implementation status:
 The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance can render a generated PDF/CSV on demand from immutable clickwrap evidence in the investor portal or admin Users document-history modal. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Since 2026-10-09 (QA audit SECCODE-11) secondary-market listing, secondary-market purchase and Loan Originator claim-quote acceptances store only a server-built snapshot: the holding, listing or quote must exist and belong to (or, for a purchase, be open to) the investor, or the acceptance is refused. A listing snapshot takes only the chosen price from the client and the listing must use that price. A purchase snapshot holds the fresh buyer price; if the buyer's reviewed figures differ, the API answers 409 `secondary_price_changed` and records nothing. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
 
 ### DOC-DEC-006: Pre-Investment Borrower Documents
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-20: borrower documents become a credit-file library with category, period/date, issuer, version, status and access metadata.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-20): `BorrowerDocument.category`, `document_date`, `period_label`, `issuer`, `version`, `document_status` (free text set by the admin; access stays `investor_visible`), shown in the investor disclosure and the credit file's Documents chapter.
 
 Status: Accepted.
 Date: 2026-05-20.
@@ -348,6 +362,9 @@ Draft the four template groups, exact checkbox labels, exact acknowledgement wor
 - Investment terms must disclose that admin may proceed with partial funding case by case and that lender notification is sufficient if this is covered in the accepted terms.
 - Investment terms must disclose that pending orders do not reserve loan capacity until balance/funds are allocated, investors cannot cancel orders, and excess or non-proceeding payments may be returned or credited to investor balance according to the selected money-flow rule.
 - Loan/investment terms must disclose repayment allocation, partial repayment, early repayment without fee, day 5 late status, day 16 default status, Europe/Zurich day-counting for those statuses, and notification-only operational loan changes where legally acceptable.
+  > Updated 2026-11-10 (U33-DEC-09): the terms disclose the loan's Late and Default days. New loans use Late from day 15 and Default from day 60 unless the contract sets other days (recorded on the loan); loans signed before keep day 5 and day 16. Owner action: update the investment terms template before the first new loan is published.
+  > **Changed 2026-11-13** (owner answer C01, Q10-Q11): every record uses Late 15 / Default 60 (real contracts with other terms excepted). Templates in English and German from launch; the assignment is QES-signed by the Garanta managing director and is a condition of settlement; originator claims use two assignments (originator -> Garanta -> investors); a resale assignment is signed for the seller by Garanta as representative (mandate to validate). See `plan/22` "Final Answers Of 2026-11-13".
+  > Updated 2026-11-16 (round 2): an authorized deputy with his own QES and single signing right signs when the managing director is absent (one signature per document); the first assignment (originator -> Garanta) must be uploaded before the investor assignments are signed; demo records may keep 5/16 days. English templates first; German in the final translation phase (still required at launch).
 - Secondary-market transfer documents must reference the seller, buyer, transferred holding, current principal balance, sale price, discount/premium, accrued interest, maker/taker fees, buyer total cost, seller net proceeds, effective servicing transfer date, and that only the full holding is transferred.
 - Secondary-market seller/listing terms must disclose that the secondary market is a bulletin-board claim/participation transfer mechanism, not a regulated trading venue; partial sales or partial transfers of one holding are not allowed.
 - Secondary-market buyer terms must disclose that accrued interest up to settlement belongs to the seller and future interest after settlement belongs to the buyer.
@@ -371,6 +388,8 @@ Launch checkbox/clickwrap evidence should record:
 - Accepted checkbox labels.
 - Acceptance context, such as primary investment or secondary-market purchase.
 - IP address and user-agent where available.
+
+Decided 2026-11-20 (audit step 4, S4-1; decided by Claude on Vlad's request): the clickwrap evidence (`documents.DocumentAcceptanceEvidence`) keeps the raw IP address. It is evidence that a contract was concluded: a court or an investigator must be able to read it and compare it with the records of an internet provider, and a keyed hash cannot be read back. It is the only place where the platform keeps a raw IP address; the account tables keep keyed hashes only. The address stays with the contract evidence for the financial-record retention (at least 10 years, SEC-DEC-003), is shown only to authorized staff in evidence views and exports, and must be listed in the privacy notice (18.12).
 
 Future e-signature requirements, if introduced later:
 

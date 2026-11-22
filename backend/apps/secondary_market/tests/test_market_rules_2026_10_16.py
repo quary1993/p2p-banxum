@@ -1,7 +1,8 @@
 """IP of Webby-Soft SRL. Secondary-market owner decisions of 2026-10-16.
 
 Row 2: seller (maker) fee 2% of the price. Row 3: no buyer (taker) fee. Row 4: the sale
-price is par or a discount, never a premium.
+price is par or a discount, never a premium. U33-DEC-06/07 later allow up to 102% and cap
+the fee at 2% of the outstanding principal (see test_resale_price_and_fee_u33.py).
 """
 
 from __future__ import annotations
@@ -55,7 +56,12 @@ from backend.apps.secondary_market.tests.test_secondary_market import (
     _sensitive_code_payload,
 )
 
-ABOVE_PAR = "The sale price can be at most 100% (par)."
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
+
+
+# U33-DEC-06: up to 102% of the outstanding principal.
+ABOVE_PAR = "The sale price can be at most 102% of the outstanding principal."
 
 
 @pytest.fixture(autouse=True)
@@ -253,7 +259,7 @@ def test_fee_default_migration_changes_only_rows_that_hold_the_old_default() -> 
 
 
 @pytest.mark.django_db
-def test_sale_price_above_par_is_refused_with_a_clear_message(
+def test_sale_price_above_102_percent_is_refused_with_a_clear_message(
     ops_admin: Model,
     seller: Model,
     buyer: Model,
@@ -276,7 +282,7 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
 
     preview = client.get(
         "/api/v1/marketplace/secondary/listings/pricing-preview/",
-        {"holding_id": holding_id, "price_bps": "10001"},
+        {"holding_id": holding_id, "price_bps": "10201"},
     )
     assert preview.status_code == 400
     assert preview.json() == {"detail": ABOVE_PAR}
@@ -287,7 +293,7 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
         "/api/v1/marketplace/secondary/listings/",
         {
             "holding_id": holding_id,
-            "price_bps": 10_100,
+            "price_bps": 10_300,
             "document_acceptance_id": str(acceptance.pk),
             "idempotency_key": "rules-par-api",
             **listing_code,
@@ -299,7 +305,7 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
 
     documents = import_module("backend.apps.documents.services")
     version = _publish_terms(superadmin, "secondary_market_listing")
-    with pytest.raises(documents.DocumentValidationError, match=r"at most 100% \(par\)"):
+    with pytest.raises(documents.DocumentValidationError, match=r"at most 102%"):
         _accept_terms(
             seller,
             version,
@@ -310,12 +316,12 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
             key="rules-par-terms",
         )
 
-    # Exactly par is allowed (with the same email code: the refusal did not use it up).
+    # Exactly 102% is allowed (with the same email code: the refusal did not use it up).
     listing = create_secondary_market_listing(
         CreateSecondaryMarketListingCommand(
             actor=seller,
             holding_id=holding_id,
-            price_bps=10_000,
+            price_bps=10_200,
             document_acceptance_id=str(
                 _create_listing_acceptance(seller, holding, idempotency_key="rules-par-ok").pk
             ),
@@ -323,25 +329,27 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
             **listing_code,
         )
     )
-    assert listing.transfer_price_minor == listing.current_principal_minor
+    assert listing.transfer_price_minor == listing.current_principal_minor * 102 // 100
+    # U33-DEC-07: the fee is capped at 2% of the outstanding principal, not 2% of the price.
+    assert listing.maker_fee_minor == listing.current_principal_minor * 2 // 100
 
-    # An edit above par is refused and changes nothing.
+    # An edit above 102% is refused and changes nothing.
     edit_acceptance = _create_listing_acceptance(seller, holding, idempotency_key="rules-par-ed")
-    with pytest.raises(SecondaryMarketValidationError, match=r"at most 100% \(par\)"):
+    with pytest.raises(SecondaryMarketValidationError, match=r"at most 102%"):
         edit_secondary_market_listing(
             EditSecondaryMarketListingCommand(
                 actor=seller,
                 listing_id=str(listing.id),
-                price_bps=10_050,
+                price_bps=10_250,
                 document_acceptance_id=str(edit_acceptance.pk),
                 idempotency_key="rules-par-edit",
                 **_sensitive_code_payload(seller, "secondary_market_listing"),
             )
         )
     listing.refresh_from_db()
-    assert listing.price_bps == 10_000
+    assert listing.price_bps == 10_200
 
-    # A listing priced above par before the rule can never be bought.
+    # A listing priced above 102% (only possible by hand) can never be bought.
     SecondaryMarketListing.objects.filter(pk=listing.pk).update(price_bps=10_500)
     listing.refresh_from_db()
     _declare_deposit(ops_admin, buyer, idempotency_key="rules-par-deposit")
@@ -351,7 +359,7 @@ def test_sale_price_above_par_is_refused_with_a_clear_message(
         review={"price_bps": 10_500},
         idempotency_key="rules-par-buy-accept",
     )
-    with pytest.raises(SecondaryMarketValidationError, match=r"at most 100% \(par\)"):
+    with pytest.raises(SecondaryMarketValidationError, match=r"at most 102%"):
         purchase_secondary_market_listing(
             PurchaseSecondaryMarketListingCommand(
                 actor=buyer,

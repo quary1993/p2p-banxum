@@ -16,10 +16,21 @@ from backend.apps.investor_portal.api.views import (
     InvestorPortalFeaturesView,
     InvestorPortfolioView,
     InvestorPrimaryOrdersView,
+    InvestorReportDownloadView,
+    InvestorReportSummaryView,
+    InvestorReportsView,
     InvestorSecondaryMarketActivityView,
+    InvestorSupportRequestView,
+    InvestorTransactionsExportView,
+    InvestorTransactionsView,
 )
 
 urlpatterns = [
+    path(
+        "support-requests/",
+        InvestorSupportRequestView.as_view(),
+        name="investor-portal-support-requests",
+    ),
     path("dashboard/", InvestorDashboardView.as_view(), name="investor-portal-dashboard"),
     path("balances/", InvestorBalancesView.as_view(), name="investor-portal-balances"),
     path(
@@ -50,6 +61,25 @@ urlpatterns = [
     ),
     path("portfolio/", InvestorPortfolioView.as_view(), name="investor-portal-portfolio"),
     path("activity/", InvestorActivityView.as_view(), name="investor-portal-activity"),
+    path("reports/", InvestorReportsView.as_view(), name="investor-portal-reports"),
+    path(
+        "reports/summary/",
+        InvestorReportSummaryView.as_view(),
+        name="investor-portal-report-summary",
+    ),
+    path(
+        "reports/<uuid:report_id>/download/",
+        InvestorReportDownloadView.as_view(),
+        name="investor-portal-report-download",
+    ),
+    path(
+        "transactions/", InvestorTransactionsView.as_view(), name="investor-portal-transactions"
+    ),
+    path(
+        "transactions/export/",
+        InvestorTransactionsExportView.as_view(),
+        name="investor-portal-transactions-export",
+    ),
     path("primary-orders/", InvestorPrimaryOrdersView.as_view(), name="investor-portal-orders"),
     path(
         "secondary-market/",

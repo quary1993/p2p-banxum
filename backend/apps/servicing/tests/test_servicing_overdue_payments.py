@@ -48,6 +48,10 @@ from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F4
     investor_two,
 )
 
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
+
 
 def _rows(loan: Model) -> list[tuple[int, date, int, int]]:
     loan.refresh_from_db()
@@ -140,8 +144,9 @@ def test_small_payment_on_late_loan_pays_overdue_items_and_keeps_loan_late(
     # The days-past-due clock keeps running from the original due date.
     _scan(admin_user, loan, date(2026, 3, 10))
     assert cast(Any, loan).status == "late"
+    # 18.6: on day 16 Default can be declared, but the loan stays Late until the admin decides.
     _scan(admin_user, loan, date(2026, 3, 16))
-    assert cast(Any, loan).status == "defaulted"
+    assert cast(Any, loan).status == "late"
 
 
 @pytest.mark.django_db

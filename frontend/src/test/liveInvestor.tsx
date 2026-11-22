@@ -50,9 +50,13 @@ export function balancesPayload(summaries: BalanceSummary[], payoutInstructions:
       withdrawal_deadline_at: "2026-12-01T00:00:00Z",
       days_until_investment_deadline: 53,
       days_until_withdrawal_deadline: 53,
+      return_after_days: 56,
       last_day: "2026-11-29",
       return_date: "2026-11-30",
+      return_date_adjusted: false,
       days_until_last_day: 51,
+      direct_funding_until: "2026-11-20",
+      return_failed: false,
       original_amount_minor: investableMinor,
       available_amount_minor: investableMinor,
       invested_amount_minor: 0,
@@ -62,8 +66,7 @@ export function balancesPayload(summaries: BalanceSummary[], payoutInstructions:
       requires_withdrawal: false,
       blocks_financial_actions: false
     })),
-    payout_instructions: payoutInstructions,
-    has_penalty_mode_balance: false
+    payout_instructions: payoutInstructions
   };
 }
 
@@ -82,7 +85,6 @@ export const emptyPortfolio = {
     by_borrower: [],
     by_country: [],
     by_purpose: [],
-    by_risk_rating: [],
     by_collateral_type: [],
     by_maturity: [],
     by_loan_status: []
@@ -108,8 +110,23 @@ export function investorShellHandlers(
           account_type: "investor",
           status: "active",
           phone_verified: true,
-          marketing_consent: false
+          marketing_consent: false,
+          second_factor: "sms"
         }
+      })
+    ),
+    // 18.5: Profile & Settings -> Security.
+    http.get("*/api/v1/auth/security/", () =>
+      HttpResponse.json({
+        second_factor: "sms",
+        phone_last_digits: "42",
+        authenticator_added_at: null,
+        recovery_codes_remaining: 10,
+        recovery_codes_issued: true,
+        password_set: true,
+        password_changed_at: "2026-10-01T09:00:00Z",
+        trusted_devices: [],
+        restriction: null
       })
     ),
     http.get("*/api/v1/kyc/status/", () =>
@@ -119,6 +136,9 @@ export function investorShellHandlers(
     // Logged-in investors read the full list from /opportunities/ (A-44); /loans/ is the public preview.
     http.get("*/api/v1/marketplace/primary/opportunities/", () => HttpResponse.json(options.marketplaceLoans ? options.marketplaceLoans() : [])),
     http.get("*/api/v1/marketplace/primary/loans/", () => HttpResponse.json(options.marketplaceLoans ? options.marketplaceLoans() : [])),
+    // U33-DEC-17 / U33-DEC-18: Coming soon opportunities and the saved ones.
+    http.get("*/api/v1/marketplace/primary/coming-soon/", () => HttpResponse.json([])),
+    http.get("*/api/v1/marketplace/primary/saved/", () => HttpResponse.json({ saved: [] })),
     http.get("*/api/v1/investor/portal/balances/", () => {
       calls.balanceReads.push({});
       return HttpResponse.json(options.balances ? options.balances() : balancesPayload([{ currency: "CHF", investableMinor: 10_000_000 }]));

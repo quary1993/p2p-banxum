@@ -90,8 +90,8 @@ Investors cannot cancel orders. Pending orders remain open until the loan fundin
 5. Withdraw available balances to verified bank account.
 6. Use eligible balances for primary-market investments, secondary-market purchases, or currency exchange.
 7. Receive explicit errors when the available source balance cannot cover the selected loan's remaining funding window.
-8. Receive ageing reminders on days 25, 46, 53, 56, 57, and 58 for unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days, on day 59).
-9. Without a usable IBAN, see a day-59 notice to add a verified bank account and a day-60 notice that the balance enters penalty mode the next day.
+8. Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Receive ageing reminders on days 25, 46, 53, 56, 57, and 58 for unconsumed balance source entries (2026-10-16: money not invested goes back to the bank automatically after 58 days, on day 59).
+9. Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Without a usable IBAN, see a day-59 notice to add a verified bank account and a day-60 notice that the balance enters penalty mode the next day.
 10. If no usable IBAN is available after day 60, see a blocking banner requiring an IBAN before further financial actions are unlocked, while keeping read-only access to portfolio, documents, tax information statements, notices, and messages.
 
 Balance funds are non-interest-bearing. Registration-time terms must explain that Garanta Finanzgruppe AG cannot extend the 60-day regulatory/compliance holding limit.
@@ -267,8 +267,8 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Allow older sources into shorter funding windows when their holding deadlines cover the last inclusive funding date.
 - Show explicit errors and per-currency balance breakdowns for investable, withdraw-required, FX-eligible, and penalty/frozen balances.
 - Send balance ageing reminders on days 25, 46, 53, 56, 57, and 58 (2026-10-16).
-- Apply day-60 penalty treatment according to env/deployment configuration and legal/compliance policy.
-- If a usable IBAN exists, return money not invested automatically on day 59 (2026-10-16; before: day 61).
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Apply day-60 penalty treatment according to env/deployment configuration and legal/compliance policy.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: If a usable IBAN exists, return money not invested automatically on day 59 (2026-10-16; before: day 61).
 - If no usable IBAN exists after day 60, freeze financial actions except declaring/updating a usable IBAN and show a blocking banner; keep read-only access to portfolio, documents, tax information statements, notices, and messages.
 - Provide a separate currency-exchange menu section.
 - Credit target-currency balance instantly after an accepted non-expired FX quote and inherit the target-currency source ageing deadlines from the consumed source balance entries.
@@ -297,7 +297,7 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Require explicit risk-warning acknowledgement before each primary-market investment and secondary-market purchase.
 - Audit all investment orders, acknowledgements, order closures, refunds, repayment notifications, and document downloads.
 - Audit all deposits, balance credits, withdrawals, FX quotes, FX acceptances, FX executions, ageing reminders, and penalty applications.
-- Audit forced withdrawals and penalty-mode freezes/unfreezes.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Audit forced withdrawals and penalty-mode freezes/unfreezes.
 - Do not expose internal admin distribution artifacts or bank statement attachments directly to lenders unless a later disclosure policy allows it.
 - Show portfolio loan status and days past due when a loan is late/defaulted.
 - Show admin-published public loan notes to affected investors when available.

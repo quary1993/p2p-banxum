@@ -18,6 +18,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Model
 from django.test import Client
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
@@ -42,7 +43,6 @@ from backend.apps.ledger.services import (
     VerifyInvestorPayoutInstructionCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
-    declare_lender_deposit,
     execute_investor_fx_exchange_ledger,
     finalize_investor_withdrawal,
     register_investor_payout_instruction,
@@ -65,6 +65,12 @@ from backend.apps.platform_core.models import (
     DomainEvent,
     OutboxMessage,
     PlatformSetting,
+)
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
 )
 
 DEPOSIT_IBAN = "CH9300762011623852957"
@@ -360,14 +366,18 @@ def test_rejecting_a_pending_request_closes_its_task(
 
 
 @pytest.mark.django_db
-def test_forced_return_goes_to_the_deposit_proven_iban_not_the_newest_verified(
+def test_forced_return_goes_to_the_default_account_not_the_newest_verified(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    # Verified later than the deposit IBAN, so the old "newest verified" rule picked it.
-    _register_verified_iban(admin_user, investor, iban=SECOND_IBAN, account_name="Newer")
+    # U33-DEC-05: the deposit-proven IBAN became the default return account; an account
+    # verified later does not replace it unless the investor chooses it.
+    assert deposit.payout_instruction is not None
+    assert deposit.payout_instruction.is_default_return is True
+    newer = _register_verified_iban(admin_user, investor, iban=SECOND_IBAN, account_name="Newer")
+    assert newer.is_default_return is False
 
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 3)))
@@ -375,11 +385,11 @@ def test_forced_return_goes_to_the_deposit_proven_iban_not_the_newest_verified(
 
     forced = result.forced_withdrawal_requests[0]
     assert forced.destination_iban == DEPOSIT_IBAN
-    assert forced.metadata["destination_selection"]["rule"] == "deposit_proven"
-    assert forced.metadata["destination_selection"]["deposit_bank_operation_id"] == str(
-        deposit.bank_operation.pk
+    assert forced.metadata["destination_selection"]["rule"] == "default_return_account"
+    assert forced.metadata["destination_selection"]["payout_instruction_id"] == str(
+        deposit.payout_instruction.pk
     )
-    assert result.forced_withdrawal_candidates[0].destination_rule == "deposit_proven"
+    assert result.forced_withdrawal_candidates[0].destination_rule == "default_return_account"
 
 
 @pytest.mark.django_db
@@ -419,18 +429,66 @@ def test_forced_return_after_revocation_uses_the_latest_admin_verified_iban(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 4)))
     )
 
+    # The revoked default is replaced by the platform's pick: the latest admin-verified IBAN.
     second_forced = next_scan.forced_withdrawal_requests[0]
     assert second_forced.destination_iban == THIRD_IBAN
     assert second_forced.destination_account_name == "Third"
     selection = second_forced.metadata["destination_selection"]
-    assert selection["rule"] == "admin_verified"
+    assert selection["rule"] == "default_return_account"
     assert selection["payout_instruction_id"] == str(latest.pk)
+    latest.refresh_from_db()
+    assert latest.is_default_return is True
 
 
 # --- A-19: penalty mode blocks investing --------------------------------------------------
 
 
-def _penalty_mode_investor(admin_user: Model, investor: Model) -> InvestorBalanceLot:
+def _reserve(admin_user: Model, investor: Model, key: str, *, day: date) -> Any:
+    return reserve_investor_balance_for_investment(
+        ReserveInvestmentBalanceCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            loan_id=str(uuid.uuid4()),
+            amount_minor=400_00,
+            currency="CHF",
+            loan_funding_deadline=day,
+            source_type="primary_investment_order",
+            source_id=f"order-{key}",
+            idempotency_key=f"reserve-{key}",
+            as_of=_received_at(day),
+        )
+    )
+
+
+@pytest.mark.django_db
+def test_no_investment_without_a_verified_bank_account_in_the_currency(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """U33-DEC-04: a verified bank account comes before the first investment."""
+    _approve_financial_access(investor)
+    # A deposit alone verifies no account (audit S3-1).
+    deposit = ledger_services.declare_lender_deposit(
+        _deposit_command(admin_user, investor, amount_minor=1_000_00)
+    )
+    with pytest.raises(LedgerValidationError, match="verified bank account in your name for CHF"):
+        _reserve(admin_user, investor, "no-account", day=date(2026, 1, 10))
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    assert lot.available_amount_minor == 1_000_00
+
+    _register_verified_iban(admin_user, investor, iban=SECOND_IBAN)
+    _reserve(admin_user, investor, "with-account", day=date(2026, 1, 10))
+    lot.refresh_from_db()
+    assert lot.available_amount_minor == 600_00
+
+
+@pytest.mark.django_db
+def test_money_past_the_limit_does_not_freeze_new_investments(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """U33-DEC-04: no penalty mode; the overdue money stays out, fresh money can be invested."""
+    _approve_financial_access(investor)
     old = declare_lender_deposit(_deposit_command(admin_user, investor, idempotency_key="old"))
     assert old.payout_instruction is not None
     revoke_investor_payout_instruction(
@@ -443,17 +501,8 @@ def _penalty_mode_investor(admin_user: Model, investor: Model) -> InvestorBalanc
     run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 3)))
     )
-    lot = InvestorBalanceLot.objects.get(id=old.balance_lot.id)
-    assert lot.status == BalanceLotStatus.PENALTY_MODE
-    return lot
-
-
-@pytest.mark.django_db
-def test_penalty_mode_investor_cannot_reserve_a_primary_investment(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    _penalty_mode_investor(admin_user, investor)
+    old_lot = InvestorBalanceLot.objects.get(id=old.balance_lot.id)
+    assert old_lot.status == BalanceLotStatus.AVAILABLE
     fresh = declare_lender_deposit(
         replace(
             _deposit_command(
@@ -466,24 +515,10 @@ def test_penalty_mode_investor_cannot_reserve_a_primary_investment(
             payer_account_identifier=SECOND_IBAN,
         )
     )
-
-    with pytest.raises(LedgerValidationError, match="Investing is not possible: your account"):
-        reserve_investor_balance_for_investment(
-            ReserveInvestmentBalanceCommand(
-                actor=admin_user,
-                investor_user_id=str(investor.pk),
-                loan_id=str(uuid.uuid4()),
-                amount_minor=400_00,
-                currency="CHF",
-                loan_funding_deadline=date(2026, 3, 10),
-                source_type="primary_investment_order",
-                source_id="order-1",
-                idempotency_key="reserve-penalty",
-                as_of=_received_at(date(2026, 3, 3)),
-            )
-        )
-    lot = InvestorBalanceLot.objects.get(id=fresh.balance_lot.id)
-    assert lot.available_amount_minor == 1_000_00
+    _reserve(admin_user, investor, "fresh", day=date(2026, 3, 10))
+    old_lot.refresh_from_db()
+    assert old_lot.available_amount_minor == 100_00
+    assert InvestorBalanceLot.objects.get(id=fresh.balance_lot.id).available_amount_minor == 600_00
 
 
 # --- A-23: reconciliation with escrow -------------------------------------------------------
@@ -701,11 +736,12 @@ def test_fx_lot_made_after_the_days_scan_gets_no_late_repeat_of_that_reminder(
     investor: Model,
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    # Day 53 of the deposit (value date 2026-01-01, day 0) is 2026-02-23.
+    # 18.4: the deposit (value date 2026-01-01) goes back on 2026-02-26; the 3-day notice is
+    # due on 2026-02-23.
     day_53 = datetime(2026, 2, 23, 9, 0, tzinfo=_received_at(date(2026, 2, 23)).tzinfo)
     run_balance_ageing_scan(RunBalanceAgeingScanCommand(actor=admin_user, as_of=day_53))
     assert DomainEvent.objects.filter(
-        idempotency_key=f"balance-lot:{deposit.balance_lot.id}:ageing-reminder-day:53"
+        idempotency_key=f"balance-lot:{deposit.balance_lot.id}:return-notice:3"
     ).exists()
     fx = execute_investor_fx_exchange_ledger(
         ExecuteInvestorFxExchangeLedgerCommand(

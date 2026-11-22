@@ -135,7 +135,15 @@ def _secret_topic_message(topic: str, user: Model) -> OutboxMessage:
         auth.issue_magic_link(auth.MagicLinkRequestCommand(email=cast(Any, user).email))
     else:
         auth.issue_sensitive_action_code(
-            auth.SensitiveActionCodeCommand(user=user, action="withdrawal")
+            auth.SensitiveActionCodeCommand(
+                user=user,
+                action="withdrawal",
+                operation={
+                    "amount_minor": 500_00,
+                    "currency": "CHF",
+                    "iban": "CH5604835012345678009",
+                },
+            )
         )
     return OutboxMessage.objects.filter(topic=topic).latest("id")
 

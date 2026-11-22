@@ -1,6 +1,6 @@
 // IP of Webby-Soft SRL.
-// Public site: Projects (filters, list, calculator), Project page and Statistics, with the
-// preview fixtures (the design's sample data, TODAY 2026-09-23).
+// Public site: Projects (filters, list, calculator; October page), the U33 project page and
+// Statistics (October page), with the preview fixtures (the design's sample data, TODAY 2026-09-23).
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
@@ -8,7 +8,8 @@ import { describe, expect, test, vi } from "vitest";
 import { App } from "../../App";
 import { siteQueryKeys, type PublicProject } from "../data";
 import { siteDesignProjectIds, siteProjectsFixture } from "../siteFixtures";
-import { projectView } from "../projects";
+import { projectView, statusOf, timeText } from "../projects";
+import { plan, round2 } from "../format";
 import {
   calcAmount,
   expectedInterest,
@@ -58,6 +59,9 @@ describe("Projects page", () => {
       "Packaging factory extension",
       "Wine cellar expansion"
     ]);
+
+    // No risk rating on the public site (U33-DEC-16).
+    expect(projectList()).not.toHaveTextContent(/Risk [A-D]/);
 
     fireEvent.click(chip(/^Coming soon/));
     expect(chip(/^Coming soon/)).toHaveClass("active");
@@ -138,7 +142,8 @@ describe("Projects page", () => {
     const figure = (label: string) => within(calc).getByText(label).nextElementSibling;
     expect(within(calc).getByLabelText("Amount")).toHaveValue("5,000.00");
     expect(figure("Interest before tax")).toHaveTextContent("EUR 399.76");
-    expect(figure("First month")).toHaveTextContent("EUR 225.00");
+    // 18.6 engine (equal total installments, Act/365): the same figures as interest_engine.py.
+    expect(figure("First month")).toHaveTextContent("EUR 224.99");
     expect(figure("Total repaid")).toHaveTextContent("EUR 5,399.76");
     expect(within(calc).getByText("7.5%")).toBeInTheDocument();
     expect(within(calc).getByText("24 months")).toBeInTheDocument();
@@ -188,106 +193,91 @@ describe("Projects page", () => {
   });
 });
 
-describe("Project page", () => {
-  test("an open project: head, facts, security, company, invest box and other projects", () => {
+describe("Project page (U33)", () => {
+  const meta = () => document.querySelector(".compact-heading .page-meta") as HTMLElement;
+  const numbers = () => document.querySelector(".compact-numbers") as HTMLElement;
+  const repayments = () => screen.getByRole("region", { name: /^(Loan repayments|Repayment record)$/ });
+  const security = () => document.querySelector(".compact-security") as HTMLElement;
+  const gate = () => screen.getByRole("region", { name: /Before you invest|no longer open/ });
+
+  test("an open project: heading, numbers, repayments for all investors, security and the gate", () => {
     renderSite(`/projects/${ID("bx-1048")}`);
     expect(document.title).toBe("Residential building completion · Banxum");
-    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumbs).getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/projects");
-    expect(crumbs).toHaveTextContent("Projects/B0000000");
-    const head = screen.getByRole("heading", { level: 1, name: "Residential building completion" }).parentElement as HTMLElement;
-    expect(head.querySelector(".site-project-tags")).toHaveTextContent("Open New loan Risk B");
-    expect(within(head).getByText("Switzerland · Real estate")).toBeInTheDocument();
+    expect(document.documentElement).toHaveClass("bxp", "bxp-project");
+    expect(document.querySelector(".breadcrumb")).toHaveAttribute("href", "/#opportunities");
+    expect(document.querySelector(".breadcrumb")).toHaveTextContent("All opportunities");
+    expect(within(meta()).getByRole("img", { name: "Switzerland" })).toBeInTheDocument();
+    expect(meta()).toHaveTextContent("Real estateCHFOpen · 23 days left");
+    expect(screen.getByRole("heading", { level: 1, name: "Residential building completion" })).toBeInTheDocument();
+    expect(screen.getByText("Completion of a 14-flat building in Biel; 9 flats are sold with notarised contracts.")).toHaveClass("page-lead");
+    expect(numbers()).toHaveTextContent("7.5%Annual interest18 monthsInvestment termCHF 32,308Minimum investment");
 
-    const facts = document.querySelector(".site-facts-grid") as HTMLElement;
-    expect(facts).toHaveTextContent("Interest a year7.5%Term18 monthsAmountCHF 800kRepaymentAt the end");
-    expect(screen.getByText("Interior works and façade: CHF 520,000").tagName).toBe("LI");
-    expect(screen.getByText("First-rank mortgage note (Schuldbrief) on the building")).toBeInTheDocument();
-    expect(screen.getByText("62%")).toBeInTheDocument();
-    expect(screen.getByText("(AAA lowest, D highest)")).toBeInTheDocument();
-    expect(screen.getByText("Founded").nextElementSibling).toHaveTextContent("2008");
-    expect(screen.getByText("Employees").nextElementSibling).toHaveTextContent("–");
-    expect(screen.getByText("Region").nextElementSibling).toHaveTextContent("Switzerland");
-    expect(screen.getByText("Shown after you open an account")).toHaveClass("visually-hidden");
-    expect(
-      screen.getByText(
-        "Garanta Finanzgruppe AG lends to the company and assigns shares of the claim to investors when the loan is funded."
-      )
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Repayment so far" })).not.toBeInTheDocument();
+    // The whole loan with its projected interest, paid to the investors' Banxum accounts (U33-DEC-02).
+    // interest_only_then_bullet: monthly interest, principal at maturity (the engine's grouping, 18.6).
+    expect(repayments()).toHaveTextContent("Loan amountCHF 800,000Projected total interestCHF 90,082.20");
+    expect(repayments()).toHaveTextContent("Banxum investor accountsCHF 890,082.20Projected · over 18 monthsMonthly interest, principal at maturity");
 
-    const box = document.querySelector(".site-sticky") as HTMLElement;
-    expect(box).toHaveTextContent("23 days left");
-    expect(box).toHaveTextContent("CHF 380,000.00 funded48%");
-    expect(within(box).getByText("Still to fund").nextElementSibling).toHaveTextContent("CHF 420,000.00");
-    expect(within(box).getByText("Minimum now").nextElementSibling).toHaveTextContent("CHF 32,308.00");
-    expect(within(box).getByRole("link", { name: "Open account to invest" })).toHaveAttribute("href", "/register");
-    expect(within(box).getByRole("link", { name: "I have an account" })).toHaveAttribute("href", `/marketplace/${ID("bx-1048")}`);
-
-    const others = screen.getByRole("heading", { name: "Other projects" }).closest("section") as HTMLElement;
-    expect(Array.from(others.querySelectorAll(".site-project-title")).map((el) => el.textContent)).toEqual([
-      "Packaging factory extension",
-      "Wine cellar expansion",
-      "Dental practice equipment"
-    ]);
-  });
-
-  test("the mini calculator shows the interest and the minimum and capacity notes", () => {
-    renderSite(`/projects/${ID("bx-1048")}`);
-    const input = screen.getByLabelText("Your amount");
-    const out = () => (document.getElementById("site-mini-calc") as HTMLElement).querySelector("p") as HTMLElement;
-    expect(input).toHaveValue("32,308.00");
-    expect(out()).toHaveTextContent(
-      "Interest before tax over 18 months: CHF 3,637.97, counted every day, if every payment is on time. No fees."
+    // Loan and asset value on one scale; the value is the one the published loan-to-value implies.
+    expect(within(security()).getByRole("heading", { level: 2, name: "Property" })).toBeInTheDocument();
+    expect(within(security()).getByText("First-rank mortgage note (Schuldbrief) on the building")).toBeInTheDocument();
+    expect(within(security()).getByRole("figure")).toHaveAccessibleName(
+      "Loan amount CHF 800,000; property value CHF 1,290,323. Loan-to-value 62%."
     );
-    fireEvent.change(input, { target: { value: "100" } });
-    expect(out()).toHaveTextContent("The minimum now is CHF 32,308.00.");
-    fireEvent.change(input, { target: { value: "500000" } });
-    expect(out()).toHaveTextContent("Only CHF 420,000.00 is left.");
-    fireEvent.change(input, { target: { value: "" } });
-    expect(out()).toHaveTextContent(/^Enter an amount\.$/);
-    fireEvent.change(input, { target: { value: "40000.5" } });
-    fireEvent.blur(input);
-    expect(input).toHaveValue("40,000.50");
+    expect(security()).toHaveTextContent("Each property value comes from a named valuation report in the credit file.");
+
+    // Anonymous and without ratings (decided 2026-10-15, U33-DEC-16).
+    expect(within(screen.getByRole("main")).queryByText(/Risk|rating/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sample Company/)).not.toBeInTheDocument();
+
+    expect(within(gate()).getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/register");
+    expect(within(gate()).queryByRole("link", { name: "I have an account" })).not.toBeInTheDocument();
+    expect(screen.getByText("Capital at risk. Collateral does not guarantee repayment.")).toBeInTheDocument();
   });
 
-  test("a late claim: record tag, originator, repayment so far and the late notice", () => {
+  test("the pager browses the home page's three opportunities", () => {
+    renderSite(`/projects/${ID("bx-1046")}`);
+    const pager = screen.getByRole("navigation", { name: "Browse opportunities" });
+    expect(within(pager).getByLabelText("Opportunity 2 of 3")).toBeInTheDocument();
+    expect(within(pager).getByRole("link", { name: "Previous opportunity: Dental practice equipment" })).toBeInTheDocument();
+    fireEvent.click(within(pager).getByRole("link", { name: "Next opportunity: Wine cellar expansion" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Wine cellar expansion" })).toBeInTheDocument();
+    const last = screen.getByRole("navigation", { name: "Browse opportunities" });
+    expect(within(last).getByRole("button", { name: "Next opportunity" })).toBeDisabled();
+    // A project that is not among them has no pager.
+    expect(repayments()).toHaveTextContent("Projected · over 24 months");
+  });
+
+  test("a late claim: status, repayment record and the late note, no originator name", () => {
     renderSite(`/projects/${ID("bx-1031")}`);
-    const head = screen.getByRole("heading", { level: 1, name: "Hotel renovation Brașov" }).parentElement as HTMLElement;
-    expect(head.querySelector(".site-project-tags")).toHaveTextContent("Late 12 days Existing claim Risk C");
-    expect(screen.getByText("Poiana Credit IFN SA").tagName).toBe("STRONG");
-    expect(screen.getByText("Poiana Credit IFN SA").parentElement).toHaveTextContent(
-      "The loan originator Poiana Credit IFN SA, Romania, assigns the claim to Garanta Finanzgruppe AG, which assigns shares to investors."
-    );
-    expect(screen.getByRole("heading", { name: "Repayment so far" })).toBeInTheDocument();
-    expect(document.querySelector(".alert-warning")).toHaveTextContent(
-      "One payment is late 12 days. Garanta has reminded the borrower; investors are informed of each step."
-    );
-    const box = document.querySelector(".site-sticky") as HTMLElement;
-    expect(box).toHaveTextContent("Funding closed");
-    expect(within(box).getByText("Payments made").nextElementSibling).toHaveTextContent("5 of 18");
-    expect(within(box).queryByText("Still to fund")).not.toBeInTheDocument();
-    expect(box).toHaveTextContent("This project is no longer open. See the open projects.");
-    expect(screen.queryByLabelText("Your amount")).not.toBeInTheDocument();
+    expect(document.querySelector(".breadcrumb")).toHaveAttribute("href", "/projects");
+    expect(document.querySelector(".breadcrumb")).toHaveTextContent("All projects");
+    expect(meta()).toHaveTextContent("Late 12 days");
+    expect(meta().querySelector(".bxp-status")).toHaveClass("is-late");
+    expect(numbers()).toHaveTextContent("EUR 280,000Loan amount");
+    expect(repayments()).toHaveTextContent("Principal repaidEUR 0.00Interest paidEUR 11,150.14");
+    expect(repayments()).toHaveTextContent("Paid to Banxum investor accountsEUR 11,150.145 of 18 payments made");
+    expect(repayments()).toHaveTextContent("Outstanding principal: EUR 280,000.00");
+    expect(repayments()).toHaveTextContent("A payment is 12 days late. Banxum follows up with the borrower and informs the investors.");
+    expect(screen.queryByText(/Poiana Credit/)).not.toBeInTheDocument();
+    expect(within(gate()).getByRole("heading", { name: "This loan is no longer open for investment." })).toBeInTheDocument();
+    expect(within(gate()).getByRole("link", { name: "View opportunities" })).toHaveAttribute("href", "/#opportunities");
+    expect(within(gate()).queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
   });
 
   test("a defaulted loan shows the default date and the public note", () => {
     renderSite(`/projects/${ID("bx-1024")}`);
-    const alert = document.querySelector(".alert-danger") as HTMLElement;
-    expect(within(alert).getByText("In default since 15 Jul 2026.").tagName).toBe("STRONG");
-    expect(alert).toHaveTextContent(fixture("bx-1024").record?.public_note ?? "");
+    expect(meta()).toHaveTextContent("Default");
+    expect(meta().querySelector(".bxp-status")).toHaveClass("is-default");
+    const note = document.querySelector(".bxp-record-note") as HTMLElement;
+    expect(note).toHaveTextContent(`In default since 15 Jul 2026. ${fixture("bx-1024").record?.public_note ?? ""}`);
   });
 
   test("a project opening soon and a fully funded one", () => {
     const soon = renderSite(`/projects/${ID("bx-1052")}`);
-    let box = document.querySelector(".site-sticky") as HTMLElement;
-    expect(box).toHaveTextContent("Coming soon");
-    expect(box).toHaveTextContent("Opens 28 Sep");
-    expect(box).toHaveTextContent("This project opens on 28 Sep 2026. Open an account now so you can invest from the first day.");
-    expect(within(box).queryByText("Still to fund")).not.toBeInTheDocument();
+    expect(meta()).toHaveTextContent("Opens 28 Sep");
     // The project's own minimum from the API (design sample data).
-    expect(within(box).getByText("Minimum").nextElementSibling).toHaveTextContent("EUR 500.00");
-    expect(within(box).getByRole("link", { name: "I have an account" })).toBeInTheDocument();
+    expect(numbers()).toHaveTextContent("EUR 500Minimum investment");
+    expect(within(gate()).getByRole("link", { name: "Create an account" })).toBeInTheDocument();
     soon.unmount();
 
     const full: PublicProject = {
@@ -298,16 +288,15 @@ describe("Project page", () => {
       minimum_investment_minor: null
     };
     renderSite(`/projects/${ID("bx-1046")}`, (client) => client.setQueryData(siteQueryKeys.project(full.loan_id), full));
-    box = document.querySelector(".site-sticky") as HTMLElement;
-    expect(box).toHaveTextContent("Fully funded");
-    expect(within(box).getByText("Minimum").nextElementSibling).toHaveTextContent("CHF 1,000.00");
-    expect(box).toHaveTextContent("This project is no longer open.");
-    expect(screen.queryByLabelText("Your amount")).not.toBeInTheDocument();
+    expect(meta()).toHaveTextContent("Fully funded");
+    expect(numbers()).toHaveTextContent("CHF 450,000Loan amount");
+    expect(repayments()).toHaveTextContent("Loan repayments");
+    expect(within(gate()).getByRole("heading", { name: "This loan is no longer open for investment." })).toBeInTheDocument();
   });
 
-  test("an unknown project shows the 404", async () => {
+  test("an unknown project shows the not-available notice", async () => {
     renderSite("/projects/not-a-project");
-    expect(await screen.findByRole("heading", { level: 1, name: "This page does not exist" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "This project is not available." })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/projects/not-a-project");
   });
 });
@@ -330,7 +319,9 @@ describe("Statistics page", () => {
     const record = screen.getByRole("heading", { name: "All funded loans" }).closest("section") as HTMLElement;
     const loanRows = within(record).getAllByRole("row").slice(1);
     expect(loanRows).toHaveLength(7);
-    expect(loanRows[0]).toHaveTextContent("Invoice financing, food wholesalerFunded 20 Jul 2026 · risk B");
+    // No risk rating on the public site (U33-DEC-16).
+    expect(loanRows[0]).toHaveTextContent("Invoice financing, food wholesalerFunded 20 Jul 2026");
+    expect(record).not.toHaveTextContent(/risk [A-D]/i);
     expect(loanRows[2]).toHaveTextContent("Late 12 days");
     expect(loanRows[6]).toHaveTextContent("Trade receivables financing");
     fireEvent.click(within(loanRows[4]).getByRole("link", { name: "Furniture production line" }));
@@ -342,7 +333,9 @@ describe("project page helpers", () => {
   test("repayment, security, purpose and loan-to-value texts", () => {
     expect(planRepaymentOf("equal_installments")).toBe("annuity");
     expect(planRepaymentOf("bullet_periodic_interest")).toBe("interest-only");
-    expect(planRepaymentOf("interest_only_then_bullet")).toBe("bullet");
+    expect(planRepaymentOf("interest_only_then_bullet")).toBe("interest-only");
+    expect(planRepaymentOf("full_at_maturity")).toBe("bullet");
+    expect(planRepaymentOf("custom_schedule")).toBe("annuity");
     expect(securityText({ collateral_description: " ", collateral_type: "real_estate" })).toBe("Real estate");
     expect(purposeItems({ purpose_description: "A\n\n B \n", purpose: "capex" })).toEqual(["A", "B"]);
     expect(purposeItems({ purpose_description: "", purpose: "capex" })).toEqual(["Capex / business expansion"]);
@@ -360,6 +353,27 @@ describe("project page helpers", () => {
       status: "all",
       currency: "EUR"
     });
-    expect(expectedInterest(fixture("bx-1048"), 32308)).toBe(3637.97);
+    expect(expectedInterest(fixture("bx-1048"), 32308)).toBe(3638);
+    // Quarterly interest: the same days, rounded per period (interest_engine.py: 3,637.97).
+    expect(expectedInterest({ ...fixture("bx-1048"), payment_frequency: "quarterly" }, 32308)).toBe(3637.97);
+    // Reference values of backend interest_engine.py for the same terms (tmp check, 2026-11-19).
+    const ioThenEqual = plan({ rate: 7.5, term: 18, repayment: "annuity", frequencyMonths: 3, interestOnlyPeriods: 2 }, 32308, "2026-10-16");
+    expect(ioThenEqual.map((row) => row.due)).toEqual(["2027-01-16", "2027-04-16", "2027-07-16", "2027-10-16", "2028-01-16", "2028-04-16"]);
+    expect([ioThenEqual[0].total, ioThenEqual[2].total]).toEqual([610.75, 8460.17]);
+    expect(round2(ioThenEqual.reduce((sum, row) => sum + row.interest, 0))).toBe(2740.93);
+    expect(ioThenEqual.at(-1)?.balance).toBe(0);
+    const atMaturity = plan({ rate: 7.5, term: 18, repayment: "bullet" }, 32308, "2026-10-16");
+    expect(atMaturity).toHaveLength(1);
+    expect(atMaturity[0].interest).toBe(3637.97);
+  });
+
+  test("a coming_soon project from the API is Coming soon and opens on its planned date (U33-DEC-17)", () => {
+    const base = fixture("bx-1048");
+    const soon = projectView({ ...base, public_status: "coming_soon", published_at: null, planned_opening_date: "2026-10-05" }, "2026-09-23");
+    expect(soon.isSoon).toBe(true);
+    expect(soon.isOpen).toBe(false);
+    expect(statusOf(soon)).toEqual({ label: "Coming soon", cls: "" });
+    expect(timeText(soon)).toBe("Opens 5 Oct");
+    expect(filterProjects([soon], { status: "soon", currency: "all" })).toHaveLength(1);
   });
 });

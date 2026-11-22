@@ -53,6 +53,7 @@ function lender(overrides: Record<string, unknown> = {}) {
     marketing_consent: false,
     pin_set: true,
     pin_locked_until: null,
+    second_factor: "sms",
     ...overrides
   };
 }
@@ -67,6 +68,7 @@ function pinStatus(overrides: Record<string, unknown> = {}) {
       setup_requires_email_code: true,
       reset_available: true,
       phone_last_digits: "42",
+      second_factor: "sms",
       ...overrides
     }
   };
@@ -90,8 +92,8 @@ function pinHandlers(status: () => ReturnType<typeof pinStatus> = () => pinStatu
       }
       return HttpResponse.json(pinStatus());
     }),
-    http.post("*/api/v1/auth/pin/reset/start/", () => {
-      calls.pinResetStart.push({});
+    http.post("*/api/v1/auth/pin/reset/start/", async ({ request }) => {
+      calls.pinResetStart.push((await request.json()) as Record<string, unknown>);
       return HttpResponse.json(
         { phone_challenge_id: "33333333-3333-4333-8333-333333333333", expires_at: "2026-10-16T12:10:00Z", phone_last_digits: "42" },
         { status: 202 }
@@ -116,11 +118,17 @@ function withdrawalHandlers(results: Array<() => Response>) {
   ];
 }
 
+/** The one masked PIN input of the U33 operation dialogs. */
+function pinInput() {
+  return screen.getByLabelText("PIN", { exact: true, selector: "input" });
+}
+
 async function openWithdrawalConfirm() {
-  fireEvent.click((await screen.findAllByRole("button", { name: "Withdraw to IBAN" }, { timeout: 5000 }))[0]);
-  const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "100" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  const card = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
+  fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
+  const dialog = await screen.findByRole("dialog", { name: "Withdraw" });
+  fireEvent.change(within(dialog).getByLabelText("Amount to withdraw"), { target: { value: "100" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Continue/ }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
   return dialog;
 }
@@ -144,8 +152,8 @@ test("the PIN goes with the email code; a wrong PIN shows the attempts left and 
   fireEvent.click(confirm);
 
   expect(await screen.findByText("Wrong PIN. 4 attempts left before your PIN is locked.", {}, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toHaveValue("");
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toHaveAttribute("aria-invalid", "true");
+  expect(pinInput()).toHaveValue("");
+  expect(pinInput()).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByRole("textbox", { name: "Email confirmation code" })).toHaveValue("123456");
   expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
 
@@ -155,10 +163,11 @@ test("the PIN goes with the email code; a wrong PIN shows the attempts left and 
   expect(calls.withdrawals.map((body) => body.pin)).toEqual([NEW_PIN, TEST_PIN]);
   expect(calls.withdrawals[1].sensitive_action_code_id).toBe(calls.withdrawals[0].sensitive_action_code_id);
   expect(calls.withdrawals[1].sensitive_action_code).toBe("123456");
-  expect(calls.codes).toEqual([{ action: "withdrawal" }]);
+  // 18.5: the code was requested for this amount to this account only.
+  expect(calls.codes).toEqual([{ action: "withdrawal", operation: { amount_minor: 10_000, currency: "CHF", iban: verifiedIban.destination_iban } }]);
 }, 30_000);
 
-test("a locked PIN says until when; Forgot PIN resets it with the email and SMS codes", async () => {
+test("a locked PIN says until when; Forgot PIN resets it with the password and an SMS code", async () => {
   const lockedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   server.use(
     ...withdrawalHandlers([
@@ -176,17 +185,17 @@ test("a locked PIN says until when; Forgot PIN resets it with the email and SMS 
   const time = new Date(lockedUntil).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" });
   expect(await screen.findByText("PIN locked", {}, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText(`Too many wrong PINs. You can try again after ${time}, or set a new PIN now.`)).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "PIN digit 1 of 6" })).toBeDisabled();
+  expect(pinInput()).toBeDisabled();
   expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
 
   fireEvent.click(screen.getAllByRole("button", { name: "Forgot PIN?" })[0]);
   const forgot = await screen.findByRole("dialog", { name: "Forgot PIN" });
-  expect(await within(forgot).findByText("42")).toBeInTheDocument();
-  fireEvent.click(within(forgot).getByRole("button", { name: "Send the codes" }));
-  await waitFor(() => expect(calls.pinResetStart).toHaveLength(1));
-  await waitFor(() => expect(calls.codes).toContainEqual({ action: "pin_reset" }));
-  fireEvent.change(within(forgot).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "111222" } });
-  fireEvent.change(within(forgot).getByRole("textbox", { name: "SMS code" }), { target: { value: "333444" } });
+  // 18.5: the password, then an SMS code (no email code).
+  expect(await within(forgot).findByText(/your password, then a code by SMS to your phone number ending in 42\./)).toBeInTheDocument();
+  fireEvent.change(within(forgot).getByLabelText("Password"), { target: { value: "quiet-harbour-lantern-47" } });
+  fireEvent.click(within(forgot).getByRole("button", { name: "Send SMS code" }));
+  await waitFor(() => expect(calls.pinResetStart).toEqual([{ password: "quiet-harbour-lantern-47" }]));
+  fireEvent.change(await within(forgot).findByRole("textbox", { name: "SMS code" }), { target: { value: "333444" } });
   enterPin(TEST_PIN, "New PIN", forgot);
   enterPin(TEST_PIN, "Repeat new PIN", forgot);
   fireEvent.click(within(forgot).getByRole("button", { name: "Save new PIN" }));
@@ -194,14 +203,13 @@ test("a locked PIN says until when; Forgot PIN resets it with the email and SMS 
   await screen.findByText("Your new PIN is active", {}, { timeout: 5000 });
   expect(calls.pinResetConfirm).toEqual([
     {
-      sensitive_action_code_id: "22222222-2222-4222-8222-222222222222",
-      sensitive_action_code: "111222",
       phone_challenge_id: "33333333-3333-4333-8333-333333333333",
       phone_code: "333444",
       new_pin: TEST_PIN,
       new_pin_confirmation: TEST_PIN
     }
   ]);
+  expect(calls.codes).not.toContainEqual({ action: "pin_reset" });
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
   // Back in the withdrawal: the lock is gone and the new PIN is filled in.
@@ -256,14 +264,14 @@ test("after login an account without a PIN creates it before anything else", asy
   );
   renderLiveApp(App, "/dashboard");
 
-  expect(await screen.findByRole("heading", { name: "Create your PIN" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Create your security PIN" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.queryByRole("navigation", { name: "Investor portal navigation" })).not.toBeInTheDocument();
   await waitFor(() => expect(calls.codes).toEqual([{ action: "pin_setup" }]));
-  const save = screen.getByRole("button", { name: "Save PIN" });
-  enterPin("111111");
+  const save = screen.getByRole("button", { name: "Save PIN & continue" });
+  enterPin("111111", "6-digit PIN");
   expect(screen.getByText("Choose a PIN that does not repeat one digit, like 111111.")).toBeInTheDocument();
-  enterPin();
-  enterPin(TEST_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "6-digit PIN");
+  enterPin(TEST_PIN, "Confirm PIN");
   expect(save).toBeDisabled();
   fireEvent.change(screen.getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "777888" } });
   expect(save).toBeEnabled();
@@ -291,29 +299,29 @@ test("registration asks for the PIN after the phone and before identity verifica
       HttpResponse.json({ ...getV1KycStatusRetrieveResponseMock(), status: "not_started", financial_access_allowed: false })
     )
   );
-  window.localStorage.setItem(
+  window.sessionStorage.setItem(
     "banxum:register-flow:v3",
     JSON.stringify({ step: 2, email: user.email, firstName: "Una", lastName: "Investor", emailLoginSent: true })
   );
   renderLiveApp(App, "/register");
 
-  expect(await screen.findByRole("heading", { name: "Create your PIN" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Create your security PIN" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText("Step 3 of 4")).toBeInTheDocument();
-  expect(screen.getByText("You will enter it with the email code for every investment, withdrawal and bank change.")).toBeInTheDocument();
-  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByLabelText("PIN")).toHaveAttribute("aria-current", "step");
+  expect(screen.getByText("Use your PIN and an email code to confirm investments, withdrawals and bank account changes.")).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "Registration steps" })).getByText("Security").closest("li")).toHaveAttribute("aria-current", "step");
   // No email code at registration: the user just proved the email and the phone.
   expect(screen.queryByRole("textbox", { name: "Email confirmation code" })).not.toBeInTheDocument();
-  const save = screen.getByRole("button", { name: "Save PIN" });
-  enterPin("123456");
+  const save = screen.getByRole("button", { name: "Save PIN & continue" });
+  enterPin("123456", "6-digit PIN");
   expect(screen.getByText("Choose a PIN that is not a straight run of digits, like 123456 or 654321.")).toBeInTheDocument();
-  enterPin();
-  enterPin(NEW_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "6-digit PIN");
+  enterPin(NEW_PIN, "Confirm PIN");
   expect(screen.getByText("The two PINs do not match.")).toBeInTheDocument();
   expect(save).toBeDisabled();
-  enterPin(TEST_PIN, "Repeat PIN");
+  enterPin(TEST_PIN, "Confirm PIN");
   fireEvent.click(save);
 
-  expect(await screen.findByRole("heading", { name: "Identity verification" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Verify your identity" }, { timeout: 5000 })).toBeInTheDocument();
   expect(calls.pinSet).toEqual([{ new_pin: TEST_PIN, new_pin_confirmation: TEST_PIN }]);
   expect(calls.codes).toEqual([]);
 }, 30_000);
@@ -326,9 +334,8 @@ test("Settings: Change PIN needs the current PIN, an email code and the new PIN 
     ...investorShellHandlers(calls),
     ...pinHandlers()
   );
-  renderLiveApp(App, "/settings");
-  fireEvent.click(await screen.findByRole("button", { name: "PIN" }, { timeout: 5000 }));
-  expect(await screen.findByText("Set")).toBeInTheDocument();
+  renderLiveApp(App, "/settings/security");
+  expect(await screen.findByText("Set", {}, { timeout: 5000 })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Change PIN" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Change PIN" });
@@ -354,4 +361,110 @@ test("Settings: Change PIN needs the current PIN, an email code and the new PIN 
   });
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(await screen.findByText("Your PIN was changed.")).toBeInTheDocument();
+}, 30_000);
+
+test("a verified bank account becomes the return account with the email code and the PIN (U33-DEC-05)", async () => {
+  calls.defaults = [];
+  const current = { ...verifiedIban, verification_status: "verified", is_default_return: true };
+  const other = { ...verifiedIban, id: "pi2", destination_iban: "CH5604835012345678009", verification_status: "verified", is_default_return: false };
+  const pending = { ...verifiedIban, id: "pi3", destination_iban: "DE89370400440532013000", is_verified_usable: false, verification_status: "pending", is_default_return: false, verified_at: null };
+  server.use(
+    ...investorShellHandlers(calls, { balances: () => balancesPayload([{ currency: "CHF", investableMinor: 500_000 }], [current, other, pending]) }),
+    ...pinHandlers(),
+    http.post("*/api/v1/ledger/payout-instructions/:instructionId/default/", async ({ request, params }) => {
+      calls.defaults.push({ instructionId: params.instructionId, ...((await request.json()) as Record<string, unknown>) });
+      return HttpResponse.json({ payout_instruction: { ...other, is_default_return: true } });
+    })
+  );
+  renderLiveApp(App, "/settings/bank-accounts");
+
+  expect(await screen.findByText("Money that goes back to your bank in CHF is sent to this account.", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByText("Pending verification")).toBeInTheDocument();
+  // Only the verified account that is not the return account offers the change.
+  const buttons = screen.getAllByRole("button", { name: "Use for returns" });
+  expect(buttons).toHaveLength(1);
+  fireEvent.click(buttons[0]);
+  const dialog = await screen.findByRole("dialog", { name: "Use for CHF returns" });
+  expect(within(dialog).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
+  fireEvent.change(await within(dialog).findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin(TEST_PIN, "PIN", dialog);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+  expect(await screen.findByText("Return account changed", {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(calls.defaults).toEqual([
+    { instructionId: "pi2", sensitive_action_code_id: "22222222-2222-4222-8222-222222222222", sensitive_action_code: "123456", pin: TEST_PIN }
+  ]);
+  expect(calls.codes).toEqual([{ action: "bank_account_change", operation: { instruction_id: "pi2" } }]);
+}, 30_000);
+
+test("D-1: an investor with an authenticator app confirms with the app code, never a PIN (18.5)", async () => {
+  server.use(
+    // First match wins: this investor uses the app.
+    http.get("*/api/v1/auth/pin/status/", () => HttpResponse.json(pinStatus({ pin_set: false, second_factor: "app", reset_available: false }))),
+    ...withdrawalHandlers([
+      () => HttpResponse.json(
+        { detail: "Wrong authenticator code. Check the time on your phone. 4 attempts left before the lock.", code: "authenticator_code_invalid", attempts_left: 4 },
+        { status: 400 }
+      )
+    ])
+  );
+  renderLiveApp(App, "/balances");
+  await openWithdrawalConfirm();
+
+  expect(screen.queryByRole("button", { name: "Forgot PIN?" })).not.toBeInTheDocument();
+  expect(screen.getByText("The 6-digit code shown in your authenticator app.")).toBeInTheDocument();
+  enterPin("246813", "Authenticator code");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+  expect(await screen.findByText(/Wrong authenticator code/, {}, { timeout: 5000 })).toBeInTheDocument();
+  // No "Create your PIN" dialog for this investor.
+  expect(screen.queryByRole("dialog", { name: "Create your PIN" })).not.toBeInTheDocument();
+
+  enterPin("135790", "Authenticator code");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+  await screen.findAllByText("Withdrawal requested", {}, { timeout: 5000 });
+  // The API field stays "pin" and carries the app code.
+  expect(calls.withdrawals.map((body) => body.pin)).toEqual(["246813", "135790"]);
+}, 30_000);
+
+test("re-audit R8-1: in a new tab the SMS code goes to the registered number without typing it", async () => {
+  const user = lender({
+    status: "pending_kyc",
+    pin_set: false,
+    phone_verified: false,
+    second_factor: "",
+    phone_number_masked: "+41 ••• ••• •• 67"
+  });
+  const phoneRequests: Array<Record<string, unknown>> = [];
+  server.use(
+    ...pinHandlers(() => pinStatus({ pin_set: false, setup_requires_email_code: false })),
+    http.get("*/api/v1/auth/me/", () =>
+      HttpResponse.json({ ...getV1AuthMeRetrieveResponseMock(), user, qa_controls_available: false })
+    ),
+    http.get("*/api/v1/kyc/status/", () =>
+      HttpResponse.json({ ...getV1KycStatusRetrieveResponseMock(), status: "not_started", financial_access_allowed: false })
+    ),
+    http.post("*/api/v1/auth/phone/request/", async ({ request }) => {
+      const text = await request.text();
+      phoneRequests.push(text ? (JSON.parse(text) as Record<string, unknown>) : {});
+      return HttpResponse.json({ challenge_id: "c1", phone_verified: false });
+    })
+  );
+  // A fresh tab: the email link opened here, so this tab has only what the link rebuilds from
+  // the account (resumedRegisterStateForUser): name and email, no phone number.
+  window.sessionStorage.clear();
+  window.sessionStorage.setItem(
+    "banxum:register-flow:v3",
+    JSON.stringify({ step: 2, email: user.email, firstName: "Una", lastName: "Investor", emailLoginSent: true })
+  );
+  renderLiveApp(App, "/register");
+
+  fireEvent.click(await screen.findByRole("button", { name: /^SMS code/ }, { timeout: 5000 }));
+  expect(await screen.findByRole("heading", { name: "Verify your mobile number" })).toBeInTheDocument();
+  expect(screen.getByText("+41 ••• ••• •• 67")).toBeInTheDocument();
+  const send = screen.getByRole("button", { name: "Send SMS code" });
+  expect(send).toBeEnabled();
+  fireEvent.click(send);
+  expect(await screen.findByRole("heading", { name: "Enter your SMS code" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(phoneRequests).toHaveLength(1);
+  expect(phoneRequests[0]).not.toHaveProperty("phone_number");
 }, 30_000);

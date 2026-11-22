@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
@@ -171,6 +172,128 @@ def test_approved_didit_event_enables_financial_gate_after_phone_verified() -> N
         event_type="KycStatusChanged",
         aggregate_id=str(event_result.case.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_didit_decision_keeps_the_verified_address_birth_date_and_nationality() -> None:
+    """18.3 (U33-DEC-26, E-08): stored when Didit provides them; read-only for the investor."""
+    from backend.apps.kyc_compliance.api.serializers import serialize_kyc_status
+
+    user = create_lender(email="verified-identity@example.test")
+    mark_phone_verified(user)
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    payload = {
+        "id": "didit-event-identity",
+        "status": "approved",
+        "decision": {
+            "id_verifications": [
+                {
+                    "date_of_birth": "1984-05-17",
+                    "nationality": "che",
+                    "formatted_address": "Bahnhofstrasse 1, 8001 Zürich, Switzerland",
+                    # Audit S3-6: the legal name on the identity document.
+                    "first_name": "Anna  Maria",
+                    "last_name": "Müller-Keller",
+                }
+            ],
+            # A proof of address never gives the name.
+            "poa_verifications": [{"full_name": "A. Mueller", "poa_address": "Other 2"}],
+        },
+    }
+    result = process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-identity",
+            provider_event_type="verification.completed",
+            provider_status="approved",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload=payload,
+        )
+    )
+    case = result.case
+    case.refresh_from_db()
+    assert case.verified_address == "Bahnhofstrasse 1, 8001 Zürich, Switzerland"
+    assert str(case.verified_birth_date) == "1984-05-17"
+    assert case.verified_nationality == "CHE"
+    # The registration name stays what the investor typed; the verified name is Didit's.
+    assert case.verified_full_name == "Anna Maria Müller-Keller"
+    assert cast(Any, user).full_name != case.verified_full_name
+    status = serialize_kyc_status(user=user, case=case, latest_session=None)
+    assert status["verified_nationality"] == "CHE"
+    # A later event without these fields keeps them.
+    process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-identity-2",
+            provider_event_type="status.updated",
+            provider_status="approved",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload={"id": "didit-event-identity-2", "status": "approved"},
+        )
+    )
+    case.refresh_from_db()
+    assert case.verified_address.startswith("Bahnhofstrasse 1")
+    assert case.verified_full_name == "Anna Maria Müller-Keller"
+
+
+def test_the_document_name_comes_only_from_the_id_verification() -> None:
+    """Audit S3-6: ``full_name`` first, else first and last name; v3 list or single object."""
+    from backend.apps.kyc_compliance.services import verified_document_name
+
+    assert verified_document_name({"id_verifications": [{"full_name": " Jean  Dupont "}]}) == (
+        "Jean Dupont"
+    )
+    assert (
+        verified_document_name(
+            {"decision": {"id_verification": {"first_name": "Jean", "last_name": "Dupont"}}}
+        )
+        == "Jean Dupont"
+    )
+    # One part alone, a proof of address or expected details are not the legal name.
+    assert verified_document_name({"id_verifications": [{"first_name": "Jean"}]}) == ""
+    assert verified_document_name({"poa_verifications": [{"full_name": "Jean Dupont"}]}) == ""
+    assert verified_document_name({"expected_details": {"first_name": "J", "last_name": "D"}}) == ""
+
+
+@pytest.mark.django_db
+def test_migration_takes_the_name_from_the_newest_stored_didit_event() -> None:
+    """Audit S3-6: cases decided before the field existed get the name from their events."""
+    from importlib import import_module
+
+    from django.apps import apps
+
+    from backend.apps.kyc_compliance.models import KycProviderEvent, KycVerificationCase
+
+    migration = import_module("backend.apps.kyc_compliance.migrations.0008_verified_full_name")
+    user = create_lender(email="backfill-name@example.test")
+    case = KycVerificationCase.objects.create(
+        user_id=user.pk,
+        subject_reference=f"user:{user.pk}",
+        provider_environment="test",
+        workflow_id="wf",
+        vendor_data=f"user:{user.pk}",
+        status="approved",
+    )
+    for number, payload in enumerate(
+        (
+            {"decision": {"id_verifications": [{"full_name": "Old Name"}]}},
+            {"decision": {"id_verifications": [{"full_name": "Newest Name"}]}},
+            {"status": "approved"},
+        )
+    ):
+        KycProviderEvent.objects.create(
+            case=case,
+            provider_environment="test",
+            provider_event_id=f"backfill-{number}",
+            provider_event_type="status.updated",
+            normalized_status="approved",
+            raw_payload=payload,
+            processed_at=timezone.now() + timedelta(minutes=number),
+        )
+    migration.backfill_names(apps, None)
+    case.refresh_from_db()
+    assert case.verified_full_name == "Newest Name"
 
 
 @pytest.mark.django_db
@@ -625,3 +748,89 @@ def test_didit_webhook_signature_system_check_flags_non_local_unsafe_config(
         "kyc_compliance.E004",
         "kyc_compliance.E005",
     }
+
+
+@pytest.mark.django_db
+def test_a_recovery_identity_check_never_changes_the_kyc_case(client: Client) -> None:
+    """Audit S4-4: the result of a recovery's identity check is evidence for that recovery. A
+    failed check by somebody else must not block the real investor; a screening hit still goes
+    to an admin; the investor's KYC status shows no recovery session."""
+    from datetime import date
+
+    from django.apps import apps
+
+    from backend.apps.kyc_compliance import recovery_checks
+    from backend.apps.kyc_compliance.models import KycProviderSession, KycVerificationCase
+
+    user = create_lender(email="recovery-check@example.test")
+    case = KycVerificationCase.objects.create(
+        user_id=user.pk,
+        subject_reference=f"user:{user.pk}",
+        provider_environment="test",
+        workflow_id="wf",
+        vendor_data=f"user:{user.pk}",
+        status="approved",
+        verified_full_name="Jean Dupont",
+        verified_birth_date=date(1990, 3, 1),
+        verified_address="Old address 1",
+    )
+    session = recovery_checks.start_recovery_identity_check(user=user, reference="recovery-1")
+    assert (session.purpose, session.recovery_reference) == ("account_recovery", "recovery-1")
+    assert (
+        recovery_checks.recovery_check_result(
+            provider_session_id=session.provider_session_id, reference="recovery-1"
+        ).outcome
+        == "pending"
+    )
+
+    def event(event_id: str, status: str, **identity: str) -> None:
+        process_didit_event(
+            ProviderKycEventCommand(
+                provider_event_id=event_id,
+                provider_event_type="status.updated",
+                provider_status=status,
+                provider_session_id=session.provider_session_id,
+                vendor_data=f"user:{user.pk}",
+                detected_flags=["sanctions"] if status == "flagged" else [],
+                raw_payload={
+                    "id": event_id,
+                    "status": status,
+                    "decision": {"id_verifications": [identity]},
+                },
+            )
+        )
+
+    event("rc-declined", "declined", full_name="Somebody Else", formatted_address="New 9")
+    case.refresh_from_db()
+    assert (case.status, case.verified_full_name, case.verified_address) == (
+        "approved",
+        "Jean Dupont",
+        "Old address 1",
+    )
+    assert not case.manual_review_required
+    session.refresh_from_db()
+    assert session.status == "declined"
+    result = recovery_checks.recovery_check_result(
+        provider_session_id=session.provider_session_id, reference="recovery-1"
+    )
+    assert (result.outcome, len(result.decision_digest)) == ("not_approved", 64)
+    # The investor's own KYC status ignores the recovery session.
+    client.force_login(cast(Any, user))
+    status_body = client.get("/api/v1/kyc/status/").json()
+    assert session.verification_url not in str(status_body)
+    assert KycProviderSession.objects.filter(case=case).count() == 1
+
+    # A screening hit in the recovery check opens a review task; the case still does not change.
+    event("rc-sanctions", "flagged", full_name="Jean Dupont", date_of_birth="1990-03-01")
+    case.refresh_from_db()
+    assert case.status == "approved"
+    tasks = apps.get_model("admin_ops", "AdminTask").objects.filter(task_type="kyc_manual_review")
+    assert tasks.count() == 1 and "account recovery" in tasks.get().notes
+
+    assert recovery_checks.names_match("Jean Dupont", "DUPONT  Jéan")
+    # The machine-readable spelling of an umlaut is the same name; a middle name can be left out.
+    assert recovery_checks.names_match("Anna Maria Müller-Keller", "ANNA MUELLER KELLER")
+    assert recovery_checks.names_match("Anna Maria Müller-Keller", "Anna Maria Muller Keller")
+    assert recovery_checks.names_match("Anna Maria Müller-Keller", "Anna Meier-Keller") is False
+    assert recovery_checks.names_match("Jean Dupont", "Jean") is False
+    assert recovery_checks.names_match("", "Jean Dupont") is False

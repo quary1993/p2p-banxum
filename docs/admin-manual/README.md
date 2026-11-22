@@ -9,6 +9,28 @@ badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 - **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (60 pages)
 - **On-screen version:** `manual.html` (same content; annotations are live SVG)
 
+## Status (2026-11-20)
+
+The content files in `content/` were updated for Phase 18.4 and the audit of 20 November 2026: the 56-day return
+rule, no penalty and no penalty mode, failed returns, settlement calendars, and the verification of a return
+account from a deposit (a deposit does not verify its source IBAN). They were also updated for Phase 18.5: admins
+sign in with email, password and an authenticator app (no email code), the password rules for a new admin, the
+authenticator reset by a superadmin, and investor sign-in with a password and a second factor (no magic links).
+Audit step 5 added the flow "Service a direct loan on the 18.6 interest engine" (payments, expenses, Default
+declaration and cancellation); the earlier repayment flow is marked as the flow for loans before the engine.
+Audit step 6 replaced the boundary-installment description of Loan Originator offers with the 18.7 price
+(principal plus accrued interest, F04 failure, underlying financing ID).
+Audit step 7 added the 18.10 compliance tools (declaration reviews, the investor compliance file, staff roles) and
+three flows: handle a declaration review, open a manual review or re-verification date, and verify the securities of
+a loan. These have no figures yet.
+The re-audit fixes added two steps to "Verify the securities of a loan": upload a loan document and confirm its
+manual check (proof files for Loan Originator claims).
+`manual.html` was rendered again from this content (`node scripts/render.mjs`). `manual-print.html` and the PDF
+were built before these changes and still show the old sign-in: rebuild them with `bash scripts/build.sh` on a
+Mac with Google Chrome (a build on Linux uses other fonts and changes the layout). The figures are older captures: Finance Operations has
+new cards (failed returns, returned transfer, verification from a deposit, settlement calendars) without figures
+yet, so a new capture is needed for them.
+
 ## What's inside the manual
 
 1. Part 1 — The BANXUM model in plain language (the P2P primer)

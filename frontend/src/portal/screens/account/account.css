@@ -1,0 +1,224 @@
+/* IP of Webby-Soft SRL. */
+/* Slice S5 (Profile & Settings, Help, sign-in, registration, verification): fixes and the few
+ * additions the design has no rule for. Every rule is under html.bxu and says why. The generated
+ * u33.css is never edited; shared fixes are in u33-overrides.css. */
+
+/* ---- Notices (the design has .alert-danger/-warning/-success colours but no .alert box) ---------- */
+
+/* A short status line inside a screen or dialog (saved, could not save, PIN locked). */
+html.bxu .acc-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 16px 0 0;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--ui-line, #e8eaed);
+  background: var(--ui-panel, #fff);
+  font-size: 13px;
+  line-height: 1.55;
+}
+html.bxu .acc-notice strong { display: block; font-weight: 600; }
+html.bxu .acc-notice p { margin: 2px 0 0; color: #59636d; }
+html.bxu[data-theme="dark"] .acc-notice { background: #191c20; border-color: #343a40; color: #e4e8e6; }
+html.bxu[data-theme="dark"] .acc-notice p { color: #a9b0b6; }
+
+/* ---- Code and PIN fields of the p73 dialogs ------------------------------------------------------ */
+
+/* Label row with the "Send code" / "Show" text buttons on the right (the design's code label is a
+   block of its own; the app needs the resend button next to it). */
+html.bxu .acc-code-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+html.bxu .acc-code-label-row .p73-code-label { margin-bottom: 10px; }
+html.bxu .acc-code-tools { display: inline-flex; gap: 14px; }
+html.bxu .acc-text-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: #59636d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+html.bxu .acc-text-button:disabled { text-decoration: none; cursor: default; opacity: 0.7; }
+html.bxu[data-theme="dark"] .acc-text-button { color: #a9b0b6; }
+/* The design's .invalid-feedback shows only after an .is-invalid input: our message follows it. */
+html.bxu .acc-code-field .invalid-feedback { margin-top: 8px; font-size: 13px; }
+html.bxu .acc-field-hint { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: #69737d; }
+html.bxu[data-theme="dark"] .acc-field-hint { color: #a9b0b6; }
+/* The PIN input is masked with dots; keep them centred like the digits. */
+html.bxu .p73-modal input[type="password"].p73-code { letter-spacing: 19px; }
+
+/* Summary of the account being added, above the confirmation codes. */
+html.bxu .acc-summary { margin: 18px 0 0; padding: 14px 18px; border-radius: 14px; background: #f5f6f7; }
+html.bxu .acc-summary div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 13px; }
+html.bxu .acc-summary dt { font-weight: 400; color: #69737d; }
+html.bxu .acc-summary dd { margin: 0; text-align: right; color: #111214; }
+html.bxu[data-theme="dark"] .acc-summary { background: #23272c; }
+html.bxu[data-theme="dark"] .acc-summary dt { color: #a9b0b6; }
+html.bxu[data-theme="dark"] .acc-summary dd { color: #f3f5f4; }
+
+/* The shared Dialog renders its title as h5.title; these dialogs style an h2 in the design. */
+html.bxu[data-edition="refined"] body.bxm-app .r34-help-body > h5.title {
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+  margin: 0 32px 16px 0;
+}
+html.bxu[data-edition="refined"] body.bxm-app .hp-modal-body > h5.title {
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+  margin: 0 32px 20px 0;
+}
+html.bxu .r34-general-help { margin: 24px 0 0; font-size: 13px; }
+html.bxu .r34-general-help a { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- Profile & Settings ---------------------------------------------------------------------- */
+
+/* "Contact support to change" under the contact rows (U33-DEC-26 replaces the design's Edit buttons). */
+html.bxu .ps-contact-row.acc-contact-change { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+html.bxu .ps-contact-row.acc-contact-change .ps-panel-note { margin: 0; padding: 0; border: 0; }
+
+/* Status icons of the verification steps that are still open (the design shows only done steps). */
+html.bxu .ps-check-history .acc-history-pending .icon { color: #8a939b; }
+html.bxu .ps-check-history .acc-history-action .icon { color: var(--bxm-signal, #b3261e); }
+
+/* Accepted agreements: the list inside the disclosure (the design links to Documents only). */
+html.bxu .acc-agreement-list { list-style: none; margin: 0 0 16px; padding: 0; }
+html.bxu .acc-agreement-list li { padding: 12px 0; border-bottom: 1px solid #eceef0; }
+html.bxu .acc-agreement-list li:first-child { padding-top: 0; }
+html.bxu .acc-agreement-list strong { display: block; font-weight: 500; font-size: 14px; }
+html.bxu .acc-agreement-list small { display: block; margin-top: 2px; font-size: 12px; color: #69737d; }
+html.bxu[data-theme="dark"] .acc-agreement-list li { border-color: #343a40; }
+html.bxu[data-theme="dark"] .acc-agreement-list small { color: #a9b0b6; }
+
+/* Bank accounts: the add button next to the notice under the grid. */
+html.bxu .acc-bank-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+html.bxu .acc-bank-actions .ps-bank-notice { margin: 0; flex: 1 1 320px; }
+/* U33-DEC-05: "Use for returns" next to the design's "Change". */
+html.bxu .acc-bank-buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+html.bxu .acc-bank-empty .ps-panel-note { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Account closure dialog: the three facts of U33-DEC-28 as a short list. */
+html.bxu .hp-message-error { margin: 0 0 12px; font-size: 13px; color: #b42318; }
+html.bxu[data-theme="dark"] .hp-message-error { color: #f97066; }
+html.bxu .acc-close-list { margin: 16px 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: #34414c; }
+html.bxu .acc-close-list li + li { margin-top: 6px; }
+html.bxu[data-theme="dark"] .acc-close-list { color: #e4e8e6; }
+html.bxu .p73-modal a.p73-next { text-decoration: none; }
+
+/* ---- Sign-in, registration, PIN gate (design: create-account module, .u04-account) -------------- */
+
+/* Without the step bar the card sits where the design's sign-in card sits (about 60px lower). */
+html.bxu .u04-account .ca-shell.acc-no-journey main { padding-top: 62px; }
+@media (max-width: 700px) {
+  html.bxu .u04-account .ca-shell.acc-no-journey main { padding-top: 10px; }
+}
+/* The logo link: the design's <a> around the logo image. */
+html.bxu .u04-account .ca-brand-link { display: inline-flex; align-items: center; }
+html.bxu .u04-account .ca-brand-text { font-size: 22px; font-weight: 600; color: var(--ink); }
+/* The sign-in button below the email field (the design writes margin-top:24px inline). */
+html.bxu .u04-account .acc-auth-submit { margin-top: 24px; }
+html.bxu .u04-account .acc-auth-demo { margin-top: 12px; }
+/* "Your session has expired" above the sign-in form (no design state; .ca-recipient look). */
+html.bxu .u04-account .ca-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+html.bxu .u04-account .ca-notice .ca-icon { font-size: 17px; color: var(--muted); }
+html.bxu .u04-account .ca-notice strong { font-weight: 600; color: var(--ink); }
+/* Label with the "Send code" text button of the email-code field (PIN gate). */
+html.bxu .u04-account .acc-ca-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+html.bxu .u04-account .acc-ca-label-row .ca-text-button { padding: 0 0 7px; }
+html.bxu .u04-account .acc-email-code { margin: 0 0 18px; }
+/* The inline phone editor of the SMS step ("Change" next to the number). */
+html.bxu .u04-account .acc-phone-edit { margin: 0 0 22px; }
+
+/* ---- Verification and account access (portal pages in the Profile & Settings style) ---------- */
+
+/* The status message above the check history and the actions under it (no design rule: the design
+   shows verification only inside Personal details). */
+html.bxu .acc-kyc-message { margin: 0 0 22px; font-size: 14px; line-height: 1.65; color: #34414c; }
+html.bxu[data-theme="dark"] .acc-kyc-message { color: #e4e8e6; }
+html.bxu .acc-kyc-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+html.bxu .acc-blocked-panel { margin-top: 8px; }
+
+/* Help: the support email is a link here (the design shows plain text); keep the box's text colour,
+   which the global link colour would make unreadable in Dark. */
+html.bxu .hp-support dd a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- 18.5 sign-in and account protection (create-account layout) -------------------------------- */
+
+/* Password with Show/Hide: the design's u03 toggle as a text button next to the label, like the PIN. */
+html.bxu .u04-account .acc-password-tools { display: inline-flex; align-items: center; gap: 12px; }
+html.bxu .u04-account .acc-password-tools button,
+html.bxu .u04-account .acc-password-tools a { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 4px; text-underline-offset: 3px; }
+html.bxu .u04-account .acc-password { margin: 0 0 16px; }
+html.bxu .u04-account .acc-password-hint { margin: 8px 0 0; }
+
+/* The two second factors: full-width choice rows (the design has one method; the SMS choice is ours). */
+html.bxu .u04-account .acc-factor-choice { display: grid; gap: 12px; margin: 4px 0 8px; }
+html.bxu .u04-account .acc-factor-option {
+  display: grid;
+  grid-template-columns: 28px 1fr 20px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+html.bxu .u04-account .acc-factor-option:hover { border-color: var(--focus); }
+html.bxu .u04-account .acc-factor-option strong { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+html.bxu .u04-account .acc-factor-option em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--green); background: var(--positive); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+html.bxu .u04-account .acc-factor-option small { display: block; font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 3px; }
+
+/* App set-up: the QR code next to the key (design onboarding "Protect your account"). */
+html.bxu .u04-account .acc-app-qr { display: grid; grid-template-columns: 164px 1fr; gap: 20px; align-items: center; background: var(--surface); border-radius: 16px; padding: 16px; margin: 0 0 22px; }
+html.bxu .u04-account .acc-app-qr img,
+html.bxu .u04-account .acc-app-qr-wait { width: 164px; height: 164px; border-radius: 10px; background: #fff; display: block; }
+html.bxu .u04-account .acc-app-qr small { display: block; font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+html.bxu .u04-account .acc-app-key { display: block; font-size: 15px; letter-spacing: 1px; color: var(--ink); overflow-wrap: anywhere; }
+html.bxu .u04-account .acc-app-open { display: inline-block; font-size: 12px; margin-top: 10px; text-underline-offset: 3px; }
+@media (max-width: 560px) {
+  html.bxu .u04-account .acc-app-qr { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+}
+
+/* Recovery codes: two columns of monospace codes, shown once. */
+html.bxu .u04-account .acc-recovery-list { list-style: none; padding: 16px; margin: 0 0 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; background: var(--surface); border-radius: 16px; }
+html.bxu .u04-account .acc-recovery-list code { font-size: 14px; letter-spacing: .5px; color: var(--ink); }
+html.bxu .u04-account .acc-recovery-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 18px; }
+html.bxu .u04-account .acc-recovery-saved { margin: 0 0 18px; }
+
+/* The code step of sign-in: "Remember this browser" under the code. */
+html.bxu .u04-account .acc-trust { margin: 0 0 18px; }
+
+/* Security tab dialogs (p73): the QR code next to the key, and the recovery codes. */
+html.bxu .acc-app-qr-row { display: grid; grid-template-columns: 164px 1fr; gap: 18px; align-items: center; margin: 0 0 18px; }
+html.bxu .acc-app-qr-row img,
+html.bxu .acc-app-qr-row .acc-app-qr-wait { width: 164px; height: 164px; border-radius: 10px; background: #fff; display: block; }
+html.bxu .acc-app-qr-row small { display: block; font-size: 11px; color: #59636d; margin: 0 0 6px; }
+html.bxu .acc-app-qr-row code { font-size: 15px; letter-spacing: 1px; overflow-wrap: anywhere; }
+html.bxu .acc-recovery-grid { list-style: none; padding: 14px; margin: 0 0 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; border-radius: 14px; background: var(--ui-surface, #f5f6f7); }
+html.bxu .acc-recovery-grid code { font-size: 14px; letter-spacing: .5px; }
+html.bxu .acc-check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin: 12px 0 0; }
+html.bxu[data-theme="dark"] .acc-recovery-grid { background: #23272c; }

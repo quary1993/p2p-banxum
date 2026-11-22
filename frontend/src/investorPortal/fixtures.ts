@@ -8,14 +8,20 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  MarketplaceCreditCheck,
+  MarketplaceDebtFacility,
+  MarketplaceFinancialYear,
+  MarketplaceSecurity,
   MarketplaceOriginalLoanScheduleRow,
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
   PublicLoanRiskNote,
+  PublicProject,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
+  SavedOpportunityList,
   SmartInvestResponse
 } from "../api/generated/banxumApi";
 import { AUTO_RETURN_AFTER_DAYS } from "./balanceAgeing";
@@ -115,7 +121,9 @@ export const portalFixture: InvestorPortalFixture = {
       version: "-",
       date: "2026-04-02",
       context: "Quarterly",
-      size: "312 KB"
+      size: "312 KB",
+      periodStart: "2026-01-01",
+      periodEnd: "2026-06-05"
     },
     {
       id: "D-9500",
@@ -124,7 +132,40 @@ export const portalFixture: InvestorPortalFixture = {
       version: "-",
       date: "2026-02-15",
       context: "Annual",
-      size: "276 KB"
+      size: "276 KB",
+      periodStart: "2025-01-01",
+      periodEnd: "2025-12-31"
+    },
+    {
+      id: "D-9401",
+      title: "Investor account statement - 2025",
+      type: "Statement",
+      version: "-",
+      date: "2026-01-02",
+      context: "Annual",
+      size: "298 KB",
+      periodStart: "2025-01-01",
+      periodEnd: "2025-12-31"
+    },
+    {
+      id: "D-9140",
+      title: "Loan Helvetia Logistik AG CHF 6,500.00 agreement",
+      type: "Investment agreement",
+      version: "v3",
+      date: "2026-06-02",
+      context: "Order O-58102",
+      size: "198 KB",
+      category: "primary_market_investment"
+    },
+    {
+      id: "D-9150",
+      title: "Loan Rhône Vignobles SA EUR 2,480.00 transfer agreement",
+      type: "Transfer agreement",
+      version: "v2",
+      date: "2026-02-18",
+      context: "Resale purchase SM-3290",
+      size: "164 KB",
+      category: "secondary_market_purchase"
     }
   ],
   notifications: [
@@ -148,6 +189,39 @@ export const portalFixture: InvestorPortalFixture = {
       unread: true,
       target: "holding",
       targetId: "H-2201"
+    },
+    {
+      id: "N3",
+      tone: "ok",
+      label: "Repayment",
+      title: "Loan repayment credited",
+      body: "CHF 412.35 from Helvetia Logistik AG was credited to your Banxum balance.",
+      time: "2 weeks ago",
+      unread: false,
+      target: "portfolio",
+      createdAt: "2026-05-21T08:05:00Z"
+    },
+    {
+      id: "N4",
+      tone: "ok",
+      label: "Deposit",
+      title: "Deposit credited: CHF 12,000.00",
+      body: "Your bank transfer was booked to your Banxum balance.",
+      time: "4 weeks ago",
+      unread: false,
+      target: "balances",
+      createdAt: "2026-05-09T09:30:00Z"
+    },
+    {
+      id: "N5",
+      tone: "warn",
+      label: "Withdrawal",
+      title: "Withdrawal requested: CHF 1,500.00",
+      body: "Delivery status only. Message contents are not shown in the portal for this notification type.",
+      time: "8 weeks ago",
+      unread: false,
+      status: "failed",
+      createdAt: "2026-04-08T07:12:00Z"
     }
   ],
   recoverySplit: {
@@ -165,6 +239,15 @@ export const portalFixture: InvestorPortalFixture = {
 };
 
 export const publicLoanNotesFixture: PublicLoanRiskNote[] = [
+  {
+    id: "note-late",
+    loan_id: "GA-2256",
+    visibility: "public",
+    note_type: "payment_update",
+    title: "Payment overdue; borrower contacted",
+    body: "The interest payment due on 15 May 2026 has not been received. Garanta reminded the borrower and is following up.",
+    occurred_at: "2026-05-20T09:00:00+02:00"
+  },
   {
     id: "note-default-follow-up",
     loan_id: "GA-2201",
@@ -186,7 +269,10 @@ export const publicLoanNotesFixture: PublicLoanRiskNote[] = [
 ];
 
 // The return dates are derived below from the holding deadline (day 60), like the API does.
-const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "days_until_last_day">[] = [
+const sourceBalanceLotsFixture: Omit<
+  BalanceLot,
+  "last_day" | "return_date" | "days_until_last_day" | "return_after_days" | "return_date_adjusted" | "direct_funding_until" | "return_failed"
+>[] = [
   {
     id: "L-2041",
     currency: "CHF",
@@ -237,7 +323,7 @@ const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "d
     investment_deadline_at: "2026-06-08T00:00:00+02:00",
     withdrawal_deadline_at: "2026-07-08T00:00:00+02:00",
     days_until_investment_deadline: 3,
-    days_until_withdrawal_deadline: 33,
+    days_until_withdrawal_deadline: 35,
     original_amount_minor: amount(12000),
     available_amount_minor: amount(12000),
     invested_amount_minor: 0,
@@ -349,7 +435,8 @@ const sourceBalanceLotsFixture: Omit<BalanceLot, "last_day" | "return_date" | "d
   }
 ];
 
-// Money not invested goes back to the bank after day 58, two days before the 60-day limit.
+// 18.4: money not invested can stay until day 56; the return starts on day 57 (the fixtures do not
+// apply the bank calendar).
 const FIXTURE_DAYS_BEFORE_LIMIT = 60 - AUTO_RETURN_AFTER_DAYS;
 
 export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lot) => {
@@ -363,9 +450,14 @@ export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lo
     withdrawal_deadline_at: deadline,
     days_until_investment_deadline: daysLeft,
     days_until_withdrawal_deadline: daysLeft,
+    return_after_days: AUTO_RETURN_AFTER_DAYS,
     last_day: fixtureIsoDateFromToday(daysToLastDay),
     return_date: fixtureIsoDateFromToday(daysToLastDay + 1),
+    return_date_adjusted: false,
     days_until_last_day: daysToLastDay,
+    // F01: close + 3 business days by day 56; about a week before the last day in the preview.
+    direct_funding_until: daysToLastDay > 7 ? fixtureIsoDateFromToday(daysToLastDay - 6) : null,
+    return_failed: false,
     bucket: daysToLastDay > 0 ? "investable" : daysToLastDay === 0 ? "withdraw_only" : "overdue",
     requires_withdrawal: daysToLastDay <= 0
   };
@@ -404,14 +496,15 @@ export const balancesFixture: InvestorBalancePortal = {
       destination_iban: "CH93 0076 2011 6238 5295 7",
       destination_account_name: "Lukas Brunner",
       is_verified_usable: true,
+      verification_status: "verified",
+      is_default_return: true,
       verified_at: "2026-05-18T12:00:00+02:00",
       created_at: "2026-05-18T11:50:00+02:00"
     }
   ],
   pending_withdrawals: [],
-  has_penalty_mode_balance: false,
-  penalty_bps_per_day: 100,
-  auto_return_after_days: AUTO_RETURN_AFTER_DAYS
+  auto_return_after_days: AUTO_RETURN_AFTER_DAYS,
+  return_failures: []
 };
 
 type DirectMarketplaceFixtureInput = Omit<
@@ -428,7 +521,20 @@ type DirectMarketplaceFixtureInput = Omit<
   | "originator_id"
   | "originator_name"
   | "borrower_display_name"
+  | "borrower_country"
+  | "borrower_city"
+  | "repayment_type"
+  | "collateral_description"
+  | "published_at"
 >;
+
+// U33-DEC-23 borrower cities; Adriatic Marine has none, to show a missing value.
+const directBorrowerCities: Record<string, string> = {
+  "GA-2401": "Basel",
+  "GA-2399": "Sion",
+  "GA-2402": "Hamburg",
+  "GA-2390": "Lausanne"
+};
 
 const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
   {
@@ -438,7 +544,6 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     collateral_type: "Commercial real estate",
     interest_rate_bps: 740,
     term_months: 24,
-    risk_rating: "B",
     funding_deadline: "2026-06-19",
     status: "published",
     currency: "CHF",
@@ -457,7 +562,6 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     collateral_type: "Agricultural land",
     interest_rate_bps: 680,
     term_months: 18,
-    risk_rating: "A",
     funding_deadline: "2026-06-11",
     status: "published",
     currency: "CHF",
@@ -467,7 +571,11 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     minimum_investment_minor: amount(1000),
     ltv_bps: 4900,
     is_refinancing: false,
-    minimum_subscription_bps: 5000
+    minimum_subscription_bps: 5000,
+    // Swiss borrower: at most 20 investors (MKT-DEC-028, today's rule until U33-DEC-08).
+    max_investors: 20,
+    places_left: 4,
+    is_existing_investor: false
   },
   {
     loan_id: "GA-2402",
@@ -476,7 +584,6 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     collateral_type: "Solar plant and equipment",
     interest_rate_bps: 810,
     term_months: 36,
-    risk_rating: "B",
     funding_deadline: "2026-06-27",
     status: "published",
     currency: "EUR",
@@ -495,7 +602,6 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     collateral_type: "Vessel and receivables",
     interest_rate_bps: 930,
     term_months: 24,
-    risk_rating: "C",
     funding_deadline: "2026-06-02",
     status: "funded",
     currency: "EUR",
@@ -514,7 +620,6 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     collateral_type: "Unsecured exception",
     interest_rate_bps: 1020,
     term_months: 12,
-    risk_rating: "C",
     funding_deadline: "2026-06-14",
     status: "published",
     currency: "CHF",
@@ -542,7 +647,16 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     fillable_amount_minor: loan.remaining_capacity_minor,
     originator_id: null,
     originator_name: null,
-    borrower_display_name: loan.title
+    borrower_display_name: loan.title,
+    // The same values as the loan details below.
+    borrower_country: loan.currency === "CHF" ? "CH" : "DE",
+    borrower_city: directBorrowerCities[loan.loan_id] ?? "",
+    repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
+    collateral_description: loan.collateral_type,
+    security_types: loan.loan_id === "GA-2401" ? [loan.collateral_type, "personal_guarantee"] : [loan.collateral_type],
+    published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null,
+    // Q04: Banxum has a confirmed reservation in this preview loan.
+    banxum_invests: loan.loan_id === "GA-2401"
   })
 );
 
@@ -560,7 +674,6 @@ const originatorMarketplaceLoanFixture: MarketplaceLoanPreview = {
   underlying_interest_rate_bps: 1080,
   term_months: 9,
   remaining_term_days: 271,
-  risk_rating: "B",
   funding_deadline: fixtureIsoDateFromToday(30),
   maturity_date: fixtureIsoDate(9, 28),
   status: "published",
@@ -577,6 +690,11 @@ const originatorMarketplaceLoanFixture: MarketplaceLoanPreview = {
   originator_id: "originator-alpine-credit",
   originator_name: "Alpine Credit Partners AG",
   borrower_display_name: "Established Swiss precision manufacturer",
+  borrower_country: "CH",
+  borrower_city: "Winterthur",
+  repayment_type: "amortizing_principal_interest",
+  collateral_description: "First-ranking security over financed machinery and equipment.",
+  published_at: `${fixtureIsoDate(0, 1)}T08:00:00Z`,
   distribution_model: "par_component_v2",
   entitlement_start_date: fixtureIsoDate(1, 28),
   investor_interest_participation_bps: 7000,
@@ -594,21 +712,25 @@ export const smartInvestFixture: SmartInvestResponse = {
   rule: {
     id: "smart-invest-rule-preview",
     is_active: true,
+    state: "active",
     revision: 1,
     minimum_yield_bps: 850,
     maximum_term_months: 36,
+    maximum_ltv_bps: null,
+    preferred_amount_minor: null,
     originators: [],
     collateral: ["any_secured"],
     currencies: [],
-    risk_ratings: [],
-    purposes: [],
-    loan_kinds: [],
+    countries: [],
+    repayment: [],
     activated_at: "2026-06-05T10:00:00+02:00",
     deactivated_at: null,
     created_at: "2026-06-05T10:00:00+02:00",
     updated_at: "2026-06-05T10:00:00+02:00"
   },
   open_opportunity_count: marketplaceLoansFixture.length,
+  // U33-DEC-17: the preview's Coming soon loan (7.6%) is below this rule's 8.5%.
+  coming_soon_matches: [],
   matches: marketplaceLoansFixture
     .filter((loan) => loan.yield_bps >= 850 && loan.term_months <= 36 && !/unsecured/i.test(loan.collateral_type))
     .map((loan) => ({
@@ -623,7 +745,6 @@ export const smartInvestFixture: SmartInvestResponse = {
       underlying_interest_rate_bps: loan.underlying_interest_rate_bps,
       term_months: loan.term_months,
       remaining_term_days: loan.remaining_term_days,
-      risk_rating: loan.risk_rating,
       funding_deadline: loan.funding_deadline,
       maturity_date: loan.maturity_date,
       status: loan.status,
@@ -640,9 +761,12 @@ export const smartInvestFixture: SmartInvestResponse = {
       originator_id: loan.originator_id,
       originator_name: loan.originator_name,
       borrower_display_name: loan.borrower_display_name,
+      borrower_country: loan.borrower_country,
+      borrower_city: loan.borrower_city,
       skin_in_the_game_bps: loan.skin_in_the_game_bps,
       minimum_subscription_bps: loan.minimum_subscription_bps
     })),
+  notification_channels: { in_app: true, email: true },
   match_count: 0
 };
 
@@ -745,6 +869,120 @@ const originatorStoryFixture = {
   ]
 };
 
+const helvetiaSecuritiesFixture: MarketplaceSecurity[] = [
+  {
+    id: "security-2401-property",
+    position: 0,
+    security_type: "Commercial real estate",
+    is_guarantee: false,
+    description: "Commercial real estate",
+    holder_name: "Helvetia Logistik AG",
+    rank: 2,
+    status: "in_place",
+    value_minor: amount(2500000),
+    valuation_date: "2026-03-12",
+    valuation_source: "Independent appraisal",
+    appraiser: "Wüest Partner AG",
+    prior_ranking_debt_minor: amount(300000),
+    insurance: "Building insurance at full rebuilding value.",
+    undertaking_scope: "",
+    undertaking_limit_minor: null,
+    is_main: true,
+    counts_in_ltv: true,
+    valuation_currency: "",
+    valuation_amount_minor: null,
+    valuation_fx_rate: null,
+    valuation_fx_rate_date: null,
+    documents: []
+  },
+  {
+    id: "security-2401-guarantee",
+    position: 1,
+    security_type: "personal_guarantee",
+    is_guarantee: true,
+    description: "",
+    holder_name: "Main shareholder",
+    rank: null,
+    status: "in_place",
+    value_minor: null,
+    valuation_date: null,
+    valuation_source: "",
+    appraiser: "",
+    prior_ranking_debt_minor: null,
+    insurance: "",
+    undertaking_scope: "Joint and several guarantee for principal and interest.",
+    undertaking_limit_minor: amount(400000),
+    is_main: false,
+    counts_in_ltv: false,
+    valuation_currency: "",
+    valuation_amount_minor: null,
+    valuation_fx_rate: null,
+    valuation_fx_rate_date: null,
+    documents: []
+  }
+];
+
+// U33-DEC-20: a structured credit file (the design's packaging example, in CHF thousands).
+const thousandsMinor = (value: number) => amount(value * 1000);
+const helvetiaFinancialYearsFixture: MarketplaceFinancialYear[] = [
+  [2023, 10400, 5200, 2500, 1420, 500, 780, 140, 640, 160, 480, 720, 1450, 1230, 100, 3500, 3500, 200, 7200, 750, 2170, 2920, 1190, 340, 2750],
+  [2024, 11200, 5550, 2650, 1520, 560, 920, 150, 770, 180, 590, 850, 1560, 1340, 100, 3850, 3550, 200, 7600, 800, 2270, 3070, 1150, 340, 3040],
+  [2025, 11800, 5800, 2770, 1580, 600, 1050, 160, 890, 210, 680, 980, 1650, 1420, 150, 4200, 3600, 200, 8000, 830, 2200, 3030, 1270, 340, 3360]
+].map(([year, ...values]) => {
+  const [revenue, materials, staff, other, depreciation, operating, interest, beforeTax, tax, net, cash, receivables, inventories, otherCurrent, current, ppe, otherNonCurrent, assets, currentDebt, nonCurrentDebt, debt, payables, otherLiabilities, equity] = values.map(thousandsMinor);
+  return {
+    id: `fy-2401-${year}`,
+    year,
+    period_end: `${year}-12-31`,
+    currency: "CHF",
+    source_document: year === 2025 ? { id: "GA-2401-financial-summary", display_name: "Borrower financial summary" } : null,
+    revenue_minor: revenue,
+    materials_costs_minor: materials,
+    staff_costs_minor: staff,
+    other_operating_costs_minor: other,
+    depreciation_minor: depreciation,
+    operating_profit_minor: operating,
+    interest_expense_minor: interest,
+    profit_before_tax_minor: beforeTax,
+    income_tax_minor: tax,
+    net_profit_minor: net,
+    cash_minor: cash,
+    trade_receivables_minor: receivables,
+    inventories_minor: inventories,
+    other_current_assets_minor: otherCurrent,
+    current_assets_minor: current,
+    property_plant_equipment_minor: ppe,
+    other_non_current_assets_minor: otherNonCurrent,
+    total_assets_minor: assets,
+    current_financial_debt_minor: currentDebt,
+    non_current_financial_debt_minor: nonCurrentDebt,
+    financial_debt_minor: debt,
+    trade_payables_minor: payables,
+    other_operating_liabilities_minor: otherLiabilities,
+    equity_minor: equity
+  };
+});
+const helvetiaDebtFixture: MarketplaceDebtFacility[] = [
+  ["Property loan", 1700, 150, "Mortgage on separate premises"],
+  ["Production equipment financing", 950, 130, "Security over existing equipment"],
+  ["Working-capital facility", 380, 380, "Security over existing receivables"]
+].map(([type, balance, current, security], index) => ({
+  id: `debt-2401-${index}`,
+  position: index,
+  facility_type: String(type),
+  currency: "CHF",
+  balance_minor: thousandsMinor(Number(balance)),
+  current_portion_minor: thousandsMinor(Number(current)),
+  non_current_portion_minor: thousandsMinor(Number(balance) - Number(current)),
+  security_description: String(security),
+  as_at: "2025-12-31",
+  source_document: null
+}));
+const helvetiaChecksFixture: MarketplaceCreditCheck[] = [
+  { id: "check-2401-company", position: 0, name: "Company and owners", result: "Register details, ownership and authorised signatories reconciled.", source: "Commercial register and shareholder register", checked_on: "2026-03-02", status: "reviewed" },
+  { id: "check-2401-property", position: 1, name: "Property and charges", result: "Land register extract and existing mortgage reviewed.", source: "Land register extract", checked_on: "2026-03-09", status: "received" }
+];
+
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
   ...loan,
   story: loan.loan_id === "GA-2401" ? helvetiaStoryFixture : { version: 1, blocks: [] },
@@ -767,6 +1005,8 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
       loan.currency === "CHF" ? "Zugerstrasse 18, 6300 Zug, Switzerland" : "Kaiserstrasse 12, 60311 Frankfurt am Main, Germany",
     contact_info: "Investor-facing contact is handled through Garanta Finanzgruppe AG.",
     country: loan.currency === "CHF" ? "CH" : "DE",
+    ...(directBorrowerCities[loan.loan_id] ? { city: directBorrowerCities[loan.loan_id] } : {}),
+    ...(loan.loan_id === "GA-2401" ? { employees: 118, employees_year: 2025 } : {}),
     financials_currency: loan.currency,
     assets_minor: loan.loan_id === "GA-2402" ? amount(5_800_000) : amount(12_400_000),
     liabilities_minor: loan.loan_id === "GA-2402" ? amount(2_900_000) : amount(7_200_000),
@@ -783,7 +1023,8 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         id: `${loan.loan_id}-financial-summary`,
         document_type: "financial_summary",
         display_name: "Borrower financial summary",
-        description: "Clean-scanned financial summary available to lenders."
+        description: "Clean-scanned financial summary available to lenders.",
+        ...(loan.loan_id === "GA-2401" ? { category: "Financial statements", period_label: "FY 2025", issuer: "Helvetia Logistik AG", version: "1", document_status: "Final" } : {})
       }
     ]
   },
@@ -800,6 +1041,25 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
         ? amount(1265000)
         : amount(2500000),
   collateral_description: loan.collateral_type,
+  // U33-DEC-21: several securities, each on its own (the property and the owner's guarantee).
+  ...(loan.loan_id === "GA-2401"
+    ? {
+        securities: helvetiaSecuritiesFixture,
+        financial_years: helvetiaFinancialYearsFixture,
+        debt_facilities: helvetiaDebtFixture,
+        credit_checks: helvetiaChecksFixture,
+        monitoring: { frequency: "Quarterly, with the annual financial statements.", focus: "Warehouse occupancy, fleet costs and cash generation." },
+        // The design's standard plan, as a proposal (U33-DEC-20).
+        reporting_plan: {
+          status: "proposed",
+          milestones: [
+            { when: "At closing", title: "Signed loan & security records", body: "Executed agreements and confirmation of the security arrangements." },
+            { when: "After each year-end", title: "Annual financial statements", body: "Balance sheet and profit & loss for the completed financial year." },
+            { when: "When something changes", title: "Project & security updates", body: "Relevant changes to the project, repayments or security documents." }
+          ]
+        }
+      }
+    : {}),
   ltv_bps:
     loan.collateral_type === "Unsecured exception"
       ? null
@@ -881,6 +1141,9 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     year_founded: 2007,
     business_classification: "Precision component manufacturing",
     country: "CH",
+    city: "Winterthur",
+    employees: 85,
+    employees_year: 2025,
     industry_activity: "Industrial manufacturing",
     financials_currency: "CHF",
     assets_minor: amount(4_850_000),
@@ -889,7 +1152,7 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     profit_last_year_minor: amount(315_000)
   },
   investor_summary:
-    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved at par and holdings activate automatically at funding close. The boundary installment belongs entirely to the LO.",
+    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved with the price (principal plus the accrued interest of the rights bought) and holdings activate automatically at funding close.",
   purpose_description:
     "Financing of production machinery. Garanta services the claim while investor ownership remains outstanding.",
   collateral_value_minor: amount(3_300_000),
@@ -924,9 +1187,215 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
   pricing_as_of_date: originatorPricingDate
 };
 
+// Investing screens (slice S2): loans that are no longer open (past opportunities, their pages and
+// credit files) and a legacy originator claim bought through an executable quote. They are reachable
+// from Past opportunities or by address only, so the open marketplace list keeps its preview loans.
+type PastLoanInput = {
+  loan_id: string;
+  title: string;
+  borrower: string;
+  country: string;
+  status: string;
+  currency: string;
+  principal: number;
+  interest_rate_bps: number;
+  term_months: number;
+  collateral_type: string;
+  collateral_value: number;
+  purpose: string;
+  monthsAgo: number;
+};
+
+const pastLoanInputs: PastLoanInput[] = [
+  { loan_id: "GA-2310", title: "Engadin Alpine refinancing", borrower: "Engadin Hospitality AG", country: "CH", status: "active", currency: "CHF", principal: 880_000, interest_rate_bps: 690, term_months: 36, collateral_type: "real_estate", collateral_value: 1_600_000, purpose: "Refinancing of the hotel mortgage and renovation of the spa wing.", monthsAgo: 10 },
+  { loan_id: "GA-2256", title: "Bodensee Immobilien GmbH", borrower: "Bodensee Immobilien GmbH", country: "DE", status: "late", currency: "EUR", principal: 450_000, interest_rate_bps: 780, term_months: 24, collateral_type: "real_estate", collateral_value: 700_000, purpose: "Completion of a residential building with six flats.", monthsAgo: 14 },
+  { loan_id: "GA-2201", title: "Savoie Logistique SAS", borrower: "Savoie Logistique SAS", country: "FR", status: "defaulted", currency: "EUR", principal: 320_000, interest_rate_bps: 840, term_months: 24, collateral_type: "equipment", collateral_value: 410_000, purpose: "Purchase of refrigerated trucks for regional deliveries.", monthsAgo: 18 },
+  { loan_id: "GA-2104", title: "Zürichsee Gastro AG", borrower: "Zürichsee Gastro AG", country: "CH", status: "repaid", currency: "CHF", principal: 240_000, interest_rate_bps: 620, term_months: 12, collateral_type: "corporate_guarantee", collateral_value: 0, purpose: "Working capital for the summer season of two lakeside restaurants.", monthsAgo: 20 }
+];
+
+const pastLoanDetailsFixture: MarketplaceLoanDetail[] = pastLoanInputs.map((input) => {
+  const principal = amount(input.principal);
+  const fundedOn = fixtureIsoDate(-input.monthsAgo, 15);
+  return {
+    loan_id: input.loan_id,
+    product_type: "direct",
+    investment_flow: "primary_order",
+    title: input.title,
+    purpose: "working_capital",
+    collateral_type: input.collateral_type,
+    interest_rate_bps: input.interest_rate_bps,
+    yield_bps: input.interest_rate_bps,
+    underlying_interest_rate_bps: input.interest_rate_bps,
+    term_months: input.term_months,
+    remaining_term_days: null,
+    funding_deadline: fundedOn,
+    maturity_date: fixtureIsoDate(input.term_months - input.monthsAgo, 15),
+    status: input.status,
+    loan_status: input.status,
+    opportunity_status: "closed",
+    borrower_country: input.country,
+    borrower_city: "",
+    published_at: `${fixtureIsoDate(-input.monthsAgo, 1)}T08:00:00Z`,
+    currency: input.currency,
+    principal_minor: principal,
+    committed_principal_minor: principal,
+    remaining_capacity_minor: 0,
+    fillable_amount_minor: 0,
+    minimum_investment_minor: amount(1000),
+    ltv_bps: input.collateral_value > 0 ? Math.round((input.principal * 10_000) / input.collateral_value) : null,
+    is_refinancing: input.loan_id === "GA-2310",
+    originator_id: null,
+    originator_name: null,
+    borrower_display_name: input.borrower,
+    minimum_subscription_bps: 5000,
+    default_penalty_interest_bps: 1200,
+    borrower_id: `borrower-${input.loan_id}`,
+    borrower_disclosure: {
+      legal_name: input.borrower,
+      country: input.country,
+      year_founded: 2009,
+      business_classification: input.collateral_type === "equipment" ? "Logistics" : input.collateral_type === "real_estate" ? "Real estate and hospitality" : "Restaurants",
+      financials_currency: input.currency
+    },
+    story: { version: 1, blocks: [] },
+    investor_summary: input.purpose,
+    purpose_description: input.purpose,
+    collateral_value_minor: amount(input.collateral_value),
+    collateral_description: input.collateral_type === "corporate_guarantee" ? "Guarantee of the parent company." : input.collateral_type === "equipment" ? "First-ranking pledge on the financed trucks." : "First-ranking mortgage note on the property.",
+    ltv_warnings: [],
+    original_principal_minor: 0,
+    original_interest_rate_bps: null,
+    original_term_months: null,
+    original_repayment_type: null,
+    original_interest_only_months: null,
+    original_loan_start_date: null,
+    original_loan_schedule: [],
+    repayment_type: "equal_installments",
+    loan_start_date: fundedOn,
+    first_payment_date: fixtureIsoDate(1 - input.monthsAgo, 15),
+    schedule_version: 1,
+    loan_schedule: fixtureAnnuityRows(principal, input.interest_rate_bps, input.term_months, fixtureIsoDate(1 - input.monthsAgo, 15))
+  };
+});
+
+/** Legacy Loan Originator claim (immediate assignment through an executable quote): /marketplace/LO-2402. */
+const legacyClaimDetailFixture: MarketplaceLoanDetail = {
+  ...originatorLoanDetailFixture,
+  loan_id: "LO-2402",
+  investment_flow: "immediate_claim_assignment",
+  distribution_model: "legacy_yield_v1",
+  title: "Alpine dental equipment claim",
+  interest_rate_bps: 820,
+  yield_bps: 820,
+  underlying_interest_rate_bps: 900,
+  funding_deadline: null,
+  remaining_term_days: 300,
+  status: "open",
+  loan_status: "active",
+  opportunity_status: "open",
+  principal_minor: amount(95_000),
+  committed_principal_minor: amount(43_000),
+  remaining_capacity_minor: amount(52_000),
+  fillable_amount_minor: amount(52_000),
+  minimum_investment_minor: amount(1000),
+  entitlement_start_date: null,
+  investor_interest_participation_bps: null,
+  investor_penalty_participation_bps: null,
+  borrower_display_name: "Dental practice in Zürich",
+  purpose_description: "Lease of two treatment units and an X-ray device, financed by the loan originator."
+};
+
+// U33-DEC-17: a draft shown as Coming soon, with its planned opening date. Nothing is funded yet.
+const comingSoonBase = directLoanDetailsFixture.find((loan) => loan.loan_id === "GA-2402") ?? directLoanDetailsFixture[0];
+const comingSoonLoanDetailFixture: MarketplaceLoanDetail = {
+  ...comingSoonBase,
+  loan_id: "GA-2410",
+  title: "Engadin Lodge AG",
+  purpose: "Hotel renovation",
+  collateral_type: "Mortgage note",
+  collateral_description: "First-ranking mortgage note on the hotel building.",
+  interest_rate_bps: 760,
+  yield_bps: 760,
+  underlying_interest_rate_bps: 760,
+  term_months: 24,
+  status: "draft",
+  loan_status: "draft",
+  opportunity_status: "coming_soon",
+  currency: "CHF",
+  principal_minor: amount(850000),
+  committed_principal_minor: 0,
+  remaining_capacity_minor: amount(850000),
+  fillable_amount_minor: amount(850000),
+  borrower_display_name: "Engadin Lodge AG",
+  borrower_country: "CH",
+  borrower_city: "St. Moritz",
+  repayment_type: "equal_installments",
+  ltv_bps: 5200,
+  published_at: null,
+  funding_deadline: fixtureIsoDateFromToday(36),
+  planned_opening_date: fixtureIsoDateFromToday(6),
+  opening_alert_requested: false,
+  borrower_disclosure: { ...comingSoonBase.borrower_disclosure, legal_name: "Engadin Lodge AG", country: "CH", city: "St. Moritz" }
+};
+
+export const comingSoonLoansFixture: MarketplaceLoanPreview[] = [comingSoonLoanDetailFixture];
+
+/** U33-DEC-18: nothing saved at first, as in the design; saving in the preview fills it. */
+export const savedOpportunitiesFixture: SavedOpportunityList = { saved: [] };
+
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [
   ...directLoanDetailsFixture,
-  originatorLoanDetailFixture
+  originatorLoanDetailFixture,
+  ...pastLoanDetailsFixture,
+  legacyClaimDetailFixture,
+  comingSoonLoanDetailFixture
+];
+
+/** Past opportunities (public projects API) for the investor archive, matching the loan details above. */
+export const pastProjectsFixture: PublicProject[] = [
+  ...pastLoanDetailsFixture.map((loan): PublicProject => ({
+    loan_id: loan.loan_id,
+    title: loan.title,
+    product_type: "direct",
+    is_refinancing: loan.is_refinancing,
+    public_status: loan.status === "defaulted" ? "default" : loan.status === "active" ? "repaying" : (loan.status as PublicProject["public_status"]),
+    currency: loan.currency,
+    principal_minor: loan.principal_minor,
+    committed_principal_minor: loan.principal_minor,
+    remaining_capacity_minor: 0,
+    minimum_investment_minor: null,
+    investors_count: 40 + loan.term_months,
+    max_investors: null,
+    places_left: null,
+    interest_rate_bps: loan.interest_rate_bps,
+    term_months: loan.term_months,
+    repayment_type: loan.repayment_type,
+    collateral_type: loan.collateral_type,
+    collateral_description: loan.collateral_description,
+    ltv_bps: loan.ltv_bps,
+    purpose: loan.purpose,
+    purpose_description: loan.purpose_description,
+    investor_summary: loan.investor_summary,
+    borrower_country: String((loan.borrower_disclosure as { country?: string }).country ?? ""),
+    borrower_sector: "",
+    borrower_year_founded: null,
+    originator: null,
+    published_at: loan.funding_deadline,
+    funding_deadline: loan.funding_deadline,
+    funded_at: loan.funding_deadline,
+    record: loan.status === "defaulted" || loan.status === "late"
+      ? {
+          installments_total: loan.term_months,
+          installments_paid: 9,
+          principal_repaid_minor: Math.round(loan.principal_minor * 0.3),
+          interest_paid_minor: Math.round(loan.principal_minor * 0.06),
+          outstanding_principal_minor: Math.round(loan.principal_minor * 0.7),
+          days_past_due: loan.status === "late" ? 21 : 64,
+          defaulted_on: loan.status === "defaulted" ? fixtureIsoDate(-2, 10) : null,
+          public_note: ""
+        }
+      : null
+  }))
 ];
 
 const portfolioSummary: PortfolioSummary = {
@@ -963,11 +1432,6 @@ const exposureFixture: PortfolioExposure = {
   by_purpose: [
     { key: "real_estate", name: "Real estate", currency: "EUR", outstanding_principal_minor: amount(12000), holding_count: 1 },
     { key: "manufacturing", name: "Manufacturing", currency: "CHF", outstanding_principal_minor: amount(5210), holding_count: 1 }
-  ],
-  by_risk_rating: [
-    { key: "A", name: "A", currency: "CHF", outstanding_principal_minor: amount(8850), holding_count: 2 },
-    { key: "B", name: "B", currency: "CHF", outstanding_principal_minor: amount(20420.5), holding_count: 3 },
-    { key: "C", name: "C", currency: "EUR", outstanding_principal_minor: amount(6000), holding_count: 1 }
   ],
   by_collateral_type: [
     { key: "real_estate", name: "Real estate", currency: "EUR", outstanding_principal_minor: amount(12000), holding_count: 1 },
@@ -1031,7 +1495,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "CH",
         purpose: "Hospitality refinancing",
         collateral_type: "real_estate",
-        risk_rating: "B",
         interest_rate_bps: 720,
         default_penalty_interest_bps: 1200,
         term_months: 24,
@@ -1114,6 +1577,20 @@ export const portfolioFixture: InvestorPortfolio = {
       received_principal_minor: amount(1579.5),
       received_interest_minor: amount(600),
       repayment_fee_minor: 0,
+      received_payments: [
+        {
+          installment_number: 1,
+          due_date: "2026-02-28",
+          paid_on: "2026-02-28",
+          principal_minor: amount(1579.5),
+          interest_minor: amount(600),
+          penalty_minor: 0,
+          fee_minor: 0,
+          total_minor: amount(2179.5),
+          credited_minor: amount(2179.5),
+          principal_after_minor: amount(8420.5)
+        }
+      ],
       investment_schedule: [
         {
           loan_installment_id: "GA-2310-I-2",
@@ -1153,7 +1630,8 @@ export const portfolioFixture: InvestorPortfolio = {
         // 2% seller fee (owner decision 2026-10-16).
         seller_net_proceeds_minor: amount(8252.09),
         listed_at: "2026-06-04T11:30:00+02:00",
-        updated_at: "2026-06-04T11:30:00+02:00"
+        updated_at: "2026-06-04T11:30:00+02:00",
+        paused_for_due_installment: false
       }
     },
     {
@@ -1176,7 +1654,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "CH",
         purpose: "capex",
         collateral_type: "equipment",
-        risk_rating: "BBB",
         interest_rate_bps: 940,
         default_penalty_interest_bps: 1400,
         term_months: 30,
@@ -1322,7 +1799,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "CH",
         purpose: "working_capital",
         collateral_type: "receivables",
-        risk_rating: "BB+",
         interest_rate_bps: 1050,
         default_penalty_interest_bps: 1500,
         term_months: 18,
@@ -1448,7 +1924,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "CH",
         purpose: "bridge_financing",
         collateral_type: "unsecured_exception",
-        risk_rating: "B-",
         interest_rate_bps: 1400,
         default_penalty_interest_bps: 0,
         term_months: 12,
@@ -1559,7 +2034,6 @@ export const portfolioFixture: InvestorPortfolio = {
         collateral_value_minor: amount(179687.5),
         collateral_description: "Assigned trade receivables supporting the underlying borrower claim.",
         skin_in_the_game_bps: 1500,
-        risk_rating: "BB",
         interest_rate_bps: 980,
         yield_bps: 980,
         underlying_interest_rate_bps: 1250,
@@ -1676,7 +2150,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "DE",
         purpose: "Real estate bridge",
         collateral_type: "real_estate",
-        risk_rating: "B",
         interest_rate_bps: 800,
         default_penalty_interest_bps: 1200,
         term_months: 36,
@@ -1692,18 +2165,30 @@ export const portfolioFixture: InvestorPortfolio = {
         first_payment_date: "2025-12-31",
         ltv_bps: 6500,
         days_past_due: 21,
+        maturity_date: "2028-11-30",
         schedule_version: 1,
         schedule: []
       },
       received_principal_minor: 0,
       received_interest_minor: amount(1044),
       repayment_fee_minor: 0,
-      investment_schedule: [],
+      // S3 preview: one overdue interest payment and the next scheduled ones (EUR 12,000 at 8%).
+      investment_schedule: [
+        { loan_installment_id: "GA-2256-I-7", schedule_version: 1, installment_number: 7, due_date: "2026-05-15", projected_principal_minor: 0, projected_interest_minor: amount(80), projected_total_minor: amount(80), days_past_due: 21, status: "overdue" },
+        { loan_installment_id: "GA-2256-I-8", schedule_version: 1, installment_number: 8, due_date: "2026-06-15", projected_principal_minor: 0, projected_interest_minor: amount(80), projected_total_minor: amount(80), days_past_due: 0, status: "upcoming" },
+        { loan_installment_id: "GA-2256-I-9", schedule_version: 1, installment_number: 9, due_date: "2026-07-15", projected_principal_minor: 0, projected_interest_minor: amount(80), projected_total_minor: amount(80), days_past_due: 0, status: "upcoming" },
+        { loan_installment_id: "GA-2256-I-10", schedule_version: 1, installment_number: 10, due_date: "2026-08-15", projected_principal_minor: 0, projected_interest_minor: amount(80), projected_total_minor: amount(80), days_past_due: 0, status: "upcoming" }
+      ],
       recovered_principal_minor: 0,
       recovered_contractual_interest_minor: 0,
       recovered_default_interest_minor: 0,
       recovered_penalties_minor: 0,
       recovered_other_costs_minor: 0,
+      // U33-DEC-22: the stages the team recorded, and the next step when it is known.
+      recovery_stages: [
+        { title: "Reminder sent", occurred_on: fixtureIsoDateFromToday(-18), investor_note: "Banxum reminded the borrower in writing." }
+      ],
+      recovery_next_step: { title: "Formal notice", occurred_on: fixtureIsoDateFromToday(7), investor_note: "Planned if the payment has not arrived by then." },
       latest_public_note: {
         id: "note-late",
         note_type: "payment_update",
@@ -1732,7 +2217,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "FR",
         purpose: "Working capital",
         collateral_type: "receivables",
-        risk_rating: "C",
         interest_rate_bps: 910,
         default_penalty_interest_bps: 1800,
         term_months: 24,
@@ -1760,6 +2244,11 @@ export const portfolioFixture: InvestorPortfolio = {
       recovered_default_interest_minor: 0,
       recovered_penalties_minor: 0,
       recovered_other_costs_minor: 0,
+      recovery_stages: [
+        { title: "Formal notice", occurred_on: fixtureIsoDateFromToday(-150), investor_note: "Banxum sent the borrower a formal notice." },
+        { title: "Enforcement of the security", occurred_on: fixtureIsoDateFromToday(-60), investor_note: "Banxum is collecting the assigned receivables for all investors." }
+      ],
+      recovery_next_step: { title: "Collection from the debtors", occurred_on: null, investor_note: "The debtors of the assigned receivables are being contacted. A date is not known yet." },
       latest_public_note: {
         id: "note-default",
         note_type: "default_update",
@@ -1788,7 +2277,6 @@ export const portfolioFixture: InvestorPortfolio = {
         borrower_country: "CH",
         purpose: "Solar equipment",
         collateral_type: "equipment",
-        risk_rating: "D",
         interest_rate_bps: 840,
         default_penalty_interest_bps: 1600,
         term_months: 24,
@@ -1822,6 +2310,110 @@ export const portfolioFixture: InvestorPortfolio = {
         title: "Recovery process ongoing; residual recoveries possible",
         occurred_at: "2026-03-22T09:00:00+01:00"
       },
+      open_secondary_listing: null
+    },
+    // S3 preview: a repaid and a sold investment for the history.
+    {
+      ...directHoldingAcquisitionFields(amount(4000)),
+      id: "H-2120",
+      status: "closed",
+      source_type: "primary",
+      original_principal_minor: amount(4000),
+      current_principal_minor: 0,
+      currency: "EUR",
+      loan_share_ppm: 40000,
+      assignment_effective_at: "2025-10-10T10:00:00+02:00",
+      loan: {
+        ...directPortfolioLoanFields(780, amount(150000), "Assigned trade receivables of the borrower."),
+        loan_id: "GA-2120",
+        loan_title: "Lombardia trade receivables",
+        loan_status: "repaid",
+        borrower_id: "borrower-2120",
+        borrower_name: "Officine Lario Srl",
+        borrower_country: "IT",
+        purpose: "working_capital",
+        collateral_type: "receivables",
+        interest_rate_bps: 780,
+        default_penalty_interest_bps: 0,
+        term_months: 6,
+        repayment_type: "bullet_periodic_interest",
+        currency: "EUR",
+        is_refinancing: false,
+        original_principal_minor: amount(100000),
+        original_repayment_type: null,
+        original_interest_only_months: null,
+        principal_minor: amount(100000),
+        funding_deadline: "2025-10-10",
+        loan_start_date: "2025-10-10",
+        first_payment_date: "2025-11-10",
+        ltv_bps: null,
+        days_past_due: 0,
+        maturity_date: "2026-04-10",
+        schedule_version: 1,
+        schedule: [
+          { id: "GA-2120-I-6", schedule_version: 1, installment_number: 6, due_date: "2026-04-10", principal_minor: amount(100000), interest_minor: amount(650), total_minor: amount(100650), paid_principal_minor: amount(100000), paid_interest_minor: amount(650), outstanding_principal_minor: 0, outstanding_interest_minor: 0, outstanding_total_minor: 0, is_paid: true, days_past_due: 0, status: "paid", row_type: "scheduled_installment", label: "Installment 6", payment_date: "2026-04-10" }
+        ]
+      },
+      received_principal_minor: amount(4000),
+      received_interest_minor: amount(154.72),
+      repayment_fee_minor: 0,
+      investment_schedule: [],
+      recovered_principal_minor: 0,
+      recovered_contractual_interest_minor: 0,
+      recovered_default_interest_minor: 0,
+      recovered_penalties_minor: 0,
+      recovered_other_costs_minor: 0,
+      latest_public_note: null,
+      open_secondary_listing: null
+    },
+    {
+      ...directHoldingAcquisitionFields(amount(4920)),
+      id: "H-2199",
+      status: "transferred",
+      source_type: "primary",
+      original_principal_minor: amount(4920),
+      current_principal_minor: 0,
+      currency: "CHF",
+      loan_share_ppm: 0,
+      assignment_effective_at: "2025-12-01T10:00:00+01:00",
+      loan: {
+        ...directPortfolioLoanFields(690, amount(820000), "Registered real-estate security supporting the borrower obligation."),
+        loan_id: "GA-2199",
+        loan_title: "Lugano logistics hub",
+        loan_status: "active",
+        borrower_id: "borrower-2199",
+        borrower_name: "Ceresio Logistica SA",
+        borrower_country: "CH",
+        purpose: "capex",
+        collateral_type: "real_estate",
+        interest_rate_bps: 690,
+        default_penalty_interest_bps: 1200,
+        term_months: 24,
+        repayment_type: "equal_installments",
+        currency: "CHF",
+        is_refinancing: false,
+        original_principal_minor: amount(500000),
+        original_repayment_type: null,
+        original_interest_only_months: null,
+        principal_minor: amount(500000),
+        funding_deadline: "2025-12-01",
+        loan_start_date: "2025-12-01",
+        first_payment_date: "2026-01-01",
+        ltv_bps: 6100,
+        days_past_due: 0,
+        schedule_version: 1,
+        schedule: []
+      },
+      received_principal_minor: 0,
+      received_interest_minor: amount(113.16),
+      repayment_fee_minor: 0,
+      investment_schedule: [],
+      recovered_principal_minor: 0,
+      recovered_contractual_interest_minor: 0,
+      recovered_default_interest_minor: 0,
+      recovered_penalties_minor: 0,
+      recovered_other_costs_minor: 0,
+      latest_public_note: null,
       open_secondary_listing: null
     }
   ]
@@ -1919,6 +2511,98 @@ export const activityFixture: InvestorActivity = {
       loan_id: null,
       loan_title: "",
       metadata: { is_forced: false, finalized_at: "2026-04-09T11:00:00+02:00", cancelled_at: "" }
+    },
+    // Wallet preview (Transactions): the backend's own activity types.
+    {
+      id: "A-5",
+      activity_type: "primary_order",
+      occurred_at: "2026-06-02T10:10:00+02:00",
+      direction: "internal",
+      title: "Primary-market investment order",
+      amount_minor: amount(6500),
+      currency: "CHF",
+      status: "partially_allocated",
+      loan_id: "GA-2401",
+      loan_title: "Helvetia Logistik AG",
+      metadata: {}
+    },
+    {
+      id: "A-6",
+      activity_type: "repayment_distribution",
+      occurred_at: "2026-05-21T08:00:00+02:00",
+      direction: "in",
+      title: "Loan repayment credited",
+      amount_minor: amount(412.35),
+      currency: "CHF",
+      status: "",
+      loan_id: "GA-2380",
+      loan_title: "Helvetia Logistik AG",
+      metadata: { principal_minor: amount(354.1), interest_minor: amount(58.25), fee_minor: 0 }
+    },
+    {
+      id: "A-7",
+      activity_type: "balance_deposit",
+      occurred_at: "2026-05-09T09:20:00+02:00",
+      direction: "in",
+      title: "Deposit",
+      amount_minor: amount(12000),
+      currency: "CHF",
+      status: "available",
+      loan_id: null,
+      loan_title: "",
+      metadata: {}
+    },
+    {
+      id: "A-8",
+      activity_type: "recovery_distribution",
+      occurred_at: "2026-04-09T10:00:00+02:00",
+      direction: "in",
+      title: "Recovery payment credited",
+      amount_minor: amount(980),
+      currency: "CHF",
+      status: "",
+      loan_id: "GA-2150",
+      loan_title: "Alpen Holzbau GmbH",
+      metadata: { principal_minor: amount(612), contractual_interest_minor: amount(188), default_interest_minor: amount(96), penalties_minor: 0, other_costs_minor: -amount(42) }
+    },
+    {
+      id: "A-9",
+      activity_type: "primary_order",
+      occurred_at: "2026-03-12T15:40:00+01:00",
+      direction: "internal",
+      title: "Primary-market investment order",
+      amount_minor: amount(6000),
+      currency: "EUR",
+      status: "closed_invested",
+      loan_id: "GA-2201",
+      loan_title: "Lago Maggiore Hotels SA",
+      metadata: {}
+    },
+    {
+      id: "A-10",
+      activity_type: "secondary_purchase",
+      occurred_at: "2026-02-18T11:25:00+01:00",
+      direction: "out",
+      title: "Secondary-market purchase",
+      amount_minor: amount(2480),
+      currency: "EUR",
+      status: "completed",
+      loan_id: "GA-2287",
+      loan_title: "Rhône Vignobles SA",
+      metadata: {}
+    },
+    {
+      id: "A-11",
+      activity_type: "balance_deposit",
+      occurred_at: "2026-02-10T09:00:00+01:00",
+      direction: "in",
+      title: "Deposit",
+      amount_minor: amount(8500),
+      currency: "EUR",
+      status: "invested",
+      loan_id: null,
+      loan_title: "",
+      metadata: {}
     }
   ]
 };
@@ -1936,7 +2620,7 @@ export const dashboardFixture: InvestorDashboard = {
       currency: "CHF",
       amount_minor: amount(980),
       count: 1,
-      message: "CHF 980.00 was not invested within 58 days and goes back to your bank."
+      message: "CHF 980.00 was not invested by day 56 and goes back to your bank."
     },
     {
       type: "loan_default",
@@ -2016,7 +2700,11 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     projected_yield_bps: 959,
     collateral_type: "equipment",
     remaining_term_months: 24,
-    is_own_listing: false
+    maturity_date: "2028-05-31",
+    is_own_listing: false,
+    paused_for_due_installment: false,
+    borrower_name: "Engadin Hospitality AG",
+    borrower_country: "CH"
   },
   {
     id: "SM-3298",
@@ -2049,7 +2737,11 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     projected_yield_bps: 902,
     collateral_type: "real_estate",
     remaining_term_months: 14,
-    is_own_listing: false
+    maturity_date: "2027-07-31",
+    is_own_listing: false,
+    paused_for_due_installment: false,
+    borrower_name: "Jura Précision SA",
+    borrower_country: "CH"
   }
 ];
 
@@ -2063,7 +2755,6 @@ export const secondaryListingDetailsFixture: SecondaryMarketBuyerListingDetail[]
       borrower_country: holding.loan.borrower_country,
       purpose: holding.loan.purpose,
       collateral_type: holding.loan.collateral_type,
-      risk_rating: holding.loan.risk_rating,
       interest_rate_bps: holding.loan.interest_rate_bps,
       term_months: holding.loan.term_months,
       repayment_type: holding.loan.repayment_type,
@@ -2104,7 +2795,56 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       risk_acknowledgement_required: false,
       public_disclosure_note: "",
       listed_at: "2026-05-28T10:00:00+02:00",
-      created_at: "2026-05-28T10:00:00+02:00"
+      created_at: "2026-05-28T10:00:00+02:00",
+      paused_for_due_installment: false,
+      state: "listed",
+      closed_at: null
+    },
+    {
+      id: "SM-3140",
+      holding_id: "H-2199",
+      loan_id: "GA-2199",
+      loan_title: "Holding transfer",
+      status: "sold",
+      publication_type: "automatic",
+      current_principal_minor: amount(4920),
+      transfer_price_minor: amount(4920),
+      discount_premium_bps: 0,
+      accrued_interest_minor: 0,
+      maker_fee_minor: amount(12.3),
+      seller_net_proceeds_minor: amount(4907.7),
+      currency: "CHF",
+      loan_status_at_listing: "performing",
+      risk_acknowledgement_required: false,
+      public_disclosure_note: "",
+      listed_at: "2026-04-22T09:00:00+02:00",
+      created_at: "2026-04-22T09:00:00+02:00",
+      paused_for_due_installment: false,
+      state: "sold",
+      closed_at: null
+    },
+    {
+      id: "SM-3105",
+      holding_id: "H-2042",
+      loan_id: "GA-2042",
+      loan_title: "Wallis Agrar AG",
+      status: "cancelled",
+      publication_type: "automatic",
+      current_principal_minor: amount(3640),
+      transfer_price_minor: amount(3676.4),
+      discount_premium_bps: 100,
+      accrued_interest_minor: 0,
+      maker_fee_minor: amount(36.76),
+      seller_net_proceeds_minor: amount(3639.64),
+      currency: "CHF",
+      loan_status_at_listing: "performing",
+      risk_acknowledgement_required: false,
+      public_disclosure_note: "",
+      listed_at: "2026-04-02T11:00:00+02:00",
+      created_at: "2026-04-02T11:00:00+02:00",
+      paused_for_due_installment: false,
+      state: "cancelled",
+      closed_at: "2026-04-15T16:30:00+02:00"
     }
   ],
   purchases_as_buyer: [
@@ -2197,7 +2937,7 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       listing_id: "SM-3140",
       holding_id: "H-2199",
       loan_id: "GA-2199",
-      loan_title: "Holding transfer",
+      loan_title: "Lugano logistics hub",
       currency: "CHF",
       principal_minor: amount(4920),
       cash_amount_minor: amount(4907.7),

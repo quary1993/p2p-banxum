@@ -18,12 +18,17 @@ from backend.apps.servicing.services import (
     ScanLoanServicingStatusesCommand,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F401
     _funded_loan_with_holdings,
     admin_user,
     investor_one,
     investor_two,
 )
+
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
 
 
 def _scan(actor: Model, as_of_date: date) -> None:
@@ -59,8 +64,14 @@ def test_late_and_default_notify_each_current_holder_once(
     other_late = only_notice(investor_two, "email.loan_status_changed")
     assert ["Your current principal", "CHF 20'000.00"] in other_late.payload["data_rows"]
 
-    for as_of_date in (date(2026, 3, 16), date(2026, 3, 17)):
-        _scan(admin_user, as_of_date)
+    # 18.6: Default is declared by the admin (never by the scan); the declaration notifies.
+    _scan(admin_user, date(2026, 3, 16))
+    for holder in (investor_one, investor_two):
+        assert len(investor_notices(holder, "email.loan_status_changed")) == 1
+    scan_and_declare(
+        ScanLoanServicingStatusesCommand(actor=admin_user, as_of_date=date(2026, 3, 16))
+    )
+    _scan(admin_user, date(2026, 3, 17))
     for holder in (investor_one, investor_two):
         notices = investor_notices(holder, "email.loan_status_changed")
         assert [notice.payload["metadata"]["new_status"] for notice in notices] == [

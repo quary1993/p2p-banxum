@@ -15,16 +15,20 @@ from backend.apps.platform_core.api.impersonation import (
     readonly_read_actor_from_request,
 )
 from backend.apps.smart_invest.api.serializers import (
+    SmartInvestChannelsSerializer,
     SmartInvestResponseSerializer,
     SmartInvestRuleSaveRequestSerializer,
 )
 from backend.apps.smart_invest.services import (
     SaveSmartInvestRuleCommand,
+    SetSmartInvestChannelsCommand,
     SmartInvestAuthorizationError,
     SmartInvestValidationError,
-    deactivate_smart_invest_rule,
     get_smart_invest,
+    pause_smart_invest_rule,
+    resume_smart_invest_rule,
     save_smart_invest_rule,
+    set_smart_invest_channels,
 )
 
 
@@ -68,13 +72,52 @@ class SmartInvestView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class SmartInvestDeactivateView(APIView):
+class SmartInvestPauseView(APIView):
+    """U33-DEC-19: pause keeps the preferences; no matches or alerts until resumed."""
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(request=None, responses={200: SmartInvestResponseSerializer})
     def post(self, request: Request) -> Response:
         try:
-            payload = deactivate_smart_invest_rule(actor=cast(Model, request.user))
+            payload = pause_smart_invest_rule(actor=cast(Model, request.user))
+        except (SmartInvestAuthorizationError, SmartInvestValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class SmartInvestResumeView(APIView):
+    """U33-DEC-19: resume with the saved preferences; the matches are calculated anew."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: SmartInvestResponseSerializer})
+    def post(self, request: Request) -> Response:
+        try:
+            payload = resume_smart_invest_rule(actor=cast(Model, request.user))
+        except (SmartInvestAuthorizationError, SmartInvestValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class SmartInvestChannelsView(APIView):
+    """U33-DEC-30: switch the in-app and email match alerts separately."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SmartInvestChannelsSerializer, responses={200: SmartInvestResponseSerializer}
+    )
+    def post(self, request: Request) -> Response:
+        serializer = SmartInvestChannelsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payload = set_smart_invest_channels(
+                SetSmartInvestChannelsCommand(
+                    actor=cast(Model, request.user), in_app=data["in_app"], email=data["email"]
+                )
+            )
         except (SmartInvestAuthorizationError, SmartInvestValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

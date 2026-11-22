@@ -84,6 +84,10 @@ None for v1. Late/default day counts are calendar days.
 
 ### RISK-DEC-003: Notes and Document Uploads Instead of Notice Templates
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-22: stage-by-stage presentation of arrears and recovery, with admin-recorded real stages, events (including termination) and the next step only when known.
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-22): `LoanRecoveryStage` (servicing). The admin records, for a late, defaulted or written-off loan, a stage that happened (title, real date not in the future, note for investors) or the step that really comes next (title, date only when known and not in the past, note); a new next step replaces the current one. Titles are free text (the admin form only suggests examples); no fixed workflow and no automatic progress. A wrong entry is removed with a reason and kept for the audit. API: `GET`/`POST /api/v1/servicing/admin/loans/<id>/recovery-stages/`, `POST .../recovery-stages/<stage_id>/remove/`; audit `servicing.recovery_stage_recorded` / `servicing.recovery_stage_removed`. The investor holding has `recovery_stages` and `recovery_next_step`: the late payment card shows the first missed payment, the recorded stages and "Next step · …"; the recovery card shows the latest stage as "Current stage" and the next step as "Next milestone"; without recorded stages the public notes are shown as before. Emails to investors stay the loan notes.
+
 Status: Accepted.
 Date: 2026-05-16.
 Owner: Garanta operations / legal.
@@ -114,7 +118,7 @@ Investor updates are event-driven. Admin notifies investors when something mater
 
 Loan notes (public, email or both) work the same for Direct and Loan Originator loans; an LO loan note has no BANXUM borrower and is sent from the LO Manage screen (audit A-29, 2026-10-09).
 
-Schedule labels follow the status timing of SERV-DEC-008 (audit A-30, 2026-10-09): an unpaid installment is "Due" (neutral) on its due date and during the grace period (days 1-4), and "Overdue" (red) from day 5, when the loan becomes Late. Investor and admin views use the same server status.
+Schedule labels follow the status timing of SERV-DEC-008 (audit A-30, 2026-10-09; days updated by U33-DEC-09 on 2026-11-10): an unpaid installment is "Due" (neutral) on its due date and before the loan's Late day (platform day 15, or the contract's own day), and "Overdue" (red) from the Late day, when the loan becomes Late. Investor and admin views use the same server status.
 
 Rationale:
 This gives lenders essential status transparency without forcing a fixed investor-reporting cadence or detailed internal recovery disclosure.
@@ -128,6 +132,10 @@ Follow-ups:
 Define public note visibility rules, authoring permissions, and whether historical public notes remain visible after resolution.
 
 ### RISK-DEC-005: Gross Recovery, Third-Party Costs, Recovery Fee, and Net Reporting
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: no Banxum recovery fee for investors; gross recovered, deducted external costs and net distributed are shown.
+>
+> Implemented 2026-11-10 (Phase 17.2): a recovery payment with `recovery_fee_applied` true or `recovery_fee_bps` above 0 is refused (HTTP 400, "Banxum charges investors no recovery fee"); loans can no longer carry a recovery fee rate (create and edit refuse it), and migration `loans.0020_remove_investor_recovery_fee` set the rate of existing loans to 0 with a system "updated" loan event. Recoveries already recorded keep their recorded fee. The investor portfolio API gives `recovery_events` per holding (date, gross recovered for the loan, external costs = externally deducted + third-party costs, a fee recorded before the change, net distributed, the investor's credited share); the investment page shows them under Recovery history. The admin recovery form has no fee fields. The lender payment fee stays configurable with default 0. Public and Help texts no longer say "0% for investors" or "No fees" without context.
 
 Status: Accepted.
 Date: 2026-05-16. Updated 2026-06-01.
@@ -213,6 +221,8 @@ Follow-ups:
 Finalize lender notification wording and final PDF/CSV report labels. Legal agreements must describe the universal order rather than introduce an alternate project waterfall.
 
 ### RISK-DEC-007: Generic v1 Recovery Events
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-22: generic events are extended with real recovery stages and termination (see RISK-DEC-003 note).
 
 Status: Accepted.
 Date: 2026-05-16.

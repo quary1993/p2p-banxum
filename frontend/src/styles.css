@@ -1,134 +1,9 @@
 /* IP of Webby-Soft SRL. */
-:root {
-  --source-seal: "SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=";
-  --build-origin: "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==";
-  --paper: #f5f3ed;
-  --surface: #fbfaf7;
-  --surface-2: #f1efe8;
-  --surface-3: #edeae2;
-  --ink: #151719;
-  --ink-2: #292d30;
-  --ink-3: #626b70;
-  --ink-4: #8b939a;
-  --line: #dde3e1;
-  --line-2: #e4e1d8;
-  --line-strong: #c2bfb5;
-  --accent: #1e6a4b;
-  --accent-ink: #17573e;
-  --accent-soft: #e5eee9;
-  --accent-line: #a8c4b4;
-  --ok: #1e6a4b;
-  --ok-bg: #e5eee9;
-  --ok-line: #a8c4b4;
-  --warn: #b0761e;
-  --warn-strong: #79500f;
-  --warn-bg: #f7ecd4;
-  --warn-line: #e3ca91;
-  --bad: #c4312c;
-  --bad-strong: #92241f;
-  --bad-bg: #fbf3f2;
-  --bad-line: #e8bebb;
-  --info: #2a5a86;
-  --info-bg: #e3edf4;
-  --info-line: #b6cfdf;
-  --neutral: #626b70;
-  --neutral-bg: #edeae2;
-  --neutral-line: #d3d0c7;
-  --font-sans: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Newsreader Variable", Newsreader, Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --r-xs: 3px;
-  --r-sm: 5px;
-  --r-md: 7px;
-  --r-lg: 10px;
-  --r-pill: 999px;
-  --shadow-sm: 0 1px 2px rgba(21, 23, 25, 0.05);
-  --shadow-md: 0 2px 12px rgba(21, 23, 25, 0.08);
-  --shadow-pop: 0 8px 32px rgba(21, 23, 25, 0.16), 0 2px 8px rgba(21, 23, 25, 0.08);
-  --nav-w: 230px;
-  --topbar-h: 56px;
-  --maxw: 1240px;
-  color: var(--ink);
-  background: var(--paper);
-  font-family: var(--font-sans);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  min-height: 100vh;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.45;
-  -webkit-font-smoothing: antialiased;
-}
-
-body {
-  min-width: 320px;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  color: inherit;
-}
-
-a {
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-h1,
-h2,
-h3,
-h4,
-p {
-  margin: 0;
-}
-
-h1,
-h2,
-h3,
-h4 {
-  color: var(--ink);
-  font-weight: 600;
-  letter-spacing: 0;
-}
-
-:focus-visible {
-  border-radius: 3px;
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-::selection {
-  background: #cfe0d4;
-}
-
+/* The admin console's stylesheet (loaded with the lazy admin area only, adminConsole/adminStyles.ts).
+ * The :root tokens and the element rules it builds on are in base.css (global).
+ * Audit S4-9: the build puts every selector of this file below :where(html.bxa)
+ * (adminConsole/adminCssScope.ts in vite.config.ts), and AdminSkin sets that class while the admin
+ * console is mounted. Write plain class selectors here; do not write html, body or :root rules. */
 .num,
 .money,
 td.num {
@@ -153,16 +28,6 @@ td.num {
 
 .faint {
   color: var(--ink-4);
-}
-
-.sr-only {
-  clip: rect(0, 0, 0, 0);
-  clip-path: inset(50%);
-  height: 1px;
-  overflow: hidden;
-  position: absolute;
-  white-space: nowrap;
-  width: 1px;
 }
 
 .pos {
@@ -463,19 +328,6 @@ td.num {
   padding: 14px 22px 0;
 }
 
-.notice-list {
-  display: grid;
-}
-
-.notice-row {
-  border-bottom: 1px solid var(--line);
-  padding: 14px 16px;
-}
-
-.notice-row:last-child {
-  border-bottom: 0;
-}
-
 .topbar {
   align-items: center;
   backdrop-filter: blur(8px);
@@ -744,12 +596,6 @@ td.num {
 .search .input {
   height: 34px;
   padding-left: 32px;
-}
-
-.results-count {
-  color: var(--ink-3);
-  font-size: 12px;
-  margin-left: auto;
 }
 
 .card {
@@ -1715,30 +1561,6 @@ textarea.input {
   border-color: var(--bad);
 }
 
-.input-affix {
-  align-items: center;
-  display: flex;
-  position: relative;
-}
-
-.input-affix .prefix {
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  left: 11px;
-  pointer-events: none;
-  position: absolute;
-}
-
-.input-affix .affix {
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  pointer-events: none;
-  position: absolute;
-  right: 11px;
-}
-
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%23717a72' stroke-width='1.4' stroke-linecap='round'/></svg>");
@@ -2091,59 +1913,6 @@ textarea.input {
   padding: 9px 11px;
 }
 
-.deposit-reference-guidance {
-  align-items: flex-start;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  border-radius: var(--r-sm);
-  color: var(--warn-strong);
-  display: flex;
-  font-size: 11.5px;
-  gap: 8px;
-  line-height: 1.45;
-  margin-top: 8px;
-  padding: 9px 10px;
-}
-
-.deposit-reference-guidance svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.qr-instruction-panel {
-  align-items: center;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  display: grid;
-  gap: 14px;
-  grid-template-columns: auto 1fr;
-  padding: 14px;
-}
-
-.qr-instruction-image,
-.qr-instruction-placeholder {
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  height: 132px;
-  width: 132px;
-}
-
-.qr-instruction-image {
-  display: block;
-  padding: 6px;
-}
-
-.qr-instruction-placeholder {
-  align-items: center;
-  color: var(--ink-3);
-  display: flex;
-  font-size: 11.5px;
-  justify-content: center;
-  text-align: center;
-}
-
 .empty {
   align-items: center;
   color: var(--ink-3);
@@ -2222,21 +1991,6 @@ textarea.input {
   font-weight: 500;
   margin: 0;
   text-align: right;
-}
-
-@media (max-width: 560px) {
-  .qr-instruction-panel {
-    align-items: start;
-    grid-template-columns: 1fr;
-  }
-}
-
-.lot-overdue td {
-  background: color-mix(in srgb, var(--warn-bg) 50%, transparent);
-}
-
-.lot-penalty td {
-  background: color-mix(in srgb, var(--bad-bg) 45%, transparent);
 }
 
 .public {
@@ -3403,6 +3157,29 @@ table.tbl tfoot.schedule-totals th.num,
   }
 }
 
+.admin-message-cell {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.admin-year-checks {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+
+.admin-year-checks .ok {
+  color: var(--ok, #1f7a4d);
+}
+
+.admin-year-checks .bad {
+  color: var(--bad, #b42318);
+  font-weight: 600;
+}
+
 .admin-checkbox-line {
   align-items: center;
   display: inline-flex;
@@ -4152,7 +3929,6 @@ table.tbl tfoot.schedule-totals th.num,
 .doc-link:hover { opacity: 0.85; }
 .doc-link-arrow { font-size: 0.85em; margin-left: 2px; }
 
-
 /* Investor marketplace redesign: website_redesign identity on live projections. */
 .marketplace-page {
   max-width: 1280px;
@@ -4844,9 +4620,7 @@ table.tbl tfoot.schedule-totals th.num,
     order: 4;
   }
 
-  .marketplace-toolbar .results-count {
-    order: 5;
-  }
+  
 
   .marketplace-list {
     border-top-width: 1px;
@@ -5228,22 +5002,6 @@ table.tbl tfoot.schedule-totals th.num,
   color: var(--paper);
 }
 
-.app .btn-green,
-.public .btn-green,
-.auth-wrap .btn-green {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: var(--paper);
-  box-shadow: 0 2px 8px rgba(30, 122, 70, 0.2);
-}
-
-.app .btn-green:hover,
-.public .btn-green:hover,
-.auth-wrap .btn-green:hover {
-  background: var(--ok);
-  border-color: var(--ok);
-}
-
 .app .btn-green-line,
 .public .btn-green-line,
 .auth-wrap .btn-green-line {
@@ -5619,20 +5377,12 @@ table.tbl tfoot.schedule-totals th.num,
   min-width: 720px;
 }
 
-.app .balance-lots-table {
-  min-width: 820px;
-}
-
 .app .secondary-sell-table {
   min-width: 860px;
 }
 
 .app .secondary-activity-table {
   min-width: 820px;
-}
-
-.app .documents-data-table {
-  min-width: 900px;
 }
 
 .app .schedule-totals td,
@@ -9818,7 +9568,6 @@ table.tbl tfoot.schedule-totals th.num,
   .os-calc-result { overflow-x: auto; }
   .os-calc-result .ls-th, .os-calc-result .ls-tr { min-width: 560px; }
 }
-
 
 /* ---------- Loan pages: Meet the borrower / Loan schedule & payments ---------- */
 .lp-eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--ink-3); margin-right: 10px; }

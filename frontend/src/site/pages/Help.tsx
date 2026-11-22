@@ -10,10 +10,11 @@
  */
 import { useEffect, useMemo, useState } from "react";
 
-import { NiIcon, PageHead, SiteLink } from "../components";
+import { Eyebrow, NiIcon, PageHead, SiteLink } from "../components";
 import { siteCompany, siteFaq } from "../content";
 import { useSiteNav } from "../context";
 import { siteHtml, useStaticLinkClick } from "../links";
+import { HowItWorksSections } from "./HowItWorks";
 
 /** Text of a static HTML answer, as the browser reads it (textContent). */
 function htmlText(html: string) {
@@ -174,6 +175,17 @@ function HelpPage() {
           </div>
         </div>
       </section>
+      {/* Q24 (2026-11-13): the content of the retired How it works page. */}
+      <div id="how-it-works" style={{ scrollMarginTop: 96 }}>
+        <section className="site-section no-rule" style={{ paddingBottom: 0 }}>
+          <div className="site-wrap">
+            <Eyebrow>How it works</Eyebrow>
+            <h2 className="site-h2">From your first transfer to the last repayment</h2>
+            <p className="site-text">You lend to companies by buying shares of their loans. Here is each step, what you own and where your money is.</p>
+          </div>
+        </section>
+        <HowItWorksSections />
+      </div>
     </>
   );
 }

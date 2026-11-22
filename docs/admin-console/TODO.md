@@ -61,6 +61,7 @@ Each entry should include:
 
 ## 2026-06-02: Ledger Balance Ageing Operations
 
+- Status (2026-11-20): historical entry. Penalty mode and the daily penalty are removed (U33-DEC-04) and the 56-day return rule with failed returns and settlement calendars is built (18.4; Finance: failed returns, record a returned transfer, verify a return account from a deposit, settlement calendars).
 - Screen or component: investor payout-instruction management, balance-ageing scan, forced-withdrawal queue, penalty-mode review.
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, payout-instruction model, ageing scan service, forced-withdrawal request generation, penalty-mode transition evidence, and tests exist.
 - Required admin-console improvement: Codex should implement operational screens for registering verified payout IBANs, reviewing active payout instructions by investor/currency, running or inspecting balance-ageing scans, seeing due reminders, identifying forced-withdrawal requests, reviewing lots moved into penalty mode because no usable IBAN exists, and linking each item to ledger evidence/audit events.
@@ -249,6 +250,7 @@ Each entry should include:
 
 ## 2026-07-27: Finance Queue, Source-IBAN Verification, And Withdrawal Actions
 
+- Status (2026-11-20, audit step 3, S3-1): a lender deposit does not verify its source IBAN any more. After a deposit the admin verifies the paying account in "Verify a return account from a deposit": the holder against the legal name from the identity check, no collecting or intermediary account, and an evidence reference. The text below about automatic verification is historical.
 - Screen or component: Finance Operations, lender-deposit and payout-instruction forms, Daily Dashboard withdrawal drawers.
 - Current first-version behavior: Finance Operations begins with a bounded pending-work table that combines unresolved finance tasks and actionable finance dashboard queues. Lender deposits require a checksum-valid source IBAN and automatically establish that exact investor/currency account as a verified payout instruction. Admin-entered payout instructions are additive and no longer disable verified deposit-source accounts. Investor requests for another IBAN create a linked payout-verification task automatically; verifying the exact instruction resolves that task. Requested and forced withdrawals can be finalized or cancelled directly from their dashboard drawer with the same backend-backed form used in Finance Operations; the old deferred-action message was removed.
 - Required admin-console improvement: add a dedicated payout-instruction review drawer that shows the requesting investor, masked and full-on-demand IBAN, account name, prior verified accounts, task event history, and verification evidence checklist. Add an explicit external-bank payment confirmation summary before finalizing a withdrawal, and server-backed pagination if the combined finance work table outgrows its bounded launch view.
@@ -355,3 +357,53 @@ Each entry should include:
 - Current first-version behavior: one row per platform switch; today only "Currency exchange (FX)" (`fx.enabled`, off by owner decision 2026-10-16). The row shows a switch, an On/Off tag, the description, and the last change (state, time, who, reason) from the setting history. Moving the switch shows a required "Reason for this change" field and a "Switch on"/"Switch off" button; the change goes through the audited settings service (new setting version with the reason and an audit event). Switching to the state it already has is refused ("... is already on. Nothing was changed.").
 - Suggested improvement / required admin-console improvement: a "History" link with every version of the switch (the API keeps them in `PlatformSettingVersion`); a confirm dialog that says what investors will see before switching FX on; a link to the audit log filtered on `fx.enabled`.
 - Priority: nice-to-have.
+
+## 2026-11-10: Late and Default Days, Contract Termination (U33-DEC-09)
+
+- Screen or component: loan Manage modal, actions "Late and default days" and "Record contract termination" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: "Late and default days" shows the days in use (platform or contract) and lets the admin set the contract's own pair, or go back to the platform days, with a required reason; offered for draft, published, funded, active and late loans. "Record contract termination" takes the date (not in the future) and an internal note for a late or defaulted loan, recorded once; the status does not change. The loan list does not show the days or the termination date yet.
+- Required admin-console improvement: none left from the first version (2026-11-10: the loan row shows contract days and the termination date; Superadmin settings has "Late and default days" with the pair check, a reason and the last change; loans follow new platform days at their next status check). Possible: re-check the open loans at once after a platform change.
+- Priority: important.
+
+## 2026-11-10: Account Closure Requests (U33-DEC-28)
+
+- Screen or component: Tasks queue (`AdminTasksPanel`).
+- Current first-version behavior: an investor's closure request opens an "Account access review" task titled "Account closure request CLS-YYYY-NNNN" with the checks to make (balances, investments, orders, listings, payments, KYC/compliance) and the investor's message. The request email goes to the support mailbox (`platform.support_email`, then `SUPPORT_EMAIL`). Closing the account stays the existing admin access action.
+- Required admin-console improvement: none left from the first version (2026-11-10: the closure task opens the investor's account access and the investor's Help messages; Users has "Help messages" per user with the SUP-/CLS- references, topic, context, message and the team email status, and a closure request links back to its task). Possible: reply from the console instead of the support mailbox.
+- Priority: important.
+
+## 2026-11-10: Coming Soon (U33-DEC-17)
+
+- Screen or component: loan Manage modal, action "Show as Coming soon" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: for a draft loan, the admin sets the planned opening date (from today up to the funding deadline) and an optional internal note; the form refuses a past date, a date after the funding deadline, a loan that is not a draft Direct loan and an unsecured loan. When the loan is already shown, the form shows the dates, changes the date, and "Stop showing as Coming soon" hides it again (the opening alerts are then not sent). The opening alerts go out when the admin publishes the loan.
+- Required admin-console improvement: none left from the first version (2026-11-10: the loan list shows "Coming soon · opens <date> · N investors wait for the email").
+- Priority: important.
+
+## 2026-11-10: Recovery Stages (U33-DEC-22)
+
+- Screen or component: loan Manage modal, action "Recovery stages" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: for a late, defaulted or written-off loan, the form lists the recorded stages and the next step, records a stage that happened (title, real date, note for lenders) or the next step (title, date when known, note), and removes a wrong entry with a reason (the number of removed entries is shown; they stay for the audit). Titles are free text; the field suggests examples only.
+- Required admin-console improvement: none left from the first version (2026-11-10: removed entries are listed with when and by whom they were recorded and removed and why; after a recorded stage the form offers "Email the lenders with a loan note"; the Loan history shows the stages).
+- Priority: important.
+
+## 2026-11-10: Several Securities (U33-DEC-21)
+
+- Screen or component: loan Manage modal, action "Securities" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: the list of the loan's securities (type, holder, rank, status, value or guarantee limit) with Edit, and Remove for a draft with more than one security; the form shows the asset fields (value, valuation date, basis, appraiser, prior-ranking debt, insurance) or the guarantee fields (guarantor, scope, limit) by type; "mixed", "asset backed" and "unsecured" are not offered for new entries. The loan form's collateral fields still edit the first security.
+- Required admin-console improvement: none left from the first version (2026-11-10: the form picks the borrower documents of each security and shows them in the list; a draft's securities move up or down, and the first one gives the loan's collateral and loan-to-value; the loan list shows the security types; the Loan history shows every security change). Possible: a document upload from the security form.
+- Priority: important.
+
+## 2026-11-10: Structured Credit File (U33-DEC-20)
+
+- Screen or component: Borrowers table, action "Credit file" (financial years, existing debt, document details), and the loan Manage action "Checks & updates" (`frontend/src/adminConsole/AdminModulePanels.tsx`).
+- Current first-version behavior: a financial year is entered as minor units by statement (profit & loss, balance sheet) with its year, period end, currency and source document; the server refuses details that do not add up. Facilities have a name, currency, balance, part due within a year, security and date. Document details (category, date, period, issuer, version, status) are edited per document. Loan checks have what was checked, the result, the source and the date; the monitoring text says how often and on what the loan is followed.
+- Required admin-console improvement: show who changed the borrower's credit file (financial years, facilities, document details) in a borrower history like the Loan history. Done 2026-11-10: figures in currency units (no separators, strict) with the server's checks shown while typing and Save blocked while one fails; the previous year's figure next to each field; the facility's source document (kept on edit); facilities and checks move up or down.
+- Priority: important.
+
+## 2026-11-10: Loan History
+
+- Screen or component: loan Manage modal, action "Loan history" (`frontend/src/adminConsole/AdminModulePanels.tsx`, `GET /api/v1/loans/admin/loans/<id>/history/`).
+- Current first-version behavior: one table, newest first, of the loan's events (creation, changes, publication, funding, status changes, late and default days with the days now in use and their source, contract termination, Coming soon) and the audit entries about the loan that have no loan event (securities added, changed or removed; checks and monitoring; recovery stages recorded or removed). Each row shows when, what, the useful details (status change, reason or note, title, security type, dates) and the email of the person who acted. Audit entries that repeat a loan event are left out; the full audit stays in the audit log. Up to 500 rows.
+- Required admin-console improvement: filter by kind (status, securities, credit file, recovery); page older rows; link a row to the record it changed.
+- Priority: nice-to-have.
+

@@ -26,6 +26,7 @@ from backend.apps.admin_ops.api.serializers import (
     AdminUserDocumentArtifactRequestSerializer,
     AdminUserDocumentArtifactResponseSerializer,
     AdminUserDocumentsResponseSerializer,
+    AdminUserSupportRequestsSerializer,
     AuditEventQuerySerializer,
     AuditEventSerializer,
     ReadOnlyImpersonationStartResponseSerializer,
@@ -49,6 +50,7 @@ from backend.apps.admin_ops.services import (
     create_admin_task,
     get_admin_operations_dashboard,
     list_admin_user_documents,
+    list_admin_user_support_requests,
     render_admin_user_document,
     sync_reconciliation_break_tasks,
     update_admin_task,
@@ -268,6 +270,24 @@ class AdminUserDocumentsView(APIView):
             AdminUserDocumentsResponseSerializer(payload).data,
             status=status.HTTP_200_OK,
         )
+
+
+class AdminUserSupportRequestsView(APIView):
+    """U33-DEC-28/35: the investor's portal Help messages and closure requests."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: AdminUserSupportRequestsSerializer})
+    def get(self, request: Request, user_id: str) -> Response:
+        try:
+            rows = list_admin_user_support_requests(
+                actor=cast(Model, request.user), user_id=user_id
+            )
+        except AdminTaskAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except AdminTaskValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(AdminUserSupportRequestsSerializer({"support_requests": rows}).data)
 
 
 class AdminUserDocumentArtifactView(APIView):

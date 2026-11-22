@@ -41,17 +41,16 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
     is_lender_actor,
+    security_restriction_until,
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.funding import (
+    BALANCE_COMPLIANCE_ALERT_DAY,
     BALANCE_HOLDING_LIMIT_DAYS,
-    balance_covers_funding,
-    balance_deadline_date,
-    balance_holding_day,
+    BalanceReturnSchedule,
     balance_is_overdue,
-    balance_last_day,
-    balance_return_date,
     balance_return_is_due,
+    return_order_deadline,
 )
 from backend.apps.platform_core.domain.iban import IbanValidationError, normalize_and_validate_iban
 from backend.apps.platform_core.domain.money import (
@@ -63,19 +62,19 @@ from backend.apps.platform_core.domain.money import (
 from backend.apps.platform_core.domain.time import (
     business_date,
     business_timezone,
-    calendar_day_difference,
     now_utc,
     to_business_time,
 )
 from backend.apps.platform_core.models import Currency, DomainEvent
 from backend.apps.platform_core.selectors.settings import (
     balance_auto_return_after_days,
-    balance_reminder_days,
+    balance_return_notice_days_before,
     get_collection_account,
     get_collection_account_identifier,
     platform_switch_enabled,
 )
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
     OutboxCommand,
@@ -249,6 +248,9 @@ class DeclareLenderDepositCommand:
     # identical to one already credited (same bank-movement key, see
     # _matching_lender_deposits). Without it such a deposit is rejected.
     confirm_repeat_deposit: bool = False
+    # U33-DEC-05, audit S3-1: a deposit never verifies its paying account. The one way is
+    # "verify from deposit" (``return_failures.verify_payout_account_from_deposit``): both
+    # checks against the name from the identity check, with evidence.
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +313,21 @@ class RegisterInvestorSelfServicePayoutInstructionCommand:
     sensitive_action_code: str = ""
     pin: str = dataclass_field(default="", repr=False)
     notes: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
+    # 18.3: the bank name the investor types for an IBAN outside CH and LI (optional).
+    bank_name: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SetInvestorDefaultReturnAccountCommand:
+    """U33-DEC-05: the investor picks the verified account money goes back to (PIN)."""
+
+    actor: Model
+    instruction_id: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
+    pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -376,6 +393,8 @@ class InvestorBalanceCreditLineCommand:
     holding_id: str = ""
     installment_id: str = ""
     metadata: dict[str, Any] | None = None
+    # 18.6: the investor's part of penalty X.
+    penalty_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,6 +430,14 @@ class DeclareBorrowerRepaymentDistributionCommand:
     evidence_reference: str = ""
     admin_notes: str = ""
     idempotency_key: str = ""
+    # 18.6 engine loans: recovery expenses repaid and Garanta's part of penalty X (credited to
+    # Garanta), cents kept back for the investors (F13 B) and earlier cents now paid out.
+    garanta_minor: int = 0
+    fractions_withheld_minor: int = 0
+    fractions_released_minor: int = 0
+    # Audit step 5 (D7): the part of ``garanta_minor`` that is Garanta's share of penalty X (the
+    # rest are recovery expenses repaid by the borrower).
+    garanta_penalty_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,6 +565,9 @@ class BalanceAgeingReminderDue:
     amount_minor: int
     day: int
     withdrawal_deadline_at: datetime
+    kind: str = ""
+    return_date: date | None = None
+    days_before_return: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -585,6 +615,9 @@ class BalanceAgeingScanResult:
     penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition]
     penalty_charges: list[BalancePenaltyCharge]
     skipped_lot_ids: list[str]
+    # 18.4: compliance alerts opened by this scan, and failed returns notified today.
+    compliance_alerts: list[str] = dataclass_field(default_factory=list)
+    return_failure_notices: list[str] = dataclass_field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -627,6 +660,9 @@ class ReserveInvestmentBalanceCommand:
     source_id: str
     idempotency_key: str
     as_of: datetime | None = None
+    # F01 (18.4): a direct loan pays the borrower after the close; each lot must leave the
+    # payout margin before its day 56. Loan Originator rounds keep the general rule.
+    direct_loan: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -742,6 +778,9 @@ class ActivateOriginatorSubscriptionLedgerCommand:
     idempotency_key: str
     as_of: datetime | None = None
     metadata: dict[str, Any] | None = None
+    # 18.7: the accrued interest of the bought rights, paid to the Loan Originator with the
+    # principal (0 for offers priced at par).
+    accrued_interest_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -919,6 +958,13 @@ def _activate_loan_after_disbursement(
     loan_ref.status = "active"
     loan_ref.updated_by_admin_id = actor.pk
     loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    # 18.6 (F10): the schedule of a new direct loan is calculated again from the real payout day
+    # (the disbursement's value date); earlier loans keep theirs.
+    import_module("backend.apps.loans.services").confirm_engine_schedule_at_payout(
+        loan_id=str(loan_ref.id),
+        payout_date=bank_operation.value_date,
+        actor=actor,
+    )
     loan_event_model = apps.get_model("loans", "LoanEvent")
     loan_event_model.objects.create(
         loan=loan,
@@ -1430,9 +1476,26 @@ def _borrower_repayment_distribution_fingerprint(
                     "holding_id": str(line.holding_id),
                     "installment_id": str(line.installment_id),
                     "metadata": line.metadata or {},
+                    **({"penalty_minor": line.penalty_minor} if line.penalty_minor else {}),
                 }
                 for line in command.distribution_lines
             ],
+            **(
+                {
+                    "garanta_minor": command.garanta_minor,
+                    "fractions_withheld_minor": command.fractions_withheld_minor,
+                    "fractions_released_minor": command.fractions_released_minor,
+                    **(
+                        {"garanta_penalty_minor": command.garanta_penalty_minor}
+                        if command.garanta_penalty_minor
+                        else {}
+                    ),
+                }
+                if command.garanta_minor
+                or command.fractions_withheld_minor
+                or command.fractions_released_minor
+                else {}
+            ),
         }
     )
 
@@ -1566,6 +1629,7 @@ def _originator_subscription_activation_ledger_fingerprint(
             "originator_id": str(command.originator_id),
             "currency": currency_code,
             "assigned_principal_minor": assigned_principal_minor,
+            "accrued_interest_minor": int(command.accrued_interest_minor),
             "source_type": command.source_type.strip(),
             "source_id": command.source_id.strip(),
             "idempotency_key": idempotency_key,
@@ -1818,22 +1882,29 @@ def _existing_lender_deposit_result(
     existing_lot = existing_journal.balance_lots.first()
     if existing_lot is None:
         raise LedgerValidationError("Existing lender deposit has no balance lot.")
-    payout_instruction = (
+    return LenderDepositResult(
+        cast(BankOperation, existing_operation),
+        cast(LedgerJournalEntry, existing_journal),
+        cast(InvestorBalanceLot, existing_lot),
+        _verified_instruction_of_deposit(cast(BankOperation, existing_operation)),
+    )
+
+
+def _verified_instruction_of_deposit(deposit: BankOperation) -> InvestorPayoutInstruction | None:
+    """The investor's verified bank account with the deposit's paying IBAN, when there is one.
+
+    Read only: a deposit never verifies an account (audit S3-1).
+    """
+    return (
         InvestorPayoutInstruction.objects.filter(
-            investor_user_id=existing_operation.linked_object_id,
-            currency=existing_operation.currency,
-            destination_iban=existing_operation.payer_account_identifier,
+            investor_user_id=deposit.linked_object_id,
+            currency=deposit.currency,
+            destination_iban=deposit.payer_account_identifier,
             status=InvestorPayoutInstructionStatus.ACTIVE,
             is_verified_usable=True,
         )
         .order_by("-verified_at", "-created_at", "-id")
         .first()
-    )
-    return LenderDepositResult(
-        cast(BankOperation, existing_operation),
-        cast(LedgerJournalEntry, existing_journal),
-        cast(InvestorBalanceLot, existing_lot),
-        payout_instruction,
     )
 
 
@@ -1916,9 +1987,13 @@ def _create_investor_payout_instruction(
         instruction.is_verified_usable = is_verified_usable
         instruction.verified_by_admin_id = actor.pk if is_verified_usable else None
         instruction.verified_at = operation_at if is_verified_usable else None
+        if reactivated:
+            # A re-added IBAN is not the default return account until chosen again.
+            instruction.is_default_return = False
         instruction.save(
             update_fields=[
                 "status",
+                "is_default_return",
                 "destination_account_name",
                 "notes",
                 "metadata",
@@ -1928,6 +2003,10 @@ def _create_investor_payout_instruction(
                 "updated_at",
             ]
         )
+
+    if instruction.is_verified_usable:
+        _ensure_default_return_account(investor_user_id=str(investor.pk), currency=currency)
+        instruction.refresh_from_db(fields=["is_default_return"])
 
     actor_ref = actor_ref_for_user(actor)
     event_metadata = {
@@ -1972,6 +2051,148 @@ def _create_investor_payout_instruction(
     investor_notices.notify_payout_instruction_saved(
         instruction, created=created or reactivated, previously_verified=previously_verified
     )
+    return instruction
+
+
+def _ensure_default_return_account(*, investor_user_id: str, currency: Currency) -> None:
+    """Keep one default return account per currency while a verified account exists.
+
+    When the investor has none (first verified account, or the default was revoked), the
+    platform's pick becomes the default (PAY-DEC-022 ordering). The investor can change it.
+    """
+    locked = list(
+        InvestorPayoutInstruction.objects.select_for_update()
+        .filter(investor_user_id=investor_user_id, currency=currency)
+        .order_by("id")
+    )
+    if any(
+        item.is_default_return
+        and item.is_verified_usable
+        and item.status == InvestorPayoutInstructionStatus.ACTIVE
+        for item in locked
+    ):
+        return
+    stale_ids = [item.pk for item in locked if item.is_default_return]
+    if stale_ids:
+        InvestorPayoutInstruction.objects.filter(pk__in=stale_ids).update(
+            is_default_return=False, updated_at=now_utc()
+        )
+    choice = _platform_return_choice(investor_user_id=investor_user_id, currency=currency)
+    if choice is None:
+        return
+    instruction, _details = choice
+    InvestorPayoutInstruction.objects.filter(pk=instruction.pk).update(
+        is_default_return=True, updated_at=now_utc()
+    )
+
+
+def _refuse_during_security_pause(actor: Model, what: str) -> None:
+    """18.5: 72 hours after an assisted recovery, no new bank account and no new default
+    return account (checked before the email code is used)."""
+    until = security_restriction_until(actor)
+    if until is not None:
+        raise LedgerValidationError(
+            f"For your security you cannot {what} until "
+            f"{to_business_time(until).strftime('%d %b %Y, %H:%M')} (Zurich time), 72 hours "
+            "after your account was recovered. Withdrawals to your verified accounts still work."
+        )
+
+
+def set_investor_default_return_account(
+    command: SetInvestorDefaultReturnAccountCommand,
+) -> InvestorPayoutInstruction:
+    """U33-DEC-05: the investor chooses the verified account that money goes back to.
+
+    Confirmed like adding an account: the bank-account email code and the PIN.
+    """
+    if not is_lender_actor(command.actor):
+        raise LedgerAuthorizationError("Only an active lender can choose a return account.")
+    _refuse_during_security_pause(command.actor, "change the default return account")
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=BANK_ACCOUNT_CHANGE_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                pin=command.pin,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+                operation={"instruction_id": command.instruction_id},
+            )
+        )
+    except SensitiveActionPinError:
+        raise
+    except SensitiveActionVerificationError as exc:
+        raise LedgerValidationError(str(exc)) from exc
+    return _set_investor_default_return_account_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _set_investor_default_return_account_after_sensitive_code(
+    command: SetInvestorDefaultReturnAccountCommand,
+) -> InvestorPayoutInstruction:
+    instruction = (
+        InvestorPayoutInstruction.objects.select_for_update()
+        .select_related("currency")
+        .filter(id=command.instruction_id, investor_user_id=command.actor.pk)
+        .first()
+    )
+    if instruction is None:
+        raise LedgerValidationError("This bank account does not exist.")
+    if (
+        instruction.status != InvestorPayoutInstructionStatus.ACTIVE
+        or not instruction.is_verified_usable
+    ):
+        raise LedgerConflictError(
+            "Only a verified bank account can receive the money that goes back to your bank.",
+            code="payout_iban_not_verified",
+        )
+    if instruction.is_default_return:
+        return instruction
+    changed_at = now_utc()
+    previous = list(
+        InvestorPayoutInstruction.objects.select_for_update()
+        .filter(
+            investor_user_id=instruction.investor_user_id,
+            currency=instruction.currency,
+            is_default_return=True,
+        )
+        .exclude(pk=instruction.pk)
+    )
+    for item in previous:
+        item.is_default_return = False
+        item.save(update_fields=["is_default_return", "updated_at"])
+    instruction.is_default_return = True
+    instruction.save(update_fields=["is_default_return", "updated_at"])
+    event_metadata = {
+        "investor_user_id": str(instruction.investor_user_id),
+        "currency": instruction.currency_id,
+        "instruction_id": str(instruction.id),
+        "previous_instruction_ids": [str(item.id) for item in previous],
+        "changed_at": changed_at.isoformat(),
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.investor_default_return_account_changed",
+            target_type="InvestorPayoutInstruction",
+            target_id=str(instruction.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorDefaultReturnAccountChanged",
+            aggregate_type="InvestorPayoutInstruction",
+            aggregate_id=str(instruction.id),
+            payload=event_metadata,
+            idempotency_key=(
+                f"payout-instruction:{instruction.id}:default:{changed_at.isoformat()}"
+            ),
+        )
+    )
+    investor_notices.notify_default_return_account_changed(instruction)
     return instruction
 
 
@@ -2127,6 +2348,10 @@ def verify_investor_payout_instruction(
             "updated_at",
         ]
     )
+    _ensure_default_return_account(
+        investor_user_id=str(instruction.investor_user_id), currency=instruction.currency
+    )
+    instruction.refresh_from_db(fields=["is_default_return"])
     event_metadata = {
         "investor_user_id": str(instruction.investor_user_id),
         "currency": instruction.currency_id,
@@ -2244,10 +2469,25 @@ def revoke_investor_payout_instruction(
         "was_verified": was_verified,
         "verified_at": instruction.verified_at.isoformat() if instruction.verified_at else "",
     }
+    was_default = bool(instruction.is_default_return)
+    revocation["was_default_return"] = was_default
     instruction.status = InvestorPayoutInstructionStatus.DISABLED
     instruction.is_verified_usable = False
+    instruction.is_default_return = False
     instruction.metadata = {**cast(dict[str, Any], instruction.metadata), "revocation": revocation}
-    instruction.save(update_fields=["status", "is_verified_usable", "metadata", "updated_at"])
+    instruction.save(
+        update_fields=[
+            "status",
+            "is_verified_usable",
+            "is_default_return",
+            "metadata",
+            "updated_at",
+        ]
+    )
+    # Another verified account in the currency, if any, becomes the default return account.
+    _ensure_default_return_account(
+        investor_user_id=str(instruction.investor_user_id), currency=instruction.currency
+    )
 
     flagged_ids: list[str] = []
     open_withdrawals = InvestorWithdrawalRequest.objects.select_for_update().filter(
@@ -2339,6 +2579,7 @@ def register_investor_self_service_payout_instruction(
 ) -> InvestorPayoutInstruction:
     if not is_lender_actor(command.actor):
         raise LedgerAuthorizationError("Only an active lender can register a payout instruction.")
+    _refuse_during_security_pause(command.actor, "add a bank account")
     try:
         verify_sensitive_action_code(
             SensitiveActionVerificationCommand(
@@ -2349,6 +2590,7 @@ def register_investor_self_service_payout_instruction(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"currency": command.currency, "iban": command.destination_iban},
             )
         )
     except SensitiveActionPinError:
@@ -2377,6 +2619,12 @@ def _register_investor_self_service_payout_instruction_after_sensitive_code(
         metadata={
             "submitted_by": "investor_self_service",
             "requires_admin_verification": True,
+            # 18.3: CH and LI names come from the SIX bank master, never from the investor.
+            **(
+                {"bank_name": command.bank_name.strip()[:120]}
+                if command.bank_name.strip() and destination_iban[:2] not in {"CH", "LI"}
+                else {}
+            ),
         },
     )
     if not instruction.is_verified_usable:
@@ -2666,28 +2914,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         original_amount_minor=amount_minor,
         available_amount_minor=amount_minor,
         lineage=[{"source_type": "bank_operation", "source_id": str(bank_operation.id)}],
-    )
-    payout_instruction = _create_investor_payout_instruction(
-        actor=command.actor,
-        investor=investor,
-        currency=currency,
-        destination_iban=source_iban,
-        destination_account_name=(
-            command.payer_name.strip()
-            or str(getattr(investor, "full_name", "")).strip()
-            or str(getattr(investor, "email", "")).strip()
-        ),
-        is_verified_usable=True,
-        notes="Verified from a matched incoming lender deposit.",
-        metadata={
-            "source": "lender_deposit",
-            "deposit_bank_operation_id": str(bank_operation.id),
-        },
-    )
-    _resolve_payout_instruction_verification_task(
-        actor=command.actor,
-        instruction=payout_instruction,
-        completion_note="IBAN was verified from a matched incoming lender deposit.",
+        return_after_days=balance_auto_return_after_days(),
     )
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
@@ -2701,7 +2928,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "currency": currency.code,
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
-                "verified_payout_instruction_id": str(payout_instruction.id),
                 "confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids,
             },
         )
@@ -2717,7 +2943,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
                 "journal_entry_id": str(journal_entry.id),
-                "verified_payout_instruction_id": str(payout_instruction.id),
             },
             idempotency_key=f"bank-operation:{bank_operation.id}:lender-deposit-declared",
         )
@@ -2727,7 +2952,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         bank_operation,
         journal_entry,
         balance_lot,
-        payout_instruction,
+        _verified_instruction_of_deposit(bank_operation),
     )
 
 
@@ -3063,6 +3288,11 @@ def request_investor_withdrawal(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": command.amount_minor,
+                    "currency": command.currency,
+                    "iban": command.destination_iban,
+                },
             )
         )
     except SensitiveActionPinError:
@@ -3782,9 +4012,15 @@ def _validated_balance_credit_lines(
             currency_code,
             "Distribution line fee",
         )
-        if principal_minor + interest_minor - fee_minor != amount_minor:
+        penalty_minor = _validate_nonnegative_money(
+            line.penalty_minor,
+            currency_code,
+            "Distribution line penalty",
+        )
+        if principal_minor + interest_minor + penalty_minor - fee_minor != amount_minor:
             raise LedgerValidationError(
-                "Distribution line amount must equal principal plus interest minus fee."
+                "Distribution line amount must equal principal plus interest plus penalty "
+                "minus fee."
             )
         validated.append(
             InvestorBalanceCreditLineCommand(
@@ -3792,6 +4028,7 @@ def _validated_balance_credit_lines(
                 amount_minor=amount_minor,
                 principal_minor=principal_minor,
                 interest_minor=interest_minor,
+                penalty_minor=penalty_minor,
                 fee_minor=fee_minor,
                 holding_id=str(line.holding_id),
                 installment_id=str(line.installment_id),
@@ -3868,6 +4105,189 @@ def _validated_recovery_credit_lines(
     return validated
 
 
+@dataclass(frozen=True, slots=True)
+class FractionReleaseLineCommand:
+    investor_user_id: str
+    holding_id: str
+    interest_minor: int
+    penalty_minor: int
+
+    @property
+    def amount_minor(self) -> int:
+        return self.interest_minor + self.penalty_minor
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseLoanCentFractionsCommand:
+    actor: Model
+    loan_id: str
+    currency: str
+    value_date: date
+    source_type: str
+    source_id: str
+    lines: list[FractionReleaseLineCommand]
+    reason: str
+
+
+@transaction.atomic
+def release_loan_cent_fractions(
+    command: ReleaseLoanCentFractionsCommand,
+) -> list[InvestorBalanceCreditResult]:
+    """Audit S5-12: pay the whole cents kept on the fractions account to the investors of a loan
+    whose servicing ended without a final borrower payment (a final write-off). Internal
+    movement: the fractions account to the investors' balances, one lot per investor."""
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    lines = [line for line in command.lines if line.amount_minor > 0]
+    if any(line.interest_minor < 0 or line.penalty_minor < 0 for line in command.lines):
+        raise LedgerValidationError("Released cents cannot be negative.")
+    total = sum(line.amount_minor for line in lines)
+    if total <= 0:
+        return []
+    fractions_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.UNDISTRIBUTED_FRACTIONS,
+        currency=currency,
+        name=f"{currency.code} undistributed investor cent fractions",
+    )
+    postings = [
+        PostingCommand(
+            account=fractions_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=total,
+            memo="Carried cent fractions paid to the investors at the end of servicing",
+        )
+    ]
+    for line in lines:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+                    currency=currency,
+                    owner_type="investor",
+                    owner_id=str(line.investor_user_id),
+                    name=f"{currency.code} investor balance liability {line.investor_user_id}",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=line.amount_minor,
+                memo="Carried cent fractions credited to investor balance",
+            )
+        )
+    now = now_utc()
+    received_at = _received_at_from_value_date(command.value_date)
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="loan_cent_fractions_released",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=total,
+            net_amount_minor=total,
+            booking_date=command.value_date,
+            value_date=command.value_date,
+            effective_at=now,
+            received_at=received_at,
+            source_type=command.source_type,
+            source_id=command.source_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=_derived_idempotency_key(
+                "ledger-cent-fractions", f"{command.source_type}:{command.source_id}"
+            ),
+            postings=postings,
+            tax_metadata={
+                "interest_minor": sum(line.interest_minor for line in lines),
+                "penalty_minor": sum(line.penalty_minor for line in lines),
+            },
+            metadata={"reason": command.reason, "line_count": len(lines)},
+        )
+    )
+    # Re-audit R5-2: a replay gets the journal of the first call (the journal fingerprint covers
+    # the lines); it must also get the lots of the first call, never new spendable lots.
+    LedgerJournalEntry.objects.select_for_update().filter(id=journal_entry.id).first()
+    existing_lots = list(
+        InvestorBalanceLot.objects.filter(
+            source_journal_entry=journal_entry, source_type=BalanceLotSourceType.INSTALLMENT
+        )
+    )
+    if existing_lots:
+        by_source = {str(lot.source_id): lot for lot in existing_lots}
+        replayed: list[InvestorBalanceCreditResult] = []
+        for index, line in enumerate(lines):
+            lot = by_source.get(f"{command.source_id}:fractions:{index}")
+            if (
+                lot is None
+                or str(lot.investor_user_id) != str(line.investor_user_id)
+                or int(lot.original_amount_minor) != line.amount_minor
+            ):
+                raise LedgerValidationError(
+                    "These carried cents were already released with other lines."
+                )
+            replayed.append(
+                InvestorBalanceCreditResult(
+                    line_index=index,
+                    investor_user_id=str(line.investor_user_id),
+                    amount_minor=line.amount_minor,
+                    balance_lot=lot,
+                )
+            )
+        if len(existing_lots) != len(lines):
+            raise LedgerValidationError(
+                "These carried cents were already released with other lines."
+            )
+        return replayed
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    credits: list[InvestorBalanceCreditResult] = []
+    for index, line in enumerate(lines):
+        lot = InvestorBalanceLot.objects.create(
+            investor_user_id=line.investor_user_id,
+            currency=currency,
+            source_journal_entry=journal_entry,
+            source_type=BalanceLotSourceType.INSTALLMENT,
+            source_id=f"{command.source_id}:fractions:{index}",
+            received_at=received_at,
+            investment_deadline_at=investment_deadline_at,
+            withdrawal_deadline_at=withdrawal_deadline_at,
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            return_after_days=balance_auto_return_after_days(),
+            lineage=[
+                {
+                    "source_type": command.source_type,
+                    "source_id": command.source_id,
+                    "line_index": index,
+                    "loan_id": str(command.loan_id),
+                    "holding_id": line.holding_id,
+                    "interest_minor": line.interest_minor,
+                    "penalty_minor": line.penalty_minor,
+                    "metadata": {"final_cents": True, "reason": command.reason},
+                }
+            ],
+        )
+        credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=line.amount_minor,
+                balance_lot=lot,
+            )
+        )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.loan_cent_fractions_released",
+            target_type="LedgerJournalEntry",
+            target_id=str(journal_entry.id),
+            metadata={
+                "loan_id": str(command.loan_id),
+                "currency": currency.code,
+                "amount_minor": total,
+                "reason": command.reason,
+                "balance_lot_ids": [str(credit.balance_lot.id) for credit in credits],
+            },
+        )
+    )
+    return credits
+
+
 @transaction.atomic
 def declare_borrower_repayment_distribution(
     command: DeclareBorrowerRepaymentDistributionCommand,
@@ -3887,7 +4307,19 @@ def declare_borrower_repayment_distribution(
         command.distribution_lines,
         currency_code=currency.code,
     )
-    if sum(line.amount_minor for line in distribution_lines) != amount_minor:
+    for label, value in (
+        ("Garanta part", command.garanta_minor),
+        ("Fractions kept back", command.fractions_withheld_minor),
+        ("Fractions paid out", command.fractions_released_minor),
+    ):
+        _validate_nonnegative_money(value, currency.code, label)
+    if (
+        sum(line.amount_minor for line in distribution_lines)
+        + command.garanta_minor
+        + command.fractions_withheld_minor
+        - command.fractions_released_minor
+        != amount_minor
+    ):
         raise LedgerValidationError(
             "Distribution line amounts must sum to the borrower repayment amount."
         )
@@ -3910,6 +4342,11 @@ def declare_borrower_repayment_distribution(
             payment_reference=command.payment_reference,
             evidence_reference=command.evidence_reference,
             admin_notes=command.admin_notes,
+            garanta_minor=command.garanta_minor,
+            fractions_withheld_minor=command.fractions_withheld_minor,
+            fractions_released_minor=command.fractions_released_minor,
+            # Re-audit R5-1: the split between expenses and penalty income changes the postings.
+            garanta_penalty_minor=command.garanta_penalty_minor,
             idempotency_key=idempotency_key,
         ),
         currency_code=currency.code,
@@ -3997,6 +4434,61 @@ def declare_borrower_repayment_distribution(
                 memo="Borrower repayment distribution credited to investor balance",
             )
         )
+    if not 0 <= command.garanta_penalty_minor <= command.garanta_minor:
+        raise LedgerValidationError("Garanta's penalty part must be within the Garanta part.")
+    garanta_expenses_minor = command.garanta_minor - command.garanta_penalty_minor
+    if garanta_expenses_minor:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.GARANTA_RECOVERY_RECEIVABLE,
+                    currency=currency,
+                    name=f"{currency.code} Garanta recovery expenses repaid by borrowers",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=garanta_expenses_minor,
+                memo="Recovery expenses repaid by the borrower",
+            )
+        )
+    if command.garanta_penalty_minor:
+        postings.append(
+            PostingCommand(
+                account=get_or_create_ledger_account(
+                    account_type=LedgerAccountType.GARANTA_PENALTY_INCOME,
+                    currency=currency,
+                    owner_type="platform",
+                    owner_id="garanta",
+                    name=f"{currency.code} Garanta part of penalty X",
+                ),
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=command.garanta_penalty_minor,
+                memo="Garanta's part of penalty X paid by the borrower",
+            )
+        )
+    if command.fractions_withheld_minor or command.fractions_released_minor:
+        fractions_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.UNDISTRIBUTED_FRACTIONS,
+            currency=currency,
+            name=f"{currency.code} undistributed investor cent fractions",
+        )
+        if command.fractions_withheld_minor:
+            postings.append(
+                PostingCommand(
+                    account=fractions_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=command.fractions_withheld_minor,
+                    memo="Cent fractions kept for the investors (paid out at the final payment)",
+                )
+            )
+        if command.fractions_released_minor:
+            postings.append(
+                PostingCommand(
+                    account=fractions_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=command.fractions_released_minor,
+                    memo="Carried cent fractions paid to the investors",
+                )
+            )
     received_at = _received_at_from_value_date(command.value_date)
     journal_entry = post_journal_entry(
         PostJournalEntryCommand(
@@ -4023,6 +4515,11 @@ def declare_borrower_repayment_distribution(
                 "client_money_flow_minor": amount_minor,
                 "principal_minor": sum(line.principal_minor for line in distribution_lines),
                 "interest_minor": sum(line.interest_minor for line in distribution_lines),
+                "penalty_minor": sum(line.penalty_minor for line in distribution_lines),
+                "garanta_minor": command.garanta_minor,
+                "garanta_penalty_minor": command.garanta_penalty_minor,
+                "fractions_withheld_minor": command.fractions_withheld_minor,
+                "fractions_released_minor": command.fractions_released_minor,
             },
             metadata={
                 "bank_operation_type": BankOperationType.BORROWER_REPAYMENT,
@@ -4051,6 +4548,7 @@ def declare_borrower_repayment_distribution(
             withdrawal_deadline_at=withdrawal_deadline_at,
             original_amount_minor=line.amount_minor,
             available_amount_minor=line.amount_minor,
+            return_after_days=balance_auto_return_after_days(),
             lineage=[
                 {
                     "source_type": source_type,
@@ -4370,6 +4868,7 @@ def declare_recovery_distribution(
             withdrawal_deadline_at=withdrawal_deadline_at,
             original_amount_minor=line.amount_minor,
             available_amount_minor=line.amount_minor,
+            return_after_days=balance_auto_return_after_days(),
             lineage=[
                 {
                     "source_type": source_type,
@@ -4591,9 +5090,19 @@ def cancel_investor_withdrawal(
         )
     )
     investor_notices.notify_withdrawal_cancelled(withdrawal_request)
+    if withdrawal_request.is_forced:
+        # Audit S3-3: the money is on the balance again. A cancelled "send again" opens its
+        # failed return again (no automatic retry); any other forced return is requested again
+        # by the next scan, also on the same day (new attempt key).
+        from backend.apps.ledger import return_failures
+
+        return_failures.reopen_failure_after_cancelled_resend(
+            actor=command.actor, withdrawal_request=withdrawal_request
+        )
     return InvestorWithdrawalCancelResult(withdrawal_request, journal_entry)
 
 
+FORCED_RETURN_RULE_DEFAULT_ACCOUNT = "default_return_account"
 FORCED_RETURN_RULE_DEPOSIT_PROVEN = "deposit_proven"
 FORCED_RETURN_RULE_ADMIN_VERIFIED = "admin_verified"
 
@@ -4604,6 +5113,38 @@ def _forced_return_payout_instruction(
     currency: Currency,
 ) -> tuple[InvestorPayoutInstruction, dict[str, Any]] | None:
     """Choose where a forced return goes, and why.
+
+    The investor's default return account in the currency (U33-DEC-05). The platform keeps
+    one for every currency with a verified account, so the rules below only apply to data
+    that lost its default.
+    """
+    default = (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=investor_user_id,
+            currency=currency,
+            status=InvestorPayoutInstructionStatus.ACTIVE,
+            is_verified_usable=True,
+            is_default_return=True,
+        )
+        .order_by("-verified_at", "-id")
+        .first()
+    )
+    if default is not None:
+        return default, {
+            "rule": FORCED_RETURN_RULE_DEFAULT_ACCOUNT,
+            "payout_instruction_id": str(default.id),
+            "destination_iban": default.destination_iban,
+            "reason": "Default return account of the investor in this currency.",
+        }
+    return _platform_return_choice(investor_user_id=investor_user_id, currency=currency)
+
+
+def _platform_return_choice(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+) -> tuple[InvestorPayoutInstruction, dict[str, Any]] | None:
+    """The platform's pick when the investor has no default return account (PAY-DEC-022).
 
     1. The verified IBAN of this investor that most recently sent an incoming deposit
        (the transfer proves the investor controls the account).
@@ -4654,57 +5195,48 @@ def _forced_return_payout_instruction(
     }
 
 
-# What an ageing notice says. Reminders come up to the last day (day 58 by default); the
-# notices after it go out only when there is no usable IBAN to return the money to.
+# What an ageing notice says (18.4, Q01). Reminders come 14, 10 and 3 days before the scheduled
+# return date; the notices from the return date on go out only when there is no usable account.
 AGEING_NOTICE_REMINDER = "reminder"
-AGEING_NOTICE_LAST_DAY = "last_day"
 AGEING_NOTICE_RETURN_BLOCKED = "return_blocked"
-AGEING_NOTICE_PENALTY_WARNING = "penalty_warning"
+# U33-DEC-04: the day-60 notice no longer announces a penalty (the key is kept for history).
+AGEING_NOTICE_LEGAL_LIMIT = "penalty_warning"
 AGEING_NOTICE_TEMPLATE_KEYS = {
-    AGEING_NOTICE_REMINDER: "balance.ageing_reminder.v2",
-    AGEING_NOTICE_LAST_DAY: "balance.ageing_last_day.v1",
-    AGEING_NOTICE_RETURN_BLOCKED: "balance.return_blocked.v1",
-    AGEING_NOTICE_PENALTY_WARNING: "balance.penalty_warning.v1",
+    AGEING_NOTICE_REMINDER: "balance.return_notice.v1",
+    AGEING_NOTICE_RETURN_BLOCKED: "balance.return_blocked.v2",
+    AGEING_NOTICE_LEGAL_LIMIT: "balance.legal_limit.v2",
 }
 
 
-def _balance_ageing_notice_kind(*, day: int, return_after_days: int) -> str:
-    if day < return_after_days:
-        return AGEING_NOTICE_REMINDER
-    if day == return_after_days:
-        return AGEING_NOTICE_LAST_DAY
-    if day < BALANCE_HOLDING_LIMIT_DAYS:
-        return AGEING_NOTICE_RETURN_BLOCKED
-    return AGEING_NOTICE_PENALTY_WARNING
-
-
-def _record_balance_ageing_reminder_due(
+def _record_balance_ageing_notice(
     *,
     actor: Model,
     lot: InvestorBalanceLot,
-    day: int,
+    schedule: BalanceReturnSchedule,
+    kind: str,
+    key_suffix: str,
     as_of: datetime,
-    return_after_days: int,
     return_iban: str,
+    days_before: int | None = None,
 ) -> bool:
-    idempotency_key = _balance_ageing_reminder_idempotency_key(lot=lot, day=day)
-    if _balance_ageing_reminder_already_recorded(lot=lot, day=day):
+    idempotency_key = f"balance-lot:{lot.id}:{key_suffix}"
+    if DomainEvent.objects.filter(idempotency_key=idempotency_key).exists():
         return False
-    kind = _balance_ageing_notice_kind(day=day, return_after_days=return_after_days)
+    today = business_date(as_of)
     payload = {
         "investor_user_id": str(lot.investor_user_id),
         "currency": lot.currency_id,
         "lot_id": str(lot.id),
         "amount_minor": lot.available_amount_minor,
-        "day": day,
+        "day": schedule.holding_day(today),
         "kind": kind,
+        "days_before_return": days_before,
         "as_of": as_of.isoformat(),
         "withdrawal_deadline_at": lot.withdrawal_deadline_at.isoformat(),
-        "auto_return_after_days": return_after_days,
-        "return_date": balance_return_date(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            return_after_days=return_after_days,
-        ).isoformat(),
+        "auto_return_after_days": schedule.return_after_days,
+        "last_day": schedule.last_day.isoformat(),
+        "return_date": schedule.return_date.isoformat(),
+        "legal_limit_date": schedule.legal_limit_date.isoformat(),
         "has_usable_iban": bool(return_iban),
     }
     record_domain_event(
@@ -4716,11 +5248,8 @@ def _record_balance_ageing_reminder_due(
             idempotency_key=idempotency_key,
         )
     )
-    subject, body_text = _balance_ageing_reminder_email(
-        lot=lot,
-        day=day,
-        return_after_days=return_after_days,
-        return_iban=return_iban,
+    subject, body_text = _balance_ageing_notice_email(
+        lot=lot, schedule=schedule, kind=kind, return_iban=return_iban, today=today
     )
     _enqueue_investor_email(
         investor_user_id=str(lot.investor_user_id),
@@ -4743,174 +5272,140 @@ def _record_balance_ageing_reminder_due(
     return True
 
 
-def _penalty_mode_sentence(*, when: str) -> str:
-    penalty_bps = int(settings.BALANCE_PENALTY_BPS_PER_DAY)
-    penalty = (
-        f", a penalty of {Decimal(penalty_bps) / Decimal(100)}% per day is charged on it"
-        if penalty_bps > 0
-        else ""
-    )
+def _legal_limit_sentence(*, when: str) -> str:
+    """U33-DEC-04: no daily penalty and no frozen account after the legal limit."""
     return (
-        f"If the money is still on your balance {when}, it enters penalty mode{penalty}, and "
-        "financial actions on your account are frozen until you add a verified bank account."
+        f"If the money is still on your balance {when}, it stays there until we can return "
+        "it, and you cannot invest it. There is no penalty."
     )
 
 
-def _balance_ageing_reminder_email(
+def _balance_ageing_notice_email(
     *,
     lot: InvestorBalanceLot,
-    day: int,
-    return_after_days: int,
+    schedule: BalanceReturnSchedule,
+    kind: str,
     return_iban: str,
+    today: date,
 ) -> tuple[str, str]:
-    """Subject and text of one ageing notice (owner decision 2026-10-16: money not invested
-    goes back to the investor's bank automatically after 58 days)."""
+    """Subject and text of one ageing notice (Q01: day 56 last day, return on day 57)."""
     brand = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
     currency = str(lot.currency_id)
     amount = format_amount_minor(lot.available_amount_minor, currency)
-    last_day_date = balance_last_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at, return_after_days=return_after_days
-    )
-    last_day = last_day_date.isoformat()
-    return_date = (last_day_date + timedelta(days=1)).isoformat()
-    legal_deadline = balance_deadline_date(lot.withdrawal_deadline_at).isoformat()
+    last_day = schedule.last_day.isoformat()
+    return_date = schedule.return_date.isoformat()
+    legal_deadline = schedule.legal_limit_date.isoformat()
     no_iban = f"{operator} has no verified bank account in your name for {currency}."
     after_legal_limit = f"after {legal_deadline} (the 60-day legal limit)"
-    kind = _balance_ageing_notice_kind(day=day, return_after_days=return_after_days)
-    if kind == AGEING_NOTICE_LAST_DAY:
-        today = (
-            f"Today, {last_day}, is the last day {amount} of your {brand} {currency} balance "
-            f"can stay on your balance. You can no longer {_invest_or_exchange()} it."
-        )
-        if return_iban:
-            return (
-                "Last day: tomorrow we return the money to your bank",
-                f"{today} You can still withdraw it until the end of today (Europe/Zurich)."
-                f"\n\nTomorrow, {return_date}, we return it automatically to your verified "
-                f"bank account ({masked_iban(return_iban)}). You do not need to do anything.",
-            )
-        return (
-            "Last day: add a bank account today",
-            f"{today}\n\nTomorrow, {return_date}, we must return it to your bank, but "
-            f"{no_iban} Add a bank account in your name today so we can return your money."
-            f"\n\n{_penalty_mode_sentence(when=after_legal_limit)}",
-        )
     if kind == AGEING_NOTICE_RETURN_BLOCKED:
         return (
             "Urgent: add a verified bank account so we can return your money",
-            f"{amount} of your {brand} {currency} balance was not invested within "
-            f"{return_after_days} days, so it must go back to your bank. {no_iban}\n\n"
+            f"{amount} of your {brand} {currency} balance was not invested in time, so it "
+            f"must go back to your bank. {no_iban}\n\n"
             "Add a verified bank account so we can return your money. Until then the money "
             f"stays on your balance, and you cannot {_invest_or_exchange()} it.\n\n"
-            f"{_penalty_mode_sentence(when=after_legal_limit)}",
+            f"{_legal_limit_sentence(when=after_legal_limit)}",
         )
-    if kind == AGEING_NOTICE_PENALTY_WARNING:
+    if kind == AGEING_NOTICE_LEGAL_LIMIT:
         return (
-            "Penalty mode starts tomorrow: add a bank account today",
+            "Today is the 60-day limit: add a bank account today",
             f"{amount} of your {brand} {currency} balance reaches the 60-day legal limit "
             f"today, {legal_deadline}. It must go back to your bank, but {no_iban}\n\n"
-            f"{_penalty_mode_sentence(when='tomorrow')} Add a bank account in your name "
-            "today so we can return your money. The 60-day limit cannot be extended.\n\n"
-            "Read-only access to your portfolio, documents, tax information statements, "
-            "notices and messages remains available.",
+            "Add a bank account in your name today so we can return your money. The 60-day "
+            "limit cannot be extended. Until we can return it, the money stays on your "
+            "balance and you cannot invest it. There is no penalty.\n\n"
+            "Your portfolio, documents, tax information statements, notices and messages "
+            "stay available.",
         )
-    invest_until = (last_day_date - timedelta(days=1)).isoformat()
+    invest_until = (schedule.last_day - timedelta(days=1)).isoformat()
     destination = (
-        f"On {return_date} we return what is left to your verified bank account "
-        f"({masked_iban(return_iban)})."
+        f"On {return_date} we start the return of what is left to your verified bank account "
+        f"({masked_iban(return_iban)}). Our team sends the transfer by hand."
         if return_iban
         else f"{no_iban} We need one to return your money: add a bank account in your name."
     )
+    days_left = (schedule.return_date - today).days
     return (
         f"Reminder: money not invested goes back to your bank on {return_date}",
-        f"Your {brand} {currency} balance has {amount} that is not invested. Today is day "
-        f"{day} of {return_after_days}.\n\n"
-        f"Money that is not invested goes back to your bank automatically after "
-        f"{return_after_days} days. Until {invest_until} you can "
+        f"Your {brand} {currency} balance has {amount} that is not invested. It goes back to "
+        f"your bank in {days_left} day{'s' if days_left != 1 else ''}.\n\n"
+        f"Until {invest_until} you can "
         f"{'invest eligible money or exchange it' if _fx_enabled() else 'invest eligible money'}. "
         f"On {last_day} you can only withdraw it, until the end of the day "
         f"(Europe/Zurich).\n\n{destination}",
     )
 
 
-def _balance_ageing_reminder_idempotency_key(
-    *,
-    lot: InvestorBalanceLot,
-    day: int,
-) -> str:
-    return _balance_ageing_reminder_key_for_lot_id(str(lot.id), day)
-
-
 def _balance_ageing_reminder_key_for_lot_id(lot_id: str, day: int) -> str:
     return f"balance-lot:{lot_id}:ageing-reminder-day:{day}"
 
 
-def _balance_ageing_reminder_already_recorded(
-    *,
-    lot: InvestorBalanceLot,
-    day: int,
-) -> bool:
-    return DomainEvent.objects.filter(
-        idempotency_key=_balance_ageing_reminder_idempotency_key(lot=lot, day=day)
-    ).exists()
+def _return_notice_key_suffix(days_before: int) -> str:
+    return f"return-notice:{days_before}"
 
 
-def _unrecorded_balance_ageing_reminder_days(
+def _due_return_notice(
     *,
     lot: InvestorBalanceLot,
+    schedule: BalanceReturnSchedule,
     as_of: datetime,
-    reminder_days: tuple[int, ...],
-) -> list[int]:
-    # Days count back from the withdrawal deadline, so FX proceeds keep the source's age.
-    # Thresholds passed before an FX lot existed were sent for its source lots.
-    holding_day = balance_holding_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at,
-        as_of=as_of,
-    )
-    first_day = balance_holding_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at,
-        as_of=lot.received_at,
-    )
-    return [
-        threshold
-        for threshold in reminder_days
-        if first_day <= threshold <= holding_day
-        and not _balance_ageing_reminder_already_recorded(lot=lot, day=threshold)
-        and not (
-            threshold == first_day
-            and _source_lot_reminder_already_recorded(lot=lot, day=threshold)
-        )
+    notice_days: tuple[int, ...],
+) -> int | None:
+    """The notice (days before the return) that is due now, or None (Q01).
+
+    Only the closest passed notice goes out, so a missed scan does not send three at once;
+    notices dated before the lot existed are not sent (FX proceeds), nor one already sent
+    for an FX lot's source.
+    """
+    today = business_date(as_of)
+    received = business_date(lot.received_at)
+    passed = [
+        days
+        for days in notice_days
+        if schedule.return_date - timedelta(days=days) <= today
+        and schedule.return_date - timedelta(days=days) >= received
     ]
+    if not passed:
+        return None
+    days_before = min(passed)
+    suffix = _return_notice_key_suffix(days_before)
+    keys = [f"balance-lot:{lot.id}:{suffix}"] + [
+        f"balance-lot:{source_id}:{suffix}" for source_id in _source_lot_ids(lot)
+    ]
+    closer = [days for days in notice_days if days < days_before]
+    keys += [f"balance-lot:{lot.id}:{_return_notice_key_suffix(days)}" for days in closer]
+    if DomainEvent.objects.filter(idempotency_key__in=keys).exists():
+        return None
+    return days_before
 
 
 def _return_blocked_notice_day(
     *,
     lot: InvestorBalanceLot,
+    schedule: BalanceReturnSchedule,
     as_of: datetime,
-    return_after_days: int,
 ) -> int | None:
     """Notice day for money that is due back but has no usable IBAN, or None.
 
-    The day after the last day gets the urgent "add a verified bank account" notice; day 60
-    (the legal limit) warns that penalty mode starts the next day. A missed scan sends only
-    the latest of them.
+    The return date gets the urgent "add a verified bank account" notice; day 60 (the legal
+    limit) gets the last notice. A missed scan sends only the latest of them.
     """
-    holding_day = balance_holding_day(
-        withdrawal_deadline_at=lot.withdrawal_deadline_at,
-        as_of=as_of,
-    )
+    holding_day = schedule.holding_day(business_date(as_of))
+    first_due_day = schedule.holding_day(schedule.return_date)
     due_days = [
         day
-        for day in {return_after_days + 1, BALANCE_HOLDING_LIMIT_DAYS}
-        if return_after_days < day <= min(holding_day, BALANCE_HOLDING_LIMIT_DAYS)
+        for day in {first_due_day, BALANCE_HOLDING_LIMIT_DAYS}
+        if day <= min(holding_day, BALANCE_HOLDING_LIMIT_DAYS)
     ]
     if not due_days:
         return None
     day = max(due_days)
-    if _balance_ageing_reminder_already_recorded(
-        lot=lot, day=day
-    ) or _source_lot_reminder_already_recorded(lot=lot, day=day):
+    keys = [
+        _balance_ageing_reminder_key_for_lot_id(lot_id, day)
+        for lot_id in [str(lot.id), *_source_lot_ids(lot)]
+    ]
+    if DomainEvent.objects.filter(idempotency_key__in=keys).exists():
         return None
     return day
 
@@ -4923,231 +5418,6 @@ def _source_lot_ids(lot: InvestorBalanceLot) -> list[str]:
             if lot_id:
                 lot_ids.append(str(lot_id))
     return lot_ids
-
-
-def _source_lot_reminder_already_recorded(*, lot: InvestorBalanceLot, day: int) -> bool:
-    """An FX lot made on a reminder day: that day's reminder already went for its source.
-
-    Without this, an exchange made after the day's scan gets the same reminder again the
-    next day, labelled with the previous day's number.
-    """
-    return any(
-        DomainEvent.objects.filter(
-            idempotency_key=_balance_ageing_reminder_key_for_lot_id(source_lot_id, day)
-        ).exists()
-        for source_lot_id in _source_lot_ids(lot)
-    )
-
-
-def _balance_penalty_charge_idempotency_key(*, lot: InvestorBalanceLot, charge_date: date) -> str:
-    return f"balance-lot:{lot.id}:penalty-charge:{charge_date.isoformat()}"
-
-
-def _balance_penalty_basis_minor(lot: InvestorBalanceLot) -> int:
-    lineage = cast(list[dict[str, Any]], lot.lineage)
-    for item in reversed(lineage):
-        if item.get("event") != "penalty_mode_enabled":
-            continue
-        basis = item.get("penalty_basis_minor")
-        if type(basis) is int and basis > 0:
-            return basis
-    return lot.available_amount_minor + lot.penalized_amount_minor
-
-
-def _balance_penalty_charge_recorded_in_lineage(
-    *,
-    lot: InvestorBalanceLot,
-    charge_date: date,
-) -> bool:
-    expected = charge_date.isoformat()
-    lineage = cast(list[dict[str, Any]], lot.lineage)
-    return any(
-        item.get("event") == "balance_penalty_charged" and item.get("charge_date") == expected
-        for item in lineage
-    )
-
-
-def _daily_balance_penalty_minor(
-    *,
-    penalty_basis_minor: int,
-    available_amount_minor: int,
-    bps_per_day: int,
-) -> int:
-    if type(bps_per_day) is not int:
-        raise LedgerValidationError("Balance penalty bps per day must be an integer.")
-    if bps_per_day < 0:
-        raise LedgerValidationError("Balance penalty bps per day cannot be negative.")
-    if bps_per_day == 0 or penalty_basis_minor <= 0 or available_amount_minor <= 0:
-        return 0
-    calculated = int(
-        (Decimal(penalty_basis_minor) * Decimal(bps_per_day) / Decimal(10_000)).quantize(
-            Decimal("1"),
-            rounding=ROUND_HALF_UP,
-        )
-    )
-    if calculated <= 0:
-        return 0
-    return min(calculated, available_amount_minor)
-
-
-def _charge_balance_penalty_for_lot(
-    *,
-    actor: Model,
-    lot: InvestorBalanceLot,
-    as_of: datetime,
-) -> BalancePenaltyCharge | None:
-    charge_date = business_date(as_of)
-    lot = InvestorBalanceLot.objects.select_for_update().select_related("currency").get(id=lot.id)
-    if lot.status != BalanceLotStatus.PENALTY_MODE:
-        return None
-    _validate_lot_conservation(lot)
-    idempotency_key = _balance_penalty_charge_idempotency_key(
-        lot=lot,
-        charge_date=charge_date,
-    )
-    if _balance_penalty_charge_recorded_in_lineage(lot=lot, charge_date=charge_date):
-        return None
-    if LedgerJournalEntry.objects.filter(idempotency_key=idempotency_key).exists():
-        return None
-    penalty_basis_minor = _balance_penalty_basis_minor(lot)
-    bps_per_day = int(settings.BALANCE_PENALTY_BPS_PER_DAY)
-    amount_minor = _daily_balance_penalty_minor(
-        penalty_basis_minor=penalty_basis_minor,
-        available_amount_minor=lot.available_amount_minor,
-        bps_per_day=bps_per_day,
-    )
-    if amount_minor <= 0:
-        return None
-
-    available_before = lot.available_amount_minor
-    penalized_before = lot.penalized_amount_minor
-    available_after = available_before - amount_minor
-    penalized_after = penalized_before + amount_minor
-    new_status = (
-        BalanceLotStatus.PENALTY_EXHAUSTED
-        if available_after == 0
-        else BalanceLotStatus.PENALTY_MODE
-    )
-    _validate_lot_conservation_values(
-        original_amount_minor=lot.original_amount_minor,
-        available_amount_minor=available_after,
-        invested_amount_minor=lot.invested_amount_minor,
-        converted_amount_minor=lot.converted_amount_minor,
-        withdrawn_amount_minor=lot.withdrawn_amount_minor,
-        penalized_amount_minor=penalized_after,
-        currency_code=lot.currency_id,
-    )
-    currency = lot.currency
-    investor_liability_account = get_or_create_ledger_account(
-        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
-        currency=currency,
-        owner_type="investor",
-        owner_id=str(lot.investor_user_id),
-        name=f"{currency.code} investor balance liability {lot.investor_user_id}",
-    )
-    platform_fee_revenue_account = get_or_create_ledger_account(
-        account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
-        currency=currency,
-        owner_type="garanta",
-        owner_id="platform",
-        name=f"{currency.code} platform fee revenue",
-    )
-    metadata = {
-        "balance_lot_id": str(lot.id),
-        "investor_user_id": str(lot.investor_user_id),
-        "charge_date": charge_date.isoformat(),
-        "penalty_bps_per_day": bps_per_day,
-        "penalty_basis_minor": penalty_basis_minor,
-        "available_before_minor": available_before,
-        "available_after_minor": available_after,
-        "penalized_before_minor": penalized_before,
-        "penalized_after_minor": penalized_after,
-    }
-    journal_entry = post_journal_entry(
-        PostJournalEntryCommand(
-            actor=actor,
-            event_type="balance_penalty_charged",
-            direction=LedgerDirection.INTERNAL,
-            currency=currency.code,
-            gross_amount_minor=amount_minor,
-            net_amount_minor=amount_minor,
-            booking_date=charge_date,
-            value_date=charge_date,
-            effective_at=as_of,
-            received_at=as_of,
-            source_type="balance_penalty_charge",
-            source_id=f"{lot.id}:{charge_date.isoformat()}",
-            lender_user_id=str(lot.investor_user_id),
-            idempotency_key=idempotency_key,
-            postings=[
-                PostingCommand(
-                    account=investor_liability_account,
-                    side=LedgerPostingSide.DEBIT,
-                    amount_minor=amount_minor,
-                    memo="Balance ageing penalty charged to investor balance",
-                ),
-                PostingCommand(
-                    account=platform_fee_revenue_account,
-                    side=LedgerPostingSide.CREDIT,
-                    amount_minor=amount_minor,
-                    memo="Balance ageing penalty revenue",
-                ),
-            ],
-            tax_metadata={
-                "balance_penalty_minor": amount_minor,
-                "client_money_flow_minor": 0,
-                "garanta_revenue_minor": amount_minor,
-            },
-            metadata=metadata,
-        )
-    )
-    lineage = list(cast(list[dict[str, Any]], lot.lineage))
-    lineage.append({"event": "balance_penalty_charged", **metadata})
-    lot.available_amount_minor = available_after
-    lot.penalized_amount_minor = penalized_after
-    lot.status = new_status
-    lot.lineage = lineage
-    lot.save(
-        update_fields=[
-            "available_amount_minor",
-            "penalized_amount_minor",
-            "status",
-            "lineage",
-            "updated_at",
-        ]
-    )
-    record_audit_event(
-        AuditCommand(
-            actor=actor_ref_for_user(actor),
-            action="ledger.balance_penalty_charged",
-            target_type="InvestorBalanceLot",
-            target_id=str(lot.id),
-            metadata={**metadata, "journal_entry_id": str(journal_entry.id)},
-        )
-    )
-    record_domain_event(
-        DomainEventCommand(
-            event_type="BalancePenaltyCharged",
-            aggregate_type="InvestorBalanceLot",
-            aggregate_id=str(lot.id),
-            payload={**metadata, "journal_entry_id": str(journal_entry.id)},
-            idempotency_key=f"balance-lot:{lot.id}:penalty-charged:{charge_date.isoformat()}",
-        )
-    )
-    return BalancePenaltyCharge(
-        lot_id=str(lot.id),
-        investor_user_id=str(lot.investor_user_id),
-        currency=currency.code,
-        charge_date=charge_date,
-        amount_minor=amount_minor,
-        penalty_bps_per_day=bps_per_day,
-        penalty_basis_minor=penalty_basis_minor,
-        available_before_minor=available_before,
-        available_after_minor=available_after,
-        penalized_before_minor=penalized_before,
-        penalized_after_minor=penalized_after,
-        journal_entry_id=str(journal_entry.id),
-    )
 
 
 def _forced_withdrawal_request_fingerprint(
@@ -5181,7 +5451,7 @@ def _forced_withdrawal_lots_for_update(
     currency: Currency,
     lot_ids: list[str],
     as_of: datetime,
-    return_after_days: int,
+    scheduler: BalanceScheduler,
 ) -> list[InvestorBalanceLot]:
     lots = list(
         InvestorBalanceLot.objects.select_for_update()
@@ -5195,17 +5465,49 @@ def _forced_withdrawal_lots_for_update(
         .order_by(*BALANCE_LOT_CONSUMPTION_ORDER)
     )
     if len(lots) != len(set(lot_ids)) or not all(
-        balance_return_is_due(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            as_of=as_of,
-            return_after_days=return_after_days,
-        )
-        for lot in lots
+        balance_return_is_due(schedule=scheduler.schedule(lot), as_of=as_of) for lot in lots
     ):
         raise LedgerValidationError(
             "A forced withdrawal can only take balance lots that are due to go back to the bank."
         )
     return lots
+
+
+def _return_timing(
+    *,
+    lots: list[InvestorBalanceLot],
+    scheduler: BalanceScheduler,
+    as_of: datetime,
+) -> dict[str, Any]:
+    """When the team sends a return and when the bank should debit Garanta's account (Q01).
+
+    The transfer is sent on the return date before the bank's cut-off. A request made after
+    the cut-off, or after the return date (a missed scan), moves the order to the next
+    settlement day; the expected debit then follows the bank's processing days.
+    """
+    schedules = [scheduler.schedule(lot) for lot in lots]
+    oldest = min(schedules, key=lambda schedule: schedule.day_zero)
+    calendar = scheduler.calendars.for_currency(str(lots[0].currency_id))
+    send_before = return_order_deadline(oldest.return_date, scheduler.cutoff)
+    business_now = to_business_time(as_of)
+    order_day = max(oldest.return_date, business_now.date())
+    if business_now >= return_order_deadline(order_day, scheduler.cutoff):
+        order_day += timedelta(days=1)
+    if calendar is not None:
+        order_day = calendar.add(order_day, 0)
+        expected_debit = calendar.add(order_day, scheduler.processing_business_days)
+    else:
+        expected_debit = order_day + timedelta(days=scheduler.processing_business_days)
+    latest_debit = min(schedule.latest_debit_date for schedule in schedules)
+    return {
+        "return_date": oldest.return_date.isoformat(),
+        "send_before": send_before.isoformat(),
+        "order_day": order_day.isoformat(),
+        "expected_debit_date": expected_debit.isoformat(),
+        "latest_debit_date": latest_debit.isoformat(),
+        "legal_limit_date": min(item.legal_limit_date for item in schedules).isoformat(),
+        "debit_after_latest_day": expected_debit > latest_debit,
+    }
 
 
 def _create_forced_withdrawal_request(
@@ -5218,49 +5520,68 @@ def _create_forced_withdrawal_request(
     destination_selection: dict[str, Any],
     lot_ids: list[str],
     as_of: datetime,
-    return_after_days: int,
+    scheduler: BalanceScheduler,
+    extra_metadata: dict[str, Any] | None = None,
+    key_suffix: str = "",
 ) -> InvestorWithdrawalRequest:
     amount_minor = _validate_money(amount_minor, currency.code, "Forced withdrawal amount")
-    idempotency_key = _derived_idempotency_key(
-        "forced-withdrawal",
-        f"{investor_user_id}:{currency.code}:{business_date(as_of).isoformat()}:{':'.join(lot_ids)}",
-    )
     destination_iban = _clean_iban(payout_instruction.destination_iban)
-    request_fingerprint = _forced_withdrawal_request_fingerprint(
-        actor_id=str(actor.pk),
-        investor_user_id=investor_user_id,
-        currency_code=currency.code,
-        amount_minor=amount_minor,
-        destination_iban=destination_iban,
-        payout_instruction_id=str(payout_instruction.id),
-        lot_ids=lot_ids,
-        idempotency_key=idempotency_key,
+    key_material = (
+        f"{investor_user_id}:{currency.code}:{business_date(as_of).isoformat()}:"
+        f"{':'.join(lot_ids)}{key_suffix}"
     )
-    existing = _existing_withdrawal_request_for_idempotency(
-        idempotency_key,
-        expected_fingerprint=request_fingerprint,
-    )
-    if existing is not None:
-        return existing
+    attempt = 0
+    while True:
+        idempotency_key = _derived_idempotency_key(
+            "forced-withdrawal",
+            key_material if attempt == 0 else f"{key_material}:attempt:{attempt}",
+        )
+        request_fingerprint = _forced_withdrawal_request_fingerprint(
+            actor_id=str(actor.pk),
+            investor_user_id=investor_user_id,
+            currency_code=currency.code,
+            amount_minor=amount_minor,
+            destination_iban=destination_iban,
+            payout_instruction_id=str(payout_instruction.id),
+            lot_ids=lot_ids,
+            idempotency_key=idempotency_key,
+        )
+        existing = InvestorWithdrawalRequest.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is None:
+            break
+        if existing.status != InvestorWithdrawalRequestStatus.CANCELLED:
+            _assert_fingerprint_matches(
+                stored_metadata=cast(dict[str, Any], existing.metadata),
+                expected_fingerprint=request_fingerprint,
+            )
+            return existing
+        # Audit S3-3: a cancelled return gave its lots back, so it is not the result of this
+        # day's return. The money due back gets a new request under the next attempt key.
+        attempt += 1
     # A forced return takes exactly the lots due back, never the investor's other money.
     lots = _forced_withdrawal_lots_for_update(
         investor_user_id=investor_user_id,
         currency=currency,
         lot_ids=lot_ids,
         as_of=as_of,
-        return_after_days=return_after_days,
+        scheduler=scheduler,
     )
     if sum(lot.available_amount_minor for lot in lots) != amount_minor:
         raise LedgerValidationError(
             "Forced withdrawal amount must equal the remaining amount of its overdue lots."
         )
+    timing = _return_timing(lots=lots, scheduler=scheduler, as_of=as_of)
+    return_after_days = min(lot.return_after_days for lot in lots)
     metadata = {
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "payout_instruction_id": str(payout_instruction.id),
         "destination_selection": destination_selection,
         "forced_withdrawal_lot_ids": lot_ids,
         "generated_by": "balance_ageing_scan",
+        **({"return_attempt": attempt + 1} if attempt else {}),
         "auto_return_after_days": return_after_days,
+        "return_timing": timing,
+        **(extra_metadata or {}),
     }
     try:
         withdrawal_request = InvestorWithdrawalRequest.objects.create(
@@ -5274,7 +5595,9 @@ def _create_forced_withdrawal_request(
             is_forced=True,
             notes=(
                 "Automatic return generated by the balance ageing scan: the money was not "
-                f"invested within {return_after_days} days (60-day legal limit). "
+                f"invested by day {return_after_days} (60-day legal limit). Send the transfer "
+                f"before {timing['send_before'][11:16]} on {timing['order_day']} "
+                f"(Europe/Zurich) so the bank debits by {timing['latest_debit_date']}. "
                 f"Destination: {destination_selection.get('reason', '')}"
             ),
             metadata=metadata,
@@ -5386,6 +5709,15 @@ def _create_forced_withdrawal_request(
 
 @transaction.atomic
 def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgeingScanResult:
+    """Daily scan of money not invested (18.4, Q01/Q02).
+
+    - Notices 14, 10 and 3 days before each lot's return date.
+    - From the return date: a return request to the default return account (the team sends
+      it by hand before the cut-off); without a usable account, urgent notices instead.
+    - Lots of a failed return wait for the team (no automatic retry): daily notices to the
+      investor and compliance escalation (``ledger.return_failures``).
+    - Compliance alerts when money reaches day 59 and its return transfer is not marked as made.
+    """
     _require_admin_actor(command.actor)
     as_of = command.as_of or now_utc()
     to_business_time(as_of)
@@ -5394,6 +5726,8 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
             "A live balance ageing scan cannot run for a future time. Use a dry run to "
             "preview it, or the QA clock to advance time."
         )
+    from backend.apps.ledger import return_failures
+
     currency = _enabled_currency(command.currency) if command.currency else None
     queryset = InvestorBalanceLot.objects.select_for_update().filter(
         available_amount_minor__gt=0,
@@ -5408,16 +5742,18 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
     )
 
     reminders_due: list[BalanceAgeingReminderDue] = []
-    penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition] = []
-    penalty_charges: list[BalancePenaltyCharge] = []
     forced_withdrawal_candidates: list[BalanceAgeingForcedWithdrawalCandidate] = []
     forced_withdrawal_requests: list[InvestorWithdrawalRequest] = []
     skipped_lot_ids: list[str] = []
+    compliance_alerts: list[str] = []
     due_back_by_investor_currency: dict[tuple[str, str], list[InvestorBalanceLot]] = {}
-    # Owner decision 2026-10-16: money not invested goes back to the bank after day 58
-    # (setting balance.auto_return_after_days); penalties still start only after day 60.
-    return_after_days = balance_auto_return_after_days()
-    reminder_days = balance_reminder_days(return_after_days=return_after_days)
+    scheduler = BalanceScheduler()
+    notice_days = balance_return_notice_days_before()
+    if not command.dry_run:
+        # Re-audit R3-1: first open again the failed returns whose money came back, so their
+        # lots are excluded below and never returned without a decision.
+        return_failures.reopen_failures_with_money_again(actor=command.actor, currency=currency)
+    failed_lot_ids = return_failures.open_failure_lot_ids(currency=currency)
     destinations: dict[
         tuple[str, str], tuple[InvestorPayoutInstruction, dict[str, Any]] | None
     ] = {}
@@ -5433,179 +5769,152 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
             )
         return destinations[key]
 
-    def record_notice(lot: InvestorBalanceLot, day: int) -> None:
+    def record_notice(
+        lot: InvestorBalanceLot,
+        schedule: BalanceReturnSchedule,
+        *,
+        kind: str,
+        key_suffix: str,
+        days_before: int | None = None,
+    ) -> None:
         reminders_due.append(
             BalanceAgeingReminderDue(
                 lot_id=str(lot.id),
                 investor_user_id=str(lot.investor_user_id),
                 currency=lot.currency_id,
                 amount_minor=lot.available_amount_minor,
-                day=day,
+                day=schedule.holding_day(business_date(as_of)),
                 withdrawal_deadline_at=lot.withdrawal_deadline_at,
+                kind=kind,
+                return_date=schedule.return_date,
+                days_before_return=days_before,
             )
         )
         if command.dry_run:
             return
         destination = destination_for(lot)
-        _record_balance_ageing_reminder_due(
+        _record_balance_ageing_notice(
             actor=command.actor,
             lot=lot,
-            day=day,
+            schedule=schedule,
+            kind=kind,
+            key_suffix=key_suffix,
             as_of=as_of,
-            return_after_days=return_after_days,
             return_iban=destination[0].destination_iban if destination is not None else "",
+            days_before=days_before,
         )
 
+    today = business_date(as_of)
     for lot in lots:
         _validate_lot_conservation(lot)
-        # The last day (day 58) is the last day the money may stay; the return starts the
-        # next Europe/Zurich day, so a lot already due back gets no reminder.
-        due_back = balance_return_is_due(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            as_of=as_of,
-            return_after_days=return_after_days,
-        )
+        schedule = scheduler.schedule(lot)
+        due_back = balance_return_is_due(schedule=schedule, as_of=as_of)
         if lot.status == BalanceLotStatus.AVAILABLE and not due_back:
-            for reminder_day in _unrecorded_balance_ageing_reminder_days(
-                lot=lot,
-                as_of=as_of,
-                reminder_days=reminder_days,
+            days_before = _due_return_notice(
+                lot=lot, schedule=schedule, as_of=as_of, notice_days=notice_days
+            )
+            if days_before is not None:
+                record_notice(
+                    lot,
+                    schedule,
+                    kind=AGEING_NOTICE_REMINDER,
+                    key_suffix=_return_notice_key_suffix(days_before),
+                    days_before=days_before,
+                )
+            continue
+        if not due_back:
+            continue
+        if str(lot.id) in failed_lot_ids:
+            # Q02: a failed return waits for the team; no new request to the same data.
+            skipped_lot_ids.append(str(lot.id))
+            continue
+        if schedule.holding_day(today) >= BALANCE_COMPLIANCE_ALERT_DAY and not command.dry_run:
+            if return_failures.alert_lot_not_returned(
+                actor=command.actor, lot=lot, schedule=schedule, as_of=as_of
             ):
-                record_notice(lot, reminder_day)
-        if due_back:
-            key = (str(lot.investor_user_id), lot.currency_id)
-            due_back_by_investor_currency.setdefault(key, []).append(lot)
+                compliance_alerts.append(f"InvestorBalanceLot:{lot.id}")
+        key = (str(lot.investor_user_id), lot.currency_id)
+        due_back_by_investor_currency.setdefault(key, []).append(lot)
 
     for (investor_user_id, currency_code), overdue_lots in due_back_by_investor_currency.items():
-        if not overdue_lots:
-            continue
         overdue_currency = overdue_lots[0].currency
         destination = destination_for(overdue_lots[0])
         amount_minor = sum(lot.available_amount_minor for lot in overdue_lots)
         lot_ids = [str(lot.id) for lot in overdue_lots]
         if destination is not None:
             payout_instruction, destination_selection = destination
-            candidate = BalanceAgeingForcedWithdrawalCandidate(
-                investor_user_id=investor_user_id,
-                currency=currency_code,
-                amount_minor=amount_minor,
-                lot_ids=lot_ids,
-                payout_instruction_id=str(payout_instruction.id),
-                destination_rule=str(destination_selection["rule"]),
-            )
-            forced_withdrawal_candidates.append(candidate)
-            if not command.dry_run:
-                forced_withdrawal_requests.append(
-                    _create_forced_withdrawal_request(
-                        actor=command.actor,
-                        investor_user_id=investor_user_id,
-                        currency=overdue_currency,
-                        amount_minor=amount_minor,
-                        payout_instruction=payout_instruction,
-                        destination_selection=destination_selection,
-                        lot_ids=lot_ids,
-                        as_of=as_of,
-                        return_after_days=return_after_days,
-                    )
+            forced_withdrawal_candidates.append(
+                BalanceAgeingForcedWithdrawalCandidate(
+                    investor_user_id=investor_user_id,
+                    currency=currency_code,
+                    amount_minor=amount_minor,
+                    lot_ids=lot_ids,
+                    payout_instruction_id=str(payout_instruction.id),
+                    destination_rule=str(destination_selection["rule"]),
                 )
+            )
+            if not command.dry_run:
+                forced_request = _create_forced_withdrawal_request(
+                    actor=command.actor,
+                    investor_user_id=investor_user_id,
+                    currency=overdue_currency,
+                    amount_minor=amount_minor,
+                    payout_instruction=payout_instruction,
+                    destination_selection=destination_selection,
+                    lot_ids=lot_ids,
+                    as_of=as_of,
+                    scheduler=scheduler,
+                )
+                forced_withdrawal_requests.append(forced_request)
+                if return_failures.alert_late_return_request(
+                    actor=command.actor, withdrawal_request=forced_request
+                ):
+                    compliance_alerts.append(f"InvestorWithdrawalRequest:{forced_request.id}")
             continue
 
+        # Due back but no usable account: the money stays withdraw-only, without penalty,
+        # and the investor is told to add a verified bank account (return date, day 60).
         for lot in overdue_lots:
-            if not balance_is_overdue(
-                withdrawal_deadline_at=lot.withdrawal_deadline_at, as_of=as_of
-            ):
-                # Due back but no usable IBAN, and the 60-day legal limit has not passed:
-                # the money stays withdraw-only, without penalty, and the investor is told
-                # to add a bank account. Penalty mode starts only after day 60.
-                if lot.status == BalanceLotStatus.AVAILABLE:
-                    notice_day = _return_blocked_notice_day(
-                        lot=lot, as_of=as_of, return_after_days=return_after_days
+            schedule = scheduler.schedule(lot)
+            if lot.status == BalanceLotStatus.AVAILABLE:
+                notice_day = _return_blocked_notice_day(lot=lot, schedule=schedule, as_of=as_of)
+                if notice_day is not None:
+                    record_notice(
+                        lot,
+                        schedule,
+                        kind=(
+                            AGEING_NOTICE_LEGAL_LIMIT
+                            if notice_day >= BALANCE_HOLDING_LIMIT_DAYS
+                            else AGEING_NOTICE_RETURN_BLOCKED
+                        ),
+                        key_suffix=f"ageing-reminder-day:{notice_day}",
                     )
-                    if notice_day is not None:
-                        record_notice(lot, notice_day)
-                continue
-            if lot.status == BalanceLotStatus.PENALTY_MODE:
+            if balance_is_overdue(schedule=schedule, as_of=as_of):
                 skipped_lot_ids.append(str(lot.id))
-                if not command.dry_run:
-                    charge = _charge_balance_penalty_for_lot(
-                        actor=command.actor,
-                        lot=lot,
-                        as_of=as_of,
-                    )
-                    if charge is not None:
-                        penalty_charges.append(charge)
-                continue
-            transition = BalanceAgeingPenaltyModeTransition(
-                lot_id=str(lot.id),
-                investor_user_id=str(lot.investor_user_id),
-                currency=lot.currency_id,
-                amount_minor=lot.available_amount_minor,
-                days_overdue=max(0, calendar_day_difference(lot.withdrawal_deadline_at, as_of)),
-            )
-            penalty_mode_transitions.append(transition)
-            if command.dry_run:
-                continue
-            lot.status = BalanceLotStatus.PENALTY_MODE
-            lineage = list(cast(list[dict[str, Any]], lot.lineage))
-            lineage.append(
-                {
-                    "event": "penalty_mode_enabled",
-                    "as_of": as_of.isoformat(),
-                    "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
-                    "penalty_basis_minor": lot.available_amount_minor,
-                    "reason": "No verified usable payout instruction at 60-day holding limit.",
-                }
-            )
-            lot.lineage = lineage
-            lot.save(update_fields=["status", "lineage", "updated_at"])
-            event_metadata = {
-                "investor_user_id": str(lot.investor_user_id),
-                "currency": lot.currency_id,
-                "amount_minor": lot.available_amount_minor,
-                "days_overdue": transition.days_overdue,
-                "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
-                "penalty_basis_minor": lot.available_amount_minor,
-            }
-            record_audit_event(
-                AuditCommand(
-                    actor=actor_ref_for_user(command.actor),
-                    action="ledger.balance_penalty_mode_enabled",
-                    target_type="InvestorBalanceLot",
-                    target_id=str(lot.id),
-                    metadata=event_metadata,
-                )
-            )
-            record_domain_event(
-                DomainEventCommand(
-                    event_type="BalancePenaltyModeEnabled",
-                    aggregate_type="InvestorBalanceLot",
-                    aggregate_id=str(lot.id),
-                    payload=event_metadata,
-                    idempotency_key=f"balance-lot:{lot.id}:penalty-mode-enabled",
-                )
-            )
-            charge = _charge_balance_penalty_for_lot(
-                actor=command.actor,
-                lot=lot,
-                as_of=as_of,
-            )
-            if charge is not None:
-                penalty_charges.append(charge)
 
+    failure_summary: dict[str, list[str]] = {}
     if not command.dry_run:
         for forced_request in forced_withdrawal_requests:
             investor_notices.notify_forced_return_created(forced_request)
-        investor_notices.notify_penalty_mode_entered(
-            transitions=penalty_mode_transitions, as_of=as_of
+        compliance_alerts.extend(
+            return_failures.alert_return_requests_not_made(
+                actor=command.actor, as_of=as_of, currency=currency
+            )
         )
+        failure_summary = return_failures.process_open_failures(
+            actor=command.actor, as_of=as_of, currency=currency
+        )
+        compliance_alerts.extend(failure_summary.get("escalated", []))
     return BalanceAgeingScanResult(
         as_of=as_of,
         reminders_due=reminders_due,
         forced_withdrawal_candidates=forced_withdrawal_candidates,
         forced_withdrawal_requests=forced_withdrawal_requests,
-        penalty_mode_transitions=penalty_mode_transitions,
-        penalty_charges=penalty_charges,
+        penalty_mode_transitions=[],
+        penalty_charges=[],
         skipped_lot_ids=skipped_lot_ids,
+        compliance_alerts=compliance_alerts,
+        return_failure_notices=failure_summary.get("notified", []),
     )
 
 
@@ -5627,7 +5936,7 @@ def summarize_investor_balance(
     overdue = 0
     frozen = 0
     penalty_mode = 0
-    return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     for lot in lots:
         _validate_lot_conservation(lot)
         amount = lot.available_amount_minor
@@ -5641,15 +5950,12 @@ def summarize_investor_balance(
             penalty_mode += amount
         elif lot.status == BalanceLotStatus.AVAILABLE:
             total_available += amount
-            last_day = balance_last_day(
-                withdrawal_deadline_at=lot.withdrawal_deadline_at,
-                return_after_days=return_after_days,
-            )
+            last_day = scheduler.schedule(lot).last_day
             if business_date(now_value) > last_day:
-                # Due back to the investor's bank (from day 59) and not yet returned.
+                # Due back to the investor's bank (from the return date) and not yet returned.
                 overdue += amount
             elif business_date(now_value) == last_day:
-                # Last day (day 58): no funding window fits any more; only a withdrawal.
+                # Last day (day 56): no funding window fits any more; only a withdrawal.
                 withdraw_only += amount
             else:
                 investable += amount
@@ -5665,6 +5971,26 @@ def summarize_investor_balance(
     )
 
 
+def _lot_fits_funding(
+    scheduler: BalanceScheduler,
+    lot: InvestorBalanceLot,
+    *,
+    loan_funding_deadline: date,
+    as_of: datetime,
+    direct_loan: bool,
+) -> bool:
+    """A lot can pay for this opportunity (18.4).
+
+    Direct loans (F01): the funding close plus the payout margin is on or before day 56 of the
+    lot. Loan Originator rounds and immediate purchases: the window ends before the last day.
+    """
+    if direct_loan:
+        return scheduler.covers_direct_funding(
+            lot, funding_deadline=loan_funding_deadline, as_of=as_of
+        )
+    return scheduler.covers_funding(lot, funding_deadline=loan_funding_deadline, as_of=as_of)
+
+
 def _insufficient_investment_balance_error(
     *,
     lots: list[InvestorBalanceLot],
@@ -5672,7 +5998,8 @@ def _insufficient_investment_balance_error(
     currency_code: str,
     loan_funding_deadline: date,
     as_of: datetime,
-    return_after_days: int,
+    scheduler: BalanceScheduler,
+    direct_loan: bool,
 ) -> LedgerValidationError | None:
     """The reason available lots cannot pay ``amount_minor``, or None when they can.
 
@@ -5684,11 +6011,12 @@ def _insufficient_investment_balance_error(
     eligible = sum(
         max(0, lot.available_amount_minor)
         for lot in lots
-        if balance_covers_funding(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            funding_deadline=loan_funding_deadline,
+        if _lot_fits_funding(
+            scheduler,
+            lot,
+            loan_funding_deadline=loan_funding_deadline,
             as_of=as_of,
-            return_after_days=return_after_days,
+            direct_loan=direct_loan,
         )
     )
     if eligible >= amount_minor:
@@ -5708,15 +6036,21 @@ def _insufficient_investment_balance_error(
     if loan_funding_deadline <= business_date(as_of):
         return LedgerValidationError(
             f"Only {usable} of your {currency_code} balance can be used today. The rest "
-            f"has reached its {return_after_days}-day limit and goes back to your bank: it "
-            "can only be withdrawn."
+            "has reached its last day and goes back to your bank: it can only be withdrawn."
+        )
+    if direct_loan:
+        return LedgerValidationError(
+            "Insufficient eligible balance for this loan. Only "
+            f"{usable} of your {currency_code} balance has enough time left: money that funds "
+            "a loan must reach the borrower by day 56 after it arrived, and the payout comes "
+            f"{scheduler.payout_margin_business_days} business days after the funding close. "
+            "Use newer funds or choose a loan that closes sooner."
         )
     return LedgerValidationError(
         "Insufficient eligible balance for this funding window. Only "
         f"{usable} of your {currency_code} balance has enough time left before it goes "
-        f"back to your bank (after {return_after_days} days) to cover the loan's last "
-        "funding day. Use newer funds or choose a loan with a shorter remaining funding "
-        "period."
+        "back to your bank to cover the last funding day. Use newer funds or choose an "
+        "opportunity with a shorter remaining funding period."
     )
 
 
@@ -5727,6 +6061,7 @@ def plan_investment_balance_consumption(
     amount_minor: int,
     loan_funding_deadline: date,
     as_of: datetime | None = None,
+    direct_loan: bool = False,
 ) -> list[BalanceConsumptionPlanLine]:
     currency_model = _enabled_currency(currency)
     _validate_money(amount_minor, currency_model.code, "Consumption amount")
@@ -5741,24 +6076,26 @@ def plan_investment_balance_consumption(
             available_amount_minor__gt=0,
         ).order_by(*BALANCE_LOT_CONSUMPTION_ORDER)
     )
-    return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     shortfall = _insufficient_investment_balance_error(
         lots=lots,
         amount_minor=amount_minor,
         currency_code=currency_model.code,
         loan_funding_deadline=loan_funding_deadline,
         as_of=now_value,
-        return_after_days=return_after_days,
+        scheduler=scheduler,
+        direct_loan=direct_loan,
     )
     if shortfall is not None:
         raise shortfall
     for lot in lots:
         _validate_lot_conservation(lot)
-        if not balance_covers_funding(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            funding_deadline=loan_funding_deadline,
+        if not _lot_fits_funding(
+            scheduler,
+            lot,
+            loan_funding_deadline=loan_funding_deadline,
             as_of=now_value,
-            return_after_days=return_after_days,
+            direct_loan=direct_loan,
         ):
             continue
         amount = min(remaining, lot.available_amount_minor)
@@ -5775,9 +6112,8 @@ def plan_investment_balance_consumption(
             return plan
     raise LedgerValidationError(
         "Insufficient eligible balance for this funding window. Each source must have enough "
-        f"time left before it goes back to your bank (after {return_after_days} days) to "
-        "cover the loan's last funding day. Use newer funds or choose a loan with a shorter "
-        "remaining funding period."
+        "time left before it goes back to your bank to cover the last funding day. Use newer "
+        "funds or choose an opportunity with a shorter remaining funding period."
     )
 
 
@@ -6197,16 +6533,13 @@ def _consume_lots_for_fx(
 ) -> list[dict[str, Any]]:
     remaining = amount_minor
     allocations: list[dict[str, Any]] = []
-    return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     for lot in lots:
         _validate_lot_conservation(lot)
         if remaining <= 0:
             break
-        # From its last day (day 58) money can only be withdrawn, not exchanged.
-        if business_date(as_of) >= balance_last_day(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            return_after_days=return_after_days,
-        ):
+        # From its last day (day 56) money can only be withdrawn, not exchanged.
+        if business_date(as_of) >= scheduler.schedule(lot).last_day:
             continue
         amount = min(remaining, lot.available_amount_minor)
         if amount <= 0:
@@ -6257,10 +6590,11 @@ def _consume_lots_for_investment(
     currency_code: str,
     loan_funding_deadline: date,
     as_of: datetime,
+    direct_loan: bool = False,
 ) -> list[dict[str, Any]]:
     remaining = amount_minor
     allocations: list[dict[str, Any]] = []
-    return_after_days = balance_auto_return_after_days()
+    scheduler = BalanceScheduler()
     # Say why before any lot changes: no money, too little, or too old (SECONDARY-08).
     shortfall = _insufficient_investment_balance_error(
         lots=lots,
@@ -6268,7 +6602,8 @@ def _consume_lots_for_investment(
         currency_code=currency_code,
         loan_funding_deadline=loan_funding_deadline,
         as_of=as_of,
-        return_after_days=return_after_days,
+        scheduler=scheduler,
+        direct_loan=direct_loan,
     )
     if shortfall is not None:
         raise shortfall
@@ -6276,11 +6611,12 @@ def _consume_lots_for_investment(
         _validate_lot_conservation(lot)
         if remaining <= 0:
             break
-        if not balance_covers_funding(
-            withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            funding_deadline=loan_funding_deadline,
+        if not _lot_fits_funding(
+            scheduler,
+            lot,
+            loan_funding_deadline=loan_funding_deadline,
             as_of=as_of,
-            return_after_days=return_after_days,
+            direct_loan=direct_loan,
         ):
             continue
         amount = min(remaining, lot.available_amount_minor)
@@ -6323,9 +6659,8 @@ def _consume_lots_for_investment(
     if remaining > 0:
         raise LedgerValidationError(
             "Insufficient eligible balance for this funding window. Each source must have enough "
-            f"time left before it goes back to your bank (after {return_after_days} days) to "
-            "cover the loan's last funding day. Use newer funds or choose a loan with a shorter "
-            "remaining funding period."
+            "time left before it goes back to your bank to cover the last funding day. Use "
+            "newer funds or choose an opportunity with a shorter remaining funding period."
         )
     return allocations
 
@@ -6389,21 +6724,26 @@ def _restore_lots_from_investment_allocations(
     return total_released
 
 
-def investor_has_penalty_mode_balance(investor_user_id: str) -> bool:
-    """True while any balance of the investor is frozen in penalty mode (PAY-DEC-022)."""
-    return InvestorBalanceLot.objects.filter(
+def investor_has_verified_return_account(investor_user_id: str, currency: str) -> bool:
+    """U33-DEC-04: a verified bank account in the currency exists to return money to."""
+    return InvestorPayoutInstruction.objects.filter(
         investor_user_id=investor_user_id,
-        status=BalanceLotStatus.PENALTY_MODE,
-        available_amount_minor__gt=0,
+        currency_id=str(currency).upper(),
+        status=InvestorPayoutInstructionStatus.ACTIVE,
+        is_verified_usable=True,
     ).exists()
 
 
-def penalty_mode_frozen_message(action: str) -> str:
+def verified_return_account_message(currency: str) -> str:
     return (
-        f"{action} is not possible: your account is frozen because a balance passed the "
-        "60-day limit and no usable payout IBAN is known. Add a payout IBAN to unlock "
-        "financial actions."
+        f"Add a verified bank account in your name for {str(currency).upper()} before you "
+        "invest. We need it to return money that you do not invest."
     )
+
+
+def require_verified_return_account(investor_user_id: str, currency: str) -> None:
+    if not investor_has_verified_return_account(investor_user_id, currency):
+        raise LedgerValidationError(verified_return_account_message(currency))
 
 
 @transaction.atomic
@@ -6437,8 +6777,7 @@ def reserve_investor_balance_for_investment(
     if existing is not None:
         return existing
     # Direct orders, Loan Originator subscriptions and batch investments all reserve here.
-    if investor_has_penalty_mode_balance(investor_id):
-        raise LedgerValidationError(penalty_mode_frozen_message("Investing"))
+    require_verified_return_account(investor_id, currency.code)
 
     lots = _investment_lots_for_update(investor_user_id=investor_id, currency=currency)
     existing_after_locks = _existing_investment_reservation(
@@ -6453,6 +6792,7 @@ def reserve_investor_balance_for_investment(
         currency_code=currency.code,
         loan_funding_deadline=command.loan_funding_deadline,
         as_of=as_of,
+        direct_loan=command.direct_loan,
     )
     investor_liability_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
@@ -6893,6 +7233,7 @@ def declare_originator_borrower_repayment_ledger(
             withdrawal_deadline_at=withdrawal_deadline_at,
             original_amount_minor=line.amount_minor,
             available_amount_minor=line.amount_minor,
+            return_after_days=balance_auto_return_after_days(),
             lineage=[
                 {
                     "source_type": source_type,
@@ -6983,10 +7324,15 @@ def activate_originator_subscription_ledger(
         owner_id=str(command.loan_id),
         name=f"{currency.code} loan funding escrow {command.loan_id}",
     )
+    accrued_interest_minor = int(command.accrued_interest_minor)
+    if accrued_interest_minor < 0:
+        raise LedgerValidationError("Accrued interest cannot be negative.")
+    activation_total_minor = assigned_principal_minor + accrued_interest_minor
     escrow_balance = _credit_balance_for_account(escrow_account)
-    if escrow_balance != assigned_principal_minor:
+    if escrow_balance != activation_total_minor:
         raise LedgerValidationError(
-            "Loan funding escrow must equal the assigned originator subscription principal."
+            "Loan funding escrow must equal the assigned originator subscription principal "
+            "plus the accrued interest in the price."
         )
     originator_payable_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
@@ -7001,8 +7347,8 @@ def activate_originator_subscription_ledger(
             event_type="originator_subscription_activated",
             direction=LedgerDirection.INTERNAL,
             currency=currency.code,
-            gross_amount_minor=assigned_principal_minor,
-            net_amount_minor=assigned_principal_minor,
+            gross_amount_minor=activation_total_minor,
+            net_amount_minor=activation_total_minor,
             booking_date=value_date,
             value_date=value_date,
             effective_at=as_of,
@@ -7015,13 +7361,13 @@ def activate_originator_subscription_ledger(
                 PostingCommand(
                     account=escrow_account,
                     side=LedgerPostingSide.DEBIT,
-                    amount_minor=assigned_principal_minor,
+                    amount_minor=activation_total_minor,
                     memo="Originator subscription escrow released at activation",
                 ),
                 PostingCommand(
                     account=originator_payable_account,
                     side=LedgerPostingSide.CREDIT,
-                    amount_minor=assigned_principal_minor,
+                    amount_minor=activation_total_minor,
                     memo="Par consideration payable to Loan Originator",
                 ),
             ],
@@ -7126,14 +7472,7 @@ def settle_originator_claim_purchase_ledger(
     )
     if existing is not None:
         return existing
-    if InvestorBalanceLot.objects.filter(
-        investor_user_id=investor_id,
-        status=BalanceLotStatus.PENALTY_MODE,
-        available_amount_minor__gt=0,
-    ).exists():
-        raise LedgerValidationError(
-            "Investor has overdue balance in penalty mode and cannot purchase claims."
-        )
+    require_verified_return_account(investor_id, currency.code)
 
     lots = _investment_lots_for_update(investor_user_id=investor_id, currency=currency)
     existing_after_locks = _existing_originator_claim_purchase_ledger_result(
@@ -7517,7 +7856,8 @@ def settle_secondary_market_purchase_ledger(
         currency.code,
         "Secondary-market current principal",
     )
-    transfer_price_minor = _validate_money(
+    # U33-DEC-06: a principal price of zero is allowed; the buyer then pays the accrued interest.
+    transfer_price_minor = _validate_nonnegative_money(
         command.transfer_price_minor,
         currency.code,
         "Secondary-market transfer price",
@@ -7594,14 +7934,7 @@ def settle_secondary_market_purchase_ledger(
     )
     if existing is not None:
         return existing
-    if InvestorBalanceLot.objects.filter(
-        investor_user_id=buyer_id,
-        status=BalanceLotStatus.PENALTY_MODE,
-        available_amount_minor__gt=0,
-    ).exists():
-        raise LedgerValidationError(
-            "Buyer has overdue balance in penalty mode and cannot buy secondary-market listings."
-        )
+    require_verified_return_account(buyer_id, currency.code)
 
     lots = _investment_lots_for_update(investor_user_id=buyer_id, currency=currency)
     existing_after_locks = _existing_secondary_market_purchase_ledger_result(
@@ -7725,6 +8058,7 @@ def settle_secondary_market_purchase_ledger(
         withdrawal_deadline_at=withdrawal_deadline_at,
         original_amount_minor=seller_net_proceeds_minor,
         available_amount_minor=seller_net_proceeds_minor,
+        return_after_days=balance_auto_return_after_days(),
         lineage=[
             {
                 "source_type": source_type,
@@ -7849,14 +8183,6 @@ def execute_investor_fx_exchange_ledger(
     )
     if existing is not None:
         return existing
-    if InvestorBalanceLot.objects.filter(
-        investor_user_id=investor_id,
-        status=BalanceLotStatus.PENALTY_MODE,
-        available_amount_minor__gt=0,
-    ).exists():
-        raise LedgerValidationError(
-            "Investor has overdue balance in penalty mode and cannot exchange currencies."
-        )
 
     lots = _fx_source_lots_for_update(investor_user_id=investor_id, currency=source_currency)
     existing_after_locks = _existing_fx_exchange_ledger_result(
@@ -7878,6 +8204,13 @@ def execute_investor_fx_exchange_ledger(
     inherited_withdrawal_deadline_at = min(
         datetime.fromisoformat(str(allocation["withdrawal_deadline_at"]))
         for allocation in source_allocations
+    )
+    # Q01: FX proceeds keep the return days of their source (the strictest of them).
+    inherited_return_after_days = min(
+        InvestorBalanceLot.objects.filter(
+            id__in=[str(allocation["lot_id"]) for allocation in source_allocations]
+        ).values_list("return_after_days", flat=True),
+        default=balance_auto_return_after_days(),
     )
 
     target_fx_clearing_account = get_or_create_ledger_account(
@@ -7971,6 +8304,7 @@ def execute_investor_fx_exchange_ledger(
         withdrawal_deadline_at=inherited_withdrawal_deadline_at,
         original_amount_minor=target_amount_minor,
         available_amount_minor=target_amount_minor,
+        return_after_days=inherited_return_after_days,
         lineage=[
             {
                 "source_type": source_type,

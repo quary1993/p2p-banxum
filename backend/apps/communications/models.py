@@ -289,3 +289,64 @@ class NewsletterDigestDelivery(AppendOnlyModel):
                 name="unique_newsletter_digest_delivery",
             )
         ]
+
+
+class InvestorSupportRequestKind(models.TextChoices):
+    """U33-DEC-35 Help message and U33-DEC-28 account closure request."""
+
+    HELP = "help", "Help message"
+    ACCOUNT_CLOSURE = "account_closure", "Account closure request"
+
+
+class InvestorSupportRequest(TimestampedModel):
+    """One message an investor sent to the team from the portal, emailed to the support mailbox.
+
+    There is no ticket system: the team answers by email. The row is the proof of receipt
+    (reference, time, what was sent) and keeps the investor's own receipt email; an account
+    closure request also opens an admin task. Receiving a closure request does not close the
+    account.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference = models.CharField(max_length=32, unique=True)
+    kind = models.CharField(max_length=32, choices=InvestorSupportRequestKind.choices)
+    investor_user_id = models.UUIDField()
+    investor_email = models.EmailField(max_length=254)
+    investor_reference = models.CharField(max_length=32, blank=True)
+    topic = models.CharField(max_length=120, blank=True)
+    message = models.TextField(blank=True)
+    context_type = models.CharField(max_length=32, blank=True)
+    context_id = models.CharField(max_length=64, blank=True)
+    context_label = models.CharField(max_length=255, blank=True)
+    # The investor's own request key: unique per investor, so one investor's key never
+    # returns another investor's request (audit G-04).
+    idempotency_key = models.CharField(max_length=160)
+    request_fingerprint = models.CharField(max_length=64)
+    support_outbox_message = models.ForeignKey(
+        "platform_core.OutboxMessage",
+        on_delete=models.SET_NULL,
+        related_name="investor_support_requests",
+        null=True,
+        blank=True,
+    )
+    receipt_outbox_message = models.ForeignKey(
+        "platform_core.OutboxMessage",
+        on_delete=models.SET_NULL,
+        related_name="investor_support_request_receipts",
+        null=True,
+        blank=True,
+    )
+    admin_task_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["investor_user_id", "created_at"]),
+            models.Index(fields=["kind", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_user_id", "idempotency_key"],
+                name="support_request_key_per_investor",
+            )
+        ]

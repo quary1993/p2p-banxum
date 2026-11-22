@@ -1,5 +1,7 @@
 // IP of Webby-Soft SRL.
-// PIN state: the account's PIN status and the PIN of a sensitive action (ACC-DEC-009).
+// PIN state: the account's PIN status and the PIN of a sensitive action (ACC-DEC-009). D-1 (18.5):
+// an investor with an authenticator app types the app code in the same place, instead of a PIN; the
+// field reads ``factor`` to show the right label and has no "Forgot PIN?" for that investor.
 import { useCallback, useState } from "react";
 
 import { useV1AuthPinStatusRetrieve, type PinStatus } from "../api/generated/banxumApi";
@@ -15,7 +17,8 @@ const previewStatus: PinStatus = {
   max_attempts: MAX_PIN_ATTEMPTS,
   setup_requires_email_code: true,
   reset_available: true,
-  phone_last_digits: "00"
+  phone_last_digits: "00",
+  second_factor: "sms"
 };
 
 export function usePinStatus(enabled = true) {
@@ -26,6 +29,8 @@ export function usePinStatus(enabled = true) {
 }
 
 export type SensitivePin = {
+  /** "app": the authenticator code replaces the PIN (D-1); "sms" or "": the PIN. */
+  factor: string;
   value: string;
   setValue: (value: string) => void;
   /** Six digits entered and the PIN is not locked. */
@@ -48,6 +53,8 @@ export type SensitivePin = {
 };
 
 export function useSensitivePin(): SensitivePin {
+  const { status } = usePinStatus();
+  const factor = status?.second_factor ?? "";
   const [value, setValueState] = useState("");
   const [error, setError] = useState("");
   const [lockedUntil, setLockedUntil] = useState<string | null>(null);
@@ -65,13 +72,13 @@ export function useSensitivePin(): SensitivePin {
   const handleError = useCallback((failure: unknown) => {
     const pinError = pinApiError(failure);
     if (!pinError) return false;
-    if (pinError.code === "pin_invalid") {
+    if (pinError.code === "pin_invalid" || pinError.code === "authenticator_code_invalid") {
       setValueState("");
       setError(pinError.detail);
       setWrongCount((count) => count + 1);
       return true;
     }
-    if (pinError.code === "pin_locked") {
+    if (pinError.code === "pin_locked" || pinError.code === "authenticator_locked") {
       setValueState("");
       setError("");
       setLockedUntil(pinError.lockedUntil ?? "");
@@ -88,6 +95,7 @@ export function useSensitivePin(): SensitivePin {
   const previewAccepts = useCallback(() => {
     if (!isFixturePreview) return true;
     if (lockActive) return false;
+    if (factor === "app") return true;
     if (!pinWeakness(value)) {
       setPreviewFailures(0);
       return true;
@@ -104,9 +112,10 @@ export function useSensitivePin(): SensitivePin {
     setError(`Wrong PIN. ${left === 1 ? "1 attempt" : `${left} attempts`} left before your PIN is locked.`);
     setWrongCount((count) => count + 1);
     return false;
-  }, [lockActive, previewFailures, value]);
+  }, [factor, lockActive, previewFailures, value]);
 
   return {
+    factor,
     value,
     setValue,
     ready: value.length === PIN_LENGTH && !lockActive,

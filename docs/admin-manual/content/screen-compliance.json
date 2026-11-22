@@ -6,13 +6,17 @@
     "Some background terms, in plain language. KYC means \"Know Your Customer\": proving a person really is who they say they are. KYB is the same idea for a business (\"Know Your Business\"). AML means \"Anti-Money-Laundering\": checking that a customer is not on a sanctions list, is not a known criminal, and is not trying to hide where their money came from.",
     "BANXUM does not run these checks by hand. An outside provider called Didit collects the customer's ID documents and screens them. Didit then returns a result. Most results are automatic: clearly approved, or clearly declined. But some results are unclear and Didit \"routes them to manual review\", which means it hands the case to a Garanta officer to decide. Those cases land on this screen.",
     "A \"PEP\" is a Politically Exposed Person: someone in a powerful public role (or close to one), who is treated as higher-risk. \"Adverse media\" means bad news coverage linking the person to crime or wrongdoing. \"Sanctions\" are official government blocklists; a person on one is legally forbidden to do business.",
-    "The second half of this screen is unrelated to KYC: it lets an admin change a user's account status, for example to freeze a suspicious account or close one on request."
+    "The second half of this screen is unrelated to KYC: it lets an admin change a user's account status, for example to freeze a suspicious account or close one on request.",
+    "Phase 18.10 adds three more tools on this screen. Declaration reviews: every investor gives declarations (beneficial owner, sources of funds, PEP, expected yearly volume; a company account gives the company version). Some answers open a necessary review, and new investments of that investor pause until compliance closes it. The investor compliance file: find any investor, read the declarations, open a review by hand and set a re-verification date. Staff roles: a superadmin gives the compliance and security verifier roles (and their deputies). A review is not a refusal; the account, documents, existing investments and withdrawals stay available."
   ],
   "whatYouDoHere": [
     "Read the cases Didit sent to manual review and see why each was flagged (PEP, high risk, adverse media, and so on).",
     "Record an AML decision on a selected case: approve it, decline it, ask the customer to re-verify, or reopen it for further review.",
     "Change a user account's status: restrict, lock, close, or reactivate it, always with a reason and a note.",
-    "Understand the hard limits the system enforces for you: sanctions hits and provider declines can never be approved by hand, closing an account needs a clean-account confirmation, and only a superadmin may touch another admin's account."
+    "Understand the hard limits the system enforces for you: sanctions hits and provider declines can never be approved by hand, closing an account needs a clean-account confirmation, and only a superadmin may touch another admin's account.",
+    "Work the declaration reviews: read the investor's latest declaration, close the review with an outcome, or ask the investor for more information (an email goes out; a new declaration opens the review again). A necessary review opens one admin task and one email to the compliance team; closing the review closes the task.",
+    "Find any investor in \"Investor compliance file\" (name, email or ID), open a manual review (necessary or not) and set or complete a re-verification date. An open necessary review takes a new manual reason; there is never a second one.",
+    "As a superadmin, give the compliance, compliance deputy, security verifier and security verifier deputy roles to admin accounts. Only these roles decide reviews or record security verifications."
   ],
   "figures": [
     {

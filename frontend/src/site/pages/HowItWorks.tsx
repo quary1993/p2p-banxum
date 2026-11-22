@@ -6,9 +6,10 @@
  * change is the logo in the disc, which is the white lockup file instead of an inline data URI.
  * The wide diagram shows on desktop and tablet, the tall one on phones (site.css).
  */
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, type ReactNode } from "react";
 
-import { Eyebrow, PageHead, RiskLine, SiteLink } from "../components";
+import { Eyebrow, RiskLine } from "../components";
+import { useSiteNav } from "../context";
 
 // ---------------------------------------------------------------------------------------------
 // Marketplace diagram: the marketplace as an Ink disc with the white logo, Ink lines for the
@@ -368,24 +369,14 @@ function MoneyStep({ index, title, children }: { index: string; title: string; c
   );
 }
 
-export function HowItWorks() {
+/**
+ * Q24 (2026-11-13): the How it works page is retired; its unique content (the four steps, what you
+ * own, the marketplace diagram and the rest) now shows in Help under "How it works", and the home
+ * page keeps the short version. /how-it-works leads to that part of Help.
+ */
+export function HowItWorksSections() {
   return (
     <>
-      <PageHead
-        actions={
-          <>
-            <SiteLink className="btn btn-lg btn-primary" href="/register">
-              Open account
-            </SiteLink>
-            <SiteLink className="btn btn-lg btn-site-outline" href="/projects">
-              See open projects
-            </SiteLink>
-          </>
-        }
-        eyebrow="How it works"
-        lead="You lend to companies by buying shares of their loans. Here is each step, what you own and where your money is."
-        title="From your first transfer to the last repayment"
-      />
       <section className="site-section">
         <div className="site-wrap">
           <div className="site-section-head is-single">
@@ -400,7 +391,7 @@ export function HowItWorks() {
             </Cell>
             <Cell index="02" title="Add funds">
               A bank transfer in CHF or EUR from an account in your name, with your personal reference. It arrives in your
-              own segregated wallet. No fees.
+              own segregated wallet. No Banxum fee; your bank may charge for the transfer.
             </Cell>
             <Cell index="03" title="Invest">
               Choose a project and an amount from your available balance, and confirm with a code and your PIN. The amount
@@ -438,7 +429,7 @@ export function HowItWorks() {
             <h2 className="site-h2">Where your money is at each step</h2>
             <p className="site-lead mt-4">
               Every investor has a segregated wallet with a CHF and a EUR balance. Garanta is not a bank: money waiting in
-              the wallet earns no interest and stays at most 58 days.
+              the wallet earns no interest and stays at most until day 56.
             </p>
           </div>
           <ol className="site-numbered">
@@ -459,7 +450,7 @@ export function HowItWorks() {
               verified bank account.
             </MoneyStep>
             <MoneyStep index="05" title="Returned">
-              Money you do not invest within 58 days goes back to your bank account automatically.
+              Money you do not invest by day 56 goes back to your bank account automatically (the return starts on day 57).
             </MoneyStep>
           </ol>
         </div>
@@ -485,10 +476,12 @@ export function HowItWorks() {
                 <span>02</span>
               </div>
               <Eyebrow>Fees</Eyebrow>
-              <h3 className="site-h3">0% for investors</h3>
+              <h3 className="site-h3">Fees for investors</h3>
               <p className="site-text">
-                No fees for your wallet, for adding or withdrawing money, for investing or on interest and repayments.
-                Only when you sell on the secondary market, you pay 2% of the price.
+                No Banxum fee for your wallet, for adding or withdrawing money, for investing or on interest and repayments.
+                When you sell on the resale market, you pay 2% of the price, at most 2% of the outstanding principal. If a
+                loan is in recovery, real external costs (lawyer, court, enforcement) can be deducted from what is recovered;
+                Banxum takes no recovery fee. Your bank may charge for transfers.
               </p>
             </div>
           </div>
@@ -497,4 +490,13 @@ export function HowItWorks() {
       </section>
     </>
   );
+}
+
+/** The retired /how-it-works address: Help, at its How it works part. */
+export function HowItWorksMoved() {
+  const { navigate } = useSiteNav();
+  useEffect(() => {
+    navigate("/help#how-it-works", { replace: true });
+  }, [navigate]);
+  return null;
 }

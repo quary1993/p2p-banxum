@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -51,6 +51,11 @@ from backend.apps.servicing.services import (
     record_loan_write_off,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
+
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
 
 
 @pytest.fixture
@@ -1378,6 +1383,7 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
 
+    # 18.6: on day 16 the scan leaves the loan Late (Default is never automatic) ...
     result = scan_loan_servicing_statuses(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
@@ -1386,11 +1392,18 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
         )
     )
     loan.refresh_from_db()
-
-    assert cast(Any, loan).status == "defaulted"
+    assert cast(Any, loan).status == "late"
     assert len(result.changes) == 1
-    assert result.changes[0].new_status == "defaulted"
+    assert result.changes[0].new_status == "late"
     assert result.changes[0].days_past_due == 16
+    # ... and the admin's declaration makes it Default.
+    scan_and_declare(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
+        )
+    )
+    loan.refresh_from_db()
+    assert cast(Any, loan).status == "defaulted"
     with pytest.raises(ServicingValidationError, match="recovery workflow"):
         record_borrower_repayment(
             _repayment_command(
@@ -1450,22 +1463,23 @@ def test_default_transition_opens_one_loan_risk_review_task_and_operations_alert
         content_type="application/json",
     )
     assert response.status_code == 200
-    assert response.json()["changes"][0]["new_status"] == "defaulted"
+    # 18.6: the loan stays Late; the task asks the admin to decide on Default.
+    assert response.json()["changes"] == []
 
     task = risk_tasks.get()
     assert task.status == "open"
     assert task.priority == "high"
-    assert task.title == "Loan defaulted: Servicing Loan"
+    assert task.title == "Default can be declared: Servicing Loan"
     assert task.due_at is not None
     assert "Days past due: 16" in task.notes
     assert "Overdue installment outstanding: CHF 3'300.00" in task.notes
     assert "Missed installment due date: 2026-02-28" in task.notes
-    assert "Record a recovery payment" in task.notes
+    assert "Declare Default" in task.notes
     assert task.events.filter(event_type="created").count() == 1
 
     alert = default_alerts.get()
     assert alert.payload["email"] == settings.OPERATIONS_ALERT_EMAIL
-    assert alert.payload["subject"].endswith("loan defaulted: Servicing Loan")
+    assert alert.payload["subject"].endswith("Default can be declared: Servicing Loan")
     assert alert.payload["metadata"]["admin_task_id"] == str(task.id)
     assert alert.payload["metadata"]["days_past_due"] == 16
 
@@ -1804,7 +1818,7 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
 ) -> None:
     _approve_financial_access(investor_one)
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -1858,9 +1872,10 @@ def test_defaulted_loan_notes_can_be_public_email_only_or_both(
     assert both.status_code == 201
     assert note_emails().count() == 4
     # A replay does not send the emails again.
-    assert post_note(
-        email_affected_investors=True, idempotency_key="default-note-both"
-    ).json()["id"] == both.json()["id"]
+    assert (
+        post_note(email_affected_investors=True, idempotency_key="default-note-both").json()["id"]
+        == both.json()["id"]
+    )
     assert note_emails().count() == 4
     public_emails = list(note_emails().filter(payload__metadata__visibility="public"))
     assert len(public_emails) == 2
@@ -1939,7 +1954,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -1954,8 +1969,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             gross_recovered_minor=10_000_00,
             externally_deducted_costs_minor=1_000_00,
             third_party_costs_from_received_minor=500_00,
-            recovery_fee_applied=True,
-            recovery_fee_bps=1000,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
             contractual_interest_due_minor=1_000_00,
             default_interest_due_minor=500_00,
             penalties_due_minor=100_00,
@@ -1978,10 +1993,11 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert event.net_received_minor == 9_000_00
     assert event.third_party_costs_from_received_minor == 500_00
     assert event.recovery_fee_base_minor == 8_500_00
-    assert event.recovery_fee_minor == 850_00
-    assert event.net_available_for_distribution_minor == 7_650_00
+    # U33-DEC-12: no Banxum recovery fee for investors.
+    assert event.recovery_fee_minor == 0
+    assert event.net_available_for_distribution_minor == 8_500_00
     assert event.rounding_difference_minor == 0
-    assert event.principal_recovered_minor == 6_050_00
+    assert event.principal_recovered_minor == 6_900_00
     assert event.contractual_interest_recovered_minor == 1_000_00
     assert event.default_interest_recovered_minor == 500_00
     assert event.penalties_recovered_minor == 100_00
@@ -1997,10 +2013,10 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     lines = {str(line.investor_user_id): line for line in result.distribution_lines}
     investor_one_line = lines[str(investor_one.pk)]
     investor_two_line = lines[str(investor_two.pk)]
-    assert investor_one_line.amount_minor == 2_550_00
-    assert investor_two_line.amount_minor == 5_100_00
-    assert investor_one_line.principal_minor == 2_016_67
-    assert investor_two_line.principal_minor == 4_033_33
+    assert investor_one_line.amount_minor == 2_833_33
+    assert investor_two_line.amount_minor == 5_666_67
+    assert investor_one_line.principal_minor == 2_300_00
+    assert investor_two_line.principal_minor == 4_600_00
     assert investor_one_line.contractual_interest_minor == 333_33
     assert investor_two_line.contractual_interest_minor == 666_67
     assert investor_one_line.default_interest_minor == 166_67
@@ -2011,8 +2027,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert investor_two_line.other_costs_minor == 0
     assert {line.balance_lot.source_type for line in lines.values()} == {"recovery_distribution"}
     assert {line.balance_lot.available_amount_minor for line in lines.values()} == {
-        2_550_00,
-        5_100_00,
+        2_833_33,
+        5_666_67,
     }
     recovery_emails = OutboxMessage.objects.filter(
         topic="email.recovery_distribution_credited"
@@ -2028,8 +2044,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         str(holding.investor_user_id): holding
         for holding in holding_model.objects.filter(loan=loan).order_by("investor_user_id")
     }
-    assert holdings[str(investor_one.pk)].current_principal_minor == 7_983_33
-    assert holdings[str(investor_two.pk)].current_principal_minor == 15_966_67
+    assert holdings[str(investor_one.pk)].current_principal_minor == 7_700_00
+    assert holdings[str(investor_two.pk)].current_principal_minor == 15_400_00
 
     postings = {
         (
@@ -2041,7 +2057,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         for posting in event.journal_entry.postings.select_related("account")
     }
     assert ("collection_cash", "", "debit", 9_000_00) in postings
-    assert ("platform_fee_revenue", "garanta", "credit", 850_00) in postings
+    assert not any(posting[0] == "platform_fee_revenue" for posting in postings)
     assert ("recovery_distribution_payable", "loan", "credit", 500_00) in postings
 
     ledger = import_module("backend.apps.ledger.services")
@@ -2054,8 +2070,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         )
     )
     assert snapshot.reconciliation_difference_minor == 0
-    assert snapshot.garanta_accrued_revenue_minor == 850_00
-    assert snapshot.metadata["platform_fee_revenue_minor"] == 850_00
+    assert snapshot.garanta_accrued_revenue_minor == 0
+    assert snapshot.metadata["platform_fee_revenue_minor"] == 0
     assert snapshot.metadata["recovery_distribution_payable_minor"] == 500_00
     assert AuditEvent.objects.filter(action="servicing.loan_recovery_recorded").exists()
     assert DomainEvent.objects.filter(event_type="LoanRecoveryRecorded").exists()
@@ -2068,8 +2084,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             gross_recovered_minor=10_000_00,
             externally_deducted_costs_minor=1_000_00,
             third_party_costs_from_received_minor=500_00,
-            recovery_fee_applied=True,
-            recovery_fee_bps=1000,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
             contractual_interest_due_minor=1_000_00,
             default_interest_due_minor=500_00,
             penalties_due_minor=100_00,
@@ -2086,6 +2102,28 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         )
     )
     assert replay.recovery_event.id == event.id
+
+    # U33-DEC-12: the investor sees the gross, the deducted costs and the net of the recovery,
+    # and the share credited to their balance.
+    _approve_financial_access(investor_one)
+    viewer = Client()
+    viewer.force_login(cast(Any, investor_one))
+    portfolio = viewer.get("/api/v1/investor/portal/portfolio/")
+    assert portfolio.status_code == 200, portfolio.content
+    [holding_payload] = [
+        row for row in portfolio.json()["holdings"] if row["loan"]["loan_id"] == str(loan.pk)
+    ]
+    assert holding_payload["recovery_events"] == [
+        {
+            "recovery_event_id": str(event.id),
+            "value_date": "2026-03-20",
+            "gross_recovered_minor": 10_000_00,
+            "external_costs_minor": 1_500_00,
+            "recovery_fee_minor": 0,
+            "net_distributed_minor": 8_500_00,
+            "credited_to_you_minor": 2_833_33,
+        }
+    ]
 
 
 @pytest.mark.django_db
@@ -2117,7 +2155,7 @@ def test_recovery_payment_requires_defaulted_loan_and_never_pays_principal_first
             )
         )
 
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2161,7 +2199,7 @@ def test_recovery_payment_admin_api(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2205,8 +2243,6 @@ def _admin_recovery_request(loan: Model, idempotency_key: str) -> dict[str, Any]
         "gross_recovered_minor": 1_000_00,
         "externally_deducted_costs_minor": 50_00,
         "third_party_costs_from_received_minor": 0,
-        "recovery_fee_applied": True,
-        "recovery_fee_bps": 500,
         "contractual_interest_due_minor": 66_67,
         "default_interest_due_minor": 100_00,
         "penalties_due_minor": 0,
@@ -2225,7 +2261,7 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2260,13 +2296,13 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     )
     assert response.status_code == 201, response.json()
     payload = response.json()
-    # 1000 gross - 50 external costs = 950 net; 5% fee = 47.50; 902.50 distributed
-    # as penalty 100.00, interest 66.67, principal 735.83.
-    assert payload["recovery_event"]["recovery_fee_minor"] == 47_50
-    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 902_50
+    # 1000 gross - 50 external costs = 950 net, all distributed (no recovery fee, U33-DEC-12)
+    # as penalty 100.00, interest 66.67, principal 783.33.
+    assert payload["recovery_event"]["recovery_fee_minor"] == 0
+    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 950_00
     assert payload["recovery_event"]["default_interest_recovered_minor"] == 100_00
     assert payload["recovery_event"]["contractual_interest_recovered_minor"] == 66_67
-    assert payload["recovery_event"]["principal_recovered_minor"] == 735_83
+    assert payload["recovery_event"]["principal_recovered_minor"] == 783_33
     recovery_event = LoanRecoveryEvent.objects.get(id=payload["recovery_event"]["id"])
     assert recovery_event.bank_operation.collection_account_identifier == "Garanta_CHF"
     assert recovery_event.bank_operation.payee_account_identifier == "Garanta_CHF"
@@ -2283,6 +2319,44 @@ def test_recovery_admin_api_books_to_configured_collection_account_when_form_omi
     assert replay.status_code == 201
     assert replay.json()["recovery_event"]["id"] == payload["recovery_event"]["id"]
     assert LoanRecoveryEvent.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "fee_fields",
+    [
+        {"recovery_fee_applied": True, "recovery_fee_bps": 500},
+        {"recovery_fee_applied": False, "recovery_fee_bps": 500},
+        {"recovery_fee_applied": True, "recovery_fee_bps": 0},
+    ],
+)
+def test_recovery_with_a_banxum_fee_is_refused(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+    fee_fields: dict[str, Any],
+) -> None:
+    """U33-DEC-12: no Banxum recovery fee for investors."""
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
+        )
+    )
+    PlatformSetting.objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data={**_admin_recovery_request(loan, "servicing-recovery-fee-refused"), **fee_fields},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "no recovery fee" in response.json()["detail"]
+    assert not LoanRecoveryEvent.objects.exists()
 
 
 @pytest.mark.django_db
@@ -2371,7 +2445,7 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2512,7 +2586,7 @@ def test_write_off_requires_defaulted_loan_and_positive_total(
             )
         )
 
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2539,7 +2613,7 @@ def test_write_off_admin_api_records_loss_recognition(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2627,7 +2701,7 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
             idempotency_key="servicing-append-risk-note",
         )
     )
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2696,7 +2770,7 @@ def test_recovery_records_have_app_and_db_guards(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin_user,
             as_of_date=date(2026, 3, 16),
@@ -2753,3 +2827,177 @@ def test_recovery_records_have_app_and_db_guards(
                 [recovery_line.id.hex],
             )
     assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_portfolio_lists_each_received_payment_of_the_investor(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    """18.3: the "Paid" rows of All payments: the investor's share of each installment."""
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    record_borrower_repayment(_repayment_command(admin_user, loan))
+    record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=27_200_00,
+            booking_date=date(2026, 3, 31),
+            value_date=date(2026, 3, 31),
+            idempotency_key="servicing-second-installment-paid-rows",
+        )
+    )
+    _approve_financial_access(investor_one)
+    portal = import_module("backend.apps.investor_portal.services")
+    holding = portal.get_investor_portfolio(actor=investor_one)
+    payments = [
+        item
+        for item in cast(list[dict[str, Any]], holding["holdings"])
+        if item["loan"]["loan_id"] == str(loan.pk)
+    ]
+    rows = payments[0]["received_payments"] if payments else []
+    if not payments:
+        # A closed holding leaves the active list; the payments stay on the record.
+        rows = portal._received_payments_by_holding(
+            investor_user_id=str(investor_one.pk),
+            holding_ids=[
+                str(item.pk)
+                for item in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
+                    loan=loan, investor_user_id=investor_one.pk
+                )
+            ],
+        ).popitem()[1]
+    assert [
+        (
+            row["installment_number"],
+            row["paid_on"],
+            row["principal_minor"],
+            row["interest_minor"],
+            row["total_minor"],
+            row["principal_after_minor"],
+        )
+        for row in rows
+    ] == [
+        (1, date(2026, 3, 1), 1_000_00, 100_00, 1_100_00, 9_000_00),
+        (2, date(2026, 3, 31), 9_000_00, 66_67, 9_066_67, 0),
+    ]
+
+
+@pytest.mark.django_db
+def test_investor_reports_are_generated_kept_announced_and_summarised(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    """18.3: the design's four reports, kept as issued, "Document ready", period summary."""
+    import base64
+    from datetime import datetime as _datetime
+
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    record_borrower_repayment(_repayment_command(admin_user, loan))
+    _approve_financial_access(investor_one)
+    client = Client()
+    client.force_login(cast(Any, investor_one))
+    as_of = _datetime(2026, 3, 15, 10, 0, tzinfo=UTC)
+    reports = import_module("backend.apps.reporting.investor_reports")
+
+    tax = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="tax",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 3, 14),
+            output_format="csv",
+            as_of=as_of,
+        )
+    )
+    assert tax["title"] == "Tax report"
+    tax_csv = client.get(f"/api/v1/investor/portal/reports/{tax['id']}/download/").json()
+    lines = tax_csv["content"].strip().split("\n")
+    assert lines[0] == (
+        "Borrower country;Currency;Interest received;Late interest and charges;Payments"
+    )
+    assert lines[1].split(";")[1:] == ["CHF", "100,00", "0,00", "1"]
+
+    income = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="interest_repayments",
+            start_date=date(2026, 3, 1),
+            end_date=date(2026, 3, 14),
+            currency="CHF",
+            as_of=as_of,
+        )
+    )
+    pdf = client.get(f"/api/v1/investor/portal/reports/{income['id']}/download/").json()
+    assert pdf["content_type"] == "application/pdf"
+    assert base64.b64decode(pdf["content"]).startswith(b"%PDF")
+    portfolio = reports.create_investor_report(
+        reports.CreateInvestorReportCommand(
+            actor=investor_one,
+            kind="portfolio",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            output_format="csv",
+            as_of=as_of,
+        )
+    )
+    # The portfolio report is always as of today.
+    assert (portfolio["start_date"], portfolio["end_date"]) == (date(2026, 3, 15),) * 2
+    portfolio_csv = client.get(
+        f"/api/v1/investor/portal/reports/{portfolio['id']}/download/"
+    ).json()["content"]
+    assert ";9000,00;100,00;On schedule" in portfolio_csv
+
+    listed = client.get("/api/v1/investor/portal/reports/").json()["reports"]
+    assert sorted(item["kind"] for item in listed) == ["interest_repayments", "portfolio", "tax"]
+    # Another investor cannot open the report.
+    other = Client()
+    other.force_login(cast(Any, investor_two))
+    _approve_financial_access(investor_two)
+    assert other.get(f"/api/v1/investor/portal/reports/{tax['id']}/download/").status_code == 404
+
+    notices = client.get("/api/v1/investor/portal/notifications/").json()["notifications"]
+    ready = [item for item in notices if item["topic"] == "notice.document_ready"]
+    assert len(ready) == 3
+    assert {item["navigation_target"] for item in ready} == {"reports"}
+    assert ready[-1]["body"] == "Your Tax report is ready."
+    credited = [
+        item for item in notices if item["topic"] == "email.repayment_distribution_credited"
+    ]
+    assert {item["category"] for item in credited} <= {"positive"}
+
+    created = client.post(
+        "/api/v1/investor/portal/reports/",
+        {
+            "kind": "account_statement",
+            "start_date": "2026-01-01",
+            "end_date": "2099-01-01",
+            "currency": "EUR",
+        },
+        content_type="application/json",
+    )
+    assert created.status_code == 400
+    assert "cannot end after today" in created.json()["detail"]
+
+    summary = client.get("/api/v1/investor/portal/reports/summary/", {"year": "2026"}).json()
+    chf = next(item for item in summary["currencies"] if item["currency"] == "CHF")
+    assert (chf["principal_repaid_minor"], chf["interest_received_minor"]) == (1_000_00, 100_00)
+    assert [item["currency"] for item in summary["currencies"]] == ["EUR", "CHF"]
+
+    monthly = reports.generate_monthly_statements(
+        as_of=_datetime(2026, 4, 1, 6, 0, tzinfo=UTC)
+    )
+    assert monthly["month"] == "2026-03"
+    again = reports.generate_monthly_statements(
+        as_of=_datetime(2026, 4, 2, 6, 0, tzinfo=UTC)
+    )
+    assert again["statements_created"] == 0
+    statements = [
+        item
+        for item in client.get("/api/v1/investor/portal/reports/").json()["reports"]
+        if item["kind"] == "monthly_statement"
+    ]
+    assert [item["title"] for item in statements] == ["Account statement March 2026"]
+    assert statements[0]["automatic"] is True

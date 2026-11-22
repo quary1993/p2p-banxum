@@ -25,9 +25,11 @@ from backend.apps.accounts_auth.services import (
     change_account_access,
     issue_magic_link,
 )
+from backend.apps.accounts_auth.tests.signin_helpers import TEST_PASSWORD, ready_investor
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.services.currencies import seed_launch_currencies
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -179,7 +181,7 @@ def test_close_account_rejects_nonzero_investor_balance(
     ledger_services = import_module("backend.apps.ledger.services")
 
     seed_launch_currencies()
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.id),
@@ -361,43 +363,49 @@ def _restrict(admin_user: User, investor: User, new_status: AccountStatus) -> No
     ("new_status", "status_word"),
     [(AccountStatus.RESTRICTED, "restricted"), (AccountStatus.LOCKED, "locked")],
 )
-def test_blocked_account_login_request_emails_a_reason_without_revealing_it(
+def test_blocked_account_sign_in_explains_only_after_the_right_password(
     client: Client,
     admin_user: User,
     investor: User,
     new_status: AccountStatus,
     status_word: str,
 ) -> None:
+    """18.5: a wrong password answers like an unknown address; the right one proves
+    ownership, so the reason is shown. No session starts."""
+    ready_investor(investor)
     _restrict(admin_user, investor, new_status)
 
-    response = client.post(
-        "/api/v1/auth/magic-link/request/",
-        data={"email": investor.email},
+    wrong = client.post(
+        "/api/v1/auth/login/",
+        data={"email": investor.email, "password": "not-the-password-123"},
         content_type="application/json",
     )
+    unknown = client.post(
+        "/api/v1/auth/login/",
+        data={"email": "missing@example.test", "password": "not-the-password-123"},
+        content_type="application/json",
+    )
+    assert wrong.status_code == unknown.status_code == 400
+    assert wrong.json() == unknown.json()
 
-    # Same answer as for an unknown address, so account existence stays private.
-    assert response.status_code == 202
-    assert response.content == b""
-    assert not EmailLoginToken.objects.filter(user=investor).exists()
-    notice = OutboxMessage.objects.get(topic="email.account_login_blocked")
-    assert notice.payload["email"] == investor.email
-    assert notice.payload["subject"] == f"Your BANXUM account is {status_word}"
-    assert f"currently {status_word}" in notice.payload["body_text"]
-    assert "support@banxum.com" in notice.payload["body_text"]
-    assert AuditEvent.objects.filter(
-        action="auth.login_blocked_notice_requested",
-        target_id=str(investor.id),
-    ).exists()
-
-    # Repeated requests within the hour reuse the same notice.
-    with pytest.raises(InvalidOrExpiredTokenError):
-        issue_magic_link(MagicLinkRequestCommand(email=investor.email))
-    assert OutboxMessage.objects.filter(topic="email.account_login_blocked").count() == 1
+    right = client.post(
+        "/api/v1/auth/login/",
+        data={"email": investor.email, "password": TEST_PASSWORD},
+        content_type="application/json",
+    )
+    assert right.status_code == 403
+    assert right.json() == {
+        "detail": (
+            f"Your account is {status_word}. Please contact support at support@banxum.com "
+            "for further details."
+        ),
+        "code": f"account_{status_word}",
+    }
+    assert client.get("/api/v1/auth/me/").status_code == 403
 
 
 @pytest.mark.django_db
-def test_login_request_for_unknown_or_active_account_sends_no_blocked_notice(
+def test_registration_link_for_unknown_or_active_account_sends_no_blocked_notice(
     investor: User,
 ) -> None:
     with pytest.raises(InvalidOrExpiredTokenError):
@@ -405,6 +413,24 @@ def test_login_request_for_unknown_or_active_account_sends_no_blocked_notice(
     issue_magic_link(MagicLinkRequestCommand(email=investor.email))
 
     assert not OutboxMessage.objects.filter(topic="email.account_login_blocked").exists()
+
+
+@pytest.mark.django_db
+def test_registration_link_request_of_a_blocked_account_emails_the_reason(
+    admin_user: User,
+    investor: User,
+) -> None:
+    _restrict(admin_user, investor, AccountStatus.RESTRICTED)
+
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+
+    assert not EmailLoginToken.objects.filter(user=investor).exists()
+    notice = OutboxMessage.objects.get(topic="email.account_login_blocked")
+    assert notice.payload["subject"] == "Your BANXUM account is restricted"
+    assert "support@banxum.com" in notice.payload["body_text"]
 
 
 @pytest.mark.django_db
@@ -417,7 +443,7 @@ def test_login_link_of_restricted_account_explains_the_restriction(
     _restrict(admin_user, investor, AccountStatus.RESTRICTED)
 
     response = client.post(
-        "/api/v1/auth/magic-link/consume/",
+        "/api/v1/auth/register/confirm-email/",
         data={"token": link.raw_token},
         content_type="application/json",
     )

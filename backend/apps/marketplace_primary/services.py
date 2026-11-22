@@ -7,7 +7,6 @@ import hashlib
 import json
 import logging
 import re
-import uuid
 from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
 from datetime import date, timedelta
@@ -17,13 +16,13 @@ from typing import Any, NoReturn, cast
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Model, Q, Sum
+from django.db.models import Count, Model, Q, Sum
 
 from backend.apps.marketplace_primary import investor_limit as investor_limits
 from backend.apps.marketplace_primary import notices as investor_notices
 from backend.apps.marketplace_primary.models import (
+    LoanOpeningAlert,
     PrimaryInvestmentOrder,
-    PrimaryInvestmentOrderBatch,
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderEventType,
     PrimaryInvestmentOrderStatus,
@@ -36,6 +35,7 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.investor_limit import (
     SWISS_INVESTOR_LIMIT_CODE,
     InvestorLimit,
@@ -91,7 +91,6 @@ class MarketplacePrimarySwissInvestorLimitError(MarketplacePrimaryValidationErro
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
-MAX_BATCH_IDEMPOTENCY_KEY_LENGTH = 128
 PENDING_ORDER_CAP_DEFAULT = 50
 # An order the investor did not confirm within this time no longer counts as an
 # open intent: the next order of the same investor closes it (no money moves).
@@ -131,33 +130,9 @@ class AllocatePrimaryInvestmentOrderCommand:
     pin: str = dataclass_field(default="", repr=False)
     ip_address: str | None = None
     user_agent: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class PrimaryOrderBatchItemCommand:
-    loan_id: str
-    amount_minor: int
-    quote_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PlacePrimaryOrderBatchCommand:
-    actor: Model
-    items: list[PrimaryOrderBatchItemCommand]
-    document_acceptance_id: str
-    sensitive_action_code_id: str
-    sensitive_action_code: str
-    idempotency_key: str
-    pin: str = dataclass_field(default="", repr=False)
-    ip_address: str | None = None
-    user_agent: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class PlacedPrimaryOrderBatch:
-    batch: PrimaryInvestmentOrderBatch
-    orders: list[PrimaryInvestmentOrder]
-    originator_purchases: list[Any]
+    # 18.9 (E-03): the investor confirmed the sandbox notice of this version (sandbox mode only).
+    sandbox_notice_confirmed: bool = False
+    sandbox_notice_version: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,17 +199,6 @@ def _clean_optional_idempotency_key(value: str) -> str:
     return key
 
 
-def _clean_batch_idempotency_key(value: str) -> str:
-    key = _clean_required(value, "Idempotency key")
-    if len(key) > MAX_BATCH_IDEMPOTENCY_KEY_LENGTH:
-        raise MarketplacePrimaryValidationError(
-            "Batch idempotency key cannot exceed "
-            f"{MAX_BATCH_IDEMPOTENCY_KEY_LENGTH} characters because it also binds the "
-            "immutable document acceptance context."
-        )
-    return key
-
-
 def _stable_json_fingerprint(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -268,6 +232,33 @@ def _require_investor_financial_access(actor: Model) -> None:
         )
 
 
+def _require_no_compliance_block(actor: Model) -> None:
+    """18.10: declarations missing, a necessary review open or re-verification overdue."""
+    declarations: Any = import_module("backend.apps.kyc_compliance.declarations")
+    reason = declarations.investment_block(actor)
+    if reason is not None:
+        raise MarketplacePrimaryValidationError(declarations.BLOCK_MESSAGES[reason])
+
+
+def _require_no_compliance_block_locked(actor: Model) -> None:
+    """Audit S7-2: the same check under the investor row lock, just before money is reserved."""
+    declarations: Any = import_module("backend.apps.kyc_compliance.declarations")
+    try:
+        declarations.assert_can_invest_locked(actor)
+    except declarations.InvestmentComplianceBlock as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
+def _require_verified_securities(loan: Model) -> None:
+    """Audit S7-4: a verified loan takes no new order or allocation while a security needs a
+    new verification. Called with the loan row locked."""
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_investment_allowed(loan)
+    except proofs.SecurityProofError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise MarketplacePrimaryAuthorizationError(
@@ -285,6 +276,13 @@ def _model(app_label: str, model_name: str) -> Any:
 
 def _entities_services() -> Any:
     return import_module("backend.apps.entities.services")
+
+
+def order_reserved_amount_minor(order: Model) -> int:
+    """What the order reserved: the principal, plus the accrued interest of an 18.7 offer."""
+    metadata = cast(dict[str, Any], getattr(order, "metadata", None) or {})
+    allocated = int(cast(Any, order).allocated_amount_minor)
+    return allocated + int(metadata.get("price_accrued_interest_minor", 0) or 0)
 
 
 def _originator_services() -> Any:
@@ -322,6 +320,10 @@ def _resolve_fully_subscribed_originator_round(*, actor: Model, loan_id: str) ->
                 idempotency_key=f"originator-round-auto-close:{loan_id}",
             )
         )
+    except originator.OriginatorOfferFailedError:
+        # Re-audit R6-1: F04 failed the offer in its own committed transaction (participations
+        # cancelled, reservations released, investors told). Not a close failure.
+        return
     except Exception as exc:  # The reservation is already committed by design.
         try:
             originator.mark_originator_funding_close_failed(
@@ -336,17 +338,6 @@ def _resolve_fully_subscribed_originator_round(*, actor: Model, loan_id: str) ->
                 "Could not record Loan Originator funding-close failure for loan %s",
                 loan_id,
             )
-
-
-def _resolve_fully_subscribed_originator_orders(
-    *,
-    actor: Model,
-    orders: list[PrimaryInvestmentOrder],
-) -> None:
-    for loan_id in {str(order.loan_id) for order in orders}:
-        _resolve_fully_subscribed_originator_round(actor=actor, loan_id=loan_id)
-    for order in orders:
-        order.refresh_from_db()
 
 
 def _loan_for_update(loan_id: str) -> Model:
@@ -427,6 +418,44 @@ def _minimum_investment_minor(currency_code: str) -> int:
         if type(value) is int:
             return value
     return 100000
+
+
+def creditor_mode_fields(loan: Model) -> dict[str, Any]:
+    """18.9: the Swiss creditor mode of the loan's borrower and, in sandbox mode, the notice."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    return {
+        "creditor_mode": regimes.creditor_mode_payload(loan),
+        "sandbox_notice": regimes.sandbox_notice(loan, borrower_name=_borrower_public_name(loan)),
+    }
+
+
+def _assert_sandbox_notice_confirmed(loan: Model, command: Any) -> None:
+    """E-03 / F06.2: a borrower in sandbox mode needs the investor's explicit confirmation of the
+    notice (the version shown), recorded with the order."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    notice = regimes.sandbox_notice(loan, borrower_name=_borrower_public_name(loan))
+    if notice is None:
+        return
+    if not bool(getattr(command, "sandbox_notice_confirmed", False)) or str(
+        getattr(command, "sandbox_notice_version", "") or ""
+    ) != str(notice["version"]):
+        raise MarketplacePrimaryValidationError(
+            "Confirm that you read the sandbox notice of this borrower before investing."
+        )
+
+
+def _borrower_public_name(loan: Model) -> str:
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim":
+        profile = (
+            _model("originator_claims", "OriginatorLoanProfile")
+            .objects.filter(loan_id=loan_ref.pk)
+            .only("borrower_display_name")
+            .first()
+        )
+        return str(getattr(profile, "borrower_display_name", "") or "")
+    borrower = getattr(loan_ref, "borrower", None)
+    return str(getattr(borrower, "legal_name", "") or "")
 
 
 def _loan_investor_limit(loan: Model) -> InvestorLimit:
@@ -678,179 +707,6 @@ def _child_idempotency_key(kind: str, parent_key: str, child_id: str) -> str:
     return f"{kind}:{digest}"[:MAX_IDEMPOTENCY_KEY_LENGTH]
 
 
-def _canonical_batch_items(
-    items: list[PrimaryOrderBatchItemCommand],
-) -> list[dict[str, Any]]:
-    if not items:
-        raise MarketplacePrimaryValidationError("The batch contains no investments.")
-    if len(items) > 20:
-        raise MarketplacePrimaryValidationError("A batch may contain at most 20 investments.")
-    canonical: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for item in items:
-        try:
-            loan_id = str(uuid.UUID(str(item.loan_id)))
-        except (TypeError, ValueError, AttributeError) as exc:
-            raise MarketplacePrimaryValidationError("Batch loan id is not valid.") from exc
-        if loan_id in seen:
-            raise MarketplacePrimaryValidationError("Each loan may appear only once in a batch.")
-        if type(item.amount_minor) is not int or item.amount_minor <= 0:
-            raise MarketplacePrimaryValidationError(
-                "Batch investment amounts must be positive integers."
-            )
-        canonical_item: dict[str, Any] = {
-            "loan_id": loan_id,
-            "amount_minor": item.amount_minor,
-        }
-        if item.quote_id:
-            try:
-                canonical_item["quote_id"] = str(uuid.UUID(str(item.quote_id)))
-            except (TypeError, ValueError, AttributeError) as exc:
-                raise MarketplacePrimaryValidationError(
-                    "Batch originator-claim quote id is not valid."
-                ) from exc
-        seen.add(loan_id)
-        canonical.append(canonical_item)
-    return sorted(canonical, key=lambda item: str(item["loan_id"]))
-
-
-def _canonical_batch_snapshot_items(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not contain an itemized investment list."
-        )
-    commands: list[PrimaryOrderBatchItemCommand] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid investment item."
-            )
-        amount_minor = item.get("amount_minor")
-        if type(amount_minor) is not int:
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid investment amount."
-            )
-        commands.append(
-            PrimaryOrderBatchItemCommand(
-                loan_id=str(item.get("loan_id", "")),
-                amount_minor=amount_minor,
-                quote_id=(
-                    str(item["quote_id"]) if item.get("quote_id") not in {None, ""} else None
-                ),
-            )
-        )
-    return _canonical_batch_items(commands)
-
-
-def _batch_snapshot_currency_by_loan(
-    value: Any,
-    *,
-    legacy_currency: Any,
-) -> dict[str, str]:
-    if not isinstance(value, list):
-        raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not contain an itemized investment list."
-        )
-    currency_by_loan: dict[str, str] = {}
-    for item in value:
-        if not isinstance(item, dict):
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid investment item."
-            )
-        try:
-            loan_id = str(uuid.UUID(str(item.get("loan_id", ""))))
-            currency_code = normalize_currency(str(item.get("currency") or legacy_currency or ""))
-        except (TypeError, ValueError, AttributeError, MoneyError) as exc:
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance does not contain a valid currency for every investment."
-            ) from exc
-        currency_by_loan[loan_id] = currency_code
-    return currency_by_loan
-
-
-def _canonical_batch_currency_totals(
-    items: list[dict[str, Any]],
-    *,
-    currency_by_loan: dict[str, str],
-) -> list[dict[str, Any]]:
-    totals: dict[str, int] = {}
-    for item in items:
-        currency_code = currency_by_loan[str(item["loan_id"])]
-        totals[currency_code] = totals.get(currency_code, 0) + int(item["amount_minor"])
-    return [
-        {"currency": currency_code, "amount_minor": totals[currency_code]}
-        for currency_code in sorted(totals)
-    ]
-
-
-def _batch_request_fingerprint(
-    command: PlacePrimaryOrderBatchCommand,
-    *,
-    canonical_items: list[dict[str, Any]],
-    idempotency_key: str,
-) -> str:
-    return _stable_json_fingerprint(
-        {
-            "investor_user_id": str(command.actor.pk),
-            "items": canonical_items,
-            "document_acceptance_id": str(command.document_acceptance_id),
-            "idempotency_key": idempotency_key,
-        }
-    )
-
-
-def _batch_orders(batch: PrimaryInvestmentOrderBatch) -> list[PrimaryInvestmentOrder]:
-    raw_ids = list(cast(list[Any], batch.order_ids))
-    by_id = {
-        str(order.id): order for order in PrimaryInvestmentOrder.objects.filter(id__in=raw_ids)
-    }
-    orders = [by_id[str(order_id)] for order_id in raw_ids if str(order_id) in by_id]
-    if len(orders) != int(batch.order_count):
-        raise MarketplacePrimaryValidationError(
-            "Batch evidence does not match its investment orders; contact support."
-        )
-    return orders
-
-
-def _batch_originator_purchases(batch: PrimaryInvestmentOrderBatch) -> list[Any]:
-    purchase_model = _model("originator_claims", "OriginatorClaimPurchase")
-    raw_ids = list(cast(list[Any], batch.originator_purchase_ids))
-    by_id = {
-        str(purchase.id): purchase
-        for purchase in purchase_model.objects.select_related(
-            "quote",
-            "loan_profile",
-            "holding",
-            "currency",
-        ).filter(id__in=raw_ids)
-    }
-    purchases = [by_id[str(purchase_id)] for purchase_id in raw_ids if str(purchase_id) in by_id]
-    if len(purchases) != int(batch.originator_purchase_count):
-        raise MarketplacePrimaryValidationError(
-            "Batch evidence does not match its originator-claim purchases; contact support."
-        )
-    return purchases
-
-
-def _existing_batch_for_idempotency(
-    idempotency_key: str,
-    *,
-    expected_fingerprint: str,
-) -> PlacedPrimaryOrderBatch | None:
-    existing = PrimaryInvestmentOrderBatch.objects.filter(idempotency_key=idempotency_key).first()
-    if existing is None:
-        return None
-    if existing.request_fingerprint != expected_fingerprint:
-        raise MarketplacePrimaryValidationError(
-            "Idempotency key was already used for a different batch request."
-        )
-    return PlacedPrimaryOrderBatch(
-        batch=existing,
-        orders=_batch_orders(existing),
-        originator_purchases=_batch_originator_purchases(existing),
-    )
-
-
 def _minimum_subscription_required_minor(loan: Model) -> int:
     loan_ref = cast(Any, loan)
     principal_minor = int(loan_ref.principal_minor)
@@ -1001,15 +857,15 @@ def _validate_primary_document_acceptance(
     return acceptance
 
 
-def _require_not_in_penalty_mode(actor: Model) -> None:
-    """PAY-DEC-022: no new investment while a balance is frozen in penalty mode.
+def _require_verified_return_account(actor: Model, currency: str) -> None:
+    """U33-DEC-04: a verified bank account in the currency before investing.
 
     The ledger reservation enforces the same rule; this check gives the clear message
-    before an order or a batch is started.
+    before an order is started.
     """
     ledger = _ledger_services()
-    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
-        raise MarketplacePrimaryValidationError(ledger.penalty_mode_frozen_message("Investing"))
+    if not ledger.investor_has_verified_return_account(str(actor.pk), currency):
+        raise MarketplacePrimaryValidationError(ledger.verified_return_account_message(currency))
 
 
 def _ledger_services() -> Any:
@@ -1018,6 +874,16 @@ def _ledger_services() -> Any:
 
 def _holdings_services() -> Any:
     return import_module("backend.apps.holdings.services")
+
+
+def _lock_borrower_regime(loan: Model) -> None:
+    """18.9: lock the borrower's creditor regime row (after the loan row). Audit S6-5: a Swiss
+    loan without a valid UID is refused."""
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.lock_borrower(loan)
+    except regimes.CreditorRegimeViolation as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
 
 
 def _loans_services() -> Any:
@@ -1037,13 +903,19 @@ def create_primary_investment_order(
     command: CreatePrimaryInvestmentOrderCommand,
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
+    _require_no_compliance_block(command.actor)
     investor_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     loan = _loan_for_update(command.loan_id)
     _assert_published_loan_open(loan)
+    _require_verified_securities(loan)
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
+    # Audit S6-10: the minimum for a new creditor is quoted under the borrower's regime lock
+    # (after the loan lock), like the allocation that checks it again; a Swiss loan without a
+    # valid UID takes no order (audit S6-5).
+    _lock_borrower_regime(loan)
     remaining_capacity = _loan_remaining_capacity_minor(loan)
     investor_limit = _loan_investor_limit(loan)
     minimum = _order_minimum_minor(
@@ -1080,7 +952,7 @@ def create_primary_investment_order(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor)
+    _require_verified_return_account(command.actor, currency.code)
     _close_abandoned_pending_orders(
         actor=command.actor,
         investor_user_id=investor_id,
@@ -1090,6 +962,10 @@ def create_primary_investment_order(
     metadata = {
         ORDER_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "remaining_capacity_at_order_minor": remaining_capacity,
+        # Audit S6-10: the inputs of the quoted minimum (checked again at allocation).
+        "quoted_minimum_minor": minimum,
+        "quoted_creditor_mode": investor_limit.mode,
+        "quoted_places_left": investor_limit.places_left_for(investor_id),
     }
     try:
         order = PrimaryInvestmentOrder.objects.create(
@@ -1138,6 +1014,7 @@ def allocate_primary_order_from_balance(
     command: AllocatePrimaryInvestmentOrderCommand,
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
+    _require_no_compliance_block(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     order = PrimaryInvestmentOrder.objects.filter(
         id=command.order_id,
@@ -1203,6 +1080,11 @@ def allocate_primary_order_from_balance(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": int(order.requested_amount_minor),
+                    "currency": str(order.currency_id),
+                    "loan_id": str(order.loan_id),
+                },
             )
         )
     except SensitiveActionPinError:
@@ -1217,545 +1099,6 @@ def allocate_primary_order_from_balance(
     )
     allocated.refresh_from_db()
     return allocated
-
-
-def _validate_batch_document_acceptance(
-    *,
-    acceptance_id: str,
-    actor: Model,
-    batch_key: str,
-    canonical_items: list[dict[str, Any]],
-) -> tuple[Model, dict[str, str]]:
-    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
-    acceptance = cast(
-        Model | None,
-        acceptance_model.objects.select_related("template", "template_version")
-        .filter(id=acceptance_id, user_id=actor.pk)
-        .first(),
-    )
-    if acceptance is None:
-        raise MarketplacePrimaryValidationError("Document acceptance does not exist.")
-    acceptance_ref = cast(Any, acceptance)
-    if str(acceptance_ref.category) != "primary_market_investment":
-        raise MarketplacePrimaryValidationError("Document acceptance category is not valid.")
-    if str(acceptance_ref.context_type) != "primary_order_batch":
-        raise MarketplacePrimaryValidationError("Document acceptance context is not valid.")
-    if str(acceptance_ref.context_id) != batch_key:
-        raise MarketplacePrimaryValidationError("Document acceptance does not match this batch.")
-    if str(acceptance_ref.template.current_published_version_id) != str(
-        acceptance_ref.template_version_id
-    ):
-        raise MarketplacePrimaryValidationError("Document acceptance is no longer current.")
-    snapshot = acceptance_ref.data_snapshot
-    if not isinstance(snapshot, dict):
-        raise MarketplacePrimaryValidationError("Batch document acceptance is not valid.")
-    snapshot_items = snapshot.get("items")
-    accepted_items = _canonical_batch_snapshot_items(snapshot_items)
-    if accepted_items != canonical_items:
-        raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not match the requested loans and amounts."
-        )
-    return acceptance, _batch_snapshot_currency_by_loan(
-        snapshot_items,
-        legacy_currency=snapshot.get("currency"),
-    )
-
-
-def _preflight_batch_investments(
-    *,
-    actor: Model,
-    canonical_items: list[dict[str, Any]],
-) -> dict[str, dict[str, str]]:
-    loan_model = _model("loans", "Loan")
-    loan_rows = {
-        str(row["id"]): {
-            "currency": str(row["currency_id"]),
-            "product_type": str(row["product_type"]),
-            "distribution_model": str(row["originator_profile__distribution_model"] or ""),
-        }
-        for row in loan_model.objects.filter(
-            id__in=[item["loan_id"] for item in canonical_items]
-        ).values(
-            "id",
-            "currency_id",
-            "product_type",
-            "originator_profile__distribution_model",
-        )
-    }
-    if len(loan_rows) != len(canonical_items):
-        raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
-
-    quote_ids = [str(item["quote_id"]) for item in canonical_items if item.get("quote_id")]
-    quote_model = _model("originator_claims", "OriginatorClaimQuote")
-    quotes_by_id = {
-        str(quote.id): quote
-        for quote in quote_model.objects.select_related(
-            "loan_profile__loan",
-            "currency",
-        ).filter(id__in=quote_ids, investor_user_id=actor.pk)
-    }
-    if len(quotes_by_id) != len(quote_ids):
-        raise MarketplacePrimaryValidationError(
-            "One or more originator-claim quotes do not exist for this investor."
-        )
-    purchased_quote_ids = set(
-        str(quote_id)
-        for quote_id in _model("originator_claims", "OriginatorClaimPurchase")
-        .objects.filter(quote_id__in=quote_ids)
-        .values_list("quote_id", flat=True)
-    )
-    now = now_utc()
-    for item in canonical_items:
-        loan_id = str(item["loan_id"])
-        product_type = loan_rows[loan_id]["product_type"]
-        quote_id = str(item.get("quote_id") or "")
-        if product_type == "direct":
-            if quote_id:
-                raise MarketplacePrimaryValidationError(
-                    "Direct-loan batch items cannot include an originator-claim quote."
-                )
-            continue
-        if product_type != "originator_claim":
-            raise MarketplacePrimaryValidationError(
-                "This loan type cannot be placed through a primary investment batch."
-            )
-        if loan_rows[loan_id]["distribution_model"] == "par_component_v2":
-            if quote_id:
-                raise MarketplacePrimaryValidationError(
-                    "Originator subscription items cannot include an executable quote."
-                )
-            continue
-        if not quote_id:
-            raise MarketplacePrimaryValidationError(
-                "Every originator-claim batch item requires an executable quote."
-            )
-        quote = quotes_by_id[quote_id]
-        if str(cast(Any, quote).loan_profile.loan_id) != loan_id:
-            raise MarketplacePrimaryValidationError(
-                "An originator-claim quote does not match its selected loan."
-            )
-        if str(cast(Any, quote).currency_id) != loan_rows[loan_id]["currency"]:
-            raise MarketplacePrimaryValidationError(
-                "An originator-claim quote currency does not match its selected loan."
-            )
-        if int(cast(Any, quote).executable_cash_minor) != int(item["amount_minor"]):
-            raise MarketplacePrimaryValidationError(
-                "An originator-claim quote amount changed. Review refreshed prices."
-            )
-        if cast(Any, quote).expires_at <= now:
-            raise MarketplacePrimaryValidationError(
-                "An originator-claim quote expired. Refresh prices before confirming."
-            )
-        if quote_id in purchased_quote_ids:
-            raise MarketplacePrimaryValidationError(
-                "An originator-claim quote has already been purchased."
-            )
-    return loan_rows
-
-
-def _derive_batch_order_acceptance(
-    *,
-    actor: Model,
-    parent_acceptance: Model,
-    order: PrimaryInvestmentOrder,
-    batch_key: str,
-) -> Model:
-    documents = _documents_services()
-    parent_ref = cast(Any, parent_acceptance)
-    try:
-        return cast(
-            Model,
-            documents.accept_document_terms(
-                documents.AcceptDocumentTermsCommand(
-                    actor=actor,
-                    category=str(parent_ref.category),
-                    template_key=str(parent_ref.template.template_key),
-                    language=str(parent_ref.template.language),
-                    expected_template_version_id=str(parent_ref.template_version_id),
-                    accepted_checkbox_labels=list(parent_ref.accepted_checkbox_labels),
-                    context_type="primary_order",
-                    context_id=str(order.id),
-                    data_snapshot={
-                        "batch": {
-                            "idempotency_key": batch_key,
-                            "source_acceptance_id": str(parent_ref.id),
-                        }
-                    },
-                    ip_address=parent_ref.ip_address,
-                    user_agent=str(parent_ref.user_agent),
-                    idempotency_key=_child_idempotency_key(
-                        "batch-acceptance",
-                        batch_key,
-                        str(order.loan_id),
-                    ),
-                    metadata={
-                        "derived_from_batch_acceptance_id": str(parent_ref.id),
-                        "batch_idempotency_key": batch_key,
-                    },
-                )
-            ),
-        )
-    except documents.DocumentsError as exc:
-        raise MarketplacePrimaryValidationError(str(exc)) from exc
-
-
-def _derive_batch_originator_acceptance(
-    *,
-    actor: Model,
-    parent_acceptance: Model,
-    quote_id: str,
-    batch_key: str,
-) -> Model:
-    documents = _documents_services()
-    parent_ref = cast(Any, parent_acceptance)
-    try:
-        return cast(
-            Model,
-            documents.accept_document_terms(
-                documents.AcceptDocumentTermsCommand(
-                    actor=actor,
-                    category=str(parent_ref.category),
-                    template_key=str(parent_ref.template.template_key),
-                    language=str(parent_ref.template.language),
-                    expected_template_version_id=str(parent_ref.template_version_id),
-                    accepted_checkbox_labels=list(parent_ref.accepted_checkbox_labels),
-                    context_type="originator_claim_quote",
-                    context_id=quote_id,
-                    data_snapshot={
-                        "batch": {
-                            "idempotency_key": batch_key,
-                            "source_acceptance_id": str(parent_ref.id),
-                        }
-                    },
-                    ip_address=parent_ref.ip_address,
-                    user_agent=str(parent_ref.user_agent),
-                    idempotency_key=_child_idempotency_key(
-                        "batch-claim-acceptance",
-                        batch_key,
-                        quote_id,
-                    ),
-                    metadata={
-                        "derived_from_batch_acceptance_id": str(parent_ref.id),
-                        "batch_idempotency_key": batch_key,
-                    },
-                )
-            ),
-        )
-    except documents.DocumentsError as exc:
-        raise MarketplacePrimaryValidationError(str(exc)) from exc
-
-
-def place_primary_order_batch(
-    command: PlacePrimaryOrderBatchCommand,
-) -> PlacedPrimaryOrderBatch:
-    """Place several primary investments behind one terms acceptance and one code.
-
-    Direct loans and v2 originator subscriptions become allocated orders. Historical
-    v1 originator claims retain their quoted immediate-purchase path. If any selected
-    investment fails, the entire batch rolls back.
-    """
-    _require_investor_financial_access(command.actor)
-    idempotency_key = _clean_batch_idempotency_key(command.idempotency_key)
-    canonical_items = _canonical_batch_items(command.items)
-    request_fingerprint = _batch_request_fingerprint(
-        command,
-        canonical_items=canonical_items,
-        idempotency_key=idempotency_key,
-    )
-    existing = _existing_batch_for_idempotency(
-        idempotency_key,
-        expected_fingerprint=request_fingerprint,
-    )
-    if existing is not None:
-        _resolve_fully_subscribed_originator_orders(
-            actor=command.actor,
-            orders=existing.orders,
-        )
-        return existing
-    _require_not_in_penalty_mode(command.actor)
-    acceptance, accepted_currency_by_loan = _validate_batch_document_acceptance(
-        acceptance_id=command.document_acceptance_id,
-        actor=command.actor,
-        batch_key=idempotency_key,
-        canonical_items=canonical_items,
-    )
-    preflight_loans = _preflight_batch_investments(
-        actor=command.actor,
-        canonical_items=canonical_items,
-    )
-    preflight_currencies = {loan_id: row["currency"] for loan_id, row in preflight_loans.items()}
-    if preflight_currencies != accepted_currency_by_loan:
-        raise MarketplacePrimaryValidationError(
-            "Batch document acceptance currencies do not match the selected loans."
-        )
-    try:
-        verify_sensitive_action_code(
-            SensitiveActionVerificationCommand(
-                actor=command.actor,
-                action=PRIMARY_INVESTMENT_ACTION,
-                code_id=command.sensitive_action_code_id,
-                raw_code=command.sensitive_action_code,
-                pin=command.pin,
-                ip_address=command.ip_address,
-                user_agent=command.user_agent,
-            )
-        )
-    except SensitiveActionPinError:
-        raise
-    except SensitiveActionVerificationError as exc:
-        raise MarketplacePrimaryValidationError(str(exc)) from exc
-
-    with transaction.atomic():
-        loan_model = _model("loans", "Loan")
-        order_items = [
-            item
-            for item in canonical_items
-            if preflight_loans[str(item["loan_id"])]["product_type"] == "direct"
-            or preflight_loans[str(item["loan_id"])]["distribution_model"] == "par_component_v2"
-        ]
-        locked_loans = list(
-            loan_model.objects.select_for_update()
-            .filter(id__in=[item["loan_id"] for item in order_items])
-            .order_by("id")
-        )
-        if len(locked_loans) != len(order_items):
-            raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
-        existing_after_lock = _existing_batch_for_idempotency(
-            idempotency_key,
-            expected_fingerprint=request_fingerprint,
-        )
-        if existing_after_lock is not None:
-            _resolve_fully_subscribed_originator_orders(
-                actor=command.actor,
-                orders=existing_after_lock.orders,
-            )
-            return existing_after_lock
-        loans_by_id = {str(cast(Any, loan).id): loan for loan in locked_loans}
-        currency_by_loan = dict(preflight_currencies)
-        for item in order_items:
-            loan = loans_by_id[str(item["loan_id"])]
-            loan_ref = cast(Any, loan)
-            _assert_published_loan_open(loan)
-            expected = preflight_loans[str(item["loan_id"])]
-            if str(loan_ref.product_type) != expected["product_type"]:
-                raise MarketplacePrimaryValidationError(
-                    "A selected batch loan changed product type."
-                )
-            profile = _originator_subscription_profile(loan)
-            if expected["distribution_model"] == "par_component_v2" and profile is None:
-                raise MarketplacePrimaryValidationError(
-                    "A selected Loan Originator subscription changed distribution model."
-                )
-            currency_code = str(loan_ref.currency_id)
-            if currency_code != currency_by_loan[str(item["loan_id"])]:
-                raise MarketplacePrimaryValidationError(
-                    "A selected loan currency changed before the batch could be placed."
-                )
-            amount_minor = _validate_money(
-                int(item["amount_minor"]),
-                currency_code,
-                "Investment amount",
-            )
-            remaining_capacity = _loan_remaining_capacity_minor(loan)
-            investor_limit = _loan_investor_limit(loan)
-            loan_label = f"{loan_ref.title}: "
-            try:
-                minimum = _order_minimum_minor(
-                    loan=loan,
-                    limit=investor_limit,
-                    investor_user_id=str(command.actor.pk),
-                    remaining_capacity_minor=remaining_capacity,
-                )
-            except MarketplacePrimarySwissInvestorLimitError:
-                # Name the loan: the batch holds several. Nothing was committed.
-                _raise_swiss_investor_limit(investor_limit, prefix=loan_label)
-            if amount_minor < minimum:
-                if minimum > _loan_minimum_investment_minor(loan):
-                    raise MarketplacePrimaryValidationError(
-                        f"{loan_label}"
-                        f"{_swiss_new_investor_minimum_message(loan, investor_limit, minimum)} "
-                        "Nothing was committed."
-                    )
-                raise MarketplacePrimaryValidationError(
-                    "A batch investment amount is below the selected loan's minimum."
-                )
-            if amount_minor > remaining_capacity:
-                raise MarketplacePrimaryValidationError(
-                    "A batch investment amount exceeds remaining loan capacity; "
-                    "nothing was committed."
-                )
-        if currency_by_loan != accepted_currency_by_loan:
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance currencies do not match the selected loans."
-            )
-        for currency_code in set(currency_by_loan.values()):
-            _enabled_currency(currency_code)
-
-        allocated_orders: list[PrimaryInvestmentOrder] = []
-        # Preserve newer sources for campaigns whose windows require them.
-        allocation_items = sorted(
-            order_items,
-            key=lambda item: (
-                -cast(Any, loans_by_id[str(item["loan_id"])]).funding_deadline.toordinal(),
-                str(item["loan_id"]),
-            ),
-        )
-        for item in allocation_items:
-            order = create_primary_investment_order(
-                CreatePrimaryInvestmentOrderCommand(
-                    actor=command.actor,
-                    loan_id=str(item["loan_id"]),
-                    amount_minor=int(item["amount_minor"]),
-                    idempotency_key=_child_idempotency_key(
-                        "batch-order",
-                        idempotency_key,
-                        str(item["loan_id"]),
-                    ),
-                )
-            )
-            order_acceptance = _derive_batch_order_acceptance(
-                actor=command.actor,
-                parent_acceptance=acceptance,
-                order=order,
-                batch_key=idempotency_key,
-            )
-            allocated = _allocate_primary_order_from_balance_after_sensitive_code(
-                AllocatePrimaryInvestmentOrderCommand(
-                    actor=command.actor,
-                    order_id=str(order.id),
-                    document_acceptance_id=str(cast(Any, order_acceptance).id),
-                    idempotency_key=_child_idempotency_key(
-                        "batch-allocation",
-                        idempotency_key,
-                        str(item["loan_id"]),
-                    ),
-                    ip_address=command.ip_address,
-                    user_agent=command.user_agent,
-                )
-            )
-            if allocated.status != PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED or int(
-                allocated.allocated_amount_minor
-            ) != int(item["amount_minor"]):
-                raise MarketplacePrimaryValidationError(
-                    "Every batch order must allocate its exact reviewed amount; "
-                    "nothing was committed."
-                )
-            allocated_orders.append(allocated)
-
-        originator_purchases: list[Any] = []
-        originator_services = import_module("backend.apps.originator_claims.services")
-        originator_items = [
-            item
-            for item in canonical_items
-            if preflight_loans[str(item["loan_id"])]["product_type"] == "originator_claim"
-            and preflight_loans[str(item["loan_id"])]["distribution_model"] != "par_component_v2"
-        ]
-        for item in originator_items:
-            quote_id = str(item["quote_id"])
-            quote_acceptance = _derive_batch_originator_acceptance(
-                actor=command.actor,
-                parent_acceptance=acceptance,
-                quote_id=quote_id,
-                batch_key=idempotency_key,
-            )
-            try:
-                purchase = originator_services.purchase_originator_claim_in_verified_batch(
-                    originator_services.PurchaseOriginatorClaimInVerifiedBatchCommand(
-                        actor=command.actor,
-                        quote_id=quote_id,
-                        document_acceptance_id=str(cast(Any, quote_acceptance).id),
-                        idempotency_key=_child_idempotency_key(
-                            "batch-claim-purchase",
-                            idempotency_key,
-                            quote_id,
-                        ),
-                        ip_address=command.ip_address,
-                        user_agent=command.user_agent,
-                    )
-                )
-            except (
-                originator_services.OriginatorClaimsAuthorizationError,
-                originator_services.OriginatorClaimsValidationError,
-            ) as exc:
-                if getattr(exc, "code", "") == SWISS_INVESTOR_LIMIT_CODE:
-                    raise MarketplacePrimarySwissInvestorLimitError(str(exc)) from exc
-                raise MarketplacePrimaryValidationError(str(exc)) from exc
-            if int(purchase.cash_consideration_minor) != int(item["amount_minor"]):
-                raise MarketplacePrimaryValidationError(
-                    "Every originator claim must settle its exact reviewed quote; "
-                    "nothing was committed."
-                )
-            originator_purchases.append(purchase)
-        currency_totals = _canonical_batch_currency_totals(
-            canonical_items,
-            currency_by_loan=currency_by_loan,
-        )
-        legacy_currency = None
-        legacy_total_amount_minor = None
-        if len(currency_totals) == 1:
-            legacy_currency = _enabled_currency(str(currency_totals[0]["currency"]))
-            legacy_total_amount_minor = int(currency_totals[0]["amount_minor"])
-        try:
-            with transaction.atomic():
-                batch = PrimaryInvestmentOrderBatch.objects.create(
-                    investor_user_id=command.actor.pk,
-                    currency=legacy_currency,
-                    document_acceptance_id=cast(Any, acceptance).id,
-                    item_snapshot=canonical_items,
-                    order_ids=[str(order.id) for order in allocated_orders],
-                    order_count=len(allocated_orders),
-                    originator_purchase_ids=[str(purchase.id) for purchase in originator_purchases],
-                    originator_purchase_count=len(originator_purchases),
-                    currency_totals=currency_totals,
-                    total_amount_minor=legacy_total_amount_minor,
-                    request_fingerprint=request_fingerprint,
-                    idempotency_key=idempotency_key,
-                )
-        except IntegrityError:
-            existing_after_race = _existing_batch_for_idempotency(
-                idempotency_key,
-                expected_fingerprint=request_fingerprint,
-            )
-            if existing_after_race is None:
-                raise
-            return existing_after_race
-        event_metadata = {
-            "investor_user_id": str(command.actor.pk),
-            "currencies": [item["currency"] for item in currency_totals],
-            "currency_totals": currency_totals,
-            "order_ids": [str(order.id) for order in allocated_orders],
-            "order_count": len(allocated_orders),
-            "originator_purchase_ids": [str(purchase.id) for purchase in originator_purchases],
-            "originator_purchase_count": len(originator_purchases),
-            "document_acceptance_id": str(cast(Any, acceptance).id),
-        }
-        record_audit_event(
-            AuditCommand(
-                actor=actor_ref_for_user(command.actor),
-                action="marketplace_primary.order_batch_placed",
-                target_type="PrimaryInvestmentOrderBatch",
-                target_id=str(batch.id),
-                metadata=event_metadata,
-            )
-        )
-        record_domain_event(
-            DomainEventCommand(
-                event_type="PrimaryInvestmentOrderBatchPlaced",
-                aggregate_type="PrimaryInvestmentOrderBatch",
-                aggregate_id=str(batch.id),
-                payload=event_metadata,
-            )
-        )
-        result = PlacedPrimaryOrderBatch(
-            batch=batch,
-            orders=allocated_orders,
-            originator_purchases=originator_purchases,
-        )
-    _resolve_fully_subscribed_originator_orders(
-        actor=command.actor,
-        orders=result.orders,
-    )
-    return result
 
 
 @transaction.atomic
@@ -1844,8 +1187,12 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             metadata={"reason": "no_capacity_at_allocation"},
         )
         return order
-    # Swiss-borrower limit (MKT-DEC-028): counted under the loan lock taken above, so
-    # two new investors cannot both take the last place.
+    # Swiss creditor limit (18.9): counted under the loan lock taken above and the borrower's
+    # regime lock, so two new creditors of the same UID cannot both take the last place.
+    _lock_borrower_regime(loan)
+    _require_no_compliance_block_locked(command.actor)
+    _require_verified_securities(loan)
+    _assert_sandbox_notice_confirmed(loan, command)
     investor_limit = _loan_investor_limit(loan)
     _assert_order_within_investor_limit(
         loan=loan,
@@ -1892,6 +1239,18 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         )
         return order
     amount_to_allocate = min(order.requested_amount_minor, remaining_capacity)
+    # 18.7 (Q09, F02): an offer priced as principal + accrued interest reserves the whole price,
+    # fixed for the planned settlement day (no maximum price, no reconfirmation).
+    accrued_interest_minor = 0
+    if subscription_profile is not None:
+        originator = _originator_services()
+        try:
+            accrued_interest_minor = int(
+                originator.accrued_interest_for_principal(subscription_profile, amount_to_allocate)
+            )
+        except originator.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
+    reserved_amount_minor = amount_to_allocate + accrued_interest_minor
     ledger = _ledger_services()
     try:
         reservation_result = ledger.reserve_investor_balance_for_investment(
@@ -1899,9 +1258,11 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
                 actor=command.actor,
                 investor_user_id=str(order.investor_user_id),
                 loan_id=str(order.loan_id),
-                amount_minor=amount_to_allocate,
+                amount_minor=reserved_amount_minor,
                 currency=order.currency_id,
                 loan_funding_deadline=loan_ref.funding_deadline,
+                # F01 (18.4): direct loans need the payout margin before day 56 of each lot.
+                direct_loan=str(loan_ref.product_type) != "originator_claim",
                 source_type="primary_investment_order",
                 source_id=str(order.id),
                 idempotency_key=idempotency_key,
@@ -1928,6 +1289,13 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
         "remaining_capacity_at_allocation_minor": remaining_capacity,
         "unallocated_requested_amount_minor": order.requested_amount_minor - amount_to_allocate,
     }
+    if accrued_interest_minor:
+        order.metadata["price_accrued_interest_minor"] = accrued_interest_minor
+        order.metadata["reserved_amount_minor"] = reserved_amount_minor
+    if getattr(command, "sandbox_notice_confirmed", False):
+        # E-03: proof of the notice version the investor confirmed.
+        order.metadata["sandbox_notice_version"] = str(command.sandbox_notice_version)
+        order.metadata["sandbox_notice_confirmed_at"] = now_utc().isoformat()
     order.save(
         update_fields=[
             "status",
@@ -2088,7 +1456,7 @@ def release_primary_order_balance(
                 actor=command.actor,
                 investor_user_id=str(order.investor_user_id),
                 loan_id=str(order.loan_id),
-                amount_minor=order.allocated_amount_minor,
+                amount_minor=order_reserved_amount_minor(order),
                 currency=order.currency_id,
                 source_type="primary_investment_order",
                 source_id=str(order.id),
@@ -2129,9 +1497,11 @@ def release_primary_order_balance(
         "investor_user_id": str(order.investor_user_id),
         "loan_id": str(order.loan_id),
         "currency": order.currency_id,
-        "released_amount_minor": order.allocated_amount_minor,
+        "released_amount_minor": order_reserved_amount_minor(order),
         "release_journal_entry_id": str(release_result.journal_entry.id),
         "reason": reason,
+        # Q26: the investor-facing reason of the release (the admin's reason stays internal).
+        "reason_code": "loan_funding_cancelled" if funding_resolution else "released_by_banxum",
     }
     _record_order_event(
         order=order,
@@ -2475,6 +1845,12 @@ def close_primary_loan_funding(
             "Borrower is declined, under review, or subject to a compliance hold. "
             "Routine KYB expiry does not block funding close."
         )
+    # 18.9 (F08): the creditor mode is checked again before the close; a failure stops it.
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.check_before_close(loan, on=business_date(now_utc()))
+    except regimes.CreditorRegimeViolation as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
     minimum_required_minor = _minimum_subscription_required_minor(loan)
     if int(loan_ref.committed_principal_minor) < minimum_required_minor:
         raise MarketplacePrimaryValidationError(
@@ -3118,6 +2494,21 @@ def loan_funding_progress(loan_id: str) -> dict[str, Any]:
     }
 
 
+def _recovery_stages_for(loan_ref: Any) -> dict[str, Any]:
+    """U33-DEC-22: the recorded stages and the known next step, for the credit file."""
+    loan_id = str(loan_ref.id)
+    return cast(
+        dict[str, Any],
+        import_module("backend.apps.servicing.recovery_stages").investor_recovery_stages([loan_id])[
+            loan_id
+        ],
+    )
+
+
+def _loan_securities_module() -> Any:
+    return import_module("backend.apps.loans.securities")
+
+
 def public_marketplace_listing_payload(
     loan: Model,
     *,
@@ -3129,6 +2520,7 @@ def public_marketplace_listing_payload(
     without one, what a new investor must invest (Swiss-borrower limit, MKT-DEC-028).
     """
     loan_ref = cast(Any, loan)
+    borrower = getattr(loan_ref, "borrower", None)
     progress = loan_funding_progress(str(loan_ref.id))
     limit_fields = investor_limits.investor_limit_payload(
         _loan_investor_limit(loan),
@@ -3137,18 +2529,20 @@ def public_marketplace_listing_payload(
         viewer_user_id=viewer_user_id,
     )
     return {
+        **creditor_mode_fields(loan),
         **progress,
         "product_type": str(loan_ref.product_type),
         "investment_flow": "primary_order",
         "title": str(loan_ref.title),
         "purpose": str(loan_ref.purpose),
         "collateral_type": str(loan_ref.collateral_type),
+        # U33-DEC-21: every security type in force, for the filters and Smart Invest.
+        "security_types": _loan_securities_module().loan_security_types(loan_ref),
         "interest_rate_bps": int(loan_ref.interest_rate_bps),
         "yield_bps": int(loan_ref.interest_rate_bps),
         "underlying_interest_rate_bps": int(loan_ref.interest_rate_bps),
         "term_months": int(loan_ref.term_months),
         "remaining_term_days": None,
-        "risk_rating": str(loan_ref.risk_rating),
         "funding_deadline": loan_ref.funding_deadline,
         "maturity_date": None,
         "status": str(loan_ref.status),
@@ -3160,7 +2554,14 @@ def public_marketplace_listing_payload(
         "is_refinancing": bool(loan_ref.is_refinancing),
         "originator_id": None,
         "originator_name": None,
-        "borrower_display_name": None,
+        # The borrower's legal name and country are part of the investor disclosure of every
+        # Direct loan (entities.borrower_investor_disclosure); the U33 cards show them.
+        "borrower_display_name": str(getattr(borrower, "legal_name", "") or "") or None,
+        "borrower_country": str(getattr(borrower, "country", "") or ""),
+        "borrower_city": str(getattr(borrower, "city", "") or ""),
+        "repayment_type": str(loan_ref.repayment_type),
+        "collateral_description": str(loan_ref.collateral_description),
+        "published_at": loan_ref.published_at,
         "skin_in_the_game_bps": int(getattr(loan_ref, "skin_in_the_game_bps", 0)),
         "minimum_subscription_bps": int(getattr(loan_ref, "minimum_subscription_bps", 5_000)),
     }
@@ -3214,6 +2615,17 @@ def full_marketplace_listing_payload(
             "purpose_description": str(loan_ref.purpose_description),
             "collateral_value_minor": int(loan_ref.collateral_value_minor),
             "collateral_description": str(loan_ref.collateral_description),
+            "securities": _loan_securities_module().investor_securities([str(loan_ref.id)])[
+                str(loan_ref.id)
+            ],
+            # U33-DEC-20: structured credit file (financial years, existing debt, checks).
+            **import_module("backend.apps.entities.credit_file").investor_credit_file(borrower),
+            **import_module("backend.apps.loans.credit_checks").investor_checks(loan_ref),
+            # 18.3: the credit file's "Updated" date.
+            "credit_file_updated_at": import_module(
+                "backend.apps.loans.credit_checks"
+            ).credit_file_updated_at(loan_ref, borrower),
+            "recovery_stages": _recovery_stages_for(loan_ref),
             "default_penalty_interest_bps": int(loan_ref.default_penalty_interest_bps),
             "ltv_bps": loan_ref.ltv_bps,
             "ltv_warnings": loan_ref.ltv_warnings,
@@ -3294,10 +2706,55 @@ def list_open_marketplace_loans(
     )[:limit]
 
 
+# Q04 (2026-11-13): the investor accounts through which Garanta Finanzgruppe AG invests its own
+# money (emails of ordinary investor accounts), set by an admin.
+BANXUM_INVESTOR_EMAILS_SETTING = "investment.banxum_investor_emails"
+_BANXUM_RESERVED_ORDER_STATUSES = ("balance_allocated", "partially_allocated", "closed_invested")
+
+
+def banxum_invests_loan_ids(loan_ids: list[str]) -> set[str]:
+    """Q04: loans with a confirmed reservation or a real participation of a Garanta account.
+
+    The label "Banxum invests" shows no amount. It appears with a confirmed reservation (an
+    allocated order), stays after closing while the participation is held, and goes away when
+    the participation is cancelled or released.
+    """
+    emails = get_platform_setting_value(BANXUM_INVESTOR_EMAILS_SETTING, [])
+    if not loan_ids or not isinstance(emails, list) or not emails:
+        return set()
+    user_ids = list(
+        apps.get_model("accounts_auth", "User")
+        .objects.filter(email__in=[str(email).strip().lower() for email in emails if email])
+        .values_list("id", flat=True)
+    )
+    if not user_ids:
+        return set()
+    reserved = PrimaryInvestmentOrder.objects.filter(
+        loan_id__in=loan_ids,
+        investor_user_id__in=user_ids,
+        status__in=_BANXUM_RESERVED_ORDER_STATUSES,
+    ).values_list("loan_id", flat=True)
+    held = (
+        apps.get_model("holdings", "InvestorLoanHolding")
+        .objects.filter(loan_id__in=loan_ids, investor_user_id__in=user_ids, status="active")
+        .values_list("loan_id", flat=True)
+    )
+    return {str(loan_id) for loan_id in reserved} | {str(loan_id) for loan_id in held}
+
+
+def _with_banxum_invests(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ids = banxum_invests_loan_ids([str(payload["loan_id"]) for payload in payloads])
+    for payload in payloads:
+        payload["banxum_invests"] = str(payload["loan_id"]) in ids
+    return payloads
+
+
 def list_investor_marketplace_loans(*, actor: Model, limit: int = 100) -> list[dict[str, Any]]:
     """The investor marketplace list: full preview data, behind KYC (MKT-DEC-002)."""
     _require_investor_financial_access(actor)
-    return list_open_marketplace_loans(limit=limit, viewer_user_id=str(actor.pk))
+    return _with_banxum_invests(
+        list_open_marketplace_loans(limit=limit, viewer_user_id=str(actor.pk))
+    )
 
 
 def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
@@ -3309,8 +2766,14 @@ def marketplace_payload_has_capacity(payload: dict[str, Any]) -> bool:
 
 
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
+    return _with_banxum_invests([_full_marketplace_loan(actor=actor, loan_id=loan_id)])[0]
+
+
+def _full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
     _require_investor_financial_access(actor)
     loan = _loan_for_read(loan_id)
+    if _is_coming_soon(loan):
+        return _coming_soon_payload(loan, viewer_user_id=str(actor.pk), full=True)
     if str(cast(Any, loan).product_type) == "originator_claim":
         originator_services = _originator_services()
         try:
@@ -3398,3 +2861,164 @@ def allocated_primary_order_total_minor(*, loan_id: str) -> int:
         ],
     ).aggregate(total=Sum("allocated_amount_minor"))
     return int(aggregate["total"] or 0)
+
+
+# U33-DEC-17: Coming soon and the opening alert.
+
+
+def _is_coming_soon(loan: Model) -> bool:
+    loan_ref = cast(Any, loan)
+    return (
+        str(loan_ref.status) == "draft"
+        and str(loan_ref.product_type) in {"direct", "originator_claim"}
+        and loan_ref.coming_soon_at is not None
+    )
+
+
+def _coming_soon_payload(loan: Model, *, viewer_user_id: str, full: bool = False) -> dict[str, Any]:
+    if str(cast(Any, loan).product_type) == "originator_claim":
+        # Q17: a Coming soon Loan Originator offer uses the originator projection (no capacity).
+        originator = _originator_services()
+        try:
+            payload = cast(
+                dict[str, Any],
+                originator.originator_coming_soon_payload(
+                    loan_id=str(cast(Any, loan).id), include_detail=full
+                ),
+            )
+        except originator.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
+    else:
+        payload = (
+            full_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+            if full
+            else public_marketplace_listing_payload(loan, viewer_user_id=viewer_user_id)
+        )
+    loan_ref = cast(Any, loan)
+    return {
+        **payload,
+        "opportunity_status": "coming_soon",
+        "planned_opening_date": loan_ref.planned_opening_date,
+        "opening_alert_requested": LoanOpeningAlert.objects.filter(
+            loan_id=loan_ref.id, investor_user_id=viewer_user_id
+        ).exists(),
+    }
+
+
+def list_coming_soon_marketplace_loans(*, actor: Model) -> list[dict[str, Any]]:
+    """Drafts shown as Coming soon, by planned opening date. Not open: no orders."""
+    _require_investor_financial_access(actor)
+    return coming_soon_marketplace_payloads(viewer_user_id=str(actor.pk))
+
+
+def coming_soon_marketplace_payloads(*, viewer_user_id: str) -> list[dict[str, Any]]:
+    """The Coming soon list for one investor (also Smart Invest's Coming soon matches)."""
+    loan_model = _model("loans", "Loan")
+    loans = (
+        loan_model.objects.filter(
+            status="draft",
+            product_type__in=["direct", "originator_claim"],
+            coming_soon_at__isnull=False,
+        )
+        .select_related("borrower")
+        .order_by("planned_opening_date", "id")
+    )
+    return [
+        _coming_soon_payload(cast(Model, loan), viewer_user_id=viewer_user_id) for loan in loans
+    ]
+
+
+def opening_alert_counts(loan_ids: list[str]) -> dict[str, int]:
+    """Admin: how many investors wait for the opening email of each loan (not yet sent)."""
+    rows = (
+        LoanOpeningAlert.objects.filter(loan_id__in=loan_ids, notified_at__isnull=True)
+        .values("loan_id")
+        .annotate(count=Count("id"))
+    )
+    return {str(row["loan_id"]): int(row["count"]) for row in rows}
+
+
+def set_loan_opening_alert(*, actor: Model, loan_id: str, wanted: bool) -> dict[str, Any]:
+    """Ask for (or cancel) the email at the real opening of a Coming soon loan."""
+    _require_investor_financial_access(actor)
+    loan = _loan_for_read(loan_id)
+    if not _is_coming_soon(loan):
+        raise MarketplacePrimaryValidationError("This opportunity is not coming soon.")
+    if wanted:
+        LoanOpeningAlert.objects.get_or_create(
+            loan_id=cast(Any, loan).id, investor_user_id=actor.pk
+        )
+    else:
+        LoanOpeningAlert.objects.filter(
+            loan_id=cast(Any, loan).id, investor_user_id=actor.pk, notified_at__isnull=True
+        ).delete()
+    return _coming_soon_payload(loan, viewer_user_id=str(actor.pk), full=True)
+
+
+def stop_loan_opening_alert(*, investor_user_id: str, loan_id: str) -> bool:
+    """Q14: "Stop these alerts" in an opening email cancels the request for that project."""
+    deleted, _ = LoanOpeningAlert.objects.filter(
+        loan_id=loan_id, investor_user_id=investor_user_id, notified_at__isnull=True
+    ).delete()
+    if deleted:
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef("investor", str(investor_user_id)),
+                action="marketplace.opening_alert_stopped",
+                target_type="Loan",
+                target_id=str(loan_id),
+                metadata={"decision": "Q14", "source": "email_stop_link"},
+            )
+        )
+    return bool(deleted)
+
+
+def send_loan_opening_alerts(*, loan_id: str) -> list[str]:
+    """At publication: one email per investor who asked, listed in their notifications.
+
+    Returns the investors told, so Smart Invest does not alert them again for this loan.
+    """
+    loan_model = _model("loans", "Loan")
+    loan = loan_model.objects.filter(id=loan_id).first()
+    if loan is None or str(loan.status) != "published":
+        return []
+    user_model = _model("accounts_auth", "User")
+    notified: list[str] = []
+    now = now_utc()
+    action_url = f"{settings.PUBLIC_APP_BASE_URL.rstrip('/')}/marketplace/{loan.id}"
+    pending = LoanOpeningAlert.objects.select_for_update().filter(
+        loan_id=loan.id, notified_at__isnull=True
+    )
+    for alert in pending:
+        user = user_model.objects.filter(pk=alert.investor_user_id, is_active=True).first()
+        if user is None:
+            continue
+        message = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"loan-opening-alert:{alert.id}",
+                topic="email.loan_opening_alert",
+                payload={
+                    "user_id": str(user.pk),
+                    "email": str(user.email),
+                    "subject": f"Now open: {loan.title}",
+                    "notice_label": "Opportunity open",
+                    "headline": "The opportunity you followed is open",
+                    "status_label": "Open",
+                    "status_tone": "info",
+                    "body_text": (
+                        f"{loan.title} is now open for investment. You asked us to tell you "
+                        "when it opens. Nothing was reserved for you: review the opportunity "
+                        "and confirm your investment if you want to invest."
+                    ),
+                    "buttons": [{"label": "Review opportunity", "url": action_url}],
+                    "loan_id": str(loan.id),
+                    # Q14: the email carries a one-click "Stop these alerts" link.
+                    "stop_alerts": {"kind": "opening_alert", "loan_id": str(loan.id)},
+                    "template_key": "marketplace.opening_alert.v1",
+                    "fine_print": "Capital is at risk. Opening does not guarantee a place.",
+                },
+            )
+        )
+        LoanOpeningAlert.objects.filter(pk=alert.pk).update(notified_at=now, outbox_message=message)
+        notified.append(str(user.pk))
+    return notified

@@ -38,8 +38,12 @@ function adminMe() {
       status: "active",
       phone_verified: true,
       marketing_consent: false,
+      number_format: "european",
+      language: "en",
       pin_set: false,
-      pin_locked_until: null
+      pin_locked_until: null,
+      second_factor: "app",
+      phone_number_masked: ""
     },
     platform_business_date: "2026-06-08"
   });

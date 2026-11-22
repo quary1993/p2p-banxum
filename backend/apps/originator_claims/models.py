@@ -32,6 +32,19 @@ class OriginatorDistributionModel(models.TextChoices):
     PAR_COMPONENT_V2 = "par_component_v2", "Par subscription with component participation"
 
 
+class OriginatorPricingRule(models.TextChoices):
+    """How a subscription offer is priced (18.7).
+
+    ``boundary_installment``: the first installment after the funding deadline belongs to the
+    Loan Originator and investors buy the principal after it at par (offers before 18.7).
+    ``accrued_interest``: investors pay the principal at the planned settlement day plus the
+    accrued interest of the rights they buy, and receive the next payment (Q09, F02).
+    """
+
+    BOUNDARY_INSTALLMENT = "boundary_installment", "Boundary installment (before 18.7)"
+    ACCRUED_INTEREST = "accrued_interest", "Principal plus accrued interest (18.7)"
+
+
 class OriginatorImportPaymentType(models.TextChoices):
     REGULAR = "regular", "Regular payment"
     REPAYMENT_IN_ADVANCE = "repayment_in_advance", "Repayment in advance"
@@ -59,6 +72,7 @@ class OriginatorClaimEventType(models.TextChoices):
     REPAYMENT_RECORDED = "repayment_recorded", "Repayment recorded"
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
     SETTLEMENT_RECORDED = "settlement_recorded", "Settlement recorded"
+    OFFER_FAILED = "offer_failed", "Offer failed (payment or due date before settlement)"
 
 
 class LoanOriginator(TimestampedModel):
@@ -68,6 +82,12 @@ class LoanOriginator(TimestampedModel):
     registration_number = models.CharField(max_length=128)
     jurisdiction = models.CharField(max_length=64)
     registered_address = models.TextField()
+    # U33-DEC-23: shown on the Loan originators page when present; unknown stays empty.
+    founded_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    # 18.3: the design's public "About the originator" text (what the company does).
+    about = models.TextField(blank=True)
+    city = models.CharField(max_length=128, blank=True)
+    sector = models.CharField(max_length=128, blank=True)
     contact_info = models.TextField(blank=True)
     settlement_account_name = models.CharField(max_length=255)
     settlement_iban = models.CharField(max_length=128)
@@ -134,6 +154,19 @@ class OriginatorLoanProfile(TimestampedModel):
     funding_deadline = models.DateField(null=True, blank=True)
     entitlement_start_date = models.DateField(null=True, blank=True)
     activation_outstanding_principal_minor = models.BigIntegerField(null=True, blank=True)
+    # 18.7: the price rule of a subscription offer, the day-count convention of the claim
+    # contract (F03) and the price reference: interest of the running period accrues from
+    # ``price_accrual_start_date`` to ``price_reference_date`` (the planned settlement day,
+    # 1 settlement day after the funding deadline), before ``price_next_due_date``.
+    pricing_rule = models.CharField(
+        max_length=32,
+        choices=OriginatorPricingRule.choices,
+        default=OriginatorPricingRule.BOUNDARY_INSTALLMENT,
+    )
+    interest_convention = models.CharField(max_length=32, blank=True, default="")
+    price_accrual_start_date = models.DateField(null=True, blank=True)
+    price_reference_date = models.DateField(null=True, blank=True)
+    price_next_due_date = models.DateField(null=True, blank=True)
     investor_interest_participation_bps = models.PositiveSmallIntegerField(default=10_000)
     investor_penalty_participation_bps = models.PositiveSmallIntegerField(default=10_000)
     current_outstanding_principal_minor = models.BigIntegerField()
@@ -153,7 +186,18 @@ class OriginatorLoanProfile(TimestampedModel):
     borrower_year_founded = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_entity_type = models.CharField(max_length=64, blank=True)
     borrower_country = models.CharField(max_length=64, blank=True)
+    # U33-DEC-23: the borrower's city and head count (with its year), shown when present.
+    borrower_city = models.CharField(max_length=128, blank=True)
+    borrower_employees = models.PositiveIntegerField(null=True, blank=True)
+    borrower_employees_year = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_registration_number = models.CharField(max_length=128, blank=True)
+    # 18.9: the Swiss UID of the final borrower (creditor modes count per UID).
+    borrower_uid = models.CharField(max_length=16, blank=True, default="")
+    # Audit S6-9: the originator's own identifier of the underlying financing (its loan or
+    # contract number). One underlying financing counts once in the borrower's totals, and two
+    # live offers of one originator cannot carry the same identifier. Required before a Swiss
+    # claim is published; set once and not changed after publication.
+    underlying_financing_id = models.CharField(max_length=128, blank=True, default="")
     business_classification = models.TextField(blank=True)
     business_classification_public = models.BooleanField(default=False)
     registered_address = models.TextField(blank=True)
@@ -185,6 +229,11 @@ class OriginatorLoanProfile(TimestampedModel):
     class Meta:
         ordering = ["-created_at", "-id"]
         constraints = [
+            models.UniqueConstraint(
+                fields=["originator", "underlying_financing_id"],
+                condition=~Q(underlying_financing_id="") & ~Q(opportunity_status="cancelled"),
+                name="originator_one_live_offer_per_underlying_financing",
+            ),
             models.CheckConstraint(
                 condition=Q(target_yield_bps__gte=0),
                 name="originator_target_yield_nonnegative",

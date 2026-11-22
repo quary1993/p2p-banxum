@@ -1,6 +1,6 @@
-// Account state derived from the live balances API (audit A-20/A-21). The day-60 "frozen" state
-// (penalty mode, PAY-DEC-022) used to exist only in the fixture preview; it now comes from
-// `has_penalty_mode_balance` and the lots' `blocks_financial_actions`.
+// Account state derived from the live balances API (audit A-20/A-21). Penalty mode and the daily
+// penalty are gone (U33-DEC-04); a blocked state now comes only from the lots'
+// `blocks_financial_actions`, kept for the failed-return state that is still to be decided.
 import { createContext, useContext } from "react";
 
 import type { BalanceSummary, InvestorBalancePortal, PayoutInstruction } from "../api/generated/banxumApi";
@@ -8,10 +8,8 @@ import type { BalanceSummary, InvestorBalancePortal, PayoutInstruction } from ".
 export type FrozenAccount = {
   /** Investing, FX and secondary-market actions are blocked until the money is returned. */
   frozen: boolean;
-  /** Money in penalty mode per currency. */
+  /** Blocked money per currency. */
   amounts: Array<{ currency: string; amountMinor: number }>;
-  /** Daily penalty on that money, in basis points. */
-  penaltyBpsPerDay: number;
   /** Currencies of the frozen money that have no verified payout IBAN yet. */
   currenciesWithoutVerifiedIban: string[];
 };
@@ -19,14 +17,13 @@ export type FrozenAccount = {
 export const notFrozenAccount: FrozenAccount = {
   frozen: false,
   amounts: [],
-  penaltyBpsPerDay: 0,
   currenciesWithoutVerifiedIban: []
 };
 
 type BalancesLike = Partial<
   Pick<
     InvestorBalancePortal,
-    "summaries" | "lots" | "payout_instructions" | "has_penalty_mode_balance" | "penalty_bps_per_day"
+    "summaries" | "lots" | "payout_instructions"
   >
 >;
 
@@ -38,7 +35,7 @@ export function frozenAccountFromBalances(balances: BalancesLike | undefined, pr
   if (!balances) return notFrozenAccount;
   const summaries = balances.summaries ?? [];
   const lots = balances.lots ?? [];
-  const live = Boolean(balances.has_penalty_mode_balance) || lots.some((lot) => lot.blocks_financial_actions);
+  const live = lots.some((lot) => lot.blocks_financial_actions);
   if (!live && !previewFrozen) return notFrozenAccount;
   const amounts = summaries
     .map((summary) => ({
@@ -63,7 +60,6 @@ export function frozenAccountFromBalances(balances: BalancesLike | undefined, pr
   return {
     frozen: true,
     amounts,
-    penaltyBpsPerDay: balances.penalty_bps_per_day ?? 0,
     currenciesWithoutVerifiedIban: amounts.map((amount) => amount.currency).filter((currency) => !verified.has(currency))
   };
 }

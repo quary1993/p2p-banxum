@@ -20,6 +20,7 @@ from backend.apps.platform_core.services.impersonation import (
     READONLY_IMPERSONATION_HEADER,
     issue_readonly_impersonation_token,
 )
+from backend.apps.platform_core.tests.swiss_uid import next_test_uid
 from backend.apps.smart_invest.models import (
     SmartInvestMatchNotification,
     SmartInvestRule,
@@ -28,9 +29,10 @@ from backend.apps.smart_invest.models import (
 from backend.apps.smart_invest.services import (
     SaveSmartInvestRuleCommand,
     SmartInvestValidationError,
-    deactivate_smart_invest_rule,
     get_smart_invest,
     opportunity_matches_criteria,
+    pause_smart_invest_rule,
+    resume_smart_invest_rule,
     save_smart_invest_rule,
 )
 
@@ -92,6 +94,7 @@ def _borrower(admin_user: Model, *, suffix: str = "") -> Model:
             year_founded=2018,
             kyb_status="approved",
             country="Switzerland",
+            uid=next_test_uid(),
             created_by_admin_id=admin_user.pk,
         ),
     )
@@ -151,39 +154,55 @@ def _rule_command(investor: Model, **overrides: Any) -> SaveSmartInvestRuleComma
 
 
 @pytest.mark.django_db
-def test_rule_requires_a_real_criterion_and_deactivation_clears_current_state(
+def test_rule_can_be_resumed_only_once_set_up_and_pause_keeps_the_preferences(
     investor: Model,
 ) -> None:
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor))
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(
-            SaveSmartInvestRuleCommand(actor=investor, minimum_yield_bps=0)
-        )
+    with pytest.raises(SmartInvestValidationError, match="Set up Smart Invest"):
+        resume_smart_invest_rule(actor=investor)
 
     payload = save_smart_invest_rule(_rule_command(investor))
     assert payload["rule"]["is_active"] is True
+    assert payload["rule"]["state"] == "active"
     assert payload["rule"]["minimum_yield_bps"] == 900
 
-    deactivated = deactivate_smart_invest_rule(actor=investor)
-    assert deactivated["rule"]["is_active"] is False
-    assert deactivated["rule"]["minimum_yield_bps"] is None
-    for field in ("originators", "collateral", "currencies", "risk_ratings", "purposes"):
-        assert deactivated["rule"][field] == []
-    assert deactivated["rule"]["loan_kinds"] == []
-    assert SmartInvestRuleEvent.objects.filter(investor_user_id=investor.pk).count() == 2
+    # U33-DEC-19: pause keeps the preferences and shows no matches.
+    paused = pause_smart_invest_rule(actor=investor)
+    assert paused["rule"]["is_active"] is False
+    assert paused["rule"]["state"] == "paused"
+    assert paused["rule"]["minimum_yield_bps"] == 900
+    assert paused["rule"]["currencies"] == ["CHF"]
+    assert paused["matches"] == [] and paused["match_count"] == 0
+    # Editing while paused saves the preferences and stays paused.
+    edited = save_smart_invest_rule(replace(_rule_command(investor), minimum_yield_bps=1_000))
+    assert edited["rule"]["state"] == "paused"
+    assert edited["rule"]["minimum_yield_bps"] == 1_000
+
+    resumed = resume_smart_invest_rule(actor=investor)
+    assert resumed["rule"]["state"] == "active"
+    assert resumed["rule"]["minimum_yield_bps"] == 1_000
+    events = SmartInvestRuleEvent.objects.filter(investor_user_id=investor.pk)
+    assert [event.event_type for event in events.order_by("revision")] == [
+        "saved",
+        "paused",
+        "saved",
+        "resumed",
+    ]
+    # Pausing twice changes nothing.
+    pause_smart_invest_rule(actor=investor)
+    pause_smart_invest_rule(actor=investor)
+    assert events.count() == 5
 
 
 def _criteria(**overrides: Any) -> dict[str, Any]:
     criteria: dict[str, Any] = {
         "minimum_yield_bps": None,
         "maximum_term_months": None,
+        "maximum_ltv_bps": None,
+        "preferred_amount_minor": None,
         "originators": [],
         "collateral": [],
         "currencies": [],
-        "risk_ratings": [],
-        "purposes": [],
-        "loan_kinds": [],
+        "countries": [],
     }
     criteria.update(overrides)
     return criteria
@@ -198,7 +217,10 @@ _DIRECT = {
     "collateral_type": "real_estate",
     "ltv_bps": 6_000,
     "currency": "CHF",
+    "borrower_country": "CH",
+    # U33-DEC-16: a rating in the payload never influences matching.
     "risk_rating": "BBB",
+    # U33-DEC-19: purpose and refinancing never influence matching.
     "purpose": "bridge_financing",
     "is_refinancing": True,
 }
@@ -207,6 +229,7 @@ _ORIGINATOR = {
     "product_type": "originator_claim",
     "originator_id": _ORIGINATOR_ID,
     "currency": "EUR",
+    "borrower_country": "RO",
     "collateral_type": "equipment",
     "risk_rating": "A-",
     "purpose": "working_capital",
@@ -221,22 +244,26 @@ _UNSECURED = {
 
 
 @pytest.mark.django_db
-def test_matching_covers_direct_originator_currency_and_loan_type() -> None:
+def test_matching_covers_direct_originator_currency_ltv_and_country() -> None:
     base = _criteria(
         minimum_yield_bps=900,
         maximum_term_months=18,
+        maximum_ltv_bps=6_000,
         originators=["banxum"],
         collateral=["any_secured"],
         currencies=["CHF"],
-        risk_ratings=["BBB"],
-        purposes=["bridge_financing"],
-        loan_kinds=["refinancing"],
+        countries=["CH"],
+        preferred_amount_minor=1_000_000_00,
     )
     assert opportunity_matches_criteria(_DIRECT, base) is True
     assert opportunity_matches_criteria(_ORIGINATOR, base) is False
-    originator_criteria = _criteria(
-        originators=[_ORIGINATOR_ID], currencies=["EUR"], loan_kinds=["new"]
-    )
+    # A lower loan-to-value limit, or a loan without a loan-to-value figure, does not match.
+    assert opportunity_matches_criteria(_DIRECT, {**base, "maximum_ltv_bps": 5_999}) is False
+    assert opportunity_matches_criteria(_UNSECURED, _criteria(maximum_ltv_bps=8_000)) is False
+    # Countries compare without letter case; another country does not match.
+    assert opportunity_matches_criteria(_DIRECT, _criteria(countries=["ch", "RO"])) is True
+    assert opportunity_matches_criteria(_DIRECT, _criteria(countries=["RO"])) is False
+    originator_criteria = _criteria(originators=[_ORIGINATOR_ID], currencies=["EUR"])
     assert opportunity_matches_criteria(_ORIGINATOR, originator_criteria) is True
     assert opportunity_matches_criteria(_DIRECT, originator_criteria) is False
     # An empty list never restricts.
@@ -249,10 +276,6 @@ def test_matching_accepts_any_of_several_ticked_values() -> None:
     def matches(opportunity: dict[str, Any], **criteria: Any) -> bool:
         return opportunity_matches_criteria(opportunity, _criteria(**criteria))
 
-    # Risk rating A together with A-.
-    assert matches(_ORIGINATOR, risk_ratings=["A", "A-"]) is True
-    assert matches(_UNSECURED, risk_ratings=["A", "A-"]) is True
-    assert matches(_DIRECT, risk_ratings=["A", "A-"]) is False
     # CHF together with EUR.
     assert matches(_DIRECT, currencies=["CHF", "EUR"]) is True
     assert matches(_ORIGINATOR, currencies=["CHF", "EUR"]) is True
@@ -276,10 +299,9 @@ def test_matching_accepts_any_of_several_ticked_values() -> None:
     assert matches(_ORIGINATOR, originators=["banxum", _ORIGINATOR_ID]) is True
     other_originator = {**_ORIGINATOR, "originator_id": "00000000-0000-4000-8000-000000000001"}
     assert matches(other_originator, originators=["banxum", _ORIGINATOR_ID]) is False
-    # New lending together with refinancing; several purposes.
-    assert matches(_DIRECT, loan_kinds=["new", "refinancing"]) is True
-    assert matches(_DIRECT, purposes=["working_capital", "bridge_financing"]) is True
-    assert matches(_DIRECT, purposes=["working_capital"]) is False
+    # Two countries.
+    assert matches(_DIRECT, countries=["CH", "RO"]) is True
+    assert matches(_ORIGINATOR, countries=["CH", "RO"]) is True
 
 
 @pytest.mark.django_db
@@ -293,20 +315,22 @@ def test_rule_lists_are_validated_deduplicated_and_ordered(
             originators=[str(originator.pk).upper(), "banxum", str(originator.pk)],
             collateral=["unsecured", "equipment", "real_estate", "equipment"],
             currencies=["EUR", "CHF", "EUR"],
-            risk_ratings=["A-", "A", "A-"],
-            purposes=["working_capital", "acquisition"],
-            loan_kinds=["refinancing"],
+            countries=[" CH ", "RO", "ch"],
+            maximum_ltv_bps=7_000,
+            preferred_amount_minor=2_500_00,
         )
     )
     rule = payload["rule"]
     assert rule["originators"] == ["banxum", str(originator.pk)]
     assert rule["collateral"] == ["real_estate", "equipment", "unsecured"]
     assert rule["currencies"] == ["CHF", "EUR"]
-    assert rule["risk_ratings"] == ["A", "A-"]
-    assert rule["purposes"] == ["working_capital", "acquisition"]
-    assert rule["loan_kinds"] == ["refinancing"]
+    assert rule["countries"] == ["CH", "RO"]
+    assert rule["maximum_ltv_bps"] == 7_000
+    assert rule["preferred_amount_minor"] == 2_500_00
+    assert "risk_ratings" not in rule
+    assert "purposes" not in rule and "loan_kinds" not in rule
     event = SmartInvestRuleEvent.objects.get(investor_user_id=investor.pk)
-    assert event.criteria_snapshot["risk_ratings"] == ["A", "A-"]
+    assert "risk_ratings" not in event.criteria_snapshot
 
     # "Any collateral" already implies every collateral type.
     implied = save_smart_invest_rule(
@@ -322,10 +346,10 @@ def test_rule_lists_are_validated_deduplicated_and_ordered(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"risk_ratings": ["A", "Z"]}, "Risk rating 'Z'"),
         ({"currencies": ["USD"]}, "Currency 'USD'"),
-        ({"purposes": ["holiday"]}, "Purpose 'holiday'"),
-        ({"loan_kinds": ["all"]}, "Loan type 'all'"),
+        ({"countries": [" "]}, "Country '' is not valid"),
+        ({"maximum_ltv_bps": 0}, "Maximum loan-to-value"),
+        ({"maximum_ltv_bps": 10_001}, "Maximum loan-to-value"),
         ({"collateral": ["unsecured_exception"]}, "Collateral 'unsecured_exception'"),
         ({"collateral": ["secured"]}, "Collateral 'secured'"),
         ({"originators": ["specific"]}, "Loan Originator 'specific' is not valid"),
@@ -348,7 +372,7 @@ def test_rule_rejects_values_outside_the_catalog(
     "overrides",
     [
         {"currencies": ["CHF", "EUR"]},
-        {"loan_kinds": ["new", "refinancing"]},
+        {"preferred_amount_minor": 1_000_00},
         {"collateral": ["any_secured", "unsecured"]},
         {"collateral": ["real_estate", "any_secured", "unsecured"]},
     ],
@@ -356,8 +380,11 @@ def test_rule_rejects_values_outside_the_catalog(
 def test_ticking_every_option_is_not_a_criterion(
     investor: Model, overrides: dict[str, Any]
 ) -> None:
-    with pytest.raises(SmartInvestValidationError, match="at least one"):
-        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, **overrides))
+    # 18.3: saved as an active rule without a limit (it matches every open opportunity); paused,
+    # it counts as not set up because nothing limits it.
+    open_rule = save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, **overrides))
+    assert open_rule["match_count"] == open_rule["open_opportunity_count"]
+    assert pause_smart_invest_rule(actor=investor)["rule"]["state"] == "not_set_up"
     # Combined with a real condition the full selection is stored as ticked.
     payload = save_smart_invest_rule(
         SaveSmartInvestRuleCommand(actor=investor, minimum_yield_bps=800, **overrides)
@@ -420,17 +447,16 @@ def test_publication_alerts_use_the_same_multi_select_matching(
 ) -> None:
     loan_services = _loan_services()
     other = _make_investor("smart-investor-two@example.test")
-    # The test loan is CHF, BBB, real estate, bridge financing, new lending.
+    # The test loan is CHF, real estate, a Swiss borrower.
     save_smart_invest_rule(
         SaveSmartInvestRuleCommand(
             actor=investor,
-            risk_ratings=["A", "BBB"],
             currencies=["CHF", "EUR"],
             collateral=["equipment", "real_estate", "unsecured"],
-            purposes=["working_capital", "bridge_financing"],
+            countries=["Switzerland"],
         )
     )
-    save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=other, risk_ratings=["A", "A-"]))
+    save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=other, currencies=["EUR"]))
     loan = loan_services.create_loan(
         _loan_command(admin_user, _borrower(admin_user, suffix="Multi"), title="Multi")
     )
@@ -440,7 +466,7 @@ def test_publication_alerts_use_the_same_multi_select_matching(
 
     notifications = SmartInvestMatchNotification.objects.filter(loan_id=loan.id)
     assert [str(item.investor_user_id) for item in notifications] == [str(investor.pk)]
-    assert notifications.get().match_snapshot["criteria"]["risk_ratings"] == ["A", "BBB"]
+    assert notifications.get().match_snapshot["criteria"]["currencies"] == ["CHF", "EUR"]
     # The matches list applies the identical rule.
     from backend.apps.smart_invest.services import get_smart_invest
 
@@ -504,29 +530,43 @@ def test_api_saves_multi_select_lists_and_rejects_unknown_values(investor: Model
     response = client.put(
         "/api/v1/investor/smart-invest/",
         data={
-            "risk_ratings": ["A-", "A"],
             "currencies": ["CHF", "EUR"],
             "collateral": ["real_estate", "equipment", "unsecured"],
+            "maximum_ltv_bps": 6_500,
+            "countries": ["CH"],
+            "preferred_amount_minor": 1_000_00,
+            # U33-DEC-19: no longer criteria; the API ignores them.
             "loan_kinds": ["new"],
+            "purposes": ["working_capital"],
         },
         content_type="application/json",
     )
     assert response.status_code == 200, response.json()
     rule = response.json()["rule"]
-    assert rule["risk_ratings"] == ["A", "A-"]
     assert rule["currencies"] == ["CHF", "EUR"]
     assert rule["collateral"] == ["real_estate", "equipment", "unsecured"]
-    assert rule["loan_kinds"] == ["new"]
-    assert rule["originators"] == [] and rule["purposes"] == []
+    assert rule["maximum_ltv_bps"] == 6_500
+    assert rule["countries"] == ["CH"]
+    assert rule["preferred_amount_minor"] == 1_000_00
+    assert rule["originators"] == []
+    assert "purposes" not in rule and "loan_kinds" not in rule
     assert "currency_scope" not in rule and "risk_rating" not in rule
 
     rejected = client.put(
         "/api/v1/investor/smart-invest/",
-        data={"risk_ratings": ["A", "not-a-rating"]},
+        data={"currencies": ["CHF", "USD"]},
         content_type="application/json",
     )
     assert rejected.status_code == 400
-    assert "risk_ratings" in rejected.json()
+    assert "currencies" in rejected.json()
+    # U33-DEC-16: a rating criterion is no longer part of the rule.
+    ignored = client.put(
+        "/api/v1/investor/smart-invest/",
+        data={"currencies": ["CHF"], "risk_ratings": ["A"]},
+        content_type="application/json",
+    )
+    assert ignored.status_code == 200
+    assert "risk_ratings" not in ignored.json()["rule"]
 
 
 @pytest.mark.django_db
@@ -562,6 +602,7 @@ def test_rule_update_replaces_the_single_current_rule(investor: Model) -> None:
 
 _BEFORE_LISTS = ("smart_invest", "0002_smart_invest_append_only_guards")
 _AFTER_LISTS = ("smart_invest", "0004_remove_single_value_criteria")
+_LATEST = ("smart_invest", "0009_remove_purpose_and_loan_kind_columns")
 
 
 def _migrate(target: tuple[str, str]) -> Any:
@@ -637,18 +678,79 @@ def test_migration_converts_single_value_rules_exactly() -> None:
             )
             updated_at[key] = rule.updated_at
 
-        _migrate(_AFTER_LISTS)
+        after_apps = _migrate(_AFTER_LISTS)
+        after_rule_model = after_apps.get_model("smart_invest", "SmartInvestRule")
 
         for key, user in users.items():
-            rule = SmartInvestRule.objects.get(user_id=user.pk)
+            rule = after_rule_model.objects.get(user_id=user.pk)
             converted = {field: getattr(rule, field) for field in list_fields}
             assert converted == {field: expected[key].get(field, []) for field in list_fields}, key
             # The storage shape changes, not the investor's rule: no new revision.
             assert rule.revision == 3 and rule.is_active is True
             assert rule.updated_at == updated_at[key]
-        assert SmartInvestRule.objects.get(user_id=users["banxum"].pk).minimum_yield_bps == 700
+        assert after_rule_model.objects.get(user_id=users["banxum"].pk).minimum_yield_bps == 700
     finally:
-        _migrate(_AFTER_LISTS)
+        # 0005 and 0008 record an append-only event per rule with a rating, purpose or loan
+        # kind; empty them first so the flush after this transactional test can delete rows.
+        state_apps = _migrate(_AFTER_LISTS)
+        state_apps.get_model("smart_invest", "SmartInvestRule").objects.update(
+            risk_ratings=[], purposes=[], loan_kinds=[]
+        )
+        _migrate(_LATEST)
+
+
+def _old_rule(**fields: Any) -> Any:
+    from types import SimpleNamespace
+
+    values: dict[str, Any] = {
+        "user_id": "5a1f0f43-7b0f-4a64-8a3c-6d1b0b2c0e11",
+        "is_active": True,
+        "revision": 4,
+        "minimum_yield_bps": None,
+        "maximum_term_months": None,
+        "originators": [],
+        "collateral": [],
+        "currencies": [],
+        "risk_ratings": ["A", "BBB"],
+        "purposes": [],
+        "loan_kinds": [],
+    }
+    values.update(fields)
+    return SimpleNamespace(**values)
+
+
+def test_rating_migration_empties_the_criterion_and_records_it() -> None:
+    # U33-DEC-16: a saved rule must not keep filtering on ratings in a hidden way.
+    migration = import_module(
+        "backend.apps.smart_invest.migrations.0005_remove_rating_criterion_from_rules"
+    )
+    now = timezone.now()
+    purposes = ["working_capital", "bridge_financing"]
+
+    changes, event = migration.plan_rating_removal(_old_rule(currencies=["CHF"]), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5}
+    assert event["event_type"] == "rating_criterion_removed"
+    assert event["revision"] == 5
+    assert event["criteria_snapshot"]["risk_ratings"] == ["A", "BBB"]
+    assert event["metadata"] == {
+        "decision": "U33-DEC-16",
+        "removed_risk_ratings": ["A", "BBB"],
+        "deactivated": False,
+    }
+
+    # Only the rating restricted the rule: it stops instead of alerting on everything.
+    changes, event = migration.plan_rating_removal(_old_rule(), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5, "is_active": False, "deactivated_at": now}
+    assert event["metadata"]["deactivated"] is True
+    # Ticking every currency or every purpose is no restriction either.
+    changes, _event = migration.plan_rating_removal(
+        _old_rule(currencies=["CHF", "EUR"], purposes=purposes), purposes, now
+    )
+    assert changes["is_active"] is False
+    # An inactive rule stays inactive and keeps its other values.
+    changes, event = migration.plan_rating_removal(_old_rule(is_active=False), purposes, now)
+    assert changes == {"risk_ratings": [], "revision": 5}
+    assert event["metadata"]["deactivated"] is False
 
 
 @pytest.mark.django_db
@@ -672,3 +774,128 @@ def test_a_fully_funded_loan_is_not_a_match(admin_user: Model, investor: Model) 
     payload = get_smart_invest(actor=investor)
 
     assert [match["loan_id"] for match in payload["matches"]] == [str(loans[0].id)]
+
+
+def test_retired_criteria_migration_empties_purpose_and_loan_kind_and_records_it() -> None:
+    # U33-DEC-19: no hidden purpose or refinancing filter stays in a saved rule.
+    migration = import_module(
+        "backend.apps.smart_invest.migrations.0008_remove_purpose_and_loan_kind_criteria"
+    )
+    now = timezone.now()
+    base: dict[str, Any] = {
+        "risk_ratings": [],
+        "maximum_ltv_bps": None,
+        "preferred_amount_minor": None,
+    }
+
+    changes, event = migration.plan_retired_criteria_removal(
+        _old_rule(**base, currencies=["CHF"], purposes=["working_capital"], countries=[]), now
+    )
+    assert changes == {"purposes": [], "loan_kinds": [], "revision": 5}
+    assert event["event_type"] == "retired_criteria_removed"
+    assert event["criteria_snapshot"]["purposes"] == ["working_capital"]
+    assert event["metadata"] == {
+        "decision": "U33-DEC-19",
+        "removed_purposes": ["working_capital"],
+        "removed_loan_kinds": [],
+        "paused": False,
+    }
+
+    # Only the loan kind restricted the rule: it is paused, its preferences stay.
+    changes, event = migration.plan_retired_criteria_removal(
+        _old_rule(**base, loan_kinds=["new"], countries=[]), now
+    )
+    assert changes == {
+        "purposes": [],
+        "loan_kinds": [],
+        "revision": 5,
+        "is_active": False,
+        "deactivated_at": now,
+    }
+    assert event["metadata"]["paused"] is True
+
+
+@pytest.mark.django_db
+def test_a_paused_rule_gets_no_alerts_and_resume_recalculates(
+    admin_user: Model, investor: Model
+) -> None:
+    loan_services = _loan_services()
+    save_smart_invest_rule(_rule_command(investor))
+    pause_smart_invest_rule(actor=investor)
+    loan = loan_services.create_loan(
+        _loan_command(admin_user, _borrower(admin_user, suffix="Paused"), title="While paused")
+    )
+    loan_services.publish_loan(
+        loan_services.PublishLoanCommand(actor=admin_user, loan_id=str(loan.id))
+    )
+    assert SmartInvestMatchNotification.objects.count() == 0
+    assert get_smart_invest(actor=investor)["matches"] == []
+
+    resumed = resume_smart_invest_rule(actor=investor)
+    assert [match["loan_id"] for match in resumed["matches"]] == [str(loan.id)]
+
+
+@pytest.mark.django_db
+def test_api_pauses_and_resumes(investor: Model) -> None:
+    client = Client()
+    client.force_login(cast(Any, investor))
+    assert client.post("/api/v1/investor/smart-invest/resume/").status_code == 400
+    client.put(
+        "/api/v1/investor/smart-invest/",
+        data={"currencies": ["CHF"]},
+        content_type="application/json",
+    )
+    paused = client.post("/api/v1/investor/smart-invest/pause/")
+    assert paused.status_code == 200
+    assert paused.json()["rule"]["state"] == "paused"
+    assert paused.json()["rule"]["currencies"] == ["CHF"]
+    resumed = client.post("/api/v1/investor/smart-invest/resume/")
+    assert resumed.status_code == 200
+    assert resumed.json()["rule"]["state"] == "active"
+    assert client.post("/api/v1/investor/smart-invest/deactivate/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_repayment_step_groups_todays_repayment_types(investor: Model) -> None:
+    """18.3: Periodic repayments (interest only, principal and interest) and Payment at maturity."""
+
+    def matches(opportunity: dict[str, Any], *options: str) -> bool:
+        return opportunity_matches_criteria(opportunity, _criteria(repayment=list(options)))
+
+    annuity = {**_DIRECT, "repayment_type": "equal_installments"}
+    interest_only = {**_DIRECT, "repayment_type": "bullet_periodic_interest"}
+    one_payment = {**_DIRECT, "repayment_type": "bullet_periodic_interest", "term_months": 1}
+    assert matches(annuity, "principal_and_interest") is True
+    assert matches(annuity, "interest_only") is False
+    assert matches(interest_only, "interest_only", "at_maturity") is True
+    assert matches(one_payment, "at_maturity") is True
+    assert matches(one_payment, "interest_only") is False
+    # No preference (empty) and every option ticked do not restrict.
+    assert matches(annuity) is True
+    assert matches(annuity, "interest_only", "principal_and_interest", "at_maturity") is True
+
+    saved = save_smart_invest_rule(
+        SaveSmartInvestRuleCommand(actor=investor, repayment=["at_maturity", "at_maturity"])
+    )
+    assert saved["rule"]["repayment"] == ["at_maturity"]
+    with pytest.raises(SmartInvestValidationError, match="Repayment"):
+        save_smart_invest_rule(SaveSmartInvestRuleCommand(actor=investor, repayment=["monthly"]))
+
+
+@pytest.mark.django_db
+def test_no_preference_everywhere_is_an_active_rule_that_matches_every_open_loan(
+    investor: Model,
+) -> None:
+    """18.3: "No preference" is allowed; paused without any criterion it counts as not set up."""
+    saved = save_smart_invest_rule(
+        SaveSmartInvestRuleCommand(
+            actor=investor,
+            currencies=["CHF", "EUR"],
+            repayment=["interest_only", "principal_and_interest", "at_maturity"],
+            preferred_amount_minor=500_00,
+        )
+    )
+    assert saved["rule"]["state"] == "active"
+    assert saved["match_count"] == saved["open_opportunity_count"]
+    assert opportunity_matches_criteria(_DIRECT, _criteria()) is True
+    assert pause_smart_invest_rule(actor=investor)["rule"]["state"] == "not_set_up"

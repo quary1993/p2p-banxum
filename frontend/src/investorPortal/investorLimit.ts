@@ -1,7 +1,8 @@
 // IP of Webby-Soft SRL.
-// Swiss-borrower loans have at most 20 investors (plan/09 MKT-DEC-028, 2026-10-16). The
-// marketplace API reports the limit (max_investors), the places left and whether the viewing
-// investor already invests in the loan; its minimum_investment_minor already applies the rule.
+// Swiss creditor modes (18.9, replaces MKT-DEC-028): a borrower in 10/20 mode has at most 10
+// creditors per financing and 20 in total. The marketplace API reports the limit (max_investors,
+// per financing), the places left for the viewer and whether the viewer already invests in the
+// loan; its minimum_investment_minor already applies the rule. Sandbox mode has no creditor limit.
 import { ApiClientError } from "../api/client/httpClient";
 
 export type InvestorLimitFields = {
@@ -13,7 +14,7 @@ export type InvestorLimitFields = {
 export const SWISS_INVESTOR_LIMIT_CODE = "swiss_investor_limit";
 
 export function swissInvestorLimitMessage(maxInvestors: number) {
-  return `This loan to a Swiss company already has the maximum of ${maxInvestors} investors.`;
+  return `This loan to a Swiss company has no place left for a new creditor (10/20 mode: at most ${maxInvestors} creditors per financing and 20 per borrower).`;
 }
 
 /** True when a Swiss-borrower loan has no place left and the viewer does not invest in it yet. */

@@ -234,7 +234,17 @@ def _restore_database_snapshot(snapshot_path: str) -> None:
                 triggers = cursor.fetchall()
                 for name, _sql in triggers:
                     cursor.execute(f"DROP TRIGGER {connection.ops.quote_name(name)}")
+        elif connection.vendor == "postgresql":
+            # TRUNCATE refuses a table with pending deferred constraint checks (for example a
+            # session row written earlier in this transaction): run those checks first.
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
         call_command("flush", interactive=False, verbosity=0)
+        if connection.vendor == "postgresql":
+            # Back to deferred checks: the snapshot rows point at each other and load in any
+            # order; the checks run at the commit.
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL DEFERRED")
         # Load the validated non-history rows, never re-read a mutable snapshot path.
         with tempfile.NamedTemporaryFile(suffix=".json") as validated:
             validated.write(fixture_content)

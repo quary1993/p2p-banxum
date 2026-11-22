@@ -35,7 +35,9 @@ test("a failed sign-out keeps the investor signed in and offers Retry", async ()
   );
   renderLiveApp(App, "/dashboard");
 
-  fireEvent.click(await screen.findByRole("button", { name: "Sign out" }, { timeout: 5000 }));
+  // Sign out is in the U33 account menu.
+  fireEvent.click(await screen.findByRole("button", { name: "Account menu" }, { timeout: 5000 }));
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
   expect(await screen.findByText("Sign out failed", {}, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByText("We could not sign you out. You are still signed in. Try again.")).toBeInTheDocument();
   // Still in the portal, at the same address; the public home page is not shown.
@@ -56,7 +58,7 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
     })
   );
   const queryClient = renderLiveApp(App, "/dashboard");
-  expect(await screen.findByRole("heading", { name: "Money working for you" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: /^Welcome back/ }, { timeout: 5000 })).toBeInTheDocument();
 
   meStatus = 502;
   await act(async () => {
@@ -65,15 +67,15 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
-  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: /^Welcome back/ })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
 
   // A real "signed out" answer still leads to the login form.
   meStatus = 403;
   await act(async () => {
     await queryClient.refetchQueries({ queryKey: getV1AuthMeRetrieveQueryKey() });
   });
-  expect(await screen.findByRole("button", { name: "Send magic link" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Sign in" }, { timeout: 5000 })).toBeInTheDocument();
 }, 30_000);
 
 test("a returning visitor whose session ended sees the public home page at /", async () => {
@@ -81,8 +83,8 @@ test("a returning visitor whose session ended sees the public home page at /", a
   server.use(http.get("*/api/v1/auth/me/", signedOut));
   renderLiveApp(App, "/");
 
-  expect(await screen.findByRole("heading", { level: 1, name: /Your capital/ }, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Send magic link" })).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: /Invest in business loans/ }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   expect(window.location.pathname).toBe("/");
 }, 15_000);
 

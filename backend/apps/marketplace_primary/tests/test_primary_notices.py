@@ -29,6 +29,7 @@ from backend.apps.marketplace_primary.tests.test_primary_marketplace import (  #
     _create_primary_acceptance,
     _create_published_loan,
     _declare_deposit,
+    _sandbox_ack,
     _sensitive_code_payload,
     admin_user,
     investor,
@@ -85,6 +86,7 @@ def test_allocated_orders_send_one_notice_with_the_amount_actually_reserved(
     allocate = AllocatePrimaryInvestmentOrderCommand(
         actor=investor,
         order_id=str(pending.id),
+        **_sandbox_ack(pending),
         document_acceptance_id=str(acceptance.pk),
         idempotency_key="alloc-part-allocate",
         **_sensitive_code_payload(investor, "primary_investment"),
@@ -231,3 +233,259 @@ def test_cancelled_funding_and_admin_release_notify_with_message_and_amount(
     assert_renders_to(cancelled, investor, "CHF 6'000.00", "The borrower withdrew the request.")
     # The release made by the cancellation itself is covered by the cancellation notice.
     assert len(investor_notices(investor, "email.primary_order_released")) == 1
+
+
+def test_transactions_show_reservation_release_and_closing_as_separate_entries(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """Q26: a reservation, its release (with a reason) and the order it belongs to are separate
+    entries; the admin's internal note is never shown."""
+    from importlib import import_module
+
+    portal = import_module("backend.apps.investor_portal.services")
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=30_000_00, idempotency_key="q26-dep")
+    released_order = _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=4_000_00, idempotency_prefix="q26-rel"
+    )
+    _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=6_000_00, idempotency_prefix="q26-can"
+    )
+    release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user,
+            order_id=str(released_order.id),
+            reason="Internal: investor asked by phone.",
+            idempotency_key="q26-release",
+        )
+    )
+    cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Internal: borrower withdrew.",
+            investor_message="The borrower withdrew the request.",
+            idempotency_key="q26-cancel",
+        )
+    )
+
+    entries = [
+        entry
+        for entry in portal.get_investor_activity(actor=investor)["entries"]
+        if str(entry["activity_type"]).startswith("primary_")
+    ]
+    kinds = sorted((entry["activity_type"], entry["amount_minor"]) for entry in entries)
+    assert kinds == [
+        ("primary_reservation", 4_000_00),
+        ("primary_reservation", 6_000_00),
+        ("primary_reservation_released", 4_000_00),
+        ("primary_reservation_released", 6_000_00),
+    ]
+    reasons = {
+        entry["amount_minor"]: entry["metadata"]["reason"]
+        for entry in entries
+        if entry["activity_type"] == "primary_reservation_released"
+    }
+    assert reasons == {
+        4_000_00: "Released by Banxum.",
+        6_000_00: "The project's funding was cancelled.",
+    }
+    assert all(entry["loan_title"] == "Real estate bridge loan" for entry in entries)
+    assert all(entry["metadata"]["order_id"] for entry in entries)
+    assert "Internal" not in str(entries)
+
+
+def test_transactions_page_filters_pages_and_shows_the_available_balance_after_each_movement(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """18.3: server filters, pages, CSV and "Available after transaction" from the ledger."""
+    from importlib import import_module
+
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=30_000_00, idempotency_key="tx-dep")
+    order = _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=4_000_00, idempotency_prefix="tx-ord"
+    )
+    release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user, order_id=str(order.id), reason="Internal.", idempotency_key="tx-rel"
+        )
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    page = client.get("/api/v1/investor/portal/transactions/", {"limit": 2}).json()
+    assert page["total"] == 3
+    assert page["next_offset"] == 2
+    assert page["currencies"] == ["CHF"]
+    assert set(page["groups"]) == {"deposit", "reservation"}
+    newest_first = [(row["activity_type"], row["available_after_minor"]) for row in page["entries"]]
+    assert newest_first == [
+        ("primary_reservation_released", 30_000_00),
+        ("primary_reservation", 26_000_00),
+    ]
+    rest = client.get("/api/v1/investor/portal/transactions/", {"offset": 2}).json()
+    assert [(row["group"], row["available_after_minor"]) for row in rest["entries"]] == [
+        ("deposit", 30_000_00)
+    ]
+    deposits = client.get(
+        "/api/v1/investor/portal/transactions/", {"group": "deposit", "currency": "EUR"}
+    ).json()
+    assert deposits["total"] == 0
+    found = client.get("/api/v1/investor/portal/transactions/", {"q": "released"}).json()
+    assert [row["activity_type"] for row in found["entries"]] == ["primary_reservation_released"]
+
+    export = client.get("/api/v1/investor/portal/transactions/export/")
+    assert export.status_code == 200
+    assert export["Content-Type"].startswith("text/csv")
+    lines = export.content.decode().strip().split("\n")
+    assert lines[0] == (
+        "Date;Type;Description;Currency;Amount;Available balance;Principal;Interest;Status;"
+        "Reference"
+    )
+    assert len(lines) == 4
+    assert lines[-1].split(";")[1] == "Deposit"
+    assert lines[-1].split(";")[5] == "30000,00"
+    assert lines[1].split(";")[5] == "30000,00"
+    assert lines[2].split(";")[1:6:4] == ["Reservation", "26000,00"]
+    assert page["years"] == [rest["years"][0]]
+    # The summary covers every movement that matches, not only the page.
+    assert page["summary"] == [
+        {
+            "currency": "CHF",
+            "deposited_minor": 30_000_00,
+            "invested_minor": 0,
+            "credited_minor": 0,
+            "withdrawn_minor": 0,
+        }
+    ]
+    assert import_module("backend.apps.investor_portal.transactions").activity_group(
+        {"activity_type": "withdrawal_request", "metadata": {"is_forced": True}}
+    ) == "return"
+
+
+def test_balances_show_the_reserved_part_of_each_lot(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """18.3: the design's "Reserved" column; a fully reserved lot stays in the list."""
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=3_000_00, idempotency_key="rs-dep")
+    _create_and_allocate_order(
+        investor=investor, loan=loan, amount_minor=3_000_00, idempotency_prefix="rs-ord"
+    )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    lots = client.get("/api/v1/investor/portal/balances/").json()["lots"]
+    assert [(lot["available_amount_minor"], lot["reserved_amount_minor"]) for lot in lots] == [
+        (0, 3_000_00)
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("journal_delay_seconds", [1, 0], ids=["real-clock", "qa-clock-equal"])
+def test_a_currency_exchange_shows_the_source_balance_after_the_debit(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+    journal_delay_seconds: int,
+) -> None:
+    """Audit S2-2: the exchange journal is created after executed_at is chosen; the row still
+    shows the source balance after the debit (mapped to the source journal, not by time)."""
+    from datetime import UTC, datetime, timedelta
+    from importlib import import_module
+
+    from django.test import Client
+    from freezegun import freeze_time
+
+    fx: Any = import_module("backend.apps.fx.services")
+    fx_tests: Any = import_module("backend.apps.fx.tests.test_fx")
+    codes: Any = import_module("backend.apps.platform_core.tests.factories")
+    _approve_financial_access(investor)
+    _declare_deposit(admin_user, investor, amount_minor=5_000_00, idempotency_key="fx-dep")
+    import_module("backend.apps.fx.tests.factories").set_fx_enabled(True)
+    # After the deposit journal, so that only the exchange itself is in question.
+    executed_at = datetime.now(tz=UTC) + timedelta(seconds=1)
+    quote = fx.issue_fx_quote(
+        fx_tests._quote_command(
+            investor, amount_minor=1_000_00, idempotency_key="fx-avail-quote", as_of=executed_at
+        )
+    )
+    code = codes.issue_sensitive_action_test_code(investor, "fx")
+    # Real clock: the journal is written after the chosen execution time. QA clock: same time.
+    with freeze_time(executed_at + timedelta(seconds=journal_delay_seconds)):
+        fx.execute_fx_quote(
+            fx.ExecuteFxQuoteCommand(
+                actor=investor,
+                quote_id=str(quote.id),
+                idempotency_key="fx-avail",
+                as_of=executed_at,
+                sensitive_action_code_id=code.code_id,
+                sensitive_action_code=code.raw_code,
+                pin=code.pin,
+            )
+        )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    rows = client.get("/api/v1/investor/portal/transactions/").json()["entries"]
+    [exchange] = [row for row in rows if row["activity_type"] == "fx_exchange"]
+    assert exchange["currency"] == "CHF"
+    assert exchange["available_after_minor"] == 4_000_00
+
+
+@pytest.mark.django_db
+def test_the_transactions_page_and_its_csv_read_the_whole_history(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit S2-1: no row cap on the Transactions page or its CSV (the oldest rows stay)."""
+    from importlib import import_module
+
+    from django.test import Client
+
+    services: Any = import_module("backend.apps.investor_portal.services")
+    real_merge = services.merge_archived_activity
+    limits: list[int | None] = []
+
+    def spy(**kwargs: Any) -> Any:
+        limits.append(kwargs["limit"])
+        return real_merge(**kwargs)
+
+    monkeypatch.setattr(services, "merge_archived_activity", spy)
+    _approve_financial_access(investor)
+    _declare_deposit(admin_user, investor, amount_minor=1_000_00, idempotency_key="s21-dep")
+    client = Client()
+    client.force_login(cast(Any, investor))
+    assert client.get("/api/v1/investor/portal/transactions/").status_code == 200
+    assert client.get("/api/v1/investor/portal/transactions/export/").status_code == 200
+    assert limits == [None, None]
+
+
+@pytest.mark.django_db
+def test_the_transactions_page_has_15_rows_by_default(
+    admin_user: Model,  # noqa: F811
+    investor: Model,  # noqa: F811
+) -> None:
+    """Audit S2-8: without ``limit`` the API returns the design's 15-row page."""
+    from django.test import Client
+
+    _approve_financial_access(investor)
+    for number in range(16):
+        _declare_deposit(
+            admin_user, investor, amount_minor=100_00 + number, idempotency_key=f"s28-dep-{number}"
+        )
+    client = Client()
+    client.force_login(cast(Any, investor))
+    page = client.get("/api/v1/investor/portal/transactions/").json()
+    assert (page["total"], len(page["entries"]), page["next_offset"]) == (16, 15, 15)
+    rest = client.get("/api/v1/investor/portal/transactions/", {"offset": 15}).json()
+    assert (len(rest["entries"]), rest["next_offset"]) == (1, None)

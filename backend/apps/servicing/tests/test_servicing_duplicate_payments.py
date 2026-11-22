@@ -30,8 +30,8 @@ from backend.apps.servicing.services import (
     ServicingValidationError,
     record_borrower_repayment,
     record_loan_recovery_payment,
-    scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F401
     _funded_loan_with_holdings,
     _repayment_command,
@@ -39,6 +39,10 @@ from backend.apps.servicing.tests.test_servicing_repayments import (  # noqa: F4
     investor_one,
     investor_two,
 )
+
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
 
 
 def _advance(admin: Model, loan: Model, key: str, **changes: Any) -> Any:
@@ -200,7 +204,7 @@ def _recovery(admin: Model, loan: Model, key: str, **changes: Any) -> Any:
 
 
 def _defaulted(admin: Model, loan: Model) -> None:
-    scan_loan_servicing_statuses(
+    scan_and_declare(
         ScanLoanServicingStatusesCommand(
             actor=admin, as_of_date=date(2026, 3, 16), loan_ids=(str(loan.pk),)
         )

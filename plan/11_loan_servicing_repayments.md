@@ -2,6 +2,19 @@
 
 Status: Draft. Updated with payment, balance, servicing, and recovery decisions on 2026-06-01, with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08, with disbursement activation, ACT/365 interest, and canonical schedule-history rules on 2026-07-27, and with the universal non-overridable payment waterfall on 2026-08-05.
 
+## Current Rules For Direct Loans On The 18.6 Engine (2026-11-20)
+
+Every direct loan created since 19 November 2026 uses the 18.6 interest engine (`interest_convention = act_365_fixed`). The decisions below describe the earlier model; they still apply to the loans that existed then (`legacy_monthly`, migration `loans` 0029) and to Loan Originator claims, unless a rule here says otherwise. Sources: `plan/22_u33_redesign_decisions.md` (Q07, Q08, F10-F14, F17), the validated note "BANXUM: Interest, Late Payments, Penalties And Default" (2026-11-18) and `IMPLEMENTATION_PLAN.md` 18.6 (with "Audit step 5 fixes").
+
+- **New loans:** the model, the service and the admin API create engine loans. The earlier schedule is only for an import of a contract signed before 19 November 2026 (`pre_cutover_contract_signed_on`). A Loan Originator claim is never an engine loan.
+- **Schedule:** Actual/365 Fixed from the payout day; due dates from the payout day by frequency, moved to the previous settlement day, plus grace business days. Estimated before funding; at the payout a confirmed schedule version is always written from the real payout day.
+- **Status:** the oldest unpaid installment decides: Pending (to t + 2 business days), Due, Late from the Late days. Default is never automatic: an admin declares it once the Default days are reached. A super admin can cancel a declaration made by mistake only while no money was recorded after it (borrower payment, expense, recovery receipt, write-off, Loan Originator repayment); after that a correction needs a compensating, audited accounting entry.
+- **Penalty X:** per day from t + 1 on each unpaid installment and on each expense from the day after its value date; after Default on the whole amount. Garanta's part is rounded down to the cent; the investors get the rest. Garanta's part is booked on its own ledger account, apart from repaid recovery expenses.
+- **Expenses:** recorded only when the loan was Due, Late or in Default on the expense's value date. An expense fixes the loan's position at its value date: no later recorded payment can have an earlier value date, and a payment never pays an expense dated after it.
+- **Payments:** any amount with a value date, allocated by the server (expenses, then the oldest installment: X, interest, principal; after Default: expenses, penalties, interest, principal). The earlier recovery form is not used for engine loans.
+- **Early payments:** interest to the day before the value date, then principal; the later rows are recalculated with the same maturity. A second early payment (same day or later) owes only the interest not yet paid: no interest is paid twice and no future interest is collected.
+- **Investors:** whole cents; interest and penalty fractions are carried per investor and loan as two pools. When the carried fractions reach a whole cent, the cent comes out of the fractions account. The final payment, or a final write-off, pays the rest by largest remainder per pool. A receipt that pays several installments records each investor's share under each installment.
+
 ## Purpose
 
 Define how active loans are serviced after drawdown, including schedules, repayment collection, allocations, investor distributions, borrower notices, arrears, operational loan changes, and closure.
@@ -23,6 +36,8 @@ Define how active loans are serviced after drawdown, including schedules, repaym
 ## Decisions
 
 ### SERV-DEC-001: Launch Repayment Types
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-11: repayment types and frequencies are extended (see PROD-DEC-005 note).
 
 Status: Accepted.
 Date: 2026-05-16.
@@ -91,6 +106,10 @@ Follow-ups:
 Define how payments covering multiple installments are displayed in investor-facing history.
 
 ### SERV-DEC-004: Repayment Allocation Waterfall
+
+> **Changed 2026-11-16** (round 2, F11, `plan/22` "Round 2 Answers Of 2026-11-16"): the order in each loan contract prevails, per loan, imported claims included. The standard order for new contracts is: contractual recovery costs -> penalty X -> ordinary interest -> principal. The order creates no new costs. Cent fractions are carried per investor; an investor who leaves keeps his fraction until the final largest-remainder distribution of the loan (F13 B). A regular installment paid early is recalculated at the receipt value date and the future installments get smaller, keeping the final maturity date (F12).
+
+> Updated 2026-11-13 (owner answer Q07, `plan/22` "Final Answers Of 2026-11-13"): new direct loans get a daily penalty rate X per contract on every overdue amount (principal, base interest, other money obligations) from the day after the adjusted due date to the receipt day included, never on X; base interest on matured principal stops before the adjusted due date even when unpaid; a regular installment paid early stops interest from the receipt day. The answer says the allocation of a payment follows the contract; whether this universal order stays the contract standard is follow-up question F11.
 
 Status: Accepted.
 Date: 2026-05-16.
@@ -172,6 +191,14 @@ Follow-ups:
 Define lender notification wording. Launch recalculation preserves the remaining due dates with lower remaining principal, annual nominal interest, monthly installment defaults, currency minor-unit rounding, and final installment rounding-residue absorption.
 
 ### SERV-DEC-008: Late and Default Status Timing
+
+> **Changed 2026-11-17** (Vlad with Eduard, `plan/22` "Vlad's Decisions Of 2026-11-17"): Late days, Default days (minimum before a declaration) and grace business days per project (defaults 15, 60, 0). From the due date until payment (at most 2 business days) the installment is "Pending" and the loan is closed to new buyers. Penalty X from the day after the due date whenever the value date is later (retroactive), on each overdue installment's principal + interest and on each recorded expense from the day after its value date. Exact days: interest from the payout day included to the due date excluded; on the due date the installment's principal earns neither interest nor penalty. No automatic Default: the admin may declare Default once the oldest unpaid installment is late by the Default days; Default means maturity (normal interest to the declaration day included, then X from the day after on the whole amount: everything due, expenses and the remaining principal, no future interest). Payments: expenses, then the oldest installment in full. Expenses recordable from Due. Validated by Vlad 2026-11-18; full description in the 2026-11-18 mechanics text.
+
+> **Changed 2026-11-13** (owner answer C01-C02, `plan/22` "Final Answers Of 2026-11-13"): every record, demo records included, uses Late from day 15 and Default from day 60; only a real contract with other terms differs. Updated 2026-11-16 (round 2): moving the demo records is no longer required; they keep the 5/16 days of migration `loans` 0025 (Vlad, 2026-11-17). For new direct loans day 0 is the adjusted due date (previous business day, U33-DEC-10 / Q07.4).
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-09: Due on the due date and the first 14 days overdue, Late from day 15, Default at 60 days, thresholds adaptable per contract; termination and recovery stages are separate events.
+>
+> Implemented 2026-11-10 (Phase 17.2). Days past due = Europe/Zurich calendar days between the due date of the first unpaid installment and the business date of the check (the due date is day 0). The loan is `active` (the payment shows as Due, with the real days) below the Late day, `late` from the Late day, `defaulted` from the Default day. The days are the platform settings `servicing.late_threshold_days` (15) and `servicing.default_threshold_days` (60), shared by `platform_core.domain.loan_status` and `selectors.settings.loan_status_thresholds()`; an unusable pair falls back to 15 / 60. A loan can carry its contract's own pair (`Loan.late_threshold_days` / `default_threshold_days`, both or neither, 1 <= Late < Default <= 365), set by an admin with a reason (`POST /api/v1/servicing/admin/loans/<id>/status-thresholds/`, loan event `status_thresholds_changed`, audit); an active or late direct loan is checked again at once, other loans at their next scan, and a defaulted, repaid, written-off or cancelled loan keeps its days. Direct and Loan Originator status scans, schedule row labels ("due" / "overdue"), the repayment-status report buckets and the investor notices follow the same days. Default never ends the contract: the termination is a separate admin event for a late or defaulted loan (`POST .../contract-termination/`, `Loan.contract_terminated_on`, loan event `contract_terminated`, audit, domain event `LoanContractTerminated`), recorded once, not in the future, without a status change, and shown to the loan's investors on the investment page. Penalties follow the contract. Existing contracts keep their terms (audit G-01, 2026-11-10): migration `loans` 0025 gives every published, funded, active, late or defaulted loan without contract days the days its terms disclosed, Late from day 5 and Default from day 16, with a system loan event; draft loans follow the platform days. Loan Originator claim offers close on the loan's own Late day (audit G-02). The decision below (day 5 / day 16) is replaced for new loans.
 
 Status: Accepted.
 Date: 2026-05-16.

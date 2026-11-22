@@ -2,7 +2,8 @@
 /* Hand-made fixes for the public site, all under html.bxs. site.css is generated from the design
  * (do not edit it); put every fix here, with the reason.
  *
- * 1. The app's global styles.css has unscoped element rules (:root, html, body, *, button, a,
+ * 1. The app's global base.css (the head of the old styles.css; the rest loads with the admin console
+ *    only since S7) has unscoped element rules (:root, html, body, *, button, a,
  *    :focus-visible, ::selection, .row...) written for the investor area. The design has no such
  *    rules, so where the design CSS sets nothing these values reach the site. The rules below
  *    give those properties back their browser defaults (revert = the user-agent value), with

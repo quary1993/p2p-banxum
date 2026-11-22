@@ -1,6 +1,6 @@
 // Real-API holding page checks (audit SERVICING-17): a repaid holding must stay reachable from
-// My investments, an LO holding must not show a "1 months" term or count each payment twice,
-// and a defaulted holding must not open on an "Upcoming" payment.
+// My investments (its history), an LO holding must not show a "1 months" term or count each payment
+// twice, and a defaulted holding must not open on an upcoming payment.
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -88,7 +88,6 @@ function holding(id: string, overrides: Record<string, unknown>, loanOverrides: 
       collateral_value_minor: 0,
       collateral_description: "",
       skin_in_the_game_bps: 0,
-      risk_rating: "B",
       interest_rate_bps: 840,
       yield_bps: 840,
       underlying_interest_rate_bps: 1200,
@@ -140,12 +139,30 @@ const repaidLo = holding(
 // Defaulted Direct holding: first installment overdue, the rest in the future.
 const defaulted = holding(
   "defaulted-direct",
-  { currency: "CHF", original_principal_minor: 400_000, current_principal_minor: 370_567 },
+  {
+    currency: "CHF",
+    original_principal_minor: 400_000,
+    current_principal_minor: 370_567,
+    // U33-DEC-12: the gross, the external costs and the net of each recovery, and the investor's share.
+    recovery_events: [
+      {
+        recovery_event_id: "rec-1",
+        value_date: "2026-12-15",
+        gross_recovered_minor: 1_000_000,
+        external_costs_minor: 150_000,
+        recovery_fee_minor: 0,
+        net_distributed_minor: 850_000,
+        credited_to_you_minor: 85_000
+      }
+    ]
+  },
   {
     loan_title: "Defaulted direct loan",
     loan_status: "defaulted",
     currency: "CHF",
     days_past_due: 16,
+    // U33-DEC-09: the loan's contract days (5 / 16) apply; the termination is a recorded stage.
+    contract_terminated_on: "2026-12-18",
     schedule: [
       scheduleRow({ id: "d1", installment_number: 1, due_date: "2026-11-11", status: "overdue", days_past_due: 16 }),
       scheduleRow({ id: "d2", installment_number: 2, due_date: "2026-12-11" }),
@@ -154,10 +171,44 @@ const defaulted = holding(
   }
 );
 
-function useInvestorApi() {
+// 18.6: an engine loan with the first installment in its Pending window and the second Due.
+const engineRow = (id: string, number: number, due: string, status: string, days: number) => ({
+  loan_installment_id: id,
+  schedule_version: 1,
+  installment_number: number,
+  due_date: due,
+  projected_principal_minor: 100_000,
+  projected_interest_minor: 2_000,
+  projected_total_minor: 102_000,
+  days_past_due: days,
+  status
+});
+const pendingEngine = holding(
+  "pending-engine",
+  {
+    currency: "CHF",
+    investment_schedule: [
+      engineRow("e1", 1, "2026-12-15", "due", 5),
+      engineRow("e2", 2, "2026-12-18", "pending", 2),
+      engineRow("e3", 3, "2027-01-15", "upcoming", 0)
+    ]
+  },
+  {
+    loan_title: "Engine direct loan",
+    currency: "CHF",
+    repayment_type: "equal_installments",
+    schedule: [
+      scheduleRow({ id: "e1", installment_number: 1, due_date: "2026-12-15", status: "due", days_past_due: 5 }),
+      scheduleRow({ id: "e2", installment_number: 2, due_date: "2026-12-18", status: "pending", days_past_due: 2 }),
+      scheduleRow({ id: "e3", installment_number: 3, due_date: "2027-01-15" })
+    ]
+  }
+);
+
+function useInvestorApi(extraHoldings: unknown[] = []) {
   const portfolio = {
     as_of: "2026-12-20T11:00:00Z",
-    holdings: [repaidLo, defaulted],
+    holdings: [repaidLo, defaulted, ...extraHoldings],
     summary: {
       holding_count: 2,
       active_holding_count: 1,
@@ -170,7 +221,6 @@ function useInvestorApi() {
       by_borrower: [],
       by_country: [],
       by_purpose: [],
-      by_risk_rating: [],
       by_collateral_type: [],
       by_maturity: [],
       by_loan_status: []
@@ -197,7 +247,7 @@ function useInvestorApi() {
     ),
     http.get("*/api/v1/investor/portal/notifications/", () => HttpResponse.json({ notifications: [], unread_count: 0 })),
     http.get("*/api/v1/investor/portal/balances/", () =>
-      HttpResponse.json({ as_of: "2026-12-20T11:00:00Z", summaries: [], lots: [], payout_instructions: [], has_penalty_mode_balance: false })
+      HttpResponse.json({ as_of: "2026-12-20T11:00:00Z", summaries: [], lots: [], payout_instructions: [] })
     ),
     http.get("*/api/v1/marketplace/primary/loans/", () => HttpResponse.json([])),
     http.get("*/api/v1/investor/portal/portfolio/", () => HttpResponse.json(portfolio)),
@@ -215,31 +265,51 @@ function renderAt(path: string) {
   );
 }
 
-test("a repaid holding is listed under Completed and opens its holding page", async () => {
+test("a repaid holding is listed in the investment history and opens its holding page", async () => {
   useInvestorApi();
   renderAt("/portfolio");
 
-  fireEvent.click(await screen.findByRole("tab", { name: "Completed" }, { timeout: 5000 }));
-  const table = await screen.findByRole("table");
+  fireEvent.click(await screen.findByRole("link", { name: /View history/ }, { timeout: 5000 }));
+  const history = await screen.findByRole("region", { name: "Completed investments" });
+  const table = within(history).getByRole("table");
   expect(within(table).getByText("Completed LO claim")).toBeInTheDocument();
   expect(within(table).getByText("Repaid")).toBeInTheDocument();
   expect(within(table).queryByText("Defaulted direct loan")).not.toBeInTheDocument();
 
-  fireEvent.click(within(table).getByRole("button", { name: "Open Completed LO claim" }));
-  expect(await screen.findByRole("heading", { name: "Completed LO claim" }, { timeout: 5000 })).toBeInTheDocument();
+  fireEvent.click(within(table).getByRole("link", { name: "Open Completed LO claim" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Completed LO claim" }, { timeout: 5000 })).toBeInTheDocument();
   // Three installments, not six rows; the maturity date instead of "1 months".
-  expect(screen.getByText(/scheduled borrower payments recorded/).textContent).toContain("3 of 3");
+  expect(screen.getByText(/payments received/).textContent).toContain("3 of 3");
   expect(screen.getByText("Matures")).toBeInTheDocument();
   expect(screen.queryByText("1 months")).not.toBeInTheDocument();
 }, 30_000);
 
-test("a defaulted holding opens on the overdue payment, not an upcoming one", async () => {
+test("a defaulted holding opens on the recovery, not on an upcoming payment", async () => {
   useInvestorApi();
   renderAt("/portfolio/defaulted-direct");
 
-  expect(await screen.findByRole("heading", { name: "Defaulted direct loan" }, { timeout: 5000 })).toBeInTheDocument();
-  const payment = screen.getByRole("heading", { name: "Selected payment" }).closest(".inv-payment") as HTMLElement;
-  expect(within(payment).getByText("11 Nov 2026")).toBeInTheDocument();
-  expect(within(payment).getByText("Overdue")).toBeInTheDocument();
-  expect(within(payment).queryByText("Upcoming")).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "Defaulted direct loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Recovery in progress" })).toBeInTheDocument();
+  expect(screen.getByText(/16 days since the first unpaid payment/)).toBeInTheDocument();
+  expect(screen.getByText(/The loan contract was terminated on 18 Dec 2026\./)).toBeInTheDocument();
+  const recoveries = document.querySelector(".u33-recoveries") as HTMLElement;
+  expect(within(recoveries).getByText("Recovered for the whole loan").nextElementSibling).toHaveTextContent("CHF 10.000,00");
+  expect(within(recoveries).getByText("External costs deducted").nextElementSibling).toHaveTextContent("− CHF 1.500,00");
+  expect(within(recoveries).getByText("Net distributed to investors").nextElementSibling).toHaveTextContent("CHF 8.500,00");
+  expect(within(recoveries).getByText("Credited to your balance").nextElementSibling).toHaveTextContent("CHF 850,00");
+  expect(within(recoveries).queryByText(/Recovery fee/)).not.toBeInTheDocument();
+  expect(screen.getByText("No scheduled payments. This loan is in default.")).toBeInTheDocument();
+  expect(screen.queryByText("Next payment")).not.toBeInTheDocument();
+  expect(screen.queryByText("Scheduled")).not.toBeInTheDocument();
+  expect(screen.queryByText("Upcoming")).not.toBeInTheDocument();
+}, 30_000);
+
+test("18.6: an engine installment shows Pending in its window, then Due with the real days", async () => {
+  useInvestorApi([pendingEngine]);
+  renderAt("/portfolio/pending-engine");
+
+  expect(await screen.findByRole("heading", { level: 1, name: "Engine direct loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(document.querySelector('[data-payment-number="1"]')).toHaveTextContent("Due · 5 days");
+  expect(document.querySelector('[data-payment-number="2"]')).toHaveTextContent("Pending");
+  expect(document.querySelector('[data-payment-number="3"]')).toHaveTextContent("Scheduled");
 }, 30_000);

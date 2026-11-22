@@ -144,6 +144,8 @@ All relevant KYC/AML data and documents must be stored on Garanta-controlled inf
 
 For natural-person lenders, Garanta stores the platform-required KYC/AML data fields, Didit references, Didit statuses, Didit decisions, AML screening flags/results, provider report identifiers, downloaded report metadata, full provider reports where possible, raw webhook payloads where possible, supporting-document references/local copies where possible, and internal audit metadata.
 
+Personal data inventory, 18.3 additions (2026-11-19, U33-DEC-26, Vlad E-08): the verified address, birth date and nationality are stored on the KYC case (`verified_address`, `verified_birth_date`, `verified_nationality`) when the Didit decision provides them. Purpose: the read-only "Personal details" of the investor; only the team changes them after an identity check. Source: the Didit decision; retention: as the KYC case. Audit step 3 addition (2026-11-20, U33-DEC-05): the legal name on the identity document (`verified_full_name`) is stored on the KYC case from the Didit decision. Purpose: the reference an admin compares the holder of a paying bank account with before the account becomes a return account; a copy is kept in that verification's evidence. Source: the Didit decision; retention: as the KYC case. The bank name an investor types for a payout account outside CH and LI is stored with that account; CH and LI bank names come from the SIX bank master (reference data, no personal data).
+
 For legal-entity lenders and borrowers, Garanta stores admin-entered data, UBO/director/authorized-signatory evidence where applicable, provider references, off-platform/provider reports, compliance status, decisions, supporting documents, and evidence uploads.
 
 KYC/AML and KYB files, reports, decisions, audit logs, raw provider webhook payloads where possible, and related evidence are retained for at least 10 years, subject to final legal/compliance confirmation. Launch default remains no deletion unless a later approved retention schedule requires it.
@@ -244,6 +246,8 @@ Rationale:
 The platform enforces natural-person KYC and explicit account/compliance restrictions. Company onboarding assumes Garanta has completed the required offline KYB/AML; absence or expiry of optional local company records alone does not block transactions.
 
 ### KYC-DEC-007: Provider-Side Ongoing Monitoring and Manual Remediation
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-27: self-declarations (beneficial owner, source of funds, PEP, expected yearly volume) and a per-investor re-verification date are added; manual handling is allowed; no continuous-monitoring system.
 
 Status: Accepted.
 Date: 2026-05-15.

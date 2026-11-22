@@ -5,8 +5,9 @@
  *
  * Differences with the design data, by necessity:
  * - The API has no city: places read "Country · Sector" (or "Country" without a public sector).
- * - The API has no "coming soon" status: a coming-soon project is an "open" project whose
- *   published_at is still after today (only the preview fixtures have such projects for now).
+ * - Coming soon (U33-DEC-17): the API sends public_status "coming_soon" with the planned opening
+ *   date. The preview fixtures still use the design's form, an "open" project whose published_at
+ *   is after today; both read as coming soon here.
  */
 import type { PublicProject } from "./data";
 import { dateKey, dateShort, daysBetween, siteToday } from "./format";
@@ -51,7 +52,7 @@ export type ProjectView = {
 
 export function projectView(p: PublicProject, today = siteToday()): ProjectView {
   const published = dateKey(p.published_at);
-  const isSoon = p.public_status === "open" && Boolean(published) && published > today;
+  const isSoon = p.public_status === "coming_soon" || (p.public_status === "open" && Boolean(published) && published > today);
   // A Swiss-borrower loan with all 20 places taken is closed to new investors (MKT-DEC-028),
   // like the design's placesLeft check.
   const hasPlace = p.places_left === undefined || p.places_left === null || p.places_left > 0;
@@ -68,6 +69,11 @@ export function projectView(p: PublicProject, today = siteToday()): ProjectView 
   };
 }
 
+/** Day a coming-soon project opens: the planned opening date, or the preview's published_at. */
+export function openingDate(p: PublicProject) {
+  return p.planned_opening_date || dateKey(p.published_at);
+}
+
 /** Open projects, most funded first (Home carousel and "Open now"). */
 export function openProjects(views: ProjectView[]) {
   return views.filter((v) => v.isOpen).sort((a, b) => b.percent - a.percent);
@@ -77,7 +83,7 @@ export function openProjects(views: ProjectView[]) {
 export function soonProjects(views: ProjectView[]) {
   return views
     .filter((v) => v.isSoon)
-    .sort((a, b) => (a.p.published_at ?? "").localeCompare(b.p.published_at ?? ""));
+    .sort((a, b) => openingDate(a.p).localeCompare(openingDate(b.p)));
 }
 
 export type StatusLabel = { label: string; cls: string };
@@ -100,7 +106,7 @@ export function statusOf(v: ProjectView): StatusLabel {
 
 /** "Opens 29 Sep", "9 days left", "Closes today", "Fully funded" or "Funding closed". */
 export function timeText(v: ProjectView) {
-  if (v.isSoon) return `Opens ${dateShort(dateKey(v.p.published_at))}`;
+  if (v.isSoon) return `Opens ${dateShort(openingDate(v.p))}`;
   if (v.isOpen) return v.daysLeft === null ? "" : v.daysLeft <= 0 ? "Closes today" : `${v.daysLeft} days left`;
   if (v.p.public_status === "open" || v.p.public_status === "fully_funded") return "Fully funded";
   return "Funding closed";
@@ -144,16 +150,21 @@ export function securityShort(p: Pick<PublicProject, "collateral_description" | 
  * Short repayment label (design repaymentShort: annuity, interest-only, bullet) for our
  * RepaymentType values.
  */
-export function repaymentShort(p: Pick<PublicProject, "repayment_type">) {
+export function repaymentShort(p: Pick<PublicProject, "repayment_type" | "payment_frequency">) {
+  const prefixes: Record<string, string> = { quarterly: "Quarterly", half_yearly: "Half-yearly", annual: "Yearly" };
+  const prefix = prefixes[p.payment_frequency ?? ""] ?? "Monthly";
   switch (p.repayment_type) {
     case "equal_installments":
     case "amortizing_principal_interest":
     case "interest_only_then_amortizing":
-      return "Monthly instalments";
+      return `${prefix} instalments`;
     case "bullet_periodic_interest":
-      return "Monthly interest";
     case "interest_only_then_bullet":
+      return `${prefix} interest`;
+    case "full_at_maturity":
       return "At the end";
+    case "custom_schedule":
+      return "Custom schedule";
     default:
       return "";
   }

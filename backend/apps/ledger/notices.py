@@ -1,14 +1,12 @@
-"""Investor notices for balance events: deposits, withdrawals, forced returns, penalty mode
-and payout IBANs (plan 14). Each function is called at the end of the successful ledger
-service path, inside its transaction, and creates at most one notice per business event.
+"""Investor notices for balance events: deposits, withdrawals, forced returns and payout
+IBANs (plan 14; penalty mode was removed by U33-DEC-04). Each function is called at the end
+of the successful ledger service path, inside its transaction, and creates at most one
+notice per business event.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Iterable
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import date
 from typing import Any
 
 from django.conf import settings
@@ -20,15 +18,9 @@ from backend.apps.ledger.models import (
     InvestorPayoutInstructionStatus,
     InvestorWithdrawalRequest,
 )
-from backend.apps.platform_core.domain.funding import (
-    balance_last_day,
-    normalized_auto_return_after_days,
-)
 from backend.apps.platform_core.models import OutboxMessage
-from backend.apps.platform_core.selectors.settings import (
-    balance_auto_return_after_days,
-    platform_switch_enabled,
-)
+from backend.apps.platform_core.selectors.settings import platform_switch_enabled
+from backend.apps.platform_core.services.balance_schedule import BalanceScheduler
 from backend.apps.platform_core.services.investor_notices import (
     InvestorNotice,
     brand,
@@ -46,24 +38,14 @@ def _invest_or_exchange() -> str:
     return "invest or exchange" if platform_switch_enabled("fx.enabled") else "invest"
 
 
-def _penalty_text() -> str:
-    bps = int(settings.BALANCE_PENALTY_BPS_PER_DAY)
-    if bps <= 0:
-        return ""
-    return f"{(Decimal(bps) / Decimal(100)).normalize():f}% per day"
-
-
 def notify_deposit_credited(
     *, bank_operation: BankOperation, balance_lot: InvestorBalanceLot
 ) -> None:
     currency = bank_operation.currency
     amount = notice_amount(bank_operation.amount_minor, currency)
-    return_after_days = balance_auto_return_after_days()
-    last_day = balance_last_day(
-        withdrawal_deadline_at=balance_lot.withdrawal_deadline_at,
-        return_after_days=return_after_days,
-    )
-    return_date = notice_date(last_day + timedelta(days=1))
+    schedule = BalanceScheduler().schedule(balance_lot)
+    last_day = schedule.last_day
+    return_date = notice_date(schedule.return_date)
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(bank_operation.linked_object_id),
@@ -75,8 +57,9 @@ def notify_deposit_credited(
                 f"We credited {amount} to your {brand()} balance. "
                 f"Value date: {notice_date(bank_operation.value_date)}.\n\n"
                 "You can invest this money or withdraw it. Money that is not invested goes "
-                f"back to your bank automatically after {return_after_days} days: it can stay "
-                f"until {notice_date(last_day)}, and we return what is left on {return_date}."
+                f"back to your bank: it can stay until {notice_date(last_day)} (day "
+                f"{schedule.holding_day(last_day)} after the value date), and we start the "
+                f"return of what is left on {return_date}."
             ),
             template_key="ledger.deposit_credited.v1",
             notice_label="Balance notice",
@@ -142,12 +125,23 @@ def notify_withdrawal_requested(request: InvestorWithdrawalRequest) -> None:
     )
 
 
+def _return_timing_date(request: InvestorWithdrawalRequest, key: str) -> str:
+    timing = dict(request.metadata or {}).get("return_timing")
+    value = timing.get(key) if isinstance(timing, dict) else None
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        return notice_date(date.fromisoformat(value[:10]))
+    except ValueError:
+        return ""
+
+
 def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
+    """Q01: confirmation when the return is requested (a second one follows the transfer)."""
     amount = notice_amount(request.amount_minor, request.currency)
     destination = masked_iban(request.destination_iban)
-    return_after_days = normalized_auto_return_after_days(
-        dict(request.metadata or {}).get("auto_return_after_days")
-    )
+    send_on = _return_timing_date(request, "order_day") or notice_date(request.requested_at)
+    resent = bool(dict(request.metadata or {}).get("resent_after_failure_id"))
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(request.investor_user_id),
@@ -156,21 +150,27 @@ def notify_forced_return_created(request: InvestorWithdrawalRequest) -> None:
             subject=f"We are returning {amount} to your bank account",
             headline="Your money goes back to your bank",
             body_text=(
-                f"{amount} of your {brand()} balance was not invested within "
-                f"{return_after_days} days. Money that is not invested goes back to your bank "
-                "automatically, so we started a return to your verified bank account "
-                f"({destination}).\n\n"
-                f"You cannot {_invest_or_exchange()} this amount now. We tell you when the money "
-                "is sent."
+                (
+                    f"We are sending the {amount} that your bank returned again, now to your "
+                    f"verified bank account ({destination})."
+                    if resent
+                    else f"{amount} of your {brand()} balance was not invested in time. Money "
+                    "that is not invested goes back to your bank, so we started a return to "
+                    f"your verified bank account ({destination})."
+                )
+                + f"\n\nOur team sends the transfer by hand on {send_on}. You cannot "
+                f"{_invest_or_exchange()} this amount now. We tell you when the transfer is made."
             ),
-            template_key="ledger.forced_return_created.v1",
+            template_key="ledger.forced_return_created.v3",
             notice_label="Balance notice",
             status_label="Action taken",
             status_tone="warning",
             data_rows=(
                 ("Amount", amount),
                 ("To", destination),
-                ("Started on", notice_date(request.requested_at)),
+                # Audit S3-5: at this stage the transfer is planned, not made. "Transfer sent
+                # on" is only in the notice after the transfer (notify_withdrawal_finalized).
+                ("Planned transfer date", send_on),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",
@@ -183,7 +183,7 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
     amount = notice_amount(request.amount_minor, request.currency)
     destination = masked_iban(request.destination_iban)
     value_date = request.bank_operation.value_date if request.bank_operation else None
-    what = "The return of your overdue balance" if request.is_forced else "Your withdrawal"
+    what = "The return of your money not invested" if request.is_forced else "Your withdrawal"
     enqueue_investor_notice(
         InvestorNotice(
             investor_user_id=str(request.investor_user_id),
@@ -194,6 +194,12 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
             body_text=(
                 f"{what} is complete. We sent {amount} to your bank account ({destination})."
                 + (f" Value date: {notice_date(value_date)}." if value_date else "")
+                + (
+                    "\n\nThis confirms that we made the transfer. Your bank credits it on its "
+                    "own schedule."
+                    if request.is_forced
+                    else ""
+                )
             ),
             template_key="ledger.withdrawal_finalized.v1",
             notice_label="Balance notice",
@@ -202,7 +208,10 @@ def notify_withdrawal_finalized(request: InvestorWithdrawalRequest) -> None:
             data_rows=(
                 ("Amount", amount),
                 ("To", destination),
-                ("Value date", notice_date(value_date) if value_date else ""),
+                (
+                    "Transfer sent on" if request.is_forced else "Value date",
+                    notice_date(value_date) if value_date else "",
+                ),
             ),
             navigation_target=BALANCE_TARGET,
             action_label="Open balances",
@@ -236,61 +245,6 @@ def notify_withdrawal_cancelled(request: InvestorWithdrawalRequest) -> None:
             metadata=_withdrawal_metadata(request, "cancelled"),
         )
     )
-
-
-def notify_penalty_mode_entered(*, transitions: Iterable[Any], as_of: datetime) -> None:
-    """One notice per investor and currency when balance sources enter penalty mode.
-
-    Daily penalty charges do not create notices; the investor sees them on the balance page.
-    """
-    grouped: dict[tuple[str, str], list[Any]] = defaultdict(list)
-    for transition in transitions:
-        grouped[(str(transition.investor_user_id), str(transition.currency))].append(transition)
-    penalty = _penalty_text()
-    operator = settings.LEGAL_OPERATOR_NAME
-    for (investor_user_id, currency_code), rows in grouped.items():
-        amount = notice_amount(sum(int(row.amount_minor) for row in rows), currency_code)
-        penalty_sentence = (
-            f" A penalty of {penalty} of this amount applies until it is returned."
-            if penalty
-            else ""
-        )
-        enqueue_investor_notice(
-            InvestorNotice(
-                investor_user_id=investor_user_id,
-                topic="email.balance_penalty_mode",
-                idempotency_key=(
-                    f"penalty-mode:{investor_user_id}:{currency_code}:{notice_date(as_of)}"
-                ),
-                subject="Action needed: add a usable IBAN",
-                headline="Financial actions are frozen",
-                body_text=(
-                    f"{amount} of your balance passed the 60-day holding limit. {operator} "
-                    "has no usable IBAN to return it to you, so this amount is now in penalty "
-                    f"mode.{penalty_sentence}\n\n"
-                    "Financial actions on your account are frozen. Add a usable IBAN in your "
-                    "name so we can return the money. You can still see your portfolio, "
-                    "documents, tax statements, notices and messages."
-                ),
-                template_key="ledger.balance_penalty_mode.v1",
-                notice_label="Balance notice",
-                status_label="Action needed",
-                status_tone="danger",
-                data_rows=(
-                    ("Amount in penalty mode", amount),
-                    ("Penalty", penalty),
-                    ("Since", notice_date(as_of)),
-                ),
-                navigation_target=BALANCE_TARGET,
-                action_label="Add a payout IBAN",
-                metadata={
-                    "currency": currency_code,
-                    "amount_minor": sum(int(row.amount_minor) for row in rows),
-                    "balance_lot_ids": [str(row.lot_id) for row in rows],
-                    "as_of": as_of.isoformat(),
-                },
-            )
-        )
 
 
 PAYOUT_ACCOUNT_TOPIC = "email.payout_account_status"
@@ -453,4 +407,48 @@ def notify_payout_instruction_revoked(
         ),
         status_label="Not usable",
         status_tone="warning",
+    )
+
+
+def notify_default_return_account_changed(instruction: InvestorPayoutInstruction) -> None:
+    """U33-DEC-05: the investor chose another default return account (change notification).
+
+    One notice per change: the key counts the earlier changes in the same currency, so
+    switching back to an account the investor used before is announced again.
+    """
+    currency = str(instruction.currency_id)
+    destination = masked_iban(instruction.destination_iban)
+    sequence = OutboxMessage.objects.filter(
+        topic=PAYOUT_ACCOUNT_TOPIC,
+        payload__metadata__payout_event="default_changed",
+        payload__metadata__investor_user_id=str(instruction.investor_user_id),
+        payload__metadata__currency=currency,
+    ).count()
+    enqueue_investor_notice(
+        InvestorNotice(
+            investor_user_id=str(instruction.investor_user_id),
+            topic=PAYOUT_ACCOUNT_TOPIC,
+            idempotency_key=(
+                f"payout-default:{instruction.investor_user_id}:{currency}:{sequence}"
+            ),
+            subject="Default return account changed",
+            headline="Your default return account has changed",
+            body_text=(
+                f"When we send {currency} back to your bank, we now use your bank account "
+                f"({destination}). If you did not make this change, contact support at once."
+            ),
+            template_key="ledger.payout_iban_default_changed.v1",
+            notice_label="Account notice",
+            status_label="Changed",
+            status_tone="info",
+            data_rows=(("Bank account", destination), ("Currency", currency)),
+            navigation_target=BALANCE_TARGET,
+            action_label="Open payout IBANs",
+            metadata={
+                "payout_instruction_id": str(instruction.id),
+                "payout_event": "default_changed",
+                "investor_user_id": str(instruction.investor_user_id),
+                "currency": currency,
+            },
+        )
     )

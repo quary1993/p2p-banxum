@@ -37,14 +37,16 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
-# The public site forms (For companies, For loan originators, Contact) send one email to
+# Audit step 7: a necessary compliance review emails this address (empty: the operations address).
+COMPLIANCE_ALERT_EMAIL = env("COMPLIANCE_ALERT_EMAIL", default="")
+# The public site forms (For borrowers, For loan originators, Contact) send one email to
 # this address. Nothing is sent to the person who filled the form (COMMS-DEC-009).
 PUBLIC_ENQUIRY_EMAIL = env("PUBLIC_ENQUIRY_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
 # Where emails load their public images (the logo). Blank uses PUBLIC_APP_BASE_URL, whose
 # web server serves frontend/public (for example /brand/banxum-email-logo.png).
 EMAIL_ASSET_BASE_URL = env("EMAIL_ASSET_BASE_URL", default="")
-# The Django admin has a password-only login (no admin email code, no throttle), so it
+# The Django admin has a password-only login (no authenticator code, no throttle), so it
 # is never mounted outside local development, whatever the variable says (audit A-52).
 DJANGO_ADMIN_ENABLED = IS_LOCAL and env.bool("DJANGO_ADMIN_ENABLED", default=True)
 API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=ENVIRONMENT == "local")
@@ -88,6 +90,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "backend.apps.accounts_auth.middleware.SessionLifetimeMiddleware",
+    "backend.apps.accounts_auth.middleware.UserSessionMiddleware",
     "backend.apps.platform_core.middleware.RejectReadonlyImpersonationWritesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -129,17 +132,12 @@ DEFAULT_EXCEPTION_REPORTER_FILTER = (
     "backend.config.error_reporting.SettingsMaskingExceptionReporterFilter"
 )
 
-# Only admin accounts have passwords (investors use login links). Admin passwords need
-# 12+ characters and must not be on Django's offline list of 20,000 common/breached
-# passwords (audit SECCODE-17).
+# 18.5 and audit S4-5: one password policy for investors and admins, on every path
+# (accounts_auth.passwords: 12 to 128 characters, no forced mix of character types, not a very
+# common password, not in known data breaches). No other validator is listed, so Django's own
+# paths (createsuperuser, forms) cannot apply other rules.
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-        "OPTIONS": {"min_length": 12},
-    },
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {"NAME": "backend.apps.accounts_auth.passwords.PlatformPasswordValidator"},
 ]
 
 LANGUAGE_CODE = "en-us"
@@ -170,6 +168,18 @@ CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
 # Absolute lifetime of an authenticated investor or admin session, counted from login.
 # Enforced server-side by accounts_auth.middleware.SessionLifetimeMiddleware.
 AUTH_SESSION_MAX_AGE_SECONDS = env.int("AUTH_SESSION_MAX_AGE_SECONDS", default=2 * 60 * 60)
+# U33-DEC-25: the request header a trusted edge proxy sets with the visitor's country (two
+# letters, for example "CF-IPCountry"). Empty: no approximate location is recorded or shown.
+SIGN_IN_COUNTRY_HEADER = env("SIGN_IN_COUNTRY_HEADER", default="")
+# Q06 (18.5): a local IP-to-city database (DB-IP Lite City or MaxMind GeoLite2 City, MMDB file,
+# downloaded by operations; never in the repository). Empty or missing file: country only.
+GEOIP_CITY_DB_PATH = env("GEOIP_CITY_DB_PATH", default="")
+# 18.5 (D1): refuse passwords found in known breaches (Have I Been Pwned range API, k-anonymity).
+AUTH_PASSWORD_BREACH_CHECK_ENABLED = env.bool(
+    "AUTH_PASSWORD_BREACH_CHECK_ENABLED", default=not IS_LOCAL
+)
+# 18.5 (Q05): a trusted browser skips the second factor at sign-in for this many days.
+AUTH_TRUSTED_DEVICE_DAYS = env.int("AUTH_TRUSTED_DEVICE_DAYS", default=30)
 # TLS ends at the edge proxy (Caddy); Django sees the scheme in X-Forwarded-Proto.
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not IS_LOCAL)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if IS_LOCAL else 31536000)
@@ -228,6 +238,10 @@ AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
     default=60,
 )
 AUTH_SENSITIVE_CODE_MAX_ATTEMPTS = env.int("AUTH_SENSITIVE_CODE_MAX_ATTEMPTS", default=3)
+# 18.5: changed operation details skip the cooldown (a price that moved needs a new code at
+# once), so the emails per account are capped per hour and per day (all actions together).
+AUTH_SENSITIVE_CODE_HOURLY_LIMIT = env.int("AUTH_SENSITIVE_CODE_HOURLY_LIMIT", default=30)
+AUTH_SENSITIVE_CODE_DAILY_LIMIT = env.int("AUTH_SENSITIVE_CODE_DAILY_LIMIT", default=100)
 # Investor PIN for sensitive actions (ACC-DEC-009): this many wrong PINs in a row lock
 # the PIN for AUTH_PIN_LOCK_SECONDS (real clock). A correct PIN resets the count.
 AUTH_PIN_MAX_ATTEMPTS = env.int("AUTH_PIN_MAX_ATTEMPTS", default=5)
@@ -281,6 +295,31 @@ AUTH_ADMIN_LOGIN_CONFIRM_DAILY_LIMIT = env.int(
     "AUTH_ADMIN_LOGIN_CONFIRM_DAILY_LIMIT",
     default=100,
 )
+# 18.5 investor sign-in (password + second factor): request limits per IP and per (email, IP),
+# and the same doubling wait as admins after repeated wrong passwords.
+AUTH_SIGN_IN_HOURLY_LIMIT = env.int("AUTH_SIGN_IN_HOURLY_LIMIT", default=30)
+AUTH_SIGN_IN_DAILY_LIMIT = env.int("AUTH_SIGN_IN_DAILY_LIMIT", default=200)
+AUTH_SIGN_IN_FREE_FAILURES = env.int("AUTH_SIGN_IN_FREE_FAILURES", default=5)
+AUTH_SIGN_IN_BACKOFF_BASE_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_BASE_SECONDS", default=15)
+AUTH_SIGN_IN_BACKOFF_MAX_SECONDS = env.int("AUTH_SIGN_IN_BACKOFF_MAX_SECONDS", default=900)
+AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_HOURLY_LIMIT", default=30)
+AUTH_SIGN_IN_VERIFY_DAILY_LIMIT = env.int("AUTH_SIGN_IN_VERIFY_DAILY_LIMIT", default=200)
+# Audit S4-2: account-wide limits, from all IP addresses together (investors and admins).
+# Wrong passwords: at the limit the password step answers "too many attempts" to every browser
+# that never signed in to the account; a browser that did (device cookie) is not held by it.
+AUTH_SIGN_IN_ACCOUNT_FAILURES_HOURLY = env.int("AUTH_SIGN_IN_ACCOUNT_FAILURES_HOURLY", default=20)
+AUTH_SIGN_IN_ACCOUNT_FAILURES_DAILY = env.int("AUTH_SIGN_IN_ACCOUNT_FAILURES_DAILY", default=60)
+# Wrong second-factor codes (SMS, app or recovery code) per account.
+AUTH_FACTOR_ACCOUNT_FAILURES_HOURLY = env.int("AUTH_FACTOR_ACCOUNT_FAILURES_HOURLY", default=10)
+AUTH_FACTOR_ACCOUNT_FAILURES_DAILY = env.int("AUTH_FACTOR_ACCOUNT_FAILURES_DAILY", default=30)
+# SMS codes sent to one account (sign-in, security and phone verification together).
+AUTH_SMS_ACCOUNT_HOURLY_LIMIT = env.int("AUTH_SMS_ACCOUNT_HOURLY_LIMIT", default=10)
+AUTH_SMS_ACCOUNT_DAILY_LIMIT = env.int("AUTH_SMS_ACCOUNT_DAILY_LIMIT", default=30)
+AUTH_PASSWORD_RESET_COOLDOWN_SECONDS = env.int("AUTH_PASSWORD_RESET_COOLDOWN_SECONDS", default=60)
+AUTH_PASSWORD_RESET_HOURLY_LIMIT = env.int("AUTH_PASSWORD_RESET_HOURLY_LIMIT", default=5)
+AUTH_PASSWORD_RESET_DAILY_LIMIT = env.int("AUTH_PASSWORD_RESET_DAILY_LIMIT", default=20)
+AUTH_SECURITY_CHANGE_HOURLY_LIMIT = env.int("AUTH_SECURITY_CHANGE_HOURLY_LIMIT", default=20)
+AUTH_SECURITY_CHANGE_DAILY_LIMIT = env.int("AUTH_SECURITY_CHANGE_DAILY_LIMIT", default=60)
 GARANTA_SUPERADMIN_EMAIL = env("GARANTA_SUPERADMIN_EMAIL", default="")
 GARANTA_SUPERADMIN_PASSWORD_HASH = env("GARANTA_SUPERADMIN_PASSWORD_HASH", default="")
 GARANTA_SUPERADMIN_FULL_NAME = env("GARANTA_SUPERADMIN_FULL_NAME", default="Env Superadmin")
@@ -325,12 +364,22 @@ NEWSLETTER_CONFIRMATION_GLOBAL_DAILY_LIMIT = env.int(
 NEWSLETTER_TOKEN_IP_HOURLY_LIMIT = env.int("NEWSLETTER_TOKEN_IP_HOURLY_LIMIT", default=30)
 SCHEDULED_JOBS_ACTOR_EMAIL = env("SCHEDULED_JOBS_ACTOR_EMAIL", default="")
 SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", default=5)
+# Pre-deployment review P-5: jobs that run every few minutes (assisted-recovery links).
+SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES = env.int(
+    "SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES", default=15
+)
 SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", default=1800)
 SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES = env.int(
     "SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES",
     default=120,
 )
 QA_DEV_MODE_ALLOWED = env.bool("QA_DEV_MODE_ALLOWED", default=False)
+# 18.10: new investments need a declaration, no necessary open compliance review and no overdue
+# re-verification. Always on; only the test suite switches it off for tests of other features.
+COMPLIANCE_DECLARATIONS_REQUIRED = True
+# 18.10 (Q13): publication needs every kept security verified with its documents. Always on; only
+# the test suite switches it off for tests of other features.
+SECURITY_PROOFS_REQUIRED = True
 # Maintenance CLI only. Never enable this on the serving application process.
 QA_DATA_RESET_ALLOWED = env.bool("QA_DATA_RESET_ALLOWED", default=False)
 QA_DEV_MODE_SNAPSHOT_DIR = env(
@@ -363,7 +412,6 @@ FX_YAHOO_USER_AGENT = env(
     "FX_YAHOO_USER_AGENT",
     default="BANXUM/1.0 provider-check",
 )
-BALANCE_PENALTY_BPS_PER_DAY = env.int("BALANCE_PENALTY_BPS_PER_DAY", default=100)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CACHE_URL = env(
     "CACHE_URL",
@@ -393,6 +441,10 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
+    # 18.12 (ASVS V4.1): deny by default; public views say AllowAny explicitly.
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_RENDERER_CLASSES": DEFAULT_RENDERER_CLASSES,
 }
 
@@ -403,30 +455,47 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "ENUM_NAME_OVERRIDES": {
         "AdminTaskPriorityEnum": "backend.apps.admin_ops.models.AdminTaskPriority.choices",
+        "SignInMethodEnum": "backend.apps.accounts_auth.models.SignInMethod.choices",
+        "SignInResultEnum": "backend.apps.accounts_auth.models.SignInResult.choices",
         "AdminTaskStatusEnum": "backend.apps.admin_ops.models.AdminTaskStatus.choices",
         "AdminTaskTypeEnum": "backend.apps.admin_ops.models.AdminTaskType.choices",
         "BorrowerDocumentTypeEnum": ("backend.apps.entities.models.BorrowerDocumentType.choices"),
         "BorrowerEntityTypeEnum": "backend.apps.entities.models.BorrowerEntityType.choices",
         "BorrowerKybStatusEnum": "backend.apps.entities.models.BorrowerKybStatus.choices",
+        # 18.9: Swiss creditor modes ("sandbox", "ten_twenty") in every serializer.
+        "SwissCreditorModeEnum": ["sandbox", "ten_twenty"],
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
+        # 18.10: keep the KYC manual-review name; the compliance review decision gets its own.
+        "DecisionEnum": "backend.apps.kyc_compliance.models.KycManualReviewDecisionType.choices",
+        "ComplianceReviewDecisionEnum": ["close", "more_information"],
         "RepaymentTypeEnum": "backend.apps.loans.models.RepaymentType.choices",
         "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",
         "PurposeEnum": "backend.apps.loans.models.LoanPurpose.choices",
         "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
-        "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
-        "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
-        "PublicEnquiryCountryEnum": "backend.apps.communications.api.serializers.COUNTRY_CHOICES",
-        "PublicEnquiryTermEnum": "backend.apps.communications.api.serializers.TERM_CHOICES",
-        "PublicEnquiryPurposeEnum": "backend.apps.communications.api.serializers.PURPOSE_CHOICES",
-        "PublicEnquirySecurityEnum": (
-            "backend.apps.communications.api.serializers.SECURITY_CHOICES"
+        "BalanceReturnFailureStatusEnum": (
+            "backend.apps.ledger.models.BalanceReturnFailureStatus.choices"
         ),
-        "PublicEnquiryProductEnum": "backend.apps.communications.api.serializers.PRODUCT_CHOICES",
+        "BalanceReturnFailureReasonEnum": (
+            "backend.apps.ledger.models.BalanceReturnFailureReason.choices"
+        ),
+        # 18.3: new choice fields reuse these value sets; keep the existing names stable.
+        "CategoryEnum": "backend.apps.documents.models.DocumentCategory.choices",
+        "AdminUserDocumentArtifactRequestOutputFormatEnum": [("pdf", "pdf"), ("csv", "csv")],
+        "SmartInvestRepaymentEnum": (
+            "backend.apps.smart_invest.models.SmartInvestRepaymentOption.choices"
+        ),
+        "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
+        "PublicEnquiryProposalEnum": (
+            "backend.apps.communications.api.serializers.PROPOSAL_CHOICES"
+        ),
         "PublicEnquiryTopicEnum": "backend.apps.communications.api.serializers.TOPIC_CHOICES",
         "PublicEnquiryCompanyKindEnum": ["company"],
         "PublicEnquiryOriginatorKindEnum": ["originator"],
         "PublicEnquiryContactKindEnum": ["contact"],
         "NewsletterSourceEnum": "backend.apps.communications.models.NewsletterSource.choices",
+        "LoanRecoveryStageStatusEnum": (
+            "backend.apps.servicing.models.LoanRecoveryStageStatus.choices"
+        ),
     },
 }
 

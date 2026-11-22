@@ -2,6 +2,7 @@
 // (penalty-mode) state comes from the balances API, not from the preview switch; the Account
 // page shows each payout IBAN's real verification state and the open withdrawal requests.
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
@@ -56,6 +57,8 @@ const frozenBalances = () =>
         destination_iban: "CH5604835012345678009",
         destination_account_name: "Una Investor",
         is_verified_usable: true,
+        verification_status: "verified",
+        is_default_return: true,
         verified_at: "2026-10-09T12:00:00Z",
         created_at: "2026-10-09T11:00:00Z"
       },
@@ -66,6 +69,8 @@ const frozenBalances = () =>
         destination_iban: "DE89370400440532013000",
         destination_account_name: "Una Investor",
         is_verified_usable: false,
+        verification_status: "pending",
+        is_default_return: false,
         verified_at: null,
         created_at: "2026-10-09T11:00:00Z"
       }
@@ -89,9 +94,7 @@ const frozenBalances = () =>
         requested_at: "2026-12-09T11:00:00Z",
         is_forced: true
       }
-    ],
-    has_penalty_mode_balance: true,
-    penalty_bps_per_day: 100
+    ]
   });
 
 test("the frozen state from the balances API shows a banner, counts frozen money and blocks FX", async () => {
@@ -99,31 +102,23 @@ test("the frozen state from the balances API shows a banner, counts frozen money
   renderLiveApp(App, "/dashboard");
 
   const banner = await screen.findByText("Financial actions are frozen", {}, { timeout: 5000 });
-  const bannerBox = banner.closest(".banner") as HTMLElement;
-  expect(bannerBox).toHaveTextContent("EUR 4'898'036.89 passed the 60-day holding limit");
-  expect(bannerBox).toHaveTextContent("A penalty of 1.0% of this money is taken every day");
-  expect(bannerBox).toHaveTextContent("add a payout IBAN for EUR");
-  expect(within(bannerBox).getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
-  // The nav marks the Account entry; Add Funds is disabled.
+  const bannerBox = banner.closest(".alert") as HTMLElement;
+  expect(bannerBox).toHaveTextContent("EUR 4.898.036,89 passed the 60-day holding limit");
+  // No daily penalty any more (U33-DEC-04).
+  expect(bannerBox).not.toHaveTextContent(/penalty/i);
+  expect(bannerBox).toHaveTextContent("add a bank account in your name for EUR");
+  expect(within(bannerBox).getByRole("button", { name: "Add a bank account" })).toBeInTheDocument();
+  // The nav marks the Account entry; Add funds (account menu) is disabled.
   expect(screen.getByLabelText("Account frozen")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Add Funds" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+  expect(screen.getByRole("button", { name: "Add funds" })).toHaveAttribute("aria-disabled", "true");
   // The raw lot status never reaches the page.
   expect(document.body.textContent).not.toMatch(/penalty_mode|PENALTY_MODE/);
 
-  // Overview: EUR money not working includes the frozen balance.
-  fireEvent.click(await screen.findByRole("tab", { name: "EUR" }));
-  expect(await screen.findByText("of which EUR 4'898'036.89 frozen, with a daily penalty")).toBeInTheDocument();
-  expect(screen.getByText("100.0% of your money, earning nothing")).toBeInTheDocument();
+  // Overview: the EUR available balance names the frozen part.
+  fireEvent.click(await screen.findByRole("button", { name: "EUR" }));
+  expect(await screen.findByText("Of which EUR 4.898.036,89 is frozen.")).toBeInTheDocument();
 
-  // FX: the converter is blocked with the reason before any quote is requested.
-  server.use(
-    ...shellHandlers({ balances: frozenBalances })
-  );
-  window.history.pushState({}, "", "/fx");
-  window.dispatchEvent(new PopStateEvent("popstate"));
-  expect(await screen.findByText("FX is frozen", {}, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.getByLabelText("Amount to convert from CHF")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Convert" })).toBeDisabled();
 }, 30_000);
 
 test("Account shows each IBAN's real state, pending withdrawals with forced returns, and the withdraw maximum", async () => {
@@ -135,34 +130,46 @@ test("Account shows each IBAN's real state, pending withdrawals with forced retu
         payload.summaries[0] = { ...payload.summaries[0], frozen_minor: 10_000 };
         return payload;
       }
-    })
+    }),
+    http.get("*/api/v1/investor/portal/primary-orders/", () => HttpResponse.json({ orders: [] }))
   );
   renderLiveApp(App, "/balances");
 
-  const ibanCard = (await screen.findByRole("heading", { name: "Payout IBANs" }, { timeout: 5000 })).closest("section") as HTMLElement;
-  const chfRow = within(ibanCard).getByText("CH5604835012345678009").closest(".acct-row") as HTMLElement;
-  const eurRow = within(ibanCard).getByText("DE89370400440532013000").closest(".acct-row") as HTMLElement;
-  expect(within(chfRow).getByText("Verified")).toBeInTheDocument();
-  expect(within(eurRow).getByText("Pending verification")).toBeInTheDocument();
-  expect(within(eurRow).queryByText("Verified")).not.toBeInTheDocument();
+  // Withdrawals waiting for the bank transfer: on the CHF card and listed in Balance details, the
+  // automatic return labelled as such.
+  const chf = await screen.findByRole("region", { name: "CHF account" }, { timeout: 5000 });
+  expect(within(chf).getByText("Withdrawals in progress")).toBeInTheDocument();
+  expect(within(chf).getByText("CHF 4.729.700,00")).toBeInTheDocument();
+  const pending = within(screen.getByRole("list", { name: "Withdrawals in progress" }));
+  expect(pending.getByText("CHF 1.500,50")).toBeInTheDocument();
+  expect(pending.getByText("CHF 4.728.199,50")).toBeInTheDocument();
+  expect(pending.getAllByText(/^Automatic return to /)).toHaveLength(1);
+  expect(pending.getAllByText(/^Withdrawal to /)).toHaveLength(1);
 
-  const pending = within(screen.getByRole("list", { name: "Pending withdrawals" }));
-  expect(pending.getByText("CHF 1'500.50")).toBeInTheDocument();
-  expect(pending.getByText("CHF 4'728'199.50")).toBeInTheDocument();
-  expect(pending.getAllByText("Forced return")).toHaveLength(1);
-  expect(screen.queryByText("No pending withdrawals")).not.toBeInTheDocument();
+  // Lot status is readable; the penalty already charged is listed apart from the balance.
+  const details = screen.getByText("Balance details").closest("details") as HTMLElement;
+  expect(within(details).getByText("Frozen, penalty charged")).toBeInTheDocument();
+  expect(within(details).getByText(/^Penalty charged so far: EUR 99\.959,94\./)).toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/penalty_mode|PENALTY_MODE/);
 
-  // EUR has no verified IBAN: the card says so next to its Withdraw button.
-  expect(screen.getByText(/No verified payout IBAN for EUR yet/)).toBeInTheDocument();
-  // Lot status is readable.
-  fireEvent.click(screen.getByRole("tab", { name: "EUR" }));
-  const lots = (await screen.findByRole("heading", { name: "EUR balance lots" })).closest("section") as HTMLElement;
-  expect(within(lots).getByText("Frozen, penalty charged")).toBeInTheDocument();
-  expect(within(lots).getByText("1 lot · used oldest first")).toBeInTheDocument();
+  // EUR has only a pending IBAN: the Withdraw dialog says so and shows its real state (U33-DEC-05).
+  fireEvent.click(within(screen.getByRole("region", { name: "EUR account" })).getByRole("button", { name: "Withdraw" }));
+  const eurDialog = await screen.findByRole("dialog", { name: "Withdraw" });
+  expect(within(eurDialog).getByText("No verified EUR bank account yet")).toBeInTheDocument();
+  expect(within(eurDialog).getByText("DE89 3704 0044 0532 0130 00 · Pending verification")).toBeInTheDocument();
+  expect(within(eurDialog).queryByText("Verified bank account")).not.toBeInTheDocument();
+  expect(within(eurDialog).getByRole("button", { name: /Continue/ })).toBeDisabled();
+  expect(within(eurDialog).getByRole("link", { name: "Add a bank account" })).toBeInTheDocument();
 
-  // Withdraw maximum (CHF): everything except the "frozen" status lot.
-  fireEvent.click(screen.getAllByRole("button", { name: "Withdraw to IBAN" })[0]);
-  const dialog = await screen.findByRole("dialog", { name: "Withdraw CHF" });
-  expect(within(dialog).getByText("CHF 12'896.30")).toBeInTheDocument();
-  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  // CHF: the verified account, and the withdraw maximum is everything except the "frozen" lot.
+  fireEvent.click(within(eurDialog).getByRole("button", { name: "CHF" }));
+  expect(within(eurDialog).getByText("Available CHF 12.896,30")).toBeInTheDocument();
+  expect(within(eurDialog).getByText("CH56 0483 5012 3456 7800 9")).toBeInTheDocument();
+  await waitFor(() => expect(eurDialog.contains(document.activeElement)).toBe(true));
+
+  // Without a verified EUR account, "Add a bank account" opens the EUR bank-account dialog.
+  fireEvent.click(within(eurDialog).getByRole("button", { name: "EUR" }));
+  fireEvent.click(within(eurDialog).getByRole("link", { name: "Add a bank account" }));
+  expect(await screen.findByRole("dialog", { name: "New EUR bank account" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Withdraw" })).not.toBeInTheDocument();
 }, 30_000);

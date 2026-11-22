@@ -1,0 +1,354 @@
+/* IP of Webby-Soft SRL. */
+/* Hand-made fixes for the U33 investor area, all under html.bxu. u33.css is generated from the design
+ * (do not edit it; rebuild it with tools/u33-design/investor/build.sh); put every fix here, with the reason.
+ * Generated rules have the specificity of the design selector + one class (:where(html).bxu ...),
+ * so a fix written as "html.bxu <same selector>" wins without !important.
+ *
+ * The old skin is gone (S7 of audit step 4, 18.5): no LegacyBody, no html.bxm, and u33.css is built with
+ * "--no-legacy-guard". styles.css now loads with the admin console only (lazyAreas.ts, audit G-07).
+ */
+
+/* Design tokens of the portal (layout "portal", body.has-sidebar). Until S7 the old skin (html.bxm,
+   banxumSkin.css) was mounted around the portal and set these tokens; the U33 screens' own CSS (per-screen
+   files and this file) was built and checked against those values (fonts, radii, colours, shadows).
+   The old skin is gone, so the portal keeps the same values here; the sign-in screens and the public site
+   never had them and keep the base.css values. Found by the S7 computed-style check (baseline 604c562). */
+html.bxu body.has-sidebar {
+  --accent: #0a0a0a;
+  --accent-ink: #0a0a0a;
+  --accent-line: #e6e6e6;
+  --accent-soft: #f5f5f5;
+  --bad: #b3261e;
+  --bad-line: #b3261e;
+  --bad-strong: #8f1e18;
+  --bxm-label-track: 0.2em;
+  --bxm-tag-track: 0.12em;
+  --font-display: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --font-mono: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --font-sans: "Archivo Variable", Archivo, Helvetica, Arial, sans-serif;
+  --ghost: #8a8a8a;
+  --hair: #e6e6e6;
+  --info: #2a2a2a;
+  --info-bg: #f5f5f5;
+  --info-line: #e6e6e6;
+  --ink: #0a0a0a;
+  --ink-2: #2a2a2a;
+  --ink-3: #6e6e6e;
+  --ink-4: #8a8a8a;
+  --line: #e6e6e6;
+  --line-2: #e6e6e6;
+  --line-strong: #c8c8c8;
+  --nav-w: 340px;
+  --neutral: #6e6e6e;
+  --neutral-bg: #f5f5f5;
+  --neutral-line: #e6e6e6;
+  --ok: #1e7a46;
+  --ok-bg: #f1f7f3;
+  --ok-line: #1e7a46;
+  --paper: #ffffff;
+  --r-lg: 0;
+  --r-md: 0;
+  --r-sm: 0;
+  --r-xs: 0;
+  --shadow-md: none;
+  --shadow-pop: 0 3px 12px 1px rgba(10, 10, 10, 0.15);
+  --shadow-sm: none;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --surface-3: #ededed;
+  --topbar-h: 53px;
+  --warn: #0a0a0a;
+  --warn-bg: #f5f5f5;
+  --warn-line: #0a0a0a;
+  --warn-strong: #0a0a0a;
+}
+
+/* 1. styles.css rules reaching the U33 shell ------------------------------------------------------ */
+/* Found with tools/leaks.js (computed styles of the shell with and without the old stylesheets).
+   styles.css now loads only with the admin console, and since audit S4-9 the build scopes each of its
+   rules to html.bxa (adminConsole/adminCssScope.ts), so it styles nothing here, also in a tab that
+   opened the admin console first. These fixes stay as a second guard. :where() keeps them at (0,1,1). */
+
+/* styles.css :root paints <html> white; the design leaves it transparent, so the page canvas takes the
+   body colour (Light #f5f6f7 / Dark #101214) below short pages. */
+html.bxu {
+  background: none;
+}
+
+/* styles.css .nav / .nav-link (old sidebar, still global): the footer links are a row as in the design. */
+html.bxu :where(.nk-footer .nav) {
+  flex-direction: row;
+}
+html.bxu :where(.nk-footer .nav-link) {
+  gap: normal;
+  text-align: inherit;
+}
+
+/* styles.css .modal (and before S7 banxumSkin.css .bxm .modal) style every .modal as the old white box (max-width
+   540/580px, background, border, auto margins). The U33 dialogs (portal/components Dialog and the
+   screens' own dialogs, rendered straight into <body>) use .modal as Bootstrap's full-screen layer.
+   Found by S5. */
+html.bxu body > .modal {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+}
+
+/* 2. Shared U33 components without a single design class ------------------------------------------ */
+
+/* Amount fields (design .p73-amount-field: currency + a bare input) in the Withdraw, Add funds and
+   invest dialogs: the design's generic input :focus-visible ring (outline + 5px shadow) draws a box
+   inside the field when it gets focus (the dialogs focus it on open). As the design does for its
+   other composite amount fields (.si-amount, .s106-price-field), the whole field shows the focus. */
+/* Same specificity as the design rule (0,7,3), which comes earlier. */
+html.bxu[data-edition] body.bxm-app .p73-amount-field input:not([type=range]):not([type=checkbox]):focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+html.bxu body.bxm-app .p73-amount-field:focus-within {
+  border-color: #77858e;
+  box-shadow: 0 0 0 3px #73838e33;
+}
+
+/* LinkArrow: the design's "View account ->" link of the Overview cards (.ov-card-footer a). */
+html.bxu .u33-link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a0a0a;
+  font: 500 13px/1.5 "Archivo Variable", "Archivo", sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+html.bxu .u33-link-arrow:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+html.bxu .u33-link-arrow .icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #f3f4f5;
+  color: #0a0a0a;
+  font-size: 13px;
+}
+html.bxu[data-theme="dark"] .u33-link-arrow,
+html.bxu[data-theme="dark"] .u33-link-arrow .icon {
+  color: #f3f5f4;
+}
+html.bxu[data-theme="dark"] .u33-link-arrow .icon {
+  background: #23272c;
+}
+html.bxu .u33-card-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #eee;
+}
+html.bxu[data-theme="dark"] .u33-card-footer {
+  border-top-color: #343a40;
+}
+
+/* Alert marker on the Account menu entry (money due back, frozen account): the design's count badge,
+   in the design's amber/red. */
+html.bxu .nk-menu-badge.u33-menu-alert {
+  color: #94600c;
+  font-weight: 600;
+}
+html.bxu[data-theme="dark"] .nk-menu-badge.u33-menu-alert {
+  color: #e5b66c;
+}
+
+/* Skip link: hidden until focused. */
+html.bxu .u33-skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 2000;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #111214;
+  color: #fff;
+  font-weight: 500;
+}
+html.bxu .u33-skip-link:focus {
+  top: 12px;
+}
+
+/* Notifications dropdown without items. */
+html.bxu .nd-dropdown .nd-empty {
+  margin: 0;
+  padding: 24px 20px;
+  color: #59636d;
+  font-size: 14px;
+}
+
+/* Language row of the account menu: one language until Phase 17.8, shown but not selectable. */
+html.bxu .p30-language-toggle:disabled {
+  color: inherit;
+  cursor: default;
+  opacity: 1;
+}
+
+/* Shell notices (portal/shell/ShellNotices.tsx: sign-out error, preview data, read-only view, frozen
+   account) use the design's alert list (.ov-updates > .alert, rose background, 24px below). The design
+   has one tone; warning takes its late-payment amber and info a neutral grey. Dark follows the
+   design's dark alert colours (amber text on #30271c; the default/danger text #ed9892). */
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-warning { background: #fff7e8 !important; }
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-info { background: #f1f3f5 !important; }
+html.bxu .u33-shell-notice.alert-warning > .icon,
+html.bxu .u33-shell-notice.alert-warning .bxm-signal-text { color: #956117; }
+html.bxu .u33-shell-notice.alert-danger > .icon,
+html.bxu .u33-shell-notice.alert-danger .bxm-signal-text { color: #b42318; }
+/* The design's dark alert colours are !important inside @layer bxm-dark, which beats any unlayered
+   !important rule; these two overrides therefore live in the same layer (higher specificity wins). */
+@layer bxm-dark {
+  html.bxu[data-edition][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-danger { color: #ed9892 !important; }
+  html.bxu[data-edition][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice.alert-info { background: #23272c !important; color: #c9ced3 !important; }
+  html.bxu[data-visual-study="ars"][data-theme="dark"] body.bxm-app .ov-updates > .alert.u33-shell-notice + .alert.u33-shell-notice { border-top-color: #343a40 !important; }
+}
+/* The list separator is the design's (3px, page colour); .alert-danger would colour it red. */
+html.bxu[data-visual-study="ars"] body.bxm-app .ov-updates > .alert.u33-shell-notice + .alert.u33-shell-notice { border-top-color: #f5f6f7 !important; }
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-danger > .icon,
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-danger .bxm-signal-text { color: #ed9892; }
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-warning > .icon,
+html.bxu[data-theme="dark"] .u33-shell-notice.alert-warning .bxm-signal-text { color: #e5b66c; }
+/* Inline actions: the design's alert links, as buttons. */
+html.bxu .u33-shell-notice-actions { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; margin-left: 8px; }
+html.bxu .u33-shell-notice .alert-link {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html.bxu .u33-shell-notice .alert-link:disabled { cursor: default; opacity: .6; }
+
+/* 3. Preview mode only (fixture data): the reviewers' floating controls ------------------------- */
+html.bxu .u33-preview-controls {
+  position: fixed;
+  right: 16px;
+  bottom: 64px;
+  z-index: 1060;
+  font: 500 12px/1.4 "Archivo Variable", "Archivo", sans-serif;
+}
+html.bxu .u33-preview-toggle {
+  padding: 6px 12px;
+  border: 1px dashed #8a8a8a;
+  border-radius: 999px;
+  background: #fff;
+  color: #111214;
+}
+html.bxu .u33-preview-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(17, 18, 20, 0.12);
+}
+html.bxu .u33-preview-panel label {
+  display: grid;
+  gap: 4px;
+  color: #59636d;
+}
+html.bxu .u33-preview-panel select {
+  min-width: 190px;
+  padding: 4px 6px;
+  color: #111214;
+}
+html.bxu[data-theme="dark"] .u33-preview-toggle,
+html.bxu[data-theme="dark"] .u33-preview-panel {
+  background: #191c20;
+  border-color: #343a40;
+  color: #f3f5f4;
+}
+
+/* 18.3: the in-app PDF reader (design document modal: .modal-lg > .bxm-doc). */
+html.bxu .u33-pdf-reader .u33-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--bxm-steel, #6e6e6e);
+}
+html.bxu .u33-pdf-reader .u33-pdf-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+html.bxu .u33-pdf-reader .u33-pdf-zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--bxm-line, #e6e6e6);
+  background: transparent;
+  color: inherit;
+}
+html.bxu .u33-pdf-reader .u33-pdf-zoom button:disabled {
+  opacity: 0.4;
+}
+html.bxu .u33-pdf-reader .u33-pdf-zoom output {
+  min-width: 48px;
+  text-align: center;
+}
+html.bxu .u33-pdf-reader .u33-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bxm-paper, #f4f4f2);
+}
+html.bxu .u33-pdf-reader .u33-pdf-page {
+  max-width: none;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+html.bxu[data-theme="dark"] .u33-pdf-reader .u33-pdf-pages {
+  background: #111316;
+}
+
+/* 18.3: "Help with this step" opened in place inside the withdraw and sell dialogs. */
+html.bxu .u33-step-help {
+  display: block;
+  margin: 12px 0;
+}
+html.bxu .u33-step-help > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+}
+html.bxu .u33-step-help > summary::-webkit-details-marker {
+  display: none;
+}
+html.bxu .u33-step-help .r34-help-body {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--bxm-line, #e6e6e6);
+}
+html.bxu .u33-step-help .r34-help-body h3 {
+  margin: 0 0 8px;
+}

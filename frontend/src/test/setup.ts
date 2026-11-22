@@ -3,8 +3,13 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 
 import { server } from "../api/mocks/server";
+import { AdminApp, SitePages } from "../lazyAreas";
+import { resetNumberFormatForTests } from "../investorPortal/format";
+import { resetAppearanceForTests } from "../portal/appearance";
 
-beforeAll(() => {
+beforeAll(async () => {
+  // The lazy areas (audit G-07) render synchronously once loaded, as the tests expect.
+  await Promise.all([SitePages.preload(), AdminApp.preload()]);
   Object.defineProperty(window, "scrollTo", {
     value: vi.fn(),
     writable: true
@@ -18,6 +23,9 @@ beforeAll(() => {
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  // Preferences cached by the investor area (U33): each test starts from the defaults.
+  resetNumberFormatForTests();
+  resetAppearanceForTests();
 });
 
 afterEach(() => {

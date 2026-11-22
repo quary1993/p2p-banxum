@@ -1,6 +1,6 @@
 """Public site forms: one email per accepted form to ``PUBLIC_ENQUIRY_EMAIL`` (COMMS-DEC-009).
 
-The For companies, For loan originators and Contact forms of the public site are stored as
+The For borrowers, For loan originators and Contact forms of the public site are stored as
 ``PublicEnquiry`` rows and emailed through the normal outbox, so the usual retry, delivery
 record and evidence machinery applies. Nothing is sent to the person who filled the form.
 Input is validated by the API serializers; this module stores, numbers and renders.
@@ -9,8 +9,6 @@ Input is validated by the API serializers; this module stores, numbers and rende
 from __future__ import annotations
 
 import calendar
-import hashlib
-import hmac
 import logging
 import secrets
 from dataclasses import dataclass
@@ -46,6 +44,7 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.events import OutboxCommand, enqueue_outbox_message
+from backend.apps.platform_core.services.ip_privacy import PUBLIC_IP_PURPOSE, keyed_ip_hash
 
 logger = logging.getLogger(__name__)
 
@@ -57,50 +56,45 @@ REFERENCE_PREFIXES: dict[str, str] = {
     PublicEnquiryKind.CONTACT: "MSG",
 }
 SUBJECT_TEXT: dict[str, str] = {
-    PublicEnquiryKind.COMPANY: "New company application",
-    PublicEnquiryKind.ORIGINATOR: "New loan originator request",
-    PublicEnquiryKind.CONTACT: "New contact message",
+    PublicEnquiryKind.COMPANY: "New financing request",
+    PublicEnquiryKind.ORIGINATOR: "New partnership request",
+    PublicEnquiryKind.CONTACT: "New conversation request",
 }
 FORM_NAMES: dict[str, str] = {
-    PublicEnquiryKind.COMPANY: "For companies",
+    PublicEnquiryKind.COMPANY: "For borrowers",
     PublicEnquiryKind.ORIGINATOR: "For loan originators",
     PublicEnquiryKind.CONTACT: "Contact",
 }
-# Field order and labels in the email, per form.
+# Field order and labels in the email, per form (the U33 forms, 2026-11-09). The company form's
+# currency is shown with the amount ("EUR 250,000.00"), not on its own row.
 FIELD_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     PublicEnquiryKind.COMPANY: (
         ("company_name", "Company name"),
-        ("country", "Country"),
-        ("company_number", "Company number"),
-        ("amount", "Amount"),
-        ("term", "Term"),
-        ("purpose", "Purpose"),
-        ("security", "Security"),
-        ("revenue", "Annual revenue"),
-        ("founded", "Founded"),
-        ("about", "About the company"),
-        ("contact_name", "Contact name"),
-        ("role", "Role"),
+        ("country", "Country of registration"),
+        ("amount", "Amount requested"),
+        ("purpose", "Purpose of financing"),
+        ("collateral", "Available collateral"),
+        ("contact_name", "Name"),
         ("email", "Email"),
-        ("phone", "Phone"),
     ),
     PublicEnquiryKind.ORIGINATOR: (
         ("company_name", "Company name"),
-        ("country", "Country"),
-        ("licence", "Licence"),
-        ("product", "Product"),
-        ("loan_book", "Loan book"),
-        ("about", "About the company"),
-        ("contact_name", "Contact name"),
+        ("country", "Country of registration"),
+        ("contact_name", "Name"),
         ("email", "Email"),
+        ("proposal", "Proposal"),
+        ("about", "Introduction"),
     ),
     PublicEnquiryKind.CONTACT: (
-        ("name", "Name"),
+        ("name", "Full name"),
         ("email", "Email"),
         ("topic", "Topic"),
         ("message", "Message"),
     ),
 }
+# Fields shown with another one, never on their own row.
+COMBINED_FIELDS = frozenset({"currency"})
+# "revenue" and "loan_book" belong to enquiries sent with the October forms.
 AMOUNT_FIELDS = frozenset({"amount", "revenue", "loan_book"})
 
 
@@ -120,10 +114,7 @@ def public_ip_hash(ip_address: str) -> str:
     """Keyed SHA-256 of an IP: a pepper derived from SECRET_KEY, so it cannot be reversed
     by hashing the IPv4 space without the server secret."""
 
-    if not ip_address:
-        return ""
-    pepper = hashlib.sha256(f"{settings.SECRET_KEY}:communications-public-ip:v1".encode()).digest()
-    return hmac.new(pepper, ip_address.encode("utf-8"), hashlib.sha256).hexdigest()
+    return keyed_ip_hash(ip_address, purpose=PUBLIC_IP_PURPOSE)
 
 
 def _reference_year() -> int:
@@ -212,11 +203,36 @@ def _format_amount(value: str) -> str:
     return f"{amount:,.2f}"
 
 
-def _display_value(name: str, value: Any) -> str:
+def _display_value(name: str, value: Any, fields: dict[str, Any]) -> str:
     text = str(value)
     if name in AMOUNT_FIELDS and text:
-        return _format_amount(text)
+        amount = _format_amount(text)
+        currency = str(fields.get("currency") or "").strip() if name == "amount" else ""
+        return f"{currency} {amount}" if currency else amount
     return text
+
+
+def _field_rows(kind: str, fields: dict[str, Any]) -> list[tuple[str, str]]:
+    """The labelled values of the form, in form order, empty ones left out.
+
+    Values stored under names the current form no longer has (an enquiry sent with an earlier
+    version of the form and still waiting for its email) follow with their name as the label,
+    so nothing typed is ever dropped from the email.
+    """
+
+    labels = FIELD_LABELS[kind]
+    known = {name for name, _label in labels}
+    rows: list[tuple[str, str]] = []
+    for name, label in labels:
+        value = fields.get(name)
+        if value is None or value == "":
+            continue
+        rows.append((label, _display_value(name, value, fields)))
+    for name, value in fields.items():
+        if name in known or name in COMBINED_FIELDS or value is None or value == "":
+            continue
+        rows.append((name.replace("_", " ").capitalize(), _display_value(name, value, fields)))
+    return rows
 
 
 def _safe_reply_to(address: str) -> str:
@@ -251,12 +267,9 @@ def render_public_enquiry_email(message: OutboxMessage, *, redact: bool) -> Rend
     subject = f"{subject_text} {enquiry.reference}"
     fields: dict[str, Any] = dict((enquiry.payload or {}).get("fields") or {})
 
-    field_rows: list[tuple[str, str]] = []
-    for name, label in FIELD_LABELS[kind]:
-        value = fields.get(name)
-        if value is None or value == "":
-            continue
-        field_rows.append((label, REDACTED_SECRET if redact else _display_value(name, value)))
+    field_rows = [
+        (label, REDACTED_SECRET if redact else value) for label, value in _field_rows(kind, fields)
+    ]
     received = _email_time(enquiry.created_at)
     data_rows: tuple[tuple[str, str], ...] = (
         ("Reference", enquiry.reference),

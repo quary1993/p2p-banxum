@@ -2,9 +2,9 @@
 // - A-44: the public site reads only the anonymous public endpoints (since 2026-10-15 the public
 //   site API contract: loan title, never the borrower's name) and never the investor list.
 // - A-32: late or defaulted holdings cannot be listed; there is no "Request listing" and no
-//   "Approval pending" in the investor UI.
+//   "Approval pending" in the investor UI (U33: "Sell investment" only on a performing holding).
 // - SECONDARY-11: two lots of one loan count as one loan and say when each was invested or bought.
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
@@ -50,7 +50,6 @@ function publicProject(overrides: Partial<PublicProject>): PublicProject {
     interest_rate_bps: 750,
     term_months: 24,
     repayment_type: "equal_installments",
-    risk_rating: "B",
     collateral_type: "equipment",
     collateral_description: "Pledge on the machine",
     ltv_bps: null,
@@ -125,10 +124,13 @@ test("the public home page reads only the anonymous public projects and shows ti
 
   expect(await screen.findByRole("heading", { level: 3, name: "Machining centre purchase" }, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 3, name: "Invoice financing, logistics" })).toBeInTheDocument();
-  // No city in the API: "Country · Sector", or the country alone without a public sector.
-  expect(screen.getByText("Switzerland · Manufacturing")).toBeInTheDocument();
-  expect(screen.getByText("Netherlands")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "All 2 open projects" })).toBeInTheDocument();
+  // The card shows the country's flag and the public sector, or the country without a sector.
+  const machining = screen.getByRole("heading", { level: 3, name: "Machining centre purchase" }).closest("article") as HTMLElement;
+  expect(within(machining).getByRole("img", { name: "Switzerland" })).toBeInTheDocument();
+  expect(within(machining).getByText("Manufacturing")).toBeInTheDocument();
+  const invoices = screen.getByRole("heading", { level: 3, name: "Invoice financing, logistics" }).closest("article") as HTMLElement;
+  expect(within(invoices).getByText("Netherlands", { selector: "span" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "All projects, including funded and repaid loans" })).toHaveAttribute("href", "/projects");
   expect(screen.queryByText(/Sample Originator BV/)).not.toBeInTheDocument();
   expect(calls.publicList).toBeGreaterThan(0);
   expect(calls.oldPublicList).toBe(0);
@@ -144,11 +146,12 @@ test("a public project page opens from its URL with the loan title", async () =>
   expect(calls.investorList).toBe(0);
 }, 30_000);
 
-test("an unknown public project shows the site's not-found page", async () => {
+test("an unknown public project shows the project's not-available notice", async () => {
   useAnonymousApi();
   renderAt("/projects/44444444-4444-4444-8444-444444444444");
 
-  expect(await screen.findByRole("heading", { level: 1, name: "This page does not exist" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "This project is not available." }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See all projects" })).toHaveAttribute("href", "/projects");
 }, 30_000);
 
 function holdingWith(base: Holding, overrides: Partial<Holding>, loan: Partial<Holding["loan"]>): Holding {
@@ -178,7 +181,7 @@ function useInvestorApi(holdings: Holding[]) {
     ),
     http.get("*/api/v1/investor/portal/notifications/", () => HttpResponse.json({ notifications: [], unread_count: 0 })),
     http.get("*/api/v1/investor/portal/balances/", () =>
-      HttpResponse.json({ as_of: "2026-10-09T11:47:00Z", summaries: [], lots: [], payout_instructions: [], has_penalty_mode_balance: false })
+      HttpResponse.json({ as_of: "2026-10-09T11:47:00Z", summaries: [], lots: [], payout_instructions: [] })
     ),
     http.get("*/api/v1/marketplace/primary/loans/", () => {
       calls.publicList += 1;
@@ -195,35 +198,28 @@ function useInvestorApi(holdings: Holding[]) {
   return calls;
 }
 
-test("the Sell tab offers no listing request for late or defaulted holdings", async () => {
+test("only a performing holding offers Sell investment; late or defaulted holdings have no listing request", async () => {
   const base = portfolioFixture.holdings[0];
   const calls = useInvestorApi([
-    holdingWith(base, { id: "h-active" }, { loan_id: "loan-active", loan_title: "Performing loan", loan_status: "active" }),
-    holdingWith(base, { id: "h-late" }, { loan_id: "loan-late", loan_title: "Late direct loan", loan_status: "late", product_type: "direct" }),
-    holdingWith(base, { id: "h-default" }, { loan_id: "loan-default", loan_title: "Defaulted LO claim", loan_status: "defaulted", product_type: "originator_claim" })
+    holdingWith(base, { id: "h-active" }, { loan_id: "loan-active", loan_title: "Performing loan", loan_status: "active", days_past_due: 0 }),
+    holdingWith(base, { id: "h-late" }, { loan_id: "loan-late", loan_title: "Late direct loan", loan_status: "late", product_type: "direct", days_past_due: 12 }),
+    holdingWith(base, { id: "h-default" }, { loan_id: "loan-default", loan_title: "Defaulted LO claim", loan_status: "defaulted", product_type: "originator_claim", days_past_due: 95 })
   ]);
-  renderAt("/secondary-market");
-  // The "Selling your own" note counts the holdings that cannot be listed.
-  expect(
-    await screen.findByText(/2 holdings are late or in default and cannot be listed\./, {}, { timeout: 5000 })
-  ).toBeInTheDocument();
-  expect(screen.queryByText(/submitted for Garanta approval/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
+  renderAt("/portfolio/h-active");
+  expect(await screen.findByRole("heading", { level: 1, name: "Performing loan" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sell investment" })).toBeEnabled();
+  cleanup();
 
-  const lateCell = await screen.findByText("Late direct loan", {}, { timeout: 5000 });
-  const table = lateCell.closest("table") as HTMLElement;
-  const row = (title: string) => within(table).getByText(title).closest("tr") as HTMLElement;
-
-  expect(within(row("Performing loan")).getByRole("button", { name: "List" })).toBeEnabled();
-  for (const title of ["Late direct loan", "Defaulted LO claim"]) {
-    const listButton = within(row(title)).getByRole("button", { name: "List" });
-    expect(listButton).toBeDisabled();
-    expect(within(row(title)).getByText("Late or in default: cannot be listed")).toBeInTheDocument();
+  for (const [id, title] of [["h-late", "Late direct loan"], ["h-default", "Defaulted LO claim"]]) {
+    renderAt(`/portfolio/${id}`);
+    expect(await screen.findByRole("heading", { level: 1, name: title }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sell investment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Request listing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Approval pending/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Garanta approval/)).not.toBeInTheDocument();
+    cleanup();
   }
-  expect(screen.queryByRole("button", { name: /Request listing/ })).not.toBeInTheDocument();
-  expect(screen.queryByText(/Approval pending/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Garanta approval/)).not.toBeInTheDocument();
-  await waitFor(() => expect(calls.investorList).toBeGreaterThan(0));
+  // Investor pages never read the public project list.
   expect(calls.publicList).toBe(0);
 }, 30_000);
 
@@ -248,11 +244,13 @@ test("two lots of one loan count as one loan and say when each was invested or b
   ]);
   renderAt("/portfolio");
 
-  await screen.findAllByText("Alpine AG", {}, { timeout: 5000 });
-  // Page header ("2 loans · CHF … lent") and table footer count loans, not lots.
-  expect(screen.getAllByText(/^2 loans · /)).toHaveLength(2);
-  expect(screen.getByText("2 loans · 3 lots")).toBeInTheDocument();
-  expect(screen.getByText(/invested on 10 Oct 2026/)).toBeInTheDocument();
-  expect(screen.getByText(/bought on 14 Oct 2026/)).toBeInTheDocument();
-  expect(screen.queryByText(/^3 loans/)).not.toBeInTheDocument();
+  await screen.findAllByText("QA Alpine Equipment", {}, { timeout: 5000 });
+  // The page header counts loans, not lots: "2 investments in 2 companies."
+  expect(screen.getByText("2 investments in 2 companies.")).toBeInTheDocument();
+  expect(screen.queryByText(/^3 investments/)).not.toBeInTheDocument();
+  const current = screen.getByRole("region", { name: /Current investments/ });
+  expect(within(current).getByRole("heading", { name: /Current investments/ })).toHaveTextContent("Current investments 2");
+  // Each lot of the same loan says when it was invested or bought.
+  expect(within(current).getByText("Invested on 10 Oct 2026")).toBeInTheDocument();
+  expect(within(current).getByText("Bought on 14 Oct 2026")).toBeInTheDocument();
 }, 30_000);

@@ -46,6 +46,9 @@ from backend.apps.originator_claims.tests.test_originator_claims import (
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.tests.qa_clock import wall_clock
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 HEADER = (
     "row_type,reference,installment_number,accrual_start_date,due_date,value_date,"
     "payment_type,opening_principal_minor,principal_minor,interest_minor,penalty_minor,"

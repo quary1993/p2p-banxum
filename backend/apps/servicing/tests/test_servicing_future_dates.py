@@ -20,10 +20,15 @@ from backend.apps.servicing.services import (
     record_loan_recovery_payment,
     scan_loan_servicing_statuses,
 )
+from backend.apps.servicing.tests.default_helpers import scan_and_declare
 from backend.apps.servicing.tests.test_servicing_repayments import (
     _funded_loan_with_holdings,
     _repayment_command,
 )
+
+# Written for the Late day 5 / Default day 16 thresholds (see conftest.legacy_status_days).
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("legacy_status_days", "pre_cutover_loans")
 
 
 def _user(email: str, account_type: str) -> Model:
@@ -165,7 +170,7 @@ def test_regular_and_advance_repayments_refuse_future_value_and_booking_dates(
 def test_recovery_refuses_a_future_value_date(loan_setup: tuple[Model, Model]) -> None:
     admin, loan = loan_setup
     with freeze_time("2026-03-20T11:00:00Z"):
-        scan_loan_servicing_statuses(
+        scan_and_declare(
             ScanLoanServicingStatusesCommand(
                 actor=admin,
                 as_of_date=date(2026, 3, 16),

@@ -150,7 +150,7 @@
     },
     {
       "term": "Payout instruction (IBAN)",
-      "definition": "An investor's saved bank-account details (IBAN and account name) used to send withdrawals. A checksum-valid source IBAN is verified automatically when an admin declares the matching deposit. Additional distinct IBANs are additive and remain unusable until an admin verifies them; verifying one does not disable existing verified accounts."
+      "definition": "An investor's saved bank-account details (IBAN and account name) used to send withdrawals. A deposit does not verify its source IBAN. An account becomes usable only after an admin verifies it: from a deposit (the holder of the transfer against the name from the identity check, no collecting or intermediary account, evidence) or from the investor's request with a bank statement or bank confirmation. Distinct IBANs are additive; verifying one does not disable existing verified accounts."
     },
     {
       "term": "IBAN",
@@ -162,11 +162,11 @@
     },
     {
       "term": "Forced withdrawal",
-      "definition": "A withdrawal the platform starts on its own (not requested by the investor) to return money that has sat uninvested too long. Triggered by balance ageing at the day-60 window for regulatory reasons. Marked with the \"is_forced\" flag."
+      "definition": "A withdrawal the platform starts on its own (not requested by the investor) to return money that has sat uninvested too long. Triggered by balance ageing on the return date: day 57 after the value date, or the settlement day before, so that the bank debits by day 59 (the legal limit is 60 days). Marked with the \"is_forced\" flag."
     },
     {
       "term": "Ageing",
-      "definition": "Tracking how long each balance lot of uninvested money has been sitting. The platform enforces its 60-day holding limit: approaching-deadline lots surface for action, and day-60 lots enter the return process. Investment eligibility depends on the loan's remaining funding window."
+      "definition": "Tracking how long each balance lot of uninvested money has been sitting. The platform enforces its 60-day holding limit: the investor gets notices 14, 10 and 3 days before the return date, day 56 is the last day, and the money is returned from day 57 (or the settlement day before). Investment eligibility depends on the loan's remaining funding window."
     },
     {
       "term": "Disbursement",
@@ -254,7 +254,7 @@
     },
     {
       "term": "Originator claim",
-      "definition": "Participation in an existing loan offered by a Loan Originator through a finite funding round. Cash reserves at par during funding. Funding close creates an active holding automatically; the boundary installment remains wholly payable to the LO and investor component rights start after it."
+      "definition": "Participation in an existing loan offered by a Loan Originator through a finite funding round (18.7). Investors pay the principal at the planned settlement day plus the accrued interest of the rights they buy; the price is reserved during funding and paid to the LO at the close, and the investor receives the whole next payment. The accrued interest paid in the price comes back with the first payment and is not interest earned. A due date or a borrower payment before the settlement makes the offer fail. Offers created before 18.7 used the older boundary-installment model (bought at par after an LO-owned installment)."
     },
     {
       "term": "Coupon versus participating yield",
@@ -262,7 +262,7 @@
     },
     {
       "term": "Dated entitlement",
-      "definition": "The immutable post-boundary principal and component rights recorded when the investment activates at funding close. No investor interest accrues during funding; the boundary installment belongs entirely to the LO."
+      "definition": "The principal and component rights recorded when the investment activates at funding close. For 18.7 offers, the rights start at the planned settlement day; for offers created before 18.7 (boundary model), after the LO-owned boundary installment."
     },
     {
       "term": "Originator payable",
@@ -432,7 +432,7 @@
     },
     {
       "name": "Balance lot: Available",
-      "meaning": "Money remains in the lot, but what it can be used for depends on the ageing bucket. Before day 60 it may fund loans whose remaining subscription window fits within its remaining holding time; eligible FX preserves that deadline; at/after day 60 it must be returned or moved to penalty handling."
+      "meaning": "Money remains in the lot, but what it can be used for depends on the ageing bucket. Before day 60 it may fund loans whose remaining subscription window fits within its remaining holding time; eligible FX preserves that deadline; after day 56 it is due back: withdraw-only until the automatic return. There is no penalty."
     },
     {
       "name": "Balance lot: Consumed",
@@ -444,11 +444,11 @@
     },
     {
       "name": "Balance lot: Penalty mode",
-      "meaning": "The lot passed the 60-day limit without a verified payout IBAN. It is charged a daily penalty, cannot be invested, and currently blocks FX exchanges and secondary-market purchases until the overdue balance is resolved."
+      "meaning": "Historical state, not used since November 2026 (the daily penalty and penalty mode were removed). Money past the limit without a verified payout IBAN stays on the balance as due back, withdraw-only, with no charge."
     },
     {
       "name": "Balance lot: Penalty exhausted",
-      "meaning": "The lot's penalty handling has run its course and nothing remains available."
+      "meaning": "Historical state from the time of the daily penalty (removed in November 2026): nothing remains available in the lot."
     },
     {
       "name": "Withdrawal: Requested",
@@ -530,7 +530,7 @@
     },
     {
       "name": "Forced withdrawals (Forced)",
-      "meaning": "Day-60 return-of-funds withdrawals the system created automatically because money sat uninvested too long. These return idle cash to the investor."
+      "meaning": "Automatic returns of money not invested, created by the ageing scan on the return date (day 57 or the settlement day before). Send each transfer before the cut-off on its order day."
     },
     {
       "name": "Balance ageing (Ageing)",

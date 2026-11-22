@@ -11,9 +11,11 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   PublicLoanRiskNote,
+  PublicProject,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketBuyerListingDetail,
+  SavedOpportunityList,
   SmartInvestResponse
 } from "../api/generated/banxumApi";
 import type { InvestorPortalFixture } from "./types";
@@ -31,7 +33,6 @@ const emptyExposure: PortfolioExposure = {
   by_borrower: [],
   by_country: [],
   by_purpose: [],
-  by_risk_rating: [],
   by_collateral_type: [],
   by_maturity: [],
   by_loan_status: []
@@ -67,21 +68,28 @@ export const balancesFixture: InvestorBalancePortal = {
   lots: [],
   payout_instructions: [],
   pending_withdrawals: [],
-  has_penalty_mode_balance: false,
-  penalty_bps_per_day: 0,
-  auto_return_after_days: 58
+  auto_return_after_days: 56,
+  return_failures: []
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];
 
+export const comingSoonLoansFixture: MarketplaceLoanPreview[] = [];
+
+export const savedOpportunitiesFixture: SavedOpportunityList = { saved: [] };
+
 export const smartInvestFixture: SmartInvestResponse = {
   rule: null,
+  notification_channels: { in_app: true, email: true },
   match_count: 0,
   open_opportunity_count: 0,
-  matches: []
+  matches: [],
+  coming_soon_matches: []
 };
 
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [];
+
+export const pastProjectsFixture: PublicProject[] = [];
 
 export const portfolioFixture: InvestorPortfolio = {
   as_of: "",

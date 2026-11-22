@@ -39,6 +39,50 @@ def seed_qa_starting_point(*, actor: Any) -> dict[str, Any]:
         return _seed(actor=actor)
 
 
+def _verify_seed_account(*, actor: Any, investor: Any, deposit: Any) -> None:
+    """Audit S3-1 and S3-6: a deposit verifies no account. The synthetic investor gets a
+    synthetic name "from the identity check", then the account is verified from the deposit
+    like an admin does (both checks, evidence)."""
+    returns = import_module("backend.apps.ledger.return_failures")
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.filter(
+        user_id=investor.pk, status="approved", verified_full_name=""
+    ).update(verified_full_name=str(investor.full_name))
+    returns.verify_payout_account_from_deposit(
+        returns.VerifyPayoutAccountFromDepositCommand(
+            actor=actor,
+            deposit_bank_operation_id=str(deposit.bank_operation.pk),
+            holder_matches_identity=True,
+            not_intermediary_account=True,
+            evidence_reference=SEED_KEY,
+            notes="Synthetic QA account, not a real verification.",
+        )
+    )
+
+
+# Re-audit P-2: the always-on declarations rule (18.10) needs a declaration before investing.
+SEED_DECLARATION = {
+    "beneficial_owner_is_self": True,
+    "sources_of_funds": ["salary"],
+    "pep_status": "no",
+    "yearly_volume_band": "10k_50k",
+}
+
+
+def declare_synthetic_investor(investor: Any) -> None:
+    """A clean declaration for a synthetic QA investor (once; later runs keep it)."""
+    declaration_model = apps.get_model("kyc_compliance", "InvestorDeclaration")
+    if declaration_model.objects.filter(user=investor).exists():
+        return
+    declarations = import_module("backend.apps.kyc_compliance.declarations")
+    declarations.submit_declaration(
+        declarations.SubmitDeclarationCommand(actor=investor, data=dict(SEED_DECLARATION))
+    )
+
+
+def _declare_seed_investor(investor: Any) -> None:
+    declare_synthetic_investor(investor)
+
+
 def _seed(*, actor: Any) -> dict[str, Any]:
     entities = import_module("backend.apps.entities.services")
     loans = import_module("backend.apps.loans.services")
@@ -77,6 +121,7 @@ def _seed(*, actor: Any) -> dict[str, Any]:
         raise ValueError("QA investor identifier is occupied by a non-seed account.")
     pins = import_module("backend.apps.accounts_auth.pin_services")
     pins.assign_known_qa_pin(investor, pin=QA_INVESTOR_PIN, source=SEED_KEY, replace=True)
+    _declare_seed_investor(investor)
     for currency in ("CHF", "EUR"):
         key = f"{SEED_KEY}:deposit:{currency}"
         if (
@@ -84,7 +129,7 @@ def _seed(*, actor: Any) -> dict[str, Any]:
             .objects.filter(idempotency_key=key)
             .exists()
         ):
-            ledger.declare_lender_deposit(
+            deposit = ledger.declare_lender_deposit(
                 ledger.DeclareLenderDepositCommand(
                     actor=actor,
                     investor_user_id=str(investor.pk),
@@ -101,6 +146,8 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                     idempotency_key=key,
                 )
             )
+            if deposit.payout_instruction is None:
+                _verify_seed_account(actor=actor, investor=investor, deposit=deposit)
     borrowers = []
     for index, name in enumerate(("QA Alpine Equipment AG", "QA Lake Trading SA")):
         registration = f"{SEED_KEY}:borrower:{index}"
@@ -119,6 +166,8 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                     year_founded=2015 + index,
                     registration_number=registration,
                     country="Switzerland",
+                    # 18.9: synthetic valid UIDs for the Swiss creditor modes.
+                    uid=("CHE-220.000.010", "CHE-220.001.015", "CHE-330.000.012")[index % 3],
                     kyb_status="approved",
                     business_classification="Manufacturing" if index == 0 else "Wholesale",
                     business_classification_public=True,
@@ -126,6 +175,18 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 )
             )
         borrowers.append(borrower)
+    # 18.9: the QA catalogue lends more than CHF 500,000 per borrower: 10/20 mode.
+    regimes = import_module("backend.apps.entities.creditor_regime")
+    for borrower in borrowers:
+        if str(getattr(borrower, "uid", "") or ""):
+            regimes.set_creditor_mode(
+                regimes.SetCreditorModeCommand(
+                    actor=actor,
+                    uid=str(borrower.uid),
+                    mode="ten_twenty",
+                    note="Synthetic QA borrower.",
+                )
+            )
     catalogue = import_module("backend.apps.loans.management.commands.seed_marketplace_demo_loans")
     direct_loans = []
     for index, spec in enumerate(catalogue.DEMO_LOAN_SPECS):
@@ -145,7 +206,11 @@ def _seed(*, actor: Any) -> dict[str, Any]:
                 funding_deadline=today + timedelta(days=days),
                 note=SEED_KEY,
             )
+            # Re-audit P-2: engine loans (18.6) with placeholder proofs (always-on proof rule).
             loan = loans.create_loan(loans.CreateLoanCommand(**values))
+            import_module("backend.apps.loans.security_proofs").seed_verified_securities(
+                actor=actor, loan_id=str(loan.pk)
+            )
             loans.publish_loan(loans.PublishLoanCommand(actor=actor, loan_id=str(loan.pk)))
         direct_loans.append(loan)
     call_command("seed_originator_demo_loans", actor_email=actor.email, verbosity=0)
@@ -221,6 +286,11 @@ def _seed(*, actor: Any) -> dict[str, Any]:
             auth.SensitiveActionCodeCommand(
                 user=investor,
                 action="primary_investment",
+                operation={
+                    "amount_minor": amount,
+                    "currency": str(created.currency_id),
+                    "loan_id": str(loan.pk),
+                },
             )
         )
         primary.allocate_primary_order_from_balance(

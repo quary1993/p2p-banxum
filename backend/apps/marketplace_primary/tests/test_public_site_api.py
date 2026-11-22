@@ -35,6 +35,9 @@ from backend.apps.marketplace_primary.tests.test_primary_marketplace import (
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.models import Currency
 
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
+
 PROJECTS_URL = "/api/v1/marketplace/primary/public/projects/"
 STATISTICS_URL = "/api/v1/marketplace/primary/public/statistics/"
 ORIGINATORS_URL = "/api/v1/marketplace/primary/public/originators/"
@@ -56,9 +59,12 @@ PUBLIC_PROJECT_FIELDS = {
     "interest_rate_bps",
     "term_months",
     "repayment_type",
-    "risk_rating",
+    "payment_frequency",
+    "interest_only_months",
     "collateral_type",
     "collateral_description",
+    # 18.3: the anonymous name of the main secured asset (never the borrower's name).
+    "security_public_name",
     "ltv_bps",
     "purpose",
     "purpose_description",
@@ -70,6 +76,8 @@ PUBLIC_PROJECT_FIELDS = {
     "published_at",
     "funding_deadline",
     "funded_at",
+    # U33-DEC-17: the planned opening date of a coming-soon project (null otherwise).
+    "planned_opening_date",
     "record",
 }
 RECORD_FIELDS = {
@@ -259,6 +267,9 @@ def _create_par_subscription_loan(admin_user: Model, *, suffix: str) -> Any:
             registration_number=f"CHE-PUBLIC-{suffix}",
             jurisdiction="Switzerland",
             registered_address="Zurich, Switzerland",
+            founded_year=2009,
+            city="Zurich",
+            sector="SME lending",
             settlement_account_name=f"Public Originator {suffix} AG",
             settlement_iban="CH9300762011623852957",
             kyb_evidence_reference=f"KYB-PUBLIC-{suffix}",
@@ -425,7 +436,8 @@ def test_public_project_has_the_contract_fields_and_never_the_borrower_identity(
     assert row["interest_rate_bps"] == 1000
     assert row["term_months"] == 12
     assert row["repayment_type"] == "equal_installments"
-    assert row["risk_rating"] == "BBB"
+    assert (row["payment_frequency"], row["interest_only_months"]) == ("monthly", 0)  # 18.6
+    assert "risk_rating" not in row  # U33-DEC-16
     assert row["collateral_type"] == "real_estate"
     assert row["ltv_bps"] == 6667
     assert row["purpose"] == "bridge_financing"
@@ -741,9 +753,24 @@ def test_loan_originator_claims_and_originators_list(
         "name": "Public Originator OPEN",
         "country": "CH",
         "partner_since": _today().isoformat(),
+        "founded_year": 2009,
+        # 18.3: the public "About the originator" text, empty when not entered.
+        "about": "",
+        "city": "Zurich",
+        "sector": "SME lending",
         "claims_funded": 0,
+        "volume": [],
+        "late_claims": 0,
     }
     assert by_name["Batch Originator LEGACY"]["claims_funded"] == 1
+    assert by_name["Batch Originator LEGACY"]["late_claims"] == 0
+    assert [row["currency"] for row in by_name["Batch Originator LEGACY"]["volume"]] == [
+        legacy["currency"]
+    ]
+    assert (
+        by_name["Batch Originator LEGACY"]["volume"][0]["principal_minor"]
+        == legacy["principal_minor"]
+    )
     assert client.get(STATISTICS_URL).json()["originators_count"] == 2
 
     # After the round, the claim is a funded project with its investors' record.
@@ -915,5 +942,11 @@ def test_openapi_schema_describes_the_public_site_endpoints() -> None:
         "name",
         "country",
         "partner_since",
+        "founded_year",
+        "about",
+        "city",
+        "sector",
         "claims_funded",
+        "volume",
+        "late_claims",
     }

@@ -7,6 +7,8 @@ import {
   useV1InvestorPortalDashboardRetrieve,
   useV1InvestorPortalDepositInstructionsRetrieve,
   useV1InvestorPortalDocumentsRetrieve,
+  useV1InvestorPortalReportsRetrieve,
+  useV1InvestorPortalReportsSummaryRetrieve,
   useV1InvestorPortalFeaturesRetrieve,
   useV1InvestorPortalFxRetrieve,
   useV1InvestorPortalNotificationsReadAllCreate,
@@ -16,28 +18,38 @@ import {
   useV1InvestorPortalPrimaryOrdersRetrieve,
   useV1InvestorPortalSecondaryMarketRetrieve,
   useV1ServicingLoanRiskNotesList,
+  useV1MarketplacePrimaryComingSoonList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplacePrimaryOpportunitiesList,
+  useV1MarketplacePrimaryPublicOriginatorsList,
+  useV1MarketplacePrimaryPublicProjectsList,
+  useV1MarketplacePrimarySavedRetrieve,
   useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList,
   useV1InvestorSmartInvestRetrieve
 } from "../api/generated/banxumApi";
 import type {
+  InvestorReports,
+  InvestorReportSummary,
   InvestorDepositInstructions,
   InvestorDocuments,
   InvestorNotifications,
-  InvestorPortalFeatures
+  InvestorPortalFeatures,
+  PublicOriginator
 } from "../api/generated/banxumApi";
 import {
   activityFixture,
   balancesFixture,
+  comingSoonLoansFixture,
   dashboardFixture,
   fxFixture,
   loanDetailsFixture,
   marketplaceLoansFixture,
+  pastProjectsFixture,
   portfolioFixture,
   publicLoanNotesFixture,
   primaryOrdersFixture,
+  savedOpportunitiesFixture,
   secondaryActivityFixture,
   secondaryListingDetailsFixture,
   secondaryListingsFixture,
@@ -45,6 +57,7 @@ import {
 } from "./fixtures";
 import { portalFixture } from "./fixtures";
 import { markNotificationsRead } from "./notifications";
+import { backgroundMutation } from "./dialog";
 
 export const isFixturePreview =
   import.meta.env.VITE_PREVIEW === "true" || import.meta.env.MODE === "test";
@@ -113,7 +126,10 @@ const documentsFixture: InvestorDocuments = {
     content_hash:
       document.type === "Agreement" || document.type === "Risk"
         ? "preview-content-hash"
-        : undefined
+        : undefined,
+    category: document.category,
+    period_start: document.periodStart,
+    period_end: document.periodEnd
   }))
 };
 
@@ -123,11 +139,11 @@ const notificationsFixture: InvestorNotifications = {
     notification_source: "preview",
     topic: "email.preview",
     topic_label: notification.label,
-    status: "sent",
+    status: notification.status ?? "sent",
     title: notification.title,
     body: notification.body,
-    created_at: `${portalFixture.today}T00:00:00Z`,
-    sent_at: `${portalFixture.today}T00:00:00Z`,
+    created_at: notification.createdAt ?? `${portalFixture.today}T00:00:00Z`,
+    sent_at: notification.createdAt ?? `${portalFixture.today}T00:00:00Z`,
     unread: notification.unread,
     navigation_target: notification.target ?? "none",
     navigation_target_id: notification.targetId ?? ""
@@ -159,6 +175,42 @@ export function useDocumentsData(enabled = true) {
   });
 }
 
+// 18.3: reports kept as issued (one monthly statement in the review build).
+const reportsFixture: InvestorReports = {
+  reports: [
+    {
+      id: "f0d6b2a4-7f3c-4d2e-9a51-3b8e0c1d2e44",
+      kind: "monthly_statement",
+      title: "Account statement October 2026",
+      currency: "",
+      start_date: "2026-10-01",
+      end_date: "2026-10-31",
+      output_format: "pdf",
+      filename: "participant_account_statement_2026-10-01_2026-10-31.pdf",
+      issued_at: "2026-11-01T06:00:00Z",
+      automatic: true
+    }
+  ]
+};
+
+export function useInvestorReportsData(enabled = true) {
+  return useV1InvestorPortalReportsRetrieve({ query: previewQuery(reportsFixture, enabled) });
+}
+
+const reportSummaryFixture = (year: string): InvestorReportSummary => ({
+  year: year === "all" ? null : Number(year),
+  start_date: year === "all" ? "2000-01-01" : `${year}-01-01`,
+  end_date: year === "all" ? portalFixture.today : `${year}-12-31`,
+  currencies: [
+    { currency: "EUR", invested_minor: 150_000, principal_repaid_minor: 0, interest_received_minor: 0 },
+    { currency: "CHF", invested_minor: 1_000_000, principal_repaid_minor: 157_950, interest_received_minor: 60_000 }
+  ]
+});
+
+export function useReportSummaryData(year: string, enabled = true) {
+  return useV1InvestorPortalReportsSummaryRetrieve({ year }, { query: previewQuery(reportSummaryFixture(year), enabled) });
+}
+
 // Preview mode keeps "mark as read" per session in the query client, so lists opened later agree.
 const previewNotificationReadsKey = ["preview", "notification-reads"] as const;
 type PreviewNotificationReads = { all: boolean; ids: string[] };
@@ -183,8 +235,9 @@ export function useNotificationsData(limit = 50, enabled = true) {
  */
 export function useNotificationReadActions() {
   const queryClient = useQueryClient();
-  const markOne = useV1InvestorPortalNotificationsReadCreate();
-  const markAll = useV1InvestorPortalNotificationsReadAllCreate();
+  // Background requests: an open dialog stays closable while they run (dialog.ts).
+  const markOne = useV1InvestorPortalNotificationsReadCreate({ mutation: backgroundMutation });
+  const markAll = useV1InvestorPortalNotificationsReadAllCreate({ mutation: backgroundMutation });
   const notificationsKey = getV1InvestorPortalNotificationsRetrieveQueryKey().slice(0, 1);
   const applyLocally = (ids: string[] | "all") => {
     queryClient.setQueriesData<InvestorNotifications>({ queryKey: notificationsKey }, (current) =>
@@ -305,6 +358,20 @@ export function useMarketplaceLoansData(enabled = true) {
   });
 }
 
+/** U33-DEC-18: the investor's saved opportunities, checked again by the server at each read. */
+export function useSavedOpportunitiesData(enabled = true) {
+  return useV1MarketplacePrimarySavedRetrieve({
+    query: previewQuery(savedOpportunitiesFixture, enabled)
+  });
+}
+
+/** U33-DEC-17: opportunities shown before they open; nothing can be invested in them yet. */
+export function useComingSoonLoansData(enabled = true) {
+  return useV1MarketplacePrimaryComingSoonList({
+    query: previewQuery(comingSoonLoansFixture, enabled)
+  });
+}
+
 export function useSmartInvestData(enabled = true) {
   return useV1InvestorSmartInvestRetrieve({
     query: previewQuery(smartInvestFixture, enabled)
@@ -333,5 +400,34 @@ export function useSecondaryListingDetailData(listingId: string) {
 
   return useV1MarketplaceSecondaryListingsRetrieve(listingId, {
     query: previewQuery(fixture, Boolean(listingId))
+  });
+}
+
+const publicOriginatorsFixture: PublicOriginator[] = [
+  {
+    id: "originator-alpine-credit",
+    name: "Alpine Credit Partners AG",
+    country: "CH",
+    partner_since: "2025-09-15",
+    founded_year: 2011,
+    city: "Zug",
+    sector: "Equipment financing for Swiss SMEs",
+    claims_funded: 1,
+    volume: [{ currency: "CHF", principal_minor: 16_000_000 }],
+    late_claims: 0
+  }
+];
+
+/** Loan originators with their funded claims (public originators API; U33 Loan originators page). */
+export function usePublicOriginatorsData(enabled = true) {
+  return useV1MarketplacePrimaryPublicOriginatorsList({
+    query: previewQuery(publicOriginatorsFixture, enabled)
+  });
+}
+
+/** Funded, repaying, repaid and defaulted loans for Past opportunities (public projects API). */
+export function usePastProjectsData(enabled = true) {
+  return useV1MarketplacePrimaryPublicProjectsList({ limit: 250 }, {
+    query: previewQuery(pastProjectsFixture, enabled)
   });
 }

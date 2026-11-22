@@ -104,18 +104,18 @@ afterEach(() => {
   window.history.pushState({}, "", "/");
 });
 
-function activeLegalItems() {
+/** The "Other documents" list of a legal page (every document but the one shown). */
+function otherDocuments() {
   return within(screen.getByRole("list", { name: "Legal pages" }))
     .getAllByRole("link")
-    .filter((link) => link.classList.contains("active"))
     .map((link) => link.textContent);
 }
 
 test("terms and /legal/registration show the published Terms and Conditions template", async () => {
   const terms = renderSite("/legal/terms");
   expect(await screen.findByRole("heading", { level: 2, name: "Scope" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
-  expect(activeLegalItems()).toEqual(["Terms of use"]);
+  expect(screen.getByRole("heading", { level: 1, name: "Terms & conditions" })).toBeInTheDocument();
+  expect(otherDocuments()).not.toContain("Terms & conditions");
   expect(screen.getByText("Version 3")).toBeInTheDocument();
   expect(screen.getByText("Valid from 2 Oct 2026")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Print" })).toBeInTheDocument();
@@ -127,15 +127,17 @@ test("terms and /legal/registration show the published Terms and Conditions temp
   expect(screen.getByRole("table")).toHaveClass("site-table");
   expect(screen.getByRole("heading", { level: 2, name: "You will be asked to confirm" })).toBeInTheDocument();
   expect(screen.getByText("I accept the Lender user agreement.")).toBeInTheDocument();
-  // The design outline is not shown once a version is published.
-  expect(screen.queryByText(/Outline of the terms of use/)).not.toBeInTheDocument();
+  // The sections are numbered in "On this page".
+  const contents = within(screen.getByRole("navigation", { name: "Terms & conditions contents" }));
+  expect(contents.getAllByRole("link").map((link) => link.textContent)).toEqual(["01Scope", "02You will be asked to confirm"]);
+  // The content outline is not shown once a version is published.
+  expect(screen.queryByText(/The full text follows from the lawyers/)).not.toBeInTheDocument();
   terms.unmount();
 
   renderSite("/legal/registration");
   expect(await screen.findByRole("heading", { level: 2, name: "Scope" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { level: 1, name: "Terms of use" })).toBeInTheDocument();
-  expect(activeLegalItems()).toEqual(["Terms of use"]);
-  expect(document.title).toBe("Terms of use · Banxum");
+  expect(screen.getByRole("heading", { level: 1, name: "Terms & conditions" })).toBeInTheDocument();
+  expect(document.title).toBe("Terms & conditions · Banxum");
   expect(templateRequests).toContain("registration");
 });
 
@@ -164,29 +166,29 @@ test("the PDF of a published template downloads from the meta line", async () =>
   }
 });
 
-test("risk information keeps the design text while no risk disclosure is published", async () => {
+test("risk information keeps the content text while no risk disclosure is published", async () => {
   renderSite("/legal/risk-disclosure");
   expect(await screen.findByRole("heading", { level: 2, name: "No deposit protection" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { level: 1, name: "Risk information" })).toBeInTheDocument();
-  expect(activeLegalItems()).toEqual(["Risk information"]);
+  expect(screen.getByRole("heading", { level: 1, name: /Understand the risks/ })).toBeInTheDocument();
+  expect(otherDocuments()).not.toContain("Risk information");
   expect(screen.getByText("Version 1.0")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Download PDF" })).not.toBeInTheDocument();
   expect(templateRequests).toContain("risk_disclosure");
 });
 
-test("the other templates show their own document, with no active legal page", async () => {
+test("the other templates show their own document", async () => {
   const investment = renderSite("/legal/primary-market-investment");
   expect(await screen.findByRole("heading", { level: 1, name: "Investment terms and loan claim assignment" })).toBeInTheDocument();
   expect(await screen.findByText("Garanta assigns a share of the claim to you.")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Assignment" })).toBeInTheDocument();
   expect(screen.getByText("Version 5")).toBeInTheDocument();
-  expect(activeLegalItems()).toEqual([]);
+  expect(otherDocuments()).toContain("Terms & conditions");
   expect(screen.queryByRole("heading", { name: "You will be asked to confirm" })).not.toBeInTheDocument();
   investment.unmount();
 
   const listing = renderSite("/legal/secondary-market-listing");
   expect(await screen.findByText(/The current version of this document is being prepared/)).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1, name: "Secondary-market seller/listing terms" })).toBeInTheDocument();
-  expect(activeLegalItems()).toEqual([]);
   listing.unmount();
 
   renderSite("/legal/secondary-market-purchase");
@@ -209,7 +211,7 @@ test("an unsubscribe link answers once, idempotent for the visitor", async () =>
 test("an invalid or expired newsletter link offers to subscribe again", async () => {
   const confirm = renderSite("/newsletter/confirm?token=bad");
   expect(await screen.findByRole("heading", { name: "This link is not valid or has expired." })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Subscribe again" })).toHaveAttribute("href", "/#site-sub-home");
+  expect(screen.getByRole("link", { name: "Subscribe again" })).toHaveAttribute("href", "/projects#site-sub-projects");
   confirm.unmount();
 
   renderSite("/newsletter/unsubscribe");
@@ -222,4 +224,27 @@ test("a throttled newsletter link shows the server's message and can try again",
   expect(await screen.findByText("Too many requests. Try again in a minute.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(newsletterCalls).toHaveLength(2));
+});
+
+test("Q14: a Stop these alerts link posts its token once and says exactly what stopped", async () => {
+  const stops: string[] = [];
+  server.use(
+    http.post("*/api/v1/public/alerts/stop/", async ({ request }) => {
+      const { token } = (await request.json()) as { token: string };
+      stops.push(token);
+      if (token === "bad") return HttpResponse.json({ detail: "This link is not valid.", code: "invalid_token" }, { status: 400 });
+      return HttpResponse.json({ kind: "saved_reminder", loan_id: "l1", loan_title: "Alpine loan", message: "Reminder emails for Alpine loan are stopped. The opportunity stays saved and the reminders still show in the platform." });
+    })
+  );
+  const view = renderSite("/alerts/stop?token=good-token");
+  expect(await screen.findByRole("heading", { name: "Reminder emails stopped" })).toBeInTheDocument();
+  expect(screen.getByText(/The opportunity stays saved/)).toBeInTheDocument();
+  expect(stops).toEqual(["good-token"]);
+  // Audit step 1 (D5): the token leaves the address bar once it is read.
+  expect(window.location.search).toBe("");
+  expect(window.location.pathname).toBe("/alerts/stop");
+  view.unmount();
+
+  renderSite("/alerts/stop?token=bad");
+  expect(await screen.findByRole("heading", { name: "This link is not valid or is too old." })).toBeInTheDocument();
 });

@@ -80,11 +80,15 @@ from backend.apps.originator_claims.services import (
 from backend.apps.platform_core.domain.time import business_date, business_timezone
 from backend.apps.platform_core.models import Currency, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import (
     assert_pin_guards_sensitive_action,
     issue_sensitive_action_test_code,
 )
 from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
+
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[4] / "imports_examples"
 
@@ -240,53 +244,6 @@ def _primary_order_acceptance(investor: Model, *, order_id: str, suffix: str) ->
     )
 
 
-def _primary_batch_acceptance(
-    investor: Model,
-    *,
-    batch_key: str,
-    items: list[dict[str, Any]],
-    suffix: str,
-) -> Model:
-    documents = import_module("backend.apps.documents.models")
-    template = documents.DocumentTemplate.objects.create(
-        category="primary_market_investment",
-        template_key=f"originator-subscription-batch-{suffix}"[:128].lower(),
-        language="en",
-        name="Originator subscription batch terms",
-        created_by_superadmin_id=investor.pk,
-    )
-    version = documents.DocumentTemplateVersion.objects.create(
-        template=template,
-        version_number=1,
-        status="published",
-        title="Originator subscription batch terms",
-        body="Originator subscription batch terms",
-        checkbox_labels=["I accept the originator subscription batch terms."],
-        variable_schema={},
-        content_hash="f" * 64,
-        created_by_superadmin_id=investor.pk,
-        published_at=timezone.now(),
-    )
-    template.current_published_version = version
-    template.save(update_fields=["current_published_version"])
-    return cast(
-        Model,
-        documents.DocumentAcceptanceEvidence.objects.create(
-            user_id=investor.pk,
-            category="primary_market_investment",
-            template=template,
-            template_version=version,
-            template_version_number=1,
-            template_hash=version.content_hash,
-            context_type="primary_order_batch",
-            context_id=batch_key,
-            accepted_checkbox_labels=["I accept the originator subscription batch terms."],
-            data_snapshot={"items": items},
-            idempotency_key=f"originator-subscription-batch-accept-{suffix}",
-        ),
-    )
-
-
 def _secondary_acceptance(
     investor: Model,
     *,
@@ -375,7 +332,7 @@ def _declare_originator_test_deposit(
     suffix: str,
 ) -> None:
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -757,6 +714,7 @@ def _create_dated_originator_loan(
     suffix: str,
     final_due_days: int = 90,
     skin_in_the_game_bps: int = 0,
+    borrower_extra: dict[str, Any] | None = None,
 ) -> Any:
     originator = create_loan_originator(
         CreateLoanOriginatorCommand(
@@ -802,6 +760,7 @@ def _create_dated_originator_loan(
             borrower_snapshot={
                 "borrower_legal_name": f"Confidential Borrower {suffix} AG",
                 "borrower_display_name": "Swiss SME borrower",
+                **(borrower_extra or {}),
             },
             skin_in_the_game_bps=skin_in_the_game_bps,
         )
@@ -814,6 +773,39 @@ def _create_dated_originator_loan(
         )
     )
     return result
+
+
+@pytest.mark.django_db
+def test_an_originator_loan_cannot_be_unsecured(admin_user: Model) -> None:
+    """U33-DEC-38: every loan needs collateral or guarantees, also from an originator."""
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(admin_user=admin_user, today=today, suffix="SEC")
+    command = CreateOriginatorLoanCommand(
+        actor=admin_user,
+        originator_id=str(result.profile.originator_id),
+        title="Unsecured claim",
+        investor_summary="Not allowed.",
+        purpose="working_capital",
+        purpose_description="Working capital",
+        currency="CHF",
+        original_principal_minor=1_000_000,
+        interest_rate_bps=1200,
+        target_yield_bps=800,
+        distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
+        minimum_investment_minor=100_000,
+        repayment_type="equal_installments",
+        interest_only_months=0,
+        collateral_type="unsecured_exception",
+        collateral_value_minor=0,
+        collateral_description="",
+        risk_rating="BBB",
+        csv_content=_dated_two_period_csv(today=today, include_payment=False),
+        source_filename="unsecured.csv",
+        as_of_date=today,
+        borrower_snapshot={"borrower_legal_name": "Unsecured AG"},
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="collateral or guarantees"):
+        create_originator_loan(command)
 
 
 def test_import_parser_accepts_every_documented_example() -> None:
@@ -955,6 +947,8 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_legal_name": "Confidential Borrower AG",
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
+                "uid": "CHE-123.456.788",
+                "underlying_financing_id": "LO-UNDERLYING-1",
             },
         )
     )
@@ -1015,6 +1009,8 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 "borrower_legal_name": "Confidential Borrower AG",
                 "borrower_display_name": "Swiss SME borrower",
                 "country": "Switzerland",
+                "uid": "CHE-123.456.788",
+                "underlying_financing_id": "LO-UNDERLYING-1",
             },
         ),
     )
@@ -1126,7 +1122,7 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -1287,7 +1283,7 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -1374,7 +1370,8 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
             as_of=datetime.combine(first_due + timedelta(days=1), time(12), UTC),
         )
     )
-    tax_rows = list(csv.DictReader(io.StringIO(tax_artifact.content)))
+    # C09 / F15: an investor's CSV uses the investor's format (European: ";" columns).
+    tax_rows = list(csv.DictReader(io.StringIO(tax_artifact.content), delimiter=";"))
     tax_amounts = {row["category"]: int(row["amount_minor"]) for row in tax_rows}
     assert tax_amounts["originator_claim_interest_received_or_credited"] == line.interest_minor
     assert tax_amounts["originator_claim_principal_repaid"] == line.principal_minor
@@ -1613,12 +1610,14 @@ def test_direct_servicing_scanner_does_not_mutate_originator_loans(
 @pytest.mark.parametrize(
     ("days_after_first_due", "expected_status", "expected_close_reason"),
     [
-        (4, "active", ""),
-        (5, "late", "loan_status_late"),
-        (16, "defaulted", "loan_status_defaulted"),
+        (14, "active", ""),
+        (15, "late", "loan_status_late"),
+        # 18.6: Default is never automatic: on day 60 the loan stays Late and the admin gets a
+        # "Default can be declared" task.
+        (60, "late", "loan_status_late"),
     ],
 )
-def test_originator_lifecycle_scan_uses_day_5_and_day_16_boundaries(
+def test_originator_lifecycle_scan_uses_day_15_and_day_60_boundaries(
     admin_user: Model,
     days_after_first_due: int,
     expected_status: str,
@@ -1643,10 +1642,12 @@ def test_originator_lifecycle_scan_uses_day_5_and_day_16_boundaries(
         related_object_type="LoanDefault",
         related_object_id=str(result.loan.id),
     )
-    assert risk_tasks.count() == (1 if expected_status == "defaulted" else 0)
+    assert risk_tasks.count() == (1 if days_after_first_due >= 60 else 0)
     assert OutboxMessage.objects.filter(topic="email.loan_defaulted").count() == (
-        1 if expected_status == "defaulted" else 0
+        1 if days_after_first_due >= 60 else 0
     )
+    if days_after_first_due >= 60:
+        assert risk_tasks.get().title.startswith("Default can be declared")
     if expected_close_reason:
         assert result.profile.opportunity_status == OriginatorOpportunityStatus.CLOSED
         assert result.profile.close_reason == expected_close_reason
@@ -1779,7 +1780,7 @@ def test_originator_settlement_task_appears_after_three_calendar_days(
         suffix="TASK",
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -2586,86 +2587,6 @@ def test_full_par_subscription_idempotent_replay_recovers_missed_auto_close(
     assert result.loan.status == "active"
     assert result.profile.opportunity_status == OriginatorOpportunityStatus.ACTIVE
     assert OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).count() == 1
-
-
-@pytest.mark.django_db
-def test_batch_places_multiple_par_subscriptions_as_reserved_orders(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    today = business_date(timezone.now())
-    first = _create_par_subscription_loan(
-        admin_user=admin_user,
-        today=today,
-        suffix="BATCH-A",
-    )
-    second = _create_par_subscription_loan(
-        admin_user=admin_user,
-        today=today,
-        suffix="BATCH-B",
-    )
-    _approve_financial_access(investor)
-    _declare_originator_test_deposit(
-        admin_user=admin_user,
-        investor=investor,
-        amount_minor=500_000,
-        today=today,
-        suffix="BATCH",
-    )
-    marketplace = import_module("backend.apps.marketplace_primary.services")
-    items = [
-        marketplace.PrimaryOrderBatchItemCommand(
-            loan_id=str(first.loan.id),
-            amount_minor=200_000,
-        ),
-        marketplace.PrimaryOrderBatchItemCommand(
-            loan_id=str(second.loan.id),
-            amount_minor=300_000,
-        ),
-    ]
-    batch_key = "originator-v2-batch"
-    acceptance = _primary_batch_acceptance(
-        investor,
-        batch_key=batch_key,
-        items=[
-            {
-                "loan_id": item.loan_id,
-                "amount_minor": item.amount_minor,
-                "currency": "CHF",
-            }
-            for item in items
-        ],
-        suffix="BATCH",
-    )
-    code = issue_sensitive_action_test_code(investor, "primary_investment")
-
-    placed = marketplace.place_primary_order_batch(
-        marketplace.PlacePrimaryOrderBatchCommand(
-            actor=investor,
-            items=items,
-            document_acceptance_id=str(acceptance.pk),
-            sensitive_action_code_id=code.code_id,
-            sensitive_action_code=code.raw_code,
-            pin=code.pin,
-            idempotency_key=batch_key,
-        )
-    )
-
-    first.loan.refresh_from_db()
-    second.loan.refresh_from_db()
-    balance_lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
-        investor_user_id=investor.pk
-    )
-    assert len(placed.orders) == 2
-    assert placed.originator_purchases == []
-    assert all(order.status == "balance_allocated" for order in placed.orders)
-    assert int(first.loan.committed_principal_minor) == 200_000
-    assert int(second.loan.committed_principal_minor) == 300_000
-    assert first.loan.status == "published"
-    assert second.loan.status == "published"
-    assert balance_lot.available_amount_minor == 0
-    assert balance_lot.invested_amount_minor == 500_000
-    assert not OriginatorFundingRoundClose.objects.exists()
 
 
 @pytest.mark.django_db
@@ -3476,10 +3397,10 @@ def test_par_subscription_rejects_quotes_and_secondary_market_premiums(
             )
         )
     secondary = import_module("backend.apps.secondary_market.services")
-    # Since 2026-10-16 every listing (Direct and Loan Originator) is at par or a discount.
-    with pytest.raises(secondary.SecondaryMarketValidationError, match=r"at most 100% \(par\)"):
-        secondary._validate_loan_listing_price(result.loan, 10_001)
-    secondary._validate_loan_listing_price(result.loan, 10_000)
+    # U33-DEC-06: every listing (Direct and Loan Originator) is at most 102% of the principal.
+    with pytest.raises(secondary.SecondaryMarketValidationError, match=r"at most 102%"):
+        secondary._validate_loan_listing_price(result.loan, 10_201)
+    secondary._validate_loan_listing_price(result.loan, 10_200)
 
 
 @pytest.mark.django_db
@@ -3569,7 +3490,8 @@ def test_qa_clock_stamps_subscription_order_and_claim_purchase_alike(
     assert order.allocated_at == qa_time
     assert purchase.purchased_at == qa_time
     by_type = {entry["activity_type"]: entry for entry in activity["entries"]}
-    assert by_type["primary_order"]["occurred_at"] == qa_time
+    # Q26: the reservation is its own Transactions entry.
+    assert by_type["primary_reservation"]["occurred_at"] == qa_time
     assert by_type["originator_claim_purchase"]["occurred_at"] == qa_time
 
 
@@ -3967,7 +3889,7 @@ def test_originator_claim_purchase_endpoint_needs_the_pin(
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -4009,3 +3931,82 @@ def test_originator_claim_purchase_endpoint_needs_the_pin(
         success_status=201,
     )
     assert OriginatorClaimPurchase.objects.filter(quote=quote).count() == 1
+
+
+@pytest.mark.django_db
+def test_originator_and_borrower_descriptive_fields_reach_the_marketplace(
+    admin_user: Model,
+) -> None:
+    """U33-DEC-23: originator founding year, city and sector; borrower city and head count."""
+    from backend.apps.originator_claims.services import (
+        UpdateLoanOriginatorCommand,
+        originator_marketplace_payload,
+        update_loan_originator,
+    )
+
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="FACTS",
+        borrower_extra={"city": " Lugano ", "employees": 18, "employees_year": today.year},
+    )
+    profile = OriginatorLoanProfile.objects.select_related("originator", "loan").get(
+        id=result.profile.id
+    )
+    detail = originator_marketplace_payload(profile, include_detail=True)
+    assert detail["borrower_city"] == "Lugano"
+    assert detail["borrower_disclosure"]["city"] == "Lugano"
+    assert detail["borrower_disclosure"]["employees"] == 18
+    assert detail["borrower_disclosure"]["employees_year"] == today.year
+
+    originator = update_loan_originator(
+        UpdateLoanOriginatorCommand(
+            actor=admin_user,
+            originator_id=str(profile.originator_id),
+            changes={
+                "founded_year": 2009,
+                "city": " Zurich ",
+                "sector": "SME lending",
+                "about": " Leases equipment to Swiss small businesses. ",
+            },
+        )
+    )
+    assert (originator.founded_year, originator.city, originator.sector) == (
+        2009,
+        "Zurich",
+        "SME lending",
+    )
+    # 18.3: the public "About the originator" text.
+    assert originator.about == "Leases equipment to Swiss small businesses."
+    for bad_year in (1799, today.year + 1, "2009"):
+        with pytest.raises(OriginatorClaimsValidationError):
+            update_loan_originator(
+                UpdateLoanOriginatorCommand(
+                    actor=admin_user,
+                    originator_id=str(profile.originator_id),
+                    changes={"founded_year": bad_year},
+                )
+            )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"employees": 10},
+        {"employees_year": 2024},
+        {"employees": -1, "employees_year": 2024},
+        {"employees": 10, "employees_year": 1799},
+    ],
+)
+def test_borrower_snapshot_employees_need_a_valid_year(
+    admin_user: Model, extra: dict[str, Any]
+) -> None:
+    with pytest.raises(OriginatorClaimsValidationError):
+        _create_dated_originator_loan(
+            admin_user=admin_user,
+            today=business_date(timezone.now()),
+            suffix="BADHEAD",
+            borrower_extra=extra,
+        )

@@ -147,6 +147,10 @@ Confirm launch restrictions by jurisdiction if needed. V1 does not enforce hard 
 
 ### MKT-DEC-007: Secondary Market Seller Pricing
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-06: principal price 0-102% of the outstanding principal (premium at most 2%), accrued interest added separately, warnings above 10% and from 20% discount.
+>
+> Implemented 2026-11-10 (Phase 17.2): `price_bps` is 0 to 10,200 for Direct and Loan Originator holdings. A listing, an edit, the pricing preview and a purchase above 102% are refused with HTTP 400 "The sale price can be at most 102% of the outstanding principal." A principal price of 0% is allowed when the buyer still pays accrued interest; a sale with a total of zero is refused ("Nothing would be paid for this sale..."). The money check constraints allow a transfer price of zero (migration `secondary_market.0012_allow_zero_principal_price`, which reinstalls the purchase append-only guards on SQLite). The seller form has the slider 0-102% with the par mark, "Up to 2% premium", "100% discount" / "2% premium", and "Maximum selling price: ... (2% premium)." The Help answer and "How resale works" no longer say "95% to 105%" or "par or a discount". The update of 2026-10-16 below is replaced.
+
 Status: Accepted. Amended 2026-10-16 (par or discount only).
 Date: 2026-05-16. Updated 2026-05-29, 2026-10-09, 2026-10-16.
 Owner: Garanta product / operations / legal.
@@ -295,6 +299,8 @@ Draft editing preserves operational flexibility. Publication freezes the two val
 
 ### MKT-DEC-015: Generic Investor Confirmations
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-14 confirms two unchecked acceptances (investment/assignment terms and risks) and the specific resale agreements.
+
 Status: Accepted.
 Date: 2026-05-22.
 Owner: Garanta product / legal.
@@ -326,6 +332,10 @@ Rationale:
 Direct acceptance keeps the bulletin-board secondary market simple and usable while admin approval gates non-performing or otherwise non-standard listings before buyer purchase.
 
 ### MKT-DEC-017: Secondary-Market Fees
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-07: seller fee = min(2% x principal price, 2% x outstanding principal); no fee on accrued interest (shown as "No fees"); no buyer fee.
+>
+> Implemented 2026-11-10 (Phase 17.2): the seller fee is `max(min(rate x transfer price, rate x current principal), stored minimum)`, each part rounded half-up, with `secondary_market.maker_fee_bps` = 200. New, edited and refreshed listings store a minimum of 0, so there is no minimum fee and a principal price of zero has no fee; the per-currency minimum setting is no longer used for them. The seller form shows "No fees" next to accrued interest. Open listings were reconciled by migration `secondary_market.0013_reconcile_open_listings_u33_dec_06_07`: all of them were at par or a discount, so the capped fee equals the accepted fee; they keep their stored rate and minimum until an edit or a servicing refresh, no seller has to confirm again, and each listing records the check in `metadata.u33_dec_06_07`. Closed trades are not recalculated. The buyer fee setting stays (default 0).
 
 Status: Accepted. Amended 2026-10-16 (fee rates).
 Date: 2026-05-22. Updated 2026-05-29, 2026-10-16.
@@ -686,6 +696,10 @@ Borrower principal repayments reduce investor and originator claims using the co
 
 ### MKT-DEC-026: Smart-Invest Is One Saved Alert Rule, Not Auto-Invest
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19 (with U33-DEC-16 and U33-DEC-30): criteria become currency, minimum interest, maximum term, security types, maximum LTV, repayment, country and originator (no ratings, purposes or new/refinancing); optional usual amount; Pause keeps the preferences; separate in-platform/email channel controls.
+>
+> Implemented 2026-11-09 (U33-DEC-19 part 1, Phase 17.2): the rule has `maximum_ltv_bps` (an opportunity without a loan-to-value figure does not match a limit), `countries` (borrower countries as the opportunities carry them, compared without letter case) and the optional `preferred_amount_minor` (one usual amount for each selected currency; it never limits the matches and is not an effective criterion). The risk-rating (U33-DEC-16), purpose and loan-kind criteria are removed; a data migration emptied them in saved rules with an append-only `retired_criteria_removed` event and paused an active rule left without a criterion. "Deactivate" is replaced by `pause/` (the preferences stay, no matches and no alerts) and `resume/` (the matches are calculated anew); saving a paused rule keeps it paused; the API gives `state` (`not_set_up` / `active` / `paused`). Still open: repayment groups (U33-DEC-11), security groups (U33-DEC-21) and the channel controls (U33-DEC-30).
+
 Status: Accepted.
 Date: 2026-08-06.
 Owner: Garanta product / compliance / technology.
@@ -704,6 +718,10 @@ Smart-Invest is a discovery mechanism only. It does not rank credit quality, ass
 
 ### MKT-DEC-027: Explicit Multi-Currency Batch Placement
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-19: batch approval is removed; each investment is confirmed individually with the PIN.
+>
+> Implemented 2026-11-09: the batch placement API (`POST /api/v1/marketplace/primary/orders/batch/`) and its service are removed. Batches placed before stay as append-only evidence.
+
 Status: Accepted.
 Date: 2026-08-08.
 Owner: Garanta product / compliance / technology.
@@ -717,6 +735,12 @@ The backend locks all funding-round loans in stable ID order. Each item must sat
 An immutable parent batch record binds the investor, per-currency cash totals, item snapshot, primary-order IDs, legacy Loan Originator purchase IDs, umbrella acceptance, idempotency key, and request fingerprint. Mixed-currency batches never store or display a meaningless cross-currency scalar total. Exact replays return the parent record without consuming a second code; conflicting replays are rejected. The system derives server-owned `primary_order` evidence for direct and current Loan Originator subscription orders, and retains `originator_claim_quote` evidence only for legacy quoted claims.
 
 ### MKT-DEC-028: Swiss-Borrower Investor Limit
+
+> Updated 2026-11-16 (round 2, F06-F09, `plan/22` "Round 2 Answers Of 2026-11-16"; WW validation pending): "sandbox applies" is a checkbox per project, off by default, set from a documented confirmation; totals and creditor counts stay per borrower UID. Investors of a sandbox project confirm a separate WW notice (unchecked checkbox, proof kept); publication is blocked until the WW text exists. Counting: banks out of the tax count (amounts stay in the total); a non-bank originator keeping part of a claim = one creditor; Garanta's temporary holding between assignments does not count; Garanta's remaining co-investment counts; an investor in two financings takes a place in each and counts once per borrower. A failed check before closing stops the automatic close (admin decides). External debts are recorded with creditor identification, a financing ID, the identical-terms group and the signed declaration.
+
+> **Changed 2026-11-13** (owner answer Q03, `plan/22` "Final Answers Of 2026-11-13"; WW validation pending): the CHF 500,000 ban of U33-DEC-08 is replaced by three regimes per Swiss borrower UID: total below CHF 500,000 with the sandbox applicable, no creditor limit (working assumption); below CHF 500,000 without the sandbox, at most 20 relevant creditors per borrower; CHF 500,000 or more, at most 10 non-bank creditors per financing on identical terms and 20 per borrower. Debts outside Banxum count. Where a limit applies, the minimum for a new place is `min(R, max(1,000, ceil(max(0, P - F) / N)))` with `P` the success threshold (not the full target). The 20-investor code below is the base for this rule (IMPLEMENTATION_PLAN 17.13).
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-08: the 20-investor limit and the raised minimum are removed; each Swiss borrower's total loans must stay strictly below CHF 500,000 (basis to confirm); the usual EUR/CHF 1,000 minimum stays.
 
 Status: Accepted.
 Date: 2026-10-16.
@@ -741,3 +765,35 @@ Owner decision. A Swiss company that takes loans from more than 20 lenders can b
 
 Follow-ups:
 Confirm with legal whether the limit should also count lenders the borrower has outside BANXUM, and whether Loan Originator claims on Swiss borrowers need a different limit.
+
+### MKT-DEC-029: Coming Soon and the Opening Alert
+
+Status: Accepted (U33-DEC-17, `plan/22_u33_redesign_decisions.md`).
+Date: 2026-11-10.
+
+Decision:
+An admin can show a draft Direct loan as "Coming soon" before it opens.
+
+- Admin: `POST /api/v1/loans/admin/loans/<id>/coming-soon/` with `planned_opening_date` (and an optional note) shows the draft, or changes the date; `DELETE` on the same path hides it again. Only a secured draft Direct loan; the date is from today up to the funding deadline. Loan fields `coming_soon_at` and `planned_opening_date`; loan events `coming_soon_announced` / `coming_soon_withdrawn`; audit.
+- The loan stays a draft: no order, reservation or Smart Invest batch is possible (the order path accepts published loans only).
+- Investors: `GET /api/v1/marketplace/primary/coming-soon/` (by planned date) and the loan detail, with `opportunity_status: "coming_soon"`, `planned_opening_date` and `opening_alert_requested`. `POST` / `DELETE /api/v1/marketplace/primary/loans/<id>/opening-alert/` asks for or cancels the alert (`LoanOpeningAlert`, one per investor and loan).
+- Public site: `public_status: "coming_soon"` with `planned_opening_date`, after the open projects, the next to open first.
+- Opening: `publish_loan` sends `email.loan_opening_alert` once to each investor who asked (listed in Notifications as "Opportunity open"), before the Smart Invest alerts; an investor who got the opening alert gets no Smart Invest alert for the same loan (the match is still recorded). The alert goes out at the real opening, also when it is later or earlier than the planned date. Withdrawing the state leaves the requests unsent.
+
+Open point:
+Loan Originator claims are not shown as Coming soon yet (the claim flow has its own publication); see the open questions of Phase 17.
+
+### MKT-DEC-030: Save for Later and the Closing Reminders
+
+Status: Accepted (U33-DEC-18, `plan/22_u33_redesign_decisions.md`).
+Date: 2026-11-10.
+
+Decision:
+An investor can save an open opportunity, with an amount they chose or without one.
+
+- API: `GET /api/v1/marketplace/primary/saved/`; `PUT /api/v1/marketplace/primary/loans/<id>/saved/` with `amount_minor` (or null) saves or changes it; `DELETE` removes it (`SavedOpportunity`, one per investor and loan). Only an open opportunity (published, deadline not passed, money still needed) can be saved; an amount must be at least the investor's minimum and at most the amount still available. The balance does not matter for saving.
+- Saving reserves no money or place, accepts no agreement and does not keep the opportunity open. Saved items do not change the sort of the opportunities list.
+- Each read checks the item again: `is_open`, the investor's minimum, the amount still available and `amount_check` (`ok`, `none`, `below_minimum`, `above_available`, `closed`). The saved amount is never changed; the screens explain why it does not fit (the opportunity page also checks the balance).
+- Reminders (daily job `saved_opportunity_reminders`): `email.saved_opportunity_closing` 7, 3 and 1 day before the funding deadline, listed in Notifications as "Saved opportunity". Only milestones after the day of saving; one per milestone, investor, loan and deadline (`SavedOpportunityReminder`); a run that finds several milestones due sends the latest one and records the others as skipped; none after removal or when the opportunity is no longer open; a new deadline schedules them again. Marketing choices and the Smart Invest pause do not apply.
+
+Open points (proposed in U33-DEC-18, to confirm): the time of day of the reminder (the daily job run), the details above that the decision lists as proposed.

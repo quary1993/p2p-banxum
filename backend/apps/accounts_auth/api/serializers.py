@@ -6,11 +6,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from backend.apps.accounts_auth.factors import factor_kind
 from backend.apps.accounts_auth.models import (
     AccountAccessEvent,
     AccountAccessReason,
     AccountStatus,
     SensitiveAction,
+    SignInMethod,
+    SignInResult,
     User,
 )
 from backend.apps.accounts_auth.phone_numbers import (
@@ -31,6 +34,33 @@ def _validated_phone_number(value: str) -> str:
 pin_field = sensitive_action_pin_field
 
 
+# ITU-T E.164 country calling codes are prefix-free: 1 and 7 have one digit, these have two,
+# and all others have three (for example +359, +423).
+_ONE_DIGIT_CALLING_CODES = frozenset({"1", "7"})
+_TWO_DIGIT_CALLING_CODES = frozenset(
+    "20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 "
+    "60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98".split()
+)
+
+
+def _calling_code(digits: str) -> str:
+    if digits[:1] in _ONE_DIGIT_CALLING_CODES:
+        return digits[:1]
+    if digits[:2] in _TWO_DIGIT_CALLING_CODES:
+        return digits[:2]
+    return digits[:3]
+
+
+def mask_phone_number(value: str) -> str:
+    """'+41791234567' -> '+41 ••• ••• •• 67'; empty when no number is stored."""
+    digits = "".join(character for character in value if character.isdigit())
+    if len(digits) < 6:
+        return ""
+    country = _calling_code(digits) if value.strip().startswith("+") else ""
+    prefix = f"+{country} " if country else ""
+    return f"{prefix}••• ••• •• {digits[-2:]}"
+
+
 class UserSummarySerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     email = serializers.EmailField()
@@ -40,10 +70,28 @@ class UserSummarySerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     phone_verified = serializers.BooleanField(source="is_phone_verified")
     marketing_consent = serializers.BooleanField()
+    # U33-DEC-32: "european" (default) or "swiss".
+    number_format = serializers.CharField()
+    # U33-DEC-31: "en" (default) or "de-CH".
+    language = serializers.CharField()
     # ACC-DEC-009: the portal asks for a PIN before anything else while this is false.
     pin_set = serializers.SerializerMethodField()
     # Only while the PIN is locked after too many wrong attempts.
     pin_locked_until = serializers.SerializerMethodField()
+    # 18.5 / D-1: "app" (authenticator code; no PIN), "sms" (SMS code; PIN for operations) or
+    # "" (no second factor yet: the portal shows the factor set-up before anything else).
+    second_factor = serializers.SerializerMethodField()
+    # Re-audit R8-1: the registered mobile number, masked (country code and last two digits), so
+    # a new tab of the registration can send the SMS code to it without the full number.
+    phone_number_masked = serializers.SerializerMethodField()
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_second_factor(self, user: User) -> str:
+        return factor_kind(user)
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_phone_number_masked(self, user: User) -> str:
+        return mask_phone_number(str(getattr(user, "phone_number", "") or ""))
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_pin_set(self, user: User) -> bool:
@@ -57,6 +105,8 @@ class UserSummarySerializer(serializers.Serializer[Any]):
 
 class NaturalPersonRegistrationRequestSerializer(serializers.Serializer[Any]):
     email = serializers.EmailField()
+    # 18.5: 12-128 characters, not a common or leaked password (checked by the service).
+    password = serializers.CharField(trim_whitespace=False, write_only=True, max_length=128)
     full_name = serializers.CharField(max_length=255)
     phone_number = serializers.CharField(max_length=32)
     terms_version = serializers.CharField(max_length=64)
@@ -126,23 +176,32 @@ class MarketingConsentUpdateRequestSerializer(serializers.Serializer[Any]):
     marketing_consent = serializers.BooleanField()
 
 
-class AdminLoginStartRequestSerializer(serializers.Serializer[Any]):
-    email = serializers.EmailField()
-    password = serializers.CharField(trim_whitespace=False, write_only=True)
+class DisplayPreferencesUpdateRequestSerializer(serializers.Serializer[Any]):
+    number_format = serializers.ChoiceField(choices=["european", "swiss"], required=False)
+    language = serializers.ChoiceField(choices=["en", "de-CH"], required=False)
 
 
-class AdminLoginStartResponseSerializer(serializers.Serializer[Any]):
-    code_id = serializers.UUIDField()
-    status = serializers.CharField()
-    expires_at = serializers.DateTimeField()
+class OperationDetailsSerializer(serializers.Serializer[Any]):
+    """18.5: the details the email code confirms. Each action takes one fixed set of fields:
+    withdrawal (amount_minor, currency, iban); bank_account_change (currency, iban) or
+    (instruction_id); fx (amount_minor, source_currency, target_currency); primary_investment
+    (amount_minor, currency, loan_id); secondary_market_listing (holding_id, price_bps) or
+    (listing_id, price_bps); secondary_market_purchase (amount_minor, currency, listing_id)."""
 
-
-class AdminLoginConfirmRequestSerializer(serializers.Serializer[Any]):
-    code_id = serializers.UUIDField()
-    code = serializers.RegexField(regex=r"^\d{6}$")
+    amount_minor = serializers.IntegerField(required=False, min_value=1)
+    currency = serializers.CharField(required=False, max_length=3)
+    iban = serializers.CharField(required=False, max_length=64)
+    source_currency = serializers.CharField(required=False, max_length=3)
+    target_currency = serializers.CharField(required=False, max_length=3)
+    loan_id = serializers.CharField(required=False, max_length=64)
+    listing_id = serializers.CharField(required=False, max_length=64)
+    holding_id = serializers.CharField(required=False, max_length=64)
+    instruction_id = serializers.CharField(required=False, max_length=64)
+    price_bps = serializers.IntegerField(required=False, min_value=0)
 
 
 class SensitiveActionCodeRequestSerializer(serializers.Serializer[Any]):
+    operation = OperationDetailsSerializer(required=False)
     action = serializers.ChoiceField(
         choices=[
             SensitiveAction.WITHDRAWAL,
@@ -153,7 +212,6 @@ class SensitiveActionCodeRequestSerializer(serializers.Serializer[Any]):
             SensitiveAction.SECONDARY_MARKET_PURCHASE,
             SensitiveAction.PIN_SETUP,
             SensitiveAction.PIN_CHANGE,
-            SensitiveAction.PIN_RESET,
         ]
     )
 
@@ -163,11 +221,15 @@ class SensitiveActionCodeRequestResponseSerializer(serializers.Serializer[Any]):
     action = serializers.CharField()
     status = serializers.CharField()
     expires_at = serializers.DateTimeField()
+    operation_summary = serializers.CharField(allow_blank=True)
 
 
 class AdminUserCreateRequestSerializer(serializers.Serializer[Any]):
     email = serializers.EmailField()
-    password = serializers.CharField(trim_whitespace=False, min_length=1, write_only=True)
+    # Audit S4-5: the length bounds of the one password policy; the service checks the rest.
+    password = serializers.CharField(
+        trim_whitespace=False, min_length=12, max_length=128, write_only=True
+    )
     full_name = serializers.CharField(max_length=255)
 
 
@@ -233,6 +295,8 @@ class PinStatusSerializer(serializers.Serializer[Any]):
     # Forgot PIN sends an SMS code to the verified phone number ending in these digits.
     reset_available = serializers.BooleanField()
     phone_last_digits = serializers.CharField(allow_blank=True)
+    # D-1: "app" means the authenticator code replaces the PIN (no PIN boxes).
+    second_factor = serializers.CharField(allow_blank=True)
 
 
 class PinStatusResponseSerializer(serializers.Serializer[Any]):
@@ -266,9 +330,11 @@ class PinResetStartResponseSerializer(serializers.Serializer[Any]):
     phone_last_digits = serializers.CharField(allow_blank=True)
 
 
+class PinResetStartRequestSerializer(serializers.Serializer[Any]):
+    password = serializers.CharField(trim_whitespace=False, write_only=True, max_length=128)
+
+
 class PinResetConfirmRequestSerializer(serializers.Serializer[Any]):
-    sensitive_action_code_id = serializers.UUIDField()
-    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
     phone_challenge_id = serializers.UUIDField()
     phone_code = serializers.RegexField(regex=r"^\d{6}$")
     new_pin = pin_field()
@@ -295,6 +361,7 @@ def serialize_pin_status(status: PinStatus) -> dict[str, Any]:
                 "setup_requires_email_code": status.setup_requires_email_code,
                 "reset_available": status.reset_available,
                 "phone_last_digits": status.phone_last_digits,
+                "second_factor": status.second_factor,
             }
         ).data
     )
@@ -306,3 +373,49 @@ def serialize_user(user: User) -> dict[str, Any]:
 
 def serialize_account_access_event(event: AccountAccessEvent) -> dict[str, Any]:
     return dict(AccountAccessEventSerializer(event).data)
+
+
+class UserSessionSerializer(serializers.Serializer[Any]):
+    """U33-DEC-25: one signed-in browser. The place is a country code, never GPS."""
+
+    id = serializers.UUIDField()
+    device_label = serializers.CharField()
+    device_kind = serializers.CharField(allow_blank=True)
+    country_code = serializers.CharField(allow_blank=True)
+    city = serializers.CharField(allow_blank=True, required=False, default="")
+    place = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        default="",
+        help_text="Q06: 'City, CC (approximate)', the country alone, or empty.",
+    )
+    method = serializers.ChoiceField(choices=SignInMethod.choices, allow_blank=True)
+    started_at = serializers.DateTimeField()
+    last_activity_at = serializers.DateTimeField()
+    current = serializers.BooleanField()
+
+
+class UserSessionsResponseSerializer(serializers.Serializer[Any]):
+    sessions = UserSessionSerializer(many=True)
+
+
+class SignInEventSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    occurred_at = serializers.DateTimeField()
+    device_label = serializers.CharField()
+    device_kind = serializers.CharField(allow_blank=True)
+    country_code = serializers.CharField(allow_blank=True)
+    city = serializers.CharField(allow_blank=True, required=False, default="")
+    place = serializers.CharField(allow_blank=True, required=False, default="")
+    # Audit S4-8: both are enums in the API, so the screen has one label for every value.
+    method = serializers.ChoiceField(choices=SignInMethod.choices)
+    result = serializers.ChoiceField(choices=SignInResult.choices)
+
+
+class SignInHistoryResponseSerializer(serializers.Serializer[Any]):
+    events = SignInEventSerializer(many=True)
+    retention_days = serializers.IntegerField()
+
+
+class RevokeOtherSessionsResponseSerializer(serializers.Serializer[Any]):
+    sessions_ended = serializers.IntegerField()

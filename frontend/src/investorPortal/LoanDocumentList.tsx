@@ -1,24 +1,39 @@
+// IP of Webby-Soft SRL.
+// Borrower documents of a loan (U33 credit file, Documents chapter: .r100-file rows). Each one is
+// fetched through the investor document endpoint (FRONTCODE-27); a PDF opens in the in-app reader
+// when the page gives `onView` (18.3), any other file is downloaded.
 import { useState } from "react";
 
 import { ApiClientError } from "../api/client/httpClient";
 import { v1MarketplacePrimaryLoansDocumentsRetrieve } from "../api/generated/banxumApi";
-import { Button, Icon } from "./ui";
+import { useT } from "../i18n";
+import { formatDate } from "./format";
 
 export type LoanDocumentItem = {
   id?: string;
   display_name?: string;
   document_type?: string;
   description?: string;
+  // U33-DEC-20: library metadata, when recorded.
+  category?: string;
+  document_date?: string | null;
+  period_label?: string;
+  issuer?: string;
+  version?: string;
+  document_status?: string;
 };
 
 type DownloadableFile = { content: string; content_type: string; content_encoding: string; filename: string };
 
+function fileBytes(file: DownloadableFile) {
+  return file.content_encoding === "base64"
+    ? Uint8Array.from(window.atob(file.content), (character) => character.charCodeAt(0))
+    : new TextEncoder().encode(file.content);
+}
+
 /** Save a base64 (or text) API file payload as a download in the browser. */
 function saveDownloadedFile(file: DownloadableFile) {
-  const bytes =
-    file.content_encoding === "base64"
-      ? Uint8Array.from(window.atob(file.content), (character) => character.charCodeAt(0))
-      : new TextEncoder().encode(file.content);
+  const bytes = fileBytes(file);
   const url = window.URL.createObjectURL(new Blob([bytes], { type: file.content_type }));
   const link = document.createElement("a");
   link.href = url;
@@ -29,68 +44,80 @@ function saveDownloadedFile(file: DownloadableFile) {
   window.URL.revokeObjectURL(url);
 }
 
-function errorText(error: unknown) {
+function errorText(error: unknown, fallback: string) {
   if (error instanceof ApiClientError && error.message) return error.message;
-  return "The document could not be downloaded. Try again later.";
+  return fallback;
 }
 
-/** Borrower documents of a loan page. Each one opens as a file download. */
+/** Borrower documents of a loan. Each one opens as a file download. */
 export function LoanDocumentList({
   loanId,
   documents,
   humanize,
-  disabled = false
+  disabled = false,
+  onView
 }: {
   loanId: string;
   documents: LoanDocumentItem[];
   humanize: (token: string) => string;
   disabled?: boolean;
+  /** 18.3: opens a PDF in the page's reader instead of downloading it. */
+  onView?: (file: { title: string; data: Uint8Array; filename: string }) => void;
 }) {
+  const t = useT();
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
-  const download = async (documentId: string) => {
+  const download = async (documentId: string, title: string) => {
     setError("");
     setBusyId(documentId);
     try {
-      saveDownloadedFile(await v1MarketplacePrimaryLoansDocumentsRetrieve(loanId, documentId));
+      const file = await v1MarketplacePrimaryLoansDocumentsRetrieve(loanId, documentId);
+      if (onView && file.content_type.includes("pdf")) onView({ title, data: fileBytes(file), filename: file.filename });
+      else saveDownloadedFile(file);
     } catch (downloadError) {
-      setError(errorText(downloadError));
+      setError(errorText(downloadError, t("The document could not be downloaded. Try again later.")));
     } finally {
       setBusyId("");
     }
   };
   return (
     <>
-      <ul className="lp-docs">
+      <div className="u33-invest-files">
         {documents.map((document, index) => {
-          const name = document.display_name || "Borrower document";
+          const name = document.display_name || t("Borrower document");
+          const library = [
+            document.category ?? "",
+            document.period_label ?? "",
+            document.document_date ? formatDate(document.document_date) : "",
+            document.issuer ?? "",
+            document.version ? t("Version {version}", { version: document.version }) : "",
+            document.document_status ?? ""
+          ].filter(Boolean);
+          const meta = (library.length > 0 ? library : [document.document_type ? humanize(document.document_type) : "", document.description ?? ""].filter(Boolean)).join(" · ");
           return (
-            <li className="lp-doc" key={document.id ?? index}>
-              <Icon className="lp-doc-icon" name="doc" size={16} />
-              <div className="lp-doc-main">
-                <div className="lp-doc-name">
-                  <strong>{name}</strong>
-                  {document.document_type ? <span className="tag">{humanize(document.document_type)}</span> : null}
-                </div>
-                {document.description ? <div className="lp-doc-desc">{document.description}</div> : null}
-              </div>
-              {document.id ? (
-                <Button
-                  aria-label={`Download ${name}`}
-                  disabled={disabled || busyId !== ""}
-                  icon="download"
-                  onClick={() => void download(document.id as string)}
-                  size="sm"
-                >
-                  {busyId === document.id ? "Downloading..." : "Download"}
-                </Button>
-              ) : null}
-            </li>
+            <button
+              aria-label={onView ? t("View {name}", { name }) : t("Download {name}", { name })}
+              className="r100-file"
+              disabled={!document.id || disabled || busyId !== ""}
+              key={document.id ?? index}
+              onClick={() => document.id && void download(document.id, name)}
+              type="button"
+            >
+              <span className="r100-file-icon"><em aria-hidden="true" className="icon ni ni-file-text" /></span>
+              <span className="r100-file-name">
+                <strong>{name}</strong>
+                {meta ? <small>{meta}</small> : null}
+              </span>
+              <span className="r100-file-action">
+                <span>{busyId === document.id ? t("Opening...") : onView ? t("action|View") : t("Download")}</span>
+                <em aria-hidden="true" className={`icon ni ${onView ? "ni-arrow-right" : "ni-download"}`} />
+              </span>
+            </button>
           );
         })}
-      </ul>
+      </div>
       {error ? (
-        <p className="lp-doc-error" role="alert">
+        <p className="u33-invest-file-error" role="alert">
           {error}
         </p>
       ) : null}

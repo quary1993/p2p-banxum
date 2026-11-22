@@ -21,6 +21,12 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.loan_status import (
+    LoanStatusThresholds,
+    default_can_be_declared,
+    servicing_status_for_days_past_due,
+    valid_threshold_pair,
+)
 from backend.apps.platform_core.domain.money import (
     Money,
     MoneyError,
@@ -38,7 +44,11 @@ from backend.apps.platform_core.domain.payment_waterfall import (
 )
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
-from backend.apps.platform_core.selectors.settings import get_collection_account_identifier
+from backend.apps.platform_core.selectors.settings import (
+    get_collection_account_identifier,
+    loan_status_thresholds,
+    platform_loan_status_thresholds,
+)
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -49,6 +59,7 @@ from backend.apps.platform_core.services.events import (
 from backend.apps.platform_core.services.investor_notices import (
     notify_loan_holders_of_status_change,
 )
+from backend.apps.platform_core.services.settlement_calendar import settlement_calendar
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
@@ -99,8 +110,12 @@ PROJECTABLE_LOAN_STATUSES = {
     LOAN_STATUS_LATE,
 }
 RECOVERY_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_DEFAULTED}
-LATE_THRESHOLD_DAYS = 5
-DEFAULT_THRESHOLD_DAYS = 16
+NO_RECOVERY_FEE_MESSAGE = (
+    "Banxum charges investors no recovery fee (U33-DEC-12). Record real external costs as "
+    "externally deducted or third-party recovery costs."
+)
+# U33-DEC-09: Late / Default days come from loan_status_thresholds() (platform settings
+# servicing.late_threshold_days / servicing.default_threshold_days, or the loan's contract).
 PUBLIC_NOTE_LOAN_STATUSES = {
     LOAN_STATUS_FUNDED,
     LOAN_STATUS_ACTIVE,
@@ -316,6 +331,27 @@ class ScanLoanServicingStatusesCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SetLoanStatusThresholdsCommand:
+    """U33-DEC-09: the contract's own Late / Default days, or None/None for the platform's."""
+
+    actor: Model
+    loan_id: str
+    late_threshold_days: int | None
+    default_threshold_days: int | None
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class RecordLoanContractTerminationCommand:
+    """U33-DEC-09: an admin records that the loan contract was terminated (never automatic)."""
+
+    actor: Model
+    loan_id: str
+    terminated_on: date
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
 class LoanServicingStatusChange:
     loan_id: str
     previous_status: str
@@ -357,6 +393,14 @@ class LoanRepaymentScheduleRowSnapshot:
     label: str
     payment_date: date | None
     admin_overridden: bool
+    # 18.6: the due date before the business-day move and the grace, and the interest start.
+    original_due_date: date | None = None
+    interest_start: date | None = None
+
+
+def _metadata_date(metadata: Any, key: str) -> date | None:
+    value = (metadata or {}).get(key) if isinstance(metadata, dict) else None
+    return date.fromisoformat(str(value)) if value else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +456,10 @@ class RecordLoanWriteOffCommand:
 
 def _ledger_services() -> Any:
     return import_module("backend.apps.ledger.services")
+
+
+def _is_engine_loan(loan: Any) -> bool:
+    return bool(import_module("backend.apps.servicing.engine").is_engine_loan(loan))
 
 
 def _secondary_market_services() -> Any:
@@ -509,19 +557,6 @@ def _allocate_universal_waterfall(
         )
     except PaymentWaterfallError as exc:
         raise ServicingValidationError(str(exc)) from exc
-
-
-def _fee_from_bps(base_minor: int, bps: int) -> int:
-    if type(bps) is not int:
-        raise ServicingValidationError("Recovery fee bps must be an integer.")
-    if bps < 0:
-        raise ServicingValidationError("Recovery fee bps cannot be negative.")
-    return int(
-        (Decimal(base_minor) * Decimal(bps) / Decimal(10_000)).quantize(
-            Decimal("1"),
-            rounding=ROUND_HALF_UP,
-        )
-    )
 
 
 def _loan_model() -> Any:
@@ -898,6 +933,7 @@ def _first_outstanding_installment_status(
     ).order_by("due_date", "installment_number", "id")
     if lock_installments:
         installments = installments.select_for_update()
+    thresholds = loan_status_thresholds(loan)
     for installment in installments:
         principal_paid, interest_paid = _installment_paid_totals(cast(Model, installment))
         remaining_principal = int(installment.principal_minor) - principal_paid
@@ -908,11 +944,8 @@ def _first_outstanding_installment_status(
         if outstanding <= 0:
             continue
         days_past_due = max(0, (as_of_date - installment.due_date).days)
-        if days_past_due >= DEFAULT_THRESHOLD_DAYS:
-            return LOAN_STATUS_DEFAULTED, days_past_due, outstanding, cast(Model, installment)
-        if days_past_due >= LATE_THRESHOLD_DAYS:
-            return LOAN_STATUS_LATE, days_past_due, outstanding, cast(Model, installment)
-        return LOAN_STATUS_ACTIVE, days_past_due, outstanding, cast(Model, installment)
+        status = servicing_status_for_days_past_due(days_past_due, thresholds)
+        return status, days_past_due, outstanding, cast(Model, installment)
     return LOAN_STATUS_REPAID, 0, 0, None
 
 
@@ -939,6 +972,46 @@ def get_loan_servicing_status_snapshot(
     )
 
 
+def loan_ids_with_due_unpaid_installment(*, loans: list[Model], as_of_date: date) -> set[str]:
+    """Direct loans with an installment due on or before ``as_of_date`` and not fully paid.
+
+    C03 (Vlad, 2026-11-17): from the due date itself until the payment is recorded, the loan
+    is closed to new buyers (resale listings hidden, purchases refused). A payment recorded
+    for the installment, also on its due date, reopens it.
+    """
+    loan_ids = [str(cast(Any, loan).pk) for loan in loans]
+    if not loan_ids:
+        return set()
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    due_rows = list(
+        installment_model.objects.filter(
+            loan_id__in=loan_ids,
+            schedule_version=F("loan__schedule_version"),
+            due_date__lte=as_of_date,
+        ).values_list("id", "loan_id", "principal_minor", "interest_minor")
+    )
+    if not due_rows:
+        return set()
+    paid_by_installment_id = {
+        str(row["installment_id"]): int(row["paid_principal_minor"] or 0)
+        + int(row["paid_interest_minor"] or 0)
+        for row in BorrowerRepaymentEvent.objects.filter(
+            installment_id__in=[row[0] for row in due_rows]
+        )
+        .values("installment_id")
+        .annotate(
+            paid_principal_minor=Sum("principal_applied_minor"),
+            paid_interest_minor=Sum("interest_applied_minor"),
+        )
+    }
+    return {
+        str(loan_id)
+        for installment_id, loan_id, principal_minor, interest_minor in due_rows
+        if paid_by_installment_id.get(str(installment_id), 0)
+        < int(principal_minor) + int(interest_minor)
+    }
+
+
 def get_loan_repayment_schedule_snapshots(
     *,
     loans: list[Model],
@@ -958,6 +1031,17 @@ def get_loan_repayment_schedule_snapshots(
             schedule_version=F("loan__schedule_version"),
         ).order_by("loan_id", "installment_number", "id")
     )
+    platform_thresholds = platform_loan_status_thresholds()
+    late_days_by_loan_id = {
+        loan_id: loan_status_thresholds(loan, platform=platform_thresholds).late_days
+        for loan_id, loan in loan_by_id.items()
+    }
+    # 18.6: the 2 business days after a due date of an engine loan are "Pending".
+    pending_calendar_by_loan_id = {
+        loan_id: settlement_calendar(str(cast(Any, loan).currency_id))
+        for loan_id, loan in loan_by_id.items()
+        if _is_engine_loan(loan)
+    }
     installment_ids = [installment.pk for installment in installments]
     paid_by_installment_id = {
         str(row["installment_id"]): (
@@ -1056,12 +1140,15 @@ def get_loan_repayment_schedule_snapshots(
         )
         if is_paid:
             row_status = "paid"
-        elif days_past_due >= LATE_THRESHOLD_DAYS:
-            # Overdue from the late threshold (day 5), when the loan becomes Late.
+        elif days_past_due >= late_days_by_loan_id[str(installment_ref.loan_id)]:
+            # Overdue from the late threshold (U33-DEC-09: day 15), when the loan is Late.
             row_status = "overdue"
         elif installment_ref.due_date <= as_of_date:
-            # Due today or in the grace period (days 1-4): due, not yet overdue.
+            # Due on the due date and before the late threshold: due, not yet overdue.
             row_status = "due"
+            calendar = pending_calendar_by_loan_id.get(str(installment_ref.loan_id))
+            if calendar is not None and as_of_date <= calendar.add(installment_ref.due_date, 2):
+                row_status = "pending"
         else:
             row_status = "upcoming"
         displayed_principal_minor = (
@@ -1100,6 +1187,8 @@ def get_loan_repayment_schedule_snapshots(
                 ),
                 payment_date=None,
                 admin_overridden=bool(installment_ref.admin_overridden),
+                original_due_date=_metadata_date(installment_ref.metadata, "original_due_date"),
+                interest_start=_metadata_date(installment_ref.metadata, "interest_start"),
             )
         )
     for rows in schedule_by_loan_id.values():
@@ -2348,10 +2437,153 @@ def preview_borrower_repayment_in_advance(
 
 
 @transaction.atomic
+def _after_repayment_listing_refresh_and_emails(
+    *,
+    loan: Model,
+    actor: Model,
+    repayment_event: BorrowerRepaymentEvent,
+    distribution_lines: list[InvestorRepaymentDistributionLine],
+    currency: Currency,
+    value_date: date,
+) -> list[Any]:
+    """Refresh the loan's open resale listings and email each investor what was credited."""
+    loan_ref = cast(Any, loan)
+    try:
+        refresh_listings = (
+            _secondary_market_services().refresh_open_secondary_market_listings_for_loan
+        )
+        listing_refreshes = refresh_listings(
+            actor=actor,
+            loan=loan,
+            as_of_date=value_date,
+            source_type="borrower_repayment_event",
+            source_id=str(repayment_event.id),
+        )
+    except ValueError as exc:
+        raise ServicingValidationError(
+            "Repayment could not safely refresh affected secondary-market listings."
+        ) from exc
+    active_listing_by_holding_id = {
+        refresh.holding_id: refresh
+        for refresh in listing_refreshes
+        if refresh.status == "active" and not refresh.automatically_cancelled
+    }
+    distribution_lines_by_investor: dict[
+        str,
+        list[InvestorRepaymentDistributionLine],
+    ] = {}
+    for line in distribution_lines:
+        distribution_lines_by_investor.setdefault(
+            str(line.investor_user_id),
+            [],
+        ).append(line)
+    for investor_user_id, investor_lines in distribution_lines_by_investor.items():
+        # One refresh per holding (an engine receipt can have one line per installment).
+        investor_holding_ids = list(dict.fromkeys(str(line.holding_id) for line in investor_lines))
+        active_listing_refreshes = [
+            active_listing_by_holding_id[holding_id]
+            for holding_id in investor_holding_ids
+            if holding_id in active_listing_by_holding_id
+        ]
+        listing_notice = ""
+        listing_metadata: dict[str, Any] = {}
+        if len(active_listing_refreshes) == 1:
+            listing_refresh = active_listing_refreshes[0]
+            adjustment_bps = listing_refresh.price_bps - 10_000
+            if adjustment_bps > 0:
+                adjustment_label = f"{Decimal(adjustment_bps) / Decimal(100):.2f}% premium"
+            elif adjustment_bps < 0:
+                adjustment_label = (
+                    f"{Decimal(abs(adjustment_bps)) / Decimal(100):.2f}% discount"
+                )
+            else:
+                adjustment_label = "par price"
+            listing_notice = (
+                "\n\nYour active secondary-market listing was automatically recalculated "
+                f"from the new outstanding principal while preserving its {adjustment_label}."
+            )
+            listing_metadata = {
+                "secondary_listing_id": listing_refresh.listing_id,
+                "secondary_listing_price_bps": listing_refresh.price_bps,
+                "secondary_listing_principal_minor": (
+                    listing_refresh.principal_after_minor
+                ),
+                "secondary_listing_repriced": True,
+            }
+        elif active_listing_refreshes:
+            listing_notice = (
+                "\n\nYour active secondary-market listings for this loan were "
+                "automatically recalculated from their new outstanding principal. "
+                "Each listing kept the premium or discount you selected."
+            )
+            listing_metadata = {
+                "secondary_listing_ids": [
+                    refresh.listing_id for refresh in active_listing_refreshes
+                ],
+                "secondary_listing_repriced": True,
+                "secondary_listing_repriced_count": len(active_listing_refreshes),
+            }
+        amount_minor = sum(line.amount_minor for line in investor_lines)
+        principal_minor = sum(line.principal_minor for line in investor_lines)
+        interest_minor = sum(line.interest_minor for line in investor_lines)
+        penalty_minor = sum(int(getattr(line, "penalty_minor", 0)) for line in investor_lines)
+        penalty_text = (
+            f"Penalty interest component: {format_amount_minor(penalty_minor, currency.code)}.\n"
+            if penalty_minor
+            else ""
+        )
+        _enqueue_investor_email(
+            investor_user_id=investor_user_id,
+            topic="email.repayment_distribution_credited",
+            subject=f"{settings.PLATFORM_BRAND_NAME} repayment credited",
+            body_text=(
+                f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
+                f"{format_amount_minor(amount_minor, currency.code)} "
+                f"for loan {loan_ref.title}.\n\n"
+                f"Principal component: "
+                f"{format_amount_minor(principal_minor, currency.code)}.\n"
+                f"Interest component: {format_amount_minor(interest_minor, currency.code)}.\n"
+                f"{penalty_text}"
+                f"Value date: {value_date.isoformat()}."
+                f"{listing_notice}"
+            ),
+            template_key="servicing.repayment_distribution_credited.v1",
+            idempotency_key=(
+                f"email:repayment-distribution:{repayment_event.id}:{investor_user_id}"
+            ),
+            metadata={
+                "repayment_event_id": str(repayment_event.id),
+                "loan_id": str(loan_ref.id),
+                "holding_ids": [str(line.holding_id) for line in investor_lines],
+                "balance_lot_ids": [str(line.balance_lot_id) for line in investor_lines],
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "principal_minor": principal_minor,
+                "interest_minor": interest_minor,
+                **({"penalty_minor": penalty_minor} if penalty_minor else {}),
+                "value_date": value_date.isoformat(),
+                **listing_metadata,
+            },
+        )
+
+    return cast(list[Any], listing_refreshes)
+
+
 def record_borrower_repayment(
     command: RecordBorrowerRepaymentCommand,
 ) -> RecordBorrowerRepaymentResult:
     _require_admin_actor(command.actor)
+    if _loan_model().objects.filter(
+        id=command.loan_id, interest_convention="act_365_fixed", product_type="direct"
+    ).exists():
+        # 18.6: new direct loans: one payment form (amount + value date), allocated by the engine.
+        from backend.apps.servicing import engine as engine_servicing
+
+        try:
+            result = engine_servicing.record_engine_repayment(command)
+            return cast(RecordBorrowerRepaymentResult, result)
+        except engine_servicing.EngineServicingError as exc:
+            raise ServicingValidationError(str(exc)) from exc
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     amount_minor = _validate_positive_minor_amount(command.amount_minor, "Repayment amount")
     request_fingerprint = _request_fingerprint(
@@ -2662,113 +2894,14 @@ def record_borrower_repayment(
             cast(date, cast(Any, installment).due_date),
         ),
     )
-    try:
-        refresh_listings = (
-            _secondary_market_services().refresh_open_secondary_market_listings_for_loan
-        )
-        listing_refreshes = refresh_listings(
-            actor=command.actor,
-            loan=loan,
-            as_of_date=command.value_date,
-            source_type="borrower_repayment_event",
-            source_id=str(repayment_event.id),
-        )
-    except ValueError as exc:
-        raise ServicingValidationError(
-            "Repayment could not safely refresh affected secondary-market listings."
-        ) from exc
-    active_listing_by_holding_id = {
-        refresh.holding_id: refresh
-        for refresh in listing_refreshes
-        if refresh.status == "active" and not refresh.automatically_cancelled
-    }
-    distribution_lines_by_investor: dict[
-        str,
-        list[InvestorRepaymentDistributionLine],
-    ] = {}
-    for line in distribution_lines:
-        distribution_lines_by_investor.setdefault(
-            str(line.investor_user_id),
-            [],
-        ).append(line)
-    for investor_user_id, investor_lines in distribution_lines_by_investor.items():
-        active_listing_refreshes = [
-            active_listing_by_holding_id[str(line.holding_id)]
-            for line in investor_lines
-            if str(line.holding_id) in active_listing_by_holding_id
-        ]
-        listing_notice = ""
-        listing_metadata: dict[str, Any] = {}
-        if len(active_listing_refreshes) == 1:
-            listing_refresh = active_listing_refreshes[0]
-            adjustment_bps = listing_refresh.price_bps - 10_000
-            if adjustment_bps > 0:
-                adjustment_label = f"{Decimal(adjustment_bps) / Decimal(100):.2f}% premium"
-            elif adjustment_bps < 0:
-                adjustment_label = (
-                    f"{Decimal(abs(adjustment_bps)) / Decimal(100):.2f}% discount"
-                )
-            else:
-                adjustment_label = "par price"
-            listing_notice = (
-                "\n\nYour active secondary-market listing was automatically recalculated "
-                f"from the new outstanding principal while preserving its {adjustment_label}."
-            )
-            listing_metadata = {
-                "secondary_listing_id": listing_refresh.listing_id,
-                "secondary_listing_price_bps": listing_refresh.price_bps,
-                "secondary_listing_principal_minor": (
-                    listing_refresh.principal_after_minor
-                ),
-                "secondary_listing_repriced": True,
-            }
-        elif active_listing_refreshes:
-            listing_notice = (
-                "\n\nYour active secondary-market listings for this loan were "
-                "automatically recalculated from their new outstanding principal. "
-                "Each listing kept the premium or discount you selected."
-            )
-            listing_metadata = {
-                "secondary_listing_ids": [
-                    refresh.listing_id for refresh in active_listing_refreshes
-                ],
-                "secondary_listing_repriced": True,
-                "secondary_listing_repriced_count": len(active_listing_refreshes),
-            }
-        amount_minor = sum(line.amount_minor for line in investor_lines)
-        principal_minor = sum(line.principal_minor for line in investor_lines)
-        interest_minor = sum(line.interest_minor for line in investor_lines)
-        _enqueue_investor_email(
-            investor_user_id=investor_user_id,
-            topic="email.repayment_distribution_credited",
-            subject=f"{settings.PLATFORM_BRAND_NAME} repayment credited",
-            body_text=(
-                f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
-                f"{format_amount_minor(amount_minor, currency.code)} "
-                f"for loan {loan_ref.title}.\n\n"
-                f"Principal component: "
-                f"{format_amount_minor(principal_minor, currency.code)}.\n"
-                f"Interest component: {format_amount_minor(interest_minor, currency.code)}.\n"
-                f"Value date: {command.value_date.isoformat()}."
-                f"{listing_notice}"
-            ),
-            template_key="servicing.repayment_distribution_credited.v1",
-            idempotency_key=(
-                f"email:repayment-distribution:{repayment_event.id}:{investor_user_id}"
-            ),
-            metadata={
-                "repayment_event_id": str(repayment_event.id),
-                "loan_id": str(loan_ref.id),
-                "holding_ids": [str(line.holding_id) for line in investor_lines],
-                "balance_lot_ids": [str(line.balance_lot_id) for line in investor_lines],
-                "currency": currency.code,
-                "amount_minor": amount_minor,
-                "principal_minor": principal_minor,
-                "interest_minor": interest_minor,
-                "value_date": command.value_date.isoformat(),
-                **listing_metadata,
-            },
-        )
+    listing_refreshes = _after_repayment_listing_refresh_and_emails(
+        loan=loan,
+        actor=command.actor,
+        repayment_event=repayment_event,
+        distribution_lines=distribution_lines,
+        currency=currency,
+        value_date=command.value_date,
+    )
 
     event_metadata = {
         "loan_id": str(loan_ref.id),
@@ -2854,13 +2987,11 @@ def record_loan_recovery_payment(
         raise ServicingValidationError(
             "Recovery fee/cost base must leave funds available after third-party costs."
         )
-    if command.recovery_fee_bps > 10_000:
-        raise ServicingValidationError("Recovery fee bps cannot exceed 100%.")
-    recovery_fee_minor = (
-        _fee_from_bps(recovery_fee_base_minor, command.recovery_fee_bps)
-        if command.recovery_fee_applied
-        else 0
-    )
+    # U33-DEC-12: Banxum charges investors no recovery fee. Real external costs are the
+    # externally deducted and third-party costs above; the fee fields stay for history.
+    if command.recovery_fee_applied or command.recovery_fee_bps != 0:
+        raise ServicingValidationError(NO_RECOVERY_FEE_MESSAGE)
+    recovery_fee_minor = 0
     net_available_for_distribution_minor = (
         net_received_minor - third_party_costs_from_received_minor - recovery_fee_minor
     )
@@ -2901,6 +3032,14 @@ def record_loan_recovery_payment(
             "This is a Loan Originator loan. Record its recovery receipts through the Loan "
             "Originator servicing workflow (Manage > Record borrower repayment / schedule "
             "revision)."
+        )
+    if _is_engine_loan(loan):
+        # Audit S5-5: a loan on the 18.6 engine is paid only through the engine (amount and
+        # value date; the server works out expenses, penalties, interest and principal). The
+        # amounts typed in this form would bypass the engine position.
+        raise ServicingValidationError(
+            "This loan uses the 18.6 interest engine. Record the receipt with 'Record payment' "
+            "(amount and value date); the engine allocates it after the Default declaration."
         )
     if str(loan_ref.status) not in RECOVERY_ALLOWED_LOAN_STATUSES:
         raise ServicingValidationError(
@@ -3275,23 +3414,54 @@ def scan_loan_servicing_statuses(
     if command.loan_ids:
         loans = loans.filter(id__in=[str(loan_id) for loan_id in command.loan_ids])
     changes: list[LoanServicingStatusChange] = []
+    from backend.apps.servicing import engine as engine_servicing
+
     for loan in loans.order_by("id"):
-        new_status, days_past_due, outstanding, installment = (
-            _first_outstanding_installment_status(
+        if engine_servicing.is_engine_loan(cast(Model, loan)):
+            # 18.6: Pending / Due / Late from the oldest unpaid installment; Default only when
+            # declared; the admin is alerted when it can be declared.
+            change = engine_servicing.refresh_engine_loan_status(
                 cast(Model, loan),
-                as_of_date=command.as_of_date,
+                actor=command.actor,
+                as_of=command.as_of_date,
+                reason="servicing_status_scan",
             )
-        )
-        change = _record_loan_servicing_status_change(
-            loan=cast(Model, loan),
-            actor=command.actor,
-            new_status=new_status,
-            as_of_date=command.as_of_date,
-            days_past_due=days_past_due,
-            outstanding_minor=outstanding,
-            triggering_installment=installment,
-            reason="servicing_status_scan",
-        )
+        else:
+            new_status, days_past_due, outstanding, installment = (
+                _first_outstanding_installment_status(
+                    cast(Model, loan),
+                    as_of_date=command.as_of_date,
+                )
+            )
+            change = _record_loan_servicing_status_change(
+                loan=cast(Model, loan),
+                actor=command.actor,
+                new_status=new_status,
+                as_of_date=command.as_of_date,
+                days_past_due=days_past_due,
+                outstanding_minor=outstanding,
+                triggering_installment=installment,
+                reason="servicing_status_scan",
+            )
+            if new_status == LOAN_STATUS_LATE and default_can_be_declared(
+                days_past_due, loan_status_thresholds(cast(Model, loan))
+            ):
+                _admin_ops_services().ensure_loan_default_review_task(
+                    _admin_ops_services().EnsureLoanDefaultReviewTaskCommand(
+                        actor=command.actor,
+                        loan_id=str(cast(Any, loan).id),
+                        loan_title=str(cast(Any, loan).title),
+                        product_type=str(cast(Any, loan).product_type),
+                        currency=str(cast(Any, loan).currency_id),
+                        as_of_date=command.as_of_date,
+                        days_past_due=days_past_due,
+                        outstanding_minor=outstanding,
+                        triggering_due_date=cast(Any, installment).due_date
+                        if installment is not None
+                        else None,
+                        default_possible=True,
+                    )
+                )
         if change is not None:
             try:
                 _secondary_market_services().refresh_open_secondary_market_listings_for_loan(
@@ -3654,4 +3824,186 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
             idempotency_key=f"loan:{loan_ref.id}:loss-recognized:{write_off.id}",
         )
     )
+    # Audit S5-12: the write-off ends servicing; the cents kept for the investors are paid out.
+    from backend.apps.servicing import engine as engine_servicing
+
+    engine_servicing.settle_fractions_at_end_of_servicing(
+        loan,
+        actor=command.actor,
+        value_date=business_date(now_utc()),
+        source_type="loan_write_off_event",
+        source_id=str(write_off.id),
+        reason="final_write_off",
+    )
     return cast(LoanWriteOffEvent, write_off)
+
+
+# U33-DEC-09: thresholds can change until the loan is in default or closed; a defaulted
+# loan keeps its status (the daily scan does not move it back).
+THRESHOLD_CHANGE_BLOCKED_STATUSES = {
+    LOAN_STATUS_DEFAULTED,
+    LOAN_STATUS_REPAID,
+    LOAN_STATUS_WRITTEN_OFF,
+    "cancelled",
+}
+CONTRACT_TERMINATION_LOAN_STATUSES = {LOAN_STATUS_LATE, LOAN_STATUS_DEFAULTED}
+
+
+def _thresholds_payload(thresholds: LoanStatusThresholds) -> dict[str, Any]:
+    return {
+        "late_days": thresholds.late_days,
+        "default_days": thresholds.default_days,
+        "source": thresholds.source,
+    }
+
+
+@transaction.atomic
+def set_loan_status_thresholds(command: SetLoanStatusThresholdsCommand) -> Model:
+    """Set or clear a loan's contract Late / Default days (U33-DEC-09).
+
+    Both days together, or neither (the platform settings apply). For a direct loan that is
+    active or late the status is checked again at once with the new days; other loans use
+    them from their next status scan. Penalties and contract terms do not change.
+    """
+    _require_admin_actor(command.actor)
+    reason = _clean_required(command.reason, "Reason")
+    late_days = command.late_threshold_days
+    default_days = command.default_threshold_days
+    if (late_days is None) != (default_days is None):
+        raise ServicingValidationError(
+            "Enter both the Late day and the Default day, or leave both empty to use the "
+            "platform values."
+        )
+    if late_days is not None and not valid_threshold_pair(late_days, default_days):
+        raise ServicingValidationError(
+            "The Late day must be from day 1 and before the Default day, and the Default day "
+            "can be at most day 365."
+        )
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    status = str(loan_ref.status)
+    if status in THRESHOLD_CHANGE_BLOCKED_STATUSES:
+        raise ServicingValidationError(
+            f"The status thresholds of a loan that is {status.replace('_', ' ')} cannot change."
+        )
+    previous = {
+        "late_threshold_days": loan_ref.late_threshold_days,
+        "default_threshold_days": loan_ref.default_threshold_days,
+    }
+    new = {"late_threshold_days": late_days, "default_threshold_days": default_days}
+    if previous == new:
+        return loan
+    previous_effective = loan_status_thresholds(loan)
+    loan_ref.late_threshold_days = late_days
+    loan_ref.default_threshold_days = default_days
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(
+        update_fields=[
+            "late_threshold_days",
+            "default_threshold_days",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    effective = loan_status_thresholds(loan)
+    metadata = {
+        "decision": "U33-DEC-09",
+        "previous": previous,
+        "new": new,
+        "previous_effective": _thresholds_payload(previous_effective),
+        "effective": _thresholds_payload(effective),
+    }
+    _loan_event_model().objects.create(
+        loan=loan,
+        event_type="status_thresholds_changed",
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        note=reason,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="servicing.loan_status_thresholds_changed",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata={**metadata, "reason": reason},
+        )
+    )
+    if status in STATUS_SCAN_LOAN_STATUSES and str(loan_ref.product_type) == "direct":
+        scan_loan_servicing_statuses(
+            ScanLoanServicingStatusesCommand(
+                actor=command.actor,
+                as_of_date=business_date(now_utc()),
+                loan_ids=(str(loan_ref.id),),
+            )
+        )
+        loan.refresh_from_db()
+    return loan
+
+
+@transaction.atomic
+def record_loan_contract_termination(command: RecordLoanContractTerminationCommand) -> Model:
+    """Record the termination of a late or defaulted loan's contract (U33-DEC-09).
+
+    The status does not change: Default, termination and recovery are separate stages. The
+    date is shown to the loan's investors. A termination is recorded once; sending the same
+    date again changes nothing.
+    """
+    _require_admin_actor(command.actor)
+    note = _clean_required(command.note, "Note")
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    if loan_ref.contract_terminated_on is not None:
+        if loan_ref.contract_terminated_on == command.terminated_on:
+            return loan
+        raise ServicingValidationError(
+            "The contract termination is already recorded for "
+            f"{loan_ref.contract_terminated_on.isoformat()}."
+        )
+    status = str(loan_ref.status)
+    if status not in CONTRACT_TERMINATION_LOAN_STATUSES:
+        raise ServicingValidationError(
+            "A contract termination can be recorded only for a loan that is late or in default."
+        )
+    if command.terminated_on > business_date(now_utc()):
+        raise ServicingValidationError("The termination date cannot be in the future.")
+    if command.terminated_on < loan_ref.loan_start_date:
+        raise ServicingValidationError(
+            "The termination date cannot be before the start of the loan."
+        )
+    loan_ref.contract_terminated_on = command.terminated_on
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(update_fields=["contract_terminated_on", "updated_by_admin_id", "updated_at"])
+    metadata = {
+        "decision": "U33-DEC-09",
+        "terminated_on": command.terminated_on.isoformat(),
+        "loan_status": status,
+    }
+    _loan_event_model().objects.create(
+        loan=loan,
+        event_type="contract_terminated",
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        note=note,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="servicing.loan_contract_terminated",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata={**metadata, "note": note},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanContractTerminated",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=metadata,
+            idempotency_key=f"loan:{loan_ref.id}:contract-terminated",
+        )
+    )
+    return loan

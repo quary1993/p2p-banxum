@@ -77,8 +77,9 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     )
     is_refinancing = serializers.BooleanField(help_text="Loan type: new or refinancing.")
     public_status = serializers.ChoiceField(
-        choices=["open", "fully_funded", "repaying", "late", "repaid", "default"],
+        choices=["coming_soon", "open", "fully_funded", "repaying", "late", "repaid", "default"],
         help_text=(
+            "coming_soon: shown before it opens, nothing can be invested yet (U33-DEC-17); "
             "open: published, capacity left, round still taking orders; fully_funded: "
             "nothing left to invest, round not closed yet; repaying: funded or active; "
             "late; repaid; default: defaulted or written off."
@@ -132,9 +133,27 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     )
     term_months = serializers.IntegerField(help_text="Loan period in months.")
     repayment_type = serializers.CharField(help_text="RepaymentType value.")
-    risk_rating = serializers.CharField(help_text="RiskRating value.")
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text=(
+            "Months between two due dates (interest engine, 18.6): monthly, quarterly, "
+            "half_yearly or annual."
+        ),
+    )
+    interest_only_months = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text="First months with interest only (interest_only_then_amortizing), else 0.",
+    )
     collateral_type = serializers.CharField(help_text="CollateralType value.")
     collateral_description = serializers.CharField(allow_blank=True)
+    security_public_name = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        default="",
+        help_text="18.3: the anonymous name of the main secured asset; empty: name the type.",
+    )
     ltv_bps = serializers.IntegerField(
         allow_null=True,
         help_text="Loan-to-value in basis points; null without a collateral value.",
@@ -160,6 +179,11 @@ class PublicProjectSerializer(serializers.Serializer[Any]):
     funded_at = serializers.DateField(
         allow_null=True,
         help_text="Funding close date; null while the round is running.",
+    )
+    planned_opening_date = serializers.DateField(
+        allow_null=True,
+        required=False,
+        help_text="Planned opening date of a coming_soon project; null otherwise.",
     )
     record = PublicProjectRecordSerializer(
         allow_null=True,
@@ -208,6 +232,11 @@ class PublicStatisticsSerializer(serializers.Serializer[Any]):
     )
 
 
+class PublicOriginatorVolumeSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    principal_minor = serializers.IntegerField()
+
+
 class PublicOriginatorSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField(help_text="Loan Originator id.")
     name = serializers.CharField(help_text="The Loan Originator's public name.")
@@ -219,21 +248,87 @@ class PublicOriginatorSerializer(serializers.Serializer[Any]):
     claims_funded = serializers.IntegerField(
         help_text="Public claims of this originator that were funded.",
     )
+    founded_year = serializers.IntegerField(allow_null=True)
+    about = serializers.CharField(allow_blank=True, required=False, default="")
+    city = serializers.CharField(allow_blank=True)
+    sector = serializers.CharField(allow_blank=True)
+    volume = PublicOriginatorVolumeSerializer(
+        many=True,
+        help_text="Principal of the funded public claims, per currency.",
+    )
+    late_claims = serializers.IntegerField(
+        help_text="Funded public claims that are late or in default.",
+    )
+
+
+class MarketplaceSecurityDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+class MarketplaceSecuritySerializer(serializers.Serializer[Any]):
+    """U33-DEC-21: one security of the loan; only the fields that apply are filled."""
+
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    security_type = serializers.CharField()
+    is_guarantee = serializers.BooleanField()
+    description = serializers.CharField(allow_blank=True)
+    holder_name = serializers.CharField(allow_blank=True)
+    rank = serializers.IntegerField(allow_null=True)
+    status = serializers.CharField(allow_blank=True)
+    value_minor = serializers.IntegerField(allow_null=True)
+    valuation_date = serializers.DateField(allow_null=True)
+    valuation_source = serializers.CharField(allow_blank=True)
+    appraiser = serializers.CharField(allow_blank=True)
+    prior_ranking_debt_minor = serializers.IntegerField(allow_null=True)
+    insurance = serializers.CharField(allow_blank=True)
+    undertaking_scope = serializers.CharField(allow_blank=True)
+    undertaking_limit_minor = serializers.IntegerField(allow_null=True)
+    # C06: the security the summary shows. F16: whether its value counts in the loan-to-value.
+    is_main = serializers.BooleanField()
+    counts_in_ltv = serializers.BooleanField()
+    # F16: a valuation made in another currency: the amount, the rate and the rate date.
+    valuation_currency = serializers.CharField(allow_blank=True)
+    valuation_amount_minor = serializers.IntegerField(allow_null=True)
+    valuation_fx_rate = serializers.CharField(allow_null=True)
+    valuation_fx_rate_date = serializers.DateField(allow_null=True)
+    documents = MarketplaceSecurityDocumentSerializer(many=True)
+
+
+class MarketplaceSandboxNoticeSerializer(serializers.Serializer[Any]):
+    """18.9 (E-03): notice for a borrower in sandbox mode; the investor confirms this version."""
+
+    text = serializers.CharField()
+    version = serializers.CharField()
+    approved = serializers.BooleanField()
 
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    # Q04: a Garanta account has a confirmed reservation or holds a participation (no amount).
+    banxum_invests = serializers.BooleanField(required=False, default=False)
+    # U33-DEC-17: "coming_soon" for a draft shown before it opens (no investment possible).
+    opportunity_status = serializers.CharField(required=False)
+    planned_opening_date = serializers.DateField(required=False, allow_null=True)
+    opening_alert_requested = serializers.BooleanField(required=False)
     product_type = serializers.CharField()
     investment_flow = serializers.CharField()
     title = serializers.CharField()
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
+    security_types = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="U33-DEC-21: the types of every security in force.",
+    )
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
+    # 18.3: the repayment structure, for the Smart Invest Repayments step and the cards.
+    repayment_type = serializers.CharField(required=False, allow_blank=True, default="")
     remaining_term_days = serializers.IntegerField(allow_null=True)
-    risk_rating = serializers.CharField()
     funding_deadline = serializers.DateField(allow_null=True)
     maturity_date = serializers.DateField(allow_null=True)
     status = serializers.CharField()
@@ -278,6 +373,12 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     originator_id = serializers.UUIDField(allow_null=True)
     originator_name = serializers.CharField(allow_null=True)
     borrower_display_name = serializers.CharField(allow_null=True)
+    # U33 opportunity cards: country line, repayment frequency, security description, "Newest".
+    borrower_country = serializers.CharField(allow_blank=True)
+    borrower_city = serializers.CharField(allow_blank=True)
+    repayment_type = serializers.CharField(allow_blank=True)
+    collateral_description = serializers.CharField(allow_blank=True)
+    published_at = serializers.DateTimeField(allow_null=True)
     distribution_model = serializers.CharField(
         required=False,
         allow_null=True,
@@ -296,6 +397,19 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     )
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
+    # A plain string: a nullable choice field makes the generated mock pick from an empty list.
+    creditor_mode = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "18.9: Swiss creditor mode of the borrower ('sandbox' or 'ten_twenty'); "
+            "null for other borrowers."
+        ),
+    )
+    sandbox_notice = MarketplaceSandboxNoticeSerializer(
+        required=False, allow_null=True, default=None
+    )
 
 
 class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -356,7 +470,125 @@ class StoryDocumentSerializer(serializers.Serializer[Any]):
     blocks = serializers.ListField(child=serializers.DictField())
 
 
+class MarketplaceCreditFileDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    display_name = serializers.CharField()
+
+
+class MarketplaceFinancialYearSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20: the figures of one financial year, in minor units (costs as positive amounts)."""
+
+    id = serializers.UUIDField()
+    year = serializers.IntegerField()
+    period_end = serializers.DateField()
+    currency = serializers.CharField()
+    source_document = MarketplaceCreditFileDocumentSerializer(allow_null=True)
+    revenue_minor = serializers.IntegerField(allow_null=True)
+    materials_costs_minor = serializers.IntegerField(allow_null=True)
+    staff_costs_minor = serializers.IntegerField(allow_null=True)
+    other_operating_costs_minor = serializers.IntegerField(allow_null=True)
+    depreciation_minor = serializers.IntegerField(allow_null=True)
+    operating_profit_minor = serializers.IntegerField(allow_null=True)
+    interest_expense_minor = serializers.IntegerField(allow_null=True)
+    profit_before_tax_minor = serializers.IntegerField(allow_null=True)
+    income_tax_minor = serializers.IntegerField(allow_null=True)
+    net_profit_minor = serializers.IntegerField(allow_null=True)
+    cash_minor = serializers.IntegerField(allow_null=True)
+    trade_receivables_minor = serializers.IntegerField(allow_null=True)
+    inventories_minor = serializers.IntegerField(allow_null=True)
+    other_current_assets_minor = serializers.IntegerField(allow_null=True)
+    current_assets_minor = serializers.IntegerField(allow_null=True)
+    property_plant_equipment_minor = serializers.IntegerField(allow_null=True)
+    other_non_current_assets_minor = serializers.IntegerField(allow_null=True)
+    total_assets_minor = serializers.IntegerField(allow_null=True)
+    current_financial_debt_minor = serializers.IntegerField(allow_null=True)
+    non_current_financial_debt_minor = serializers.IntegerField(allow_null=True)
+    financial_debt_minor = serializers.IntegerField(allow_null=True)
+    trade_payables_minor = serializers.IntegerField(allow_null=True)
+    other_operating_liabilities_minor = serializers.IntegerField(allow_null=True)
+    equity_minor = serializers.IntegerField(allow_null=True)
+
+
+class MarketplaceDebtFacilitySerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    facility_type = serializers.CharField()
+    currency = serializers.CharField()
+    balance_minor = serializers.IntegerField()
+    current_portion_minor = serializers.IntegerField(allow_null=True)
+    non_current_portion_minor = serializers.IntegerField(allow_null=True)
+    security_description = serializers.CharField(allow_blank=True)
+    as_at = serializers.DateField()
+    source_document = MarketplaceCreditFileDocumentSerializer(allow_null=True)
+
+
+class MarketplaceCreditCheckSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    position = serializers.IntegerField()
+    name = serializers.CharField()
+    result = serializers.CharField()
+    # "source" is also a DRF Field attribute; the stubs type it differently.
+    source = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
+    checked_on = serializers.DateField(allow_null=True)
+    status = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceMonitoringSerializer(serializers.Serializer[Any]):
+    frequency = serializers.CharField(allow_blank=True)
+    focus = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceReportingMilestoneSerializer(serializers.Serializer[Any]):
+    when = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceReportingPlanSerializer(serializers.Serializer[Any]):
+    """U33-DEC-20 "Reporting over the loan term": a proposed or agreed plan."""
+
+    status = serializers.CharField()
+    milestones = MarketplaceReportingMilestoneSerializer(many=True)
+
+
+class MarketplaceRecoveryStageSerializer(serializers.Serializer[Any]):
+    title = serializers.CharField()
+    occurred_on = serializers.DateField(allow_null=True)
+    investor_note = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceRecoveryStagesSerializer(serializers.Serializer[Any]):
+    stages = MarketplaceRecoveryStageSerializer(many=True)
+    next_step = MarketplaceRecoveryStageSerializer(allow_null=True)
+
+
+class MarketplaceOfferPriceSerializer(serializers.Serializer[Any]):
+    """18.7: price of a Loan Originator offer = principal + accrued interest of the bought rights,
+    fixed for the planned settlement day (one reference day for all investors)."""
+
+    pricing_rule = serializers.CharField()
+    interest_convention = serializers.CharField()
+    interest_convention_label = serializers.CharField()
+    price_reference_date = serializers.DateField()
+    accrual_start_date = serializers.DateField()
+    next_due_date = serializers.DateField()
+    next_installment_interest_minor = serializers.IntegerField()
+    next_installment_principal_minor = serializers.IntegerField()
+    next_installment_opening_principal_minor = serializers.IntegerField()
+    accrued_day_units = serializers.IntegerField(
+        help_text=(
+            "Accrued interest for a principal P = round half up(next_installment_interest_minor "
+            "x P / next_installment_opening_principal_minor x accrued_day_units / "
+            "period_day_units x investor_interest_participation_bps / 10000)."
+        )
+    )
+    period_day_units = serializers.IntegerField()
+    investor_interest_participation_bps = serializers.IntegerField()
+    investor_penalty_participation_bps = serializers.IntegerField()
+
+
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
+    offer_price = MarketplaceOfferPriceSerializer(required=False, allow_null=True, default=None)
     default_penalty_interest_bps = serializers.IntegerField(required=False, default=0)
     borrower_id = serializers.UUIDField(allow_null=True)
     borrower_disclosure = serializers.DictField()
@@ -365,6 +597,16 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     purpose_description = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()
     collateral_description = serializers.CharField()
+    securities = MarketplaceSecuritySerializer(many=True, required=False)
+    financial_years = MarketplaceFinancialYearSerializer(many=True, required=False)
+    debt_facilities = MarketplaceDebtFacilitySerializer(many=True, required=False)
+    credit_checks = MarketplaceCreditCheckSerializer(many=True, required=False)
+    monitoring = MarketplaceMonitoringSerializer(required=False)
+    reporting_plan = MarketplaceReportingPlanSerializer(required=False, allow_null=True)
+    # 18.3: the credit file's "Source of repayment" and "Updated" date.
+    repayment_source = serializers.CharField(required=False, allow_blank=True, default="")
+    credit_file_updated_at = serializers.DateTimeField(required=False, allow_null=True)
+    recovery_stages = MarketplaceRecoveryStagesSerializer(required=False)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()
     original_interest_rate_bps = serializers.IntegerField(allow_null=True)
@@ -444,46 +686,14 @@ class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
     pin = sensitive_action_pin_field()
-
-
-class PrimaryOrderBatchItemSerializer(serializers.Serializer[Any]):
-    loan_id = serializers.UUIDField()
-    amount_minor = serializers.IntegerField(min_value=1)
-    quote_id = serializers.UUIDField(required=False, allow_null=True)
-
-
-class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
-    items = PrimaryOrderBatchItemSerializer(many=True, allow_empty=False)
-    document_acceptance_id = serializers.UUIDField()
-    idempotency_key = serializers.CharField(max_length=128)
-    sensitive_action_code_id = serializers.UUIDField()
-    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
-    pin = sensitive_action_pin_field()
-
-
-class PrimaryOrderBatchOriginatorPurchaseResponseSerializer(serializers.Serializer[Any]):
-    purchase_id = serializers.UUIDField()
-    quote_id = serializers.UUIDField()
-    loan_id = serializers.UUIDField()
-    holding_id = serializers.UUIDField()
-    currency = serializers.CharField()
-    cash_consideration_minor = serializers.IntegerField()
-    assigned_principal_minor = serializers.IntegerField()
-    outstanding_principal_at_pricing_minor = serializers.IntegerField()
-    share_ppm = serializers.IntegerField()
-    target_yield_bps = serializers.IntegerField()
-    purchased_at = serializers.DateTimeField()
-
-
-class PrimaryOrderBatchResponseSerializer(serializers.Serializer[Any]):
-    batch_id = serializers.UUIDField()
-    currency = serializers.CharField(allow_null=True)
-    currency_totals = serializers.ListField(child=serializers.DictField())
-    orders = PrimaryInvestmentOrderSerializer(many=True)
-    order_count = serializers.IntegerField()
-    originator_purchases = PrimaryOrderBatchOriginatorPurchaseResponseSerializer(many=True)
-    originator_purchase_count = serializers.IntegerField()
-    total_amount_minor = serializers.IntegerField(allow_null=True)
+    sandbox_notice_confirmed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="18.9: the investor confirmed the sandbox notice (borrowers in sandbox mode).",
+    )
+    sandbox_notice_version = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=64
+    )
 
 
 class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]):
@@ -591,3 +801,42 @@ def serialize_primary_expiry_scan_result(result: dict[str, Any]) -> dict[str, An
             for cancellation in result["cancellations"]
         ],
     }
+
+
+class SavedOpportunitySerializer(serializers.Serializer[Any]):
+    """U33-DEC-18: a saved opportunity, checked again at each read."""
+
+    loan_id = serializers.UUIDField()
+    title = serializers.CharField()
+    product_type = serializers.CharField()
+    currency = serializers.CharField()
+    borrower_display_name = serializers.CharField(allow_null=True)
+    collateral_type = serializers.CharField()
+    amount_minor = serializers.IntegerField(
+        allow_null=True, help_text="The amount the investor chose; null when none was chosen."
+    )
+    saved_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+    is_open = serializers.BooleanField()
+    funding_deadline = serializers.DateField(allow_null=True)
+    minimum_investment_minor = serializers.IntegerField(
+        allow_null=True, help_text="The viewer's minimum now; null when not open."
+    )
+    available_minor = serializers.IntegerField(
+        allow_null=True, help_text="What the opportunity still takes; null when not open."
+    )
+    amount_check = serializers.ChoiceField(
+        choices=["ok", "none", "below_minimum", "above_available", "closed"],
+        help_text=(
+            "ok; none: no amount saved; below_minimum / above_available: the saved amount "
+            "no longer fits (it is never changed); closed: no longer open for investment."
+        ),
+    )
+
+
+class SavedOpportunityListSerializer(serializers.Serializer[Any]):
+    saved = SavedOpportunitySerializer(many=True)
+
+
+class SavedOpportunityRequestSerializer(serializers.Serializer[Any]):
+    amount_minor = serializers.IntegerField(required=False, allow_null=True, default=None)

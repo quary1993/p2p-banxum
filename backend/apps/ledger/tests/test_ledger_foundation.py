@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, time
+from importlib import import_module
 from typing import Any, cast
 from unittest import mock
 
@@ -15,6 +16,7 @@ from django.test import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
+from backend.apps.ledger import services as ledger_services
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
@@ -52,7 +54,6 @@ from backend.apps.ledger.services import (
     cancel_investor_withdrawal,
     close_primary_loan_funding,
     create_reconciliation_snapshot,
-    declare_lender_deposit,
     execute_investor_fx_exchange_ledger,
     finalize_borrower_disbursement,
     finalize_investor_withdrawal,
@@ -71,6 +72,12 @@ from backend.apps.ledger.services import (
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+
+# Audit S3-1: a deposit alone verifies no account; these tests need the account the admin
+# verifies after it.
+from backend.apps.platform_core.tests.deposit_accounts import (
+    declare_deposit_and_verify_account as declare_lender_deposit,
+)
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     assert_pin_guards_sensitive_action,
@@ -508,38 +515,6 @@ def test_historical_balance_keeps_withdrawal_reserved_until_cancellation(
             available,
             withdrawn,
         )
-
-
-@pytest.mark.django_db
-def test_historical_balance_excludes_later_penalty_charges(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    with freeze_time("2026-01-01T12:00:00Z"):
-        deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-        _disable_deposit_payout_instruction(deposit)
-    for day in (3, 4):
-        with freeze_time(f"2026-03-{day:02d}T12:00:00Z"):
-            run_balance_ageing_scan(
-                RunBalanceAgeingScanCommand(
-                    actor=admin_user, as_of=_received_at(date(2026, 3, day))
-                )
-            )
-    lot = InvestorBalanceLot.objects.get(pk=deposit.balance_lot.pk)
-    assert lot.available_amount_minor == 98_00
-    for day, available, penalized, status in (
-        (2, 100_00, 0, BalanceLotStatus.AVAILABLE),
-        (3, 99_00, 1_00, BalanceLotStatus.PENALTY_MODE),
-        (4, 98_00, 2_00, BalanceLotStatus.PENALTY_MODE),
-    ):
-        state = balance_lot_amounts_as_of(lots=[lot], as_of=_received_at(date(2026, 3, day)))[
-            str(lot.pk)
-        ]
-        assert (
-            state["available_amount_minor"],
-            state["penalized_amount_minor"],
-            state["status"],
-        ) == (available, penalized, status)
 
 
 @pytest.mark.django_db
@@ -1083,10 +1058,11 @@ def test_reservation_skips_old_sources_for_long_windows_and_preserves_failed_att
         investment_deadline_at=_received_at(date(2026, 1, 31))
     )
     as_of = _received_at(date(2026, 2, 15))
-    # The older source's last day is 02-28 (day 58): a window ending 02-27 still fits.
+    # 18.4: the older source goes back on Thursday 02-26 (day 57 is a Friday and the debit
+    # must come by day 59), so its last day is 02-25: a window ending 02-24 still fits.
     short = plan_investment_balance_consumption(
         investor_user_id=str(investor.pk), currency="CHF", amount_minor=100_00,
-        loan_funding_deadline=date(2026, 2, 27), as_of=as_of,
+        loan_funding_deadline=date(2026, 2, 24), as_of=as_of,
     )
     assert short[0].lot_id == str(first.pk)
     command = ReserveInvestmentBalanceCommand(
@@ -1156,7 +1132,7 @@ def test_register_payout_instruction_adds_another_active_verified_instruction(
 
 
 @pytest.mark.django_db
-def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
+def test_lender_deposit_requires_valid_source_iban_and_verifies_no_account(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -1168,7 +1144,7 @@ def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
         declare_lender_deposit(invalid)
     assert BankOperation.objects.filter(idempotency_key="deposit-invalid-iban").count() == 0
 
-    result = declare_lender_deposit(
+    result = ledger_services.declare_lender_deposit(
         replace(
             _deposit_command(admin_user, investor, idempotency_key="deposit-valid-iban"),
             payer_account_identifier="CH93 0076 2011 6238 5295 7",
@@ -1176,11 +1152,9 @@ def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
     )
 
     assert result.bank_operation.payer_account_identifier == "CH9300762011623852957"
-    assert result.payout_instruction is not None
-    assert result.payout_instruction.destination_iban == "CH9300762011623852957"
-    assert result.payout_instruction.is_verified_usable is True
-    assert result.payout_instruction.verified_by_admin_id == admin_user.pk
-    assert result.payout_instruction.metadata["source"] == "lender_deposit"
+    # Audit S3-1: the deposit keeps the normalized source IBAN but verifies no account.
+    assert result.payout_instruction is None
+    assert not InvestorPayoutInstruction.objects.filter(investor_user_id=investor.pk).exists()
 
 
 @pytest.mark.django_db
@@ -1282,21 +1256,23 @@ def test_balance_ageing_scan_records_reminder_due(
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
 
+    # 18.4: the return date is 2026-02-26, so the first notice comes on 02-12 (14 days before).
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 1, 26)),
+            as_of=_received_at(date(2026, 2, 12)),
         )
     )
     rerun = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
-            as_of=_received_at(date(2026, 1, 26)),
+            as_of=_received_at(date(2026, 2, 12)),
         )
     )
 
     assert result.reminders_due[0].lot_id == str(deposit.balance_lot.id)
-    assert result.reminders_due[0].day == 25
+    assert result.reminders_due[0].days_before_return == 14
+    assert result.reminders_due[0].day == 42
     assert rerun.reminders_due == []
     assert (
         DomainEvent.objects.filter(
@@ -1314,7 +1290,7 @@ def test_balance_ageing_scan_records_reminder_due(
     )
     reminder_email = OutboxMessage.objects.get(topic="email.balance_ageing_reminder")
     assert reminder_email.payload["user_id"] == str(investor.pk)
-    assert reminder_email.payload["metadata"]["day"] == 25
+    assert reminder_email.payload["metadata"]["days_before_return"] == 14
     assert (
         OutboxMessage.objects.filter(topic="email.balance_ageing_reminder").count()
         == 1
@@ -1322,7 +1298,7 @@ def test_balance_ageing_scan_records_reminder_due(
 
 
 @pytest.mark.django_db
-def test_balance_ageing_scan_catches_up_missed_reminder_days(
+def test_balance_ageing_scan_after_missed_days_sends_only_the_closest_notice(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -1341,21 +1317,21 @@ def test_balance_ageing_scan_catches_up_missed_reminder_days(
         )
     )
 
-    assert [reminder.day for reminder in result.reminders_due] == [25, 46, 53]
+    assert [reminder.days_before_return for reminder in result.reminders_due] == [3]
     assert rerun.reminders_due == []
     assert (
         DomainEvent.objects.filter(
             event_type="BalanceAgeingReminderDue",
             aggregate_id=str(deposit.balance_lot.id),
         ).count()
-        == 3
+        == 1
     )
     assert (
         AuditEvent.objects.filter(
             action="ledger.balance_ageing_reminder_due",
             target_id=str(deposit.balance_lot.id),
         ).count()
-        == 3
+        == 1
     )
 
 
@@ -1410,116 +1386,6 @@ def test_balance_ageing_scan_creates_forced_withdrawal_when_iban_exists(
         event_type="ForcedWithdrawalRequested",
         aggregate_id=str(withdrawal_request.id),
     ).exists()
-
-
-@pytest.mark.django_db
-def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    _disable_deposit_payout_instruction(deposit)
-
-    result = run_balance_ageing_scan(
-        RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=_received_at(date(2026, 3, 3)),
-        )
-    )
-    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
-    summary = summarize_investor_balance(
-        investor_user_id=str(investor.pk),
-        currency="CHF",
-        as_of=_received_at(date(2026, 3, 3)),
-    )
-    rerun = run_balance_ageing_scan(
-        RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=_received_at(date(2026, 3, 3)),
-        )
-    )
-
-    assert result.penalty_mode_transitions[0].lot_id == str(deposit.balance_lot.id)
-    assert result.penalty_charges[0].lot_id == str(deposit.balance_lot.id)
-    assert result.penalty_charges[0].amount_minor == 1_00
-    assert result.penalty_charges[0].penalty_basis_minor == 100_00
-    assert lot.status == BalanceLotStatus.PENALTY_MODE
-    assert lot.available_amount_minor == 99_00
-    assert lot.penalized_amount_minor == 1_00
-    assert lot.lineage[-2]["event"] == "penalty_mode_enabled"
-    assert lot.lineage[-2]["penalty_bps_per_day"] == 100
-    assert lot.lineage[-2]["penalty_basis_minor"] == 100_00
-    assert lot.lineage[-1]["event"] == "balance_penalty_charged"
-    assert summary.penalty_mode_minor == 99_00
-    assert rerun.penalty_mode_transitions == []
-    assert rerun.penalty_charges == []
-    assert rerun.skipped_lot_ids == [str(deposit.balance_lot.id)]
-    snapshot = create_reconciliation_snapshot(
-        CreateReconciliationSnapshotCommand(
-            actor=admin_user,
-            currency="CHF",
-            as_of_date=date(2026, 3, 3),
-            bank_stated_balance_minor=100_00,
-        )
-    )
-    assert snapshot.reconciliation_difference_minor == 0
-    assert snapshot.investor_balance_liability_minor == 99_00
-    assert snapshot.garanta_accrued_revenue_minor == 1_00
-    assert snapshot.metadata["platform_fee_revenue_minor"] == 1_00
-    postings = {
-        (posting.account.account_type, posting.side, posting.amount_minor)
-        for posting in LedgerJournalEntry.objects.get(
-            event_type="balance_penalty_charged"
-        ).postings.select_related("account")
-    }
-    assert (LedgerAccountType.INVESTOR_BALANCE_LIABILITY, "debit", 1_00) in postings
-    assert (LedgerAccountType.PLATFORM_FEE_REVENUE, "credit", 1_00) in postings
-    assert (
-        DomainEvent.objects.filter(
-            event_type="BalancePenaltyModeEnabled",
-            aggregate_id=str(deposit.balance_lot.id),
-        ).count()
-        == 1
-    )
-    assert (
-        DomainEvent.objects.filter(
-            event_type="BalancePenaltyCharged",
-            aggregate_id=str(deposit.balance_lot.id),
-        ).count()
-        == 1
-    )
-
-
-@pytest.mark.django_db
-def test_balance_ageing_penalty_charges_once_per_business_day(
-    admin_user: Model,
-    investor: Model,
-) -> None:
-    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
-    _disable_deposit_payout_instruction(deposit)
-    first = run_balance_ageing_scan(
-        RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=_received_at(date(2026, 3, 3)),
-        )
-    )
-    second = run_balance_ageing_scan(
-        RunBalanceAgeingScanCommand(
-            actor=admin_user,
-            as_of=_received_at(date(2026, 3, 4)),
-        )
-    )
-    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
-
-    assert first.penalty_charges[0].amount_minor == 1_00
-    assert second.penalty_charges[0].amount_minor == 1_00
-    assert lot.status == BalanceLotStatus.PENALTY_MODE
-    assert lot.available_amount_minor == 98_00
-    assert lot.penalized_amount_minor == 2_00
-    assert (
-        LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").count()
-        == 2
-    )
 
 
 @pytest.mark.django_db
@@ -2832,7 +2698,7 @@ def test_lender_deposit_admin_api_and_balance_summary(
             "collection_account_identifier": "CH00GARANTALEDGER",
             "payer_name": "Ledger Investor",
             "payer_account_identifier": "CH9300762011623852957",
-            "bank_reference": "BANK-API",
+                "bank_reference": "BANK-API",
             "payment_reference": f"INV-{investor.pk}",
             "evidence_reference": "statement:api",
             "idempotency_key": "deposit-api",
@@ -2846,10 +2712,8 @@ def test_lender_deposit_admin_api_and_balance_summary(
 
     assert deposit_response.status_code == 201
     assert deposit_response.json()["balance_lot"]["available_amount_minor"] == 250_00
-    assert deposit_response.json()["payout_instruction"]["destination_iban"] == (
-        "CH9300762011623852957"
-    )
-    assert deposit_response.json()["payout_instruction"]["is_verified_usable"] is True
+    # Audit S3-1: a deposit through the API verifies no account.
+    assert deposit_response.json()["payout_instruction"] is None
     assert summary_response.status_code == 200
     assert summary_response.json()["total_available_minor"] == 250_00
 
@@ -3084,3 +2948,40 @@ def test_withdrawal_and_bank_change_endpoints_need_the_pin(
     assert InvestorPayoutInstruction.objects.filter(
         destination_iban="CH5604835012345678009"
     ).exists()
+
+
+@pytest.mark.django_db
+def test_balance_past_the_legal_limit_stays_on_the_balance_without_penalty(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    """U33-DEC-04: no daily penalty and no penalty mode after the 60-day legal limit."""
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    _disable_deposit_payout_instruction(deposit)
+
+    result = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(actor=admin_user, as_of=_received_at(date(2026, 3, 3)))
+    )
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk), currency="CHF", as_of=_received_at(date(2026, 3, 3))
+    )
+
+    assert result.penalty_mode_transitions == []
+    assert result.penalty_charges == []
+    assert result.skipped_lot_ids == [str(deposit.balance_lot.id)]
+    assert lot.status == BalanceLotStatus.AVAILABLE
+    assert (lot.available_amount_minor, lot.penalized_amount_minor) == (100_00, 0)
+    assert (summary.overdue_minor, summary.penalty_mode_minor) == (100_00, 0)
+    assert not LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").exists()
+
+
+def test_penalty_mode_migration_releases_the_lot_and_records_why() -> None:
+    migration = import_module("backend.apps.ledger.migrations.0014_release_penalty_mode_lots")
+    lineage = migration.plan_penalty_mode_release(
+        [{"event": "penalty_mode_enabled"}], "2026-11-10T00:00:00+00:00"
+    )
+    assert lineage[0] == {"event": "penalty_mode_enabled"}
+    assert lineage[-1]["event"] == "penalty_mode_removed"
+    assert lineage[-1]["decision"] == "U33-DEC-04"
+

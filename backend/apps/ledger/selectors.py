@@ -280,6 +280,7 @@ def _payout_instruction_rows(instructions: list[InvestorPayoutInstruction]) -> l
                 ),
                 "revocation_reason": str(revocation.get("reason", "")),
                 "revoked_at": revocation.get("revoked_at") or None,
+                "is_default_return": bool(instruction.is_default_return),
                 "created_at": instruction.created_at,
                 "updated_at": instruction.updated_at,
             }

@@ -83,6 +83,10 @@ Confirm exact labels for the admin picker and any investor-facing wording.
 
 ### PROD-DEC-002: Collateral/Backing Options
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-21 and U33-DEC-38: several securities per loan with structured details; every new loan needs collateral or guarantees (no unsecured exception).
+>
+> Implemented 2026-11-10 (Phase 17.2, U33-DEC-38 publication guard): a direct loan cannot be created with, changed to, or published with `unsecured_exception` ("Every loan needs collateral or guarantees"); a Loan Originator loan cannot be created, replaced or published with it either. The admin forms no longer offer the type. Loans already published keep their recorded type (history stays factual). The check of the security documents and rights (proof, not only a label) is still open.
+
 Status: Accepted.
 Date: 2026-05-15.
 Owner: Garanta product / credit / operations.
@@ -99,6 +103,10 @@ Follow-ups:
 Confirm exact option labels and whether unsecured exception requires a reason code.
 
 ### PROD-DEC-003: V1 Collateral Data Fields
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-21: structured data per security (type, holder/guarantor, rank, status, value, valuation date/source, appraiser, insurance, documents; limit for undertakings).
+>
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-21): `LoanSecurity` (loans), several per loan, each with only the fields that apply: type, description, holder (owner or guarantor), rank (1 = first), status (in place, being put in place, released, or empty when not recorded), value, valuation date, basis and appraiser, prior-ranking debt, insurance, the borrower documents about it, and for a personal or corporate guarantee the scope and limit instead of an asset value. Rules: no unsecured exception; "mixed" and "asset backed" stay on old records only (a new entry names each security); "other" needs a description; a guarantee has no value or valuation; prior-ranking debt needs a value; documents must be the borrower's. The first security (position 0) gives the loan's collateral type, value and description (the loan form edits it, and it edits them); a guarantee gives no asset value. A wrong security is removed from a draft only; after publication it is set to released. Publication is refused when every recorded security is released. A data migration copied each loan's recorded collateral into its first security without inventing rank, status, valuation details or a value for a guarantee. API: `GET`/`POST /api/v1/loans/admin/loans/<id>/securities/`, `PUT`/`DELETE .../securities/<security_id>/`; audit `loan.security_added` / `_changed` / `_removed`. Investors: `security_types` (the types in force) on every opportunity, used by the opportunity filter and Smart Invest (any security can match), and `securities` on the opportunity detail (the opportunity page and the credit file list each one; prior-ranking debt with the combined share labelled as such).
 
 Status: Accepted.
 Date: 2026-05-15.
@@ -138,6 +146,8 @@ Define exact minimum and maximum term values and whether amount sanity limits ar
 
 ### PROD-DEC-005: Repayment Type Options
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-11: monthly, quarterly, half-yearly and annual frequencies, interest-only or principal+interest, payment at maturity, custom schedules and initial interest-only phases.
+
 Status: Accepted.
 Date: 2026-05-15.
 Owner: Garanta product / operations / finance.
@@ -150,6 +160,8 @@ Launch repayment types are:
 - Equal installment.
 - Interest-only period then bullet.
 - Interest-only period then amortizing.
+
+> Updated 2026-11-20 (F14, 18.2): "Amortizing principal and interest" (equal principal) is closed for new direct loans; existing loans and imported Loan Originator claims keep it. New direct loans use the 18.6 engine types (equal total installments, periodic interest with the principal at the end, payment at maturity, custom schedule by import).
 
 Default is equal installments. The admin picker must include a short description for every repayment type. Custom/manual schedule is not a launch repayment type, but generated schedules may be materially changed through controlled payment or operational events under servicing controls.
 
@@ -191,6 +203,8 @@ Define which settings are superadmin-editable for launch and which require deplo
 
 ### PROD-DEC-008: Launch Interest, Schedule, Rounding, and Funding Deadline Defaults
 
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-10: interest accrues Actual/365 Fixed on the outstanding principal (annual rate / 12 is no longer the general rule); the contractual start date is to be specified.
+
 Status: Accepted.
 Date: 2026-05-22. Updated 2026-07-08 for the refinancing-loans model.
 Owner: Garanta product / operations / finance.
@@ -219,6 +233,10 @@ Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.
 
 ### PROD-DEC-009: Universal Payment Waterfall And Recovery Terms
+
+> Updated 2026-11-08 (`plan/22_u33_redesign_decisions.md`), approved, implementation pending (IMPLEMENTATION_PLAN.md Phase 17): U33-DEC-12: no Banxum recovery fee for investors; only real documented external costs may be deducted from recoveries when not covered by the borrower.
+>
+> Implemented 2026-11-10 (Phase 17.2): a recovery payment with `recovery_fee_applied` true or `recovery_fee_bps` above 0 is refused (HTTP 400, "Banxum charges investors no recovery fee"); loans can no longer carry a recovery fee rate (create and edit refuse it), and migration `loans.0020_remove_investor_recovery_fee` set the rate of existing loans to 0 with a system "updated" loan event. Recoveries already recorded keep their recorded fee. The investor portfolio API gives `recovery_events` per holding (date, gross recovered for the loan, external costs = externally deducted + third-party costs, a fee recorded before the change, net distributed, the investor's credited share); the investment page shows them under Recovery history. The admin recovery form has no fee fields. The lender payment fee stays configurable with default 0. Public and Help texts no longer say "0% for investors" or "No fees" without context.
 
 Status: Accepted.
 Date: 2026-06-01.
@@ -285,7 +303,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 ## Repayment Types
 
 - Bullet principal with periodic interest: interest is paid periodically and principal is repaid at maturity.
-- Amortizing principal and interest: scheduled payments reduce principal over time and include interest.
+- Amortizing principal and interest: scheduled payments reduce principal over time and include interest. Closed for new direct loans (F14, 2026-11-20); existing loans and imported claims keep it.
 - Equal installment: each scheduled payment is the same amount unless adjusted by the loan schedule.
 - Interest-only period then bullet: interest is paid during the term and principal is repaid at maturity.
 - Interest-only period then amortizing: interest-only payments first, followed by amortizing payments.
@@ -362,6 +380,12 @@ An originator claim has no `BorrowerEntity` link. It stores a loan-specific fina
 Admin imports the full schedule and all pre-publication payments as versioned evidence. Strict CSV validation rejects unknown columns, malformed dates, non-integer money, unsupported/duplicate events, currency mismatch, non-monotonic dates, negative components, total mismatches, principal overpayment, inconsistent running principal, and future rows that do not reconcile to current outstanding. `/imports_examples` contains every supported repayment type and one historical-prepayment example. Corrections create new versions and invalidate quotes.
 
 ### PROD-DEC-013: Originator Claim Economics
+
+> **Changed 2026-11-16** (round 2, F02-F05, C03): settlement = the day Garanta's account is debited for the payment to the originator, with the assignments signed. The price is fixed for the planned settlement day (1 business day after the funding end, Vlad 2026-11-17), the same for all investors; if settlement is later, the originator bears the extra days of interest (explicit rule in the transaction documents). Any borrower payment on the claim or any due date before settlement makes the offer fail and cancels all participations. Purchases are blocked as soon as an amount is due and unpaid; the team plans each offer between two due dates. The claim's day-count convention is a required field (no default). The signed first assignment (originator -> Garanta) must be uploaded before the investor assignments are signed.
+
+> **Changed 2026-11-13** (owner answer Q09 and Q10.4, `plan/22` "Final Answers Of 2026-11-13"): the boundary installment is no longer the originator's. The investor pays the principal at the settlement of the assignment plus the accrued unpaid interest of the transferred rights, and receives the rights from settlement, the next payment included. The originator keeps its contractual interest share. The claim passes originator -> Garanta -> investors, each assignment signed (QES for Garanta). Settlement date, price fixing and arrears are follow-up questions F02-F05 (IMPLEMENTATION_PLAN 17.15-17.16).
+
+> Implemented 2026-11-10 (Phase 17.4, U33-DEC-24 display part): the credit file's Loan terms show the investor's and the originator's shares of interest and of penalty interest; the review step states both splits in one line before confirmation. The explanation of the first installment with amounts waits for the open question of U33-DEC-24.
 
 For `par_component_v2`, one unit of investor cash buys one unit of outstanding principal when the subscription activates. The administrator declares separate investor participation rates for contractual interest and penalty components. For each eligible post-boundary payment component, the investor pool receives:
 

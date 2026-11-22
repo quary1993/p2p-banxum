@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { isMultilanguageEnabled } from "../i18n/language";
 import { NiIcon, SiteLink } from "./components";
 import { siteCompany } from "./content";
 import { SiteToastContext, useSiteNav, useSiteToast } from "./context";
@@ -26,7 +27,7 @@ const CTA_SCROLL_Y = 520;
 /** Header navigation (data-nav in the design): active on the path and the pages below it. */
 const MAIN_NAV = [
   { href: "/projects", label: "Projects" },
-  { href: "/how-it-works", label: "How it works" },
+  { href: "/help#how-it-works", label: "How it works" },
   { href: "/companies", label: "For companies" },
   { href: "/about", label: "About" },
   { href: "/help", label: "Help" }
@@ -34,7 +35,7 @@ const MAIN_NAV = [
 
 const MENU_NAV = [
   { href: "/projects", label: "Projects" },
-  { href: "/how-it-works", label: "How it works" },
+  { href: "/help#how-it-works", label: "How it works" },
   { href: "/companies", label: "For companies" },
   { href: "/originators", label: "For loan originators" },
   { href: "/about", label: "About" },
@@ -70,6 +71,9 @@ export function SiteShell({ children }: { children: ReactNode }) {
       // Instant: the design CSS makes scrolling smooth, which is wrong for a new page.
       window.scrollTo({ top: 0, behavior: "instant" });
       if (lastPath.current !== null) mainRef.current?.focus({ preventScroll: true });
+      // An address with a #part (for example /help#how-it-works) goes to that part.
+      const hash = decodeURIComponent(window.location.hash.slice(1));
+      if (hash) window.requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ block: "start" }));
     }
     lastPath.current = path;
   }, [path, search]);
@@ -137,7 +141,8 @@ export function SiteShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="site-header-actions">
-            <LanguageDropdown />
+            {/* E-06 (audit S1-5): no language control while the multilanguage work is paused. */}
+            {isMultilanguageEnabled() ? <LanguageDropdown /> : null}
             <SiteLink className="btn btn-md btn-site-outline site-hide-menu" href="/login">
               Log in
             </SiteLink>
@@ -184,9 +189,11 @@ export function SiteShell({ children }: { children: ReactNode }) {
               Open account
             </SiteLink>
           </div>
-          <div className="mt-4">
-            <LanguageDropdown inMenu />
-          </div>
+          {isMultilanguageEnabled() ? (
+            <div className="mt-4">
+              <LanguageDropdown inMenu />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -357,8 +364,8 @@ function CookieNotice({ settings, onSaved, onSettings }: { settings: boolean; on
     <div aria-label="Cookies" aria-live="polite" className="site-cookie" role="dialog">
       <h6 className="site-h4">Cookies</h6>
       <p>
-        We use necessary cookies to run the site and keep you signed in. With your consent, we also measure visits to
-        improve the site. No advertising cookies. <SiteLink href="/legal/cookies">Cookie policy</SiteLink>
+        We use necessary cookies and site data to run the site and keep you signed in. Measurement of visits is not
+        active today; your choice applies if we add it. No advertising cookies. <SiteLink href="/legal/cookies">Cookie policy</SiteLink>
       </p>
       {settings ? (
         <>
@@ -377,7 +384,7 @@ function CookieNotice({ settings, onSaved, onSettings }: { settings: boolean; on
               type="checkbox"
             />
             <label className="form-check-label" htmlFor="ck-measure">
-              Measurement of visits
+              Measurement of visits (not active today)
             </label>
           </div>
           <div className="site-actions">
@@ -428,7 +435,7 @@ function SiteFooter({ onCookieSettings }: { onCookieSettings: () => void }) {
                 <SiteLink href="/projects">Projects</SiteLink>
               </li>
               <li>
-                <SiteLink href="/how-it-works">How it works</SiteLink>
+                <SiteLink href="/help#how-it-works">How it works</SiteLink>
               </li>
               <li>
                 <SiteLink href="/statistics">Statistics</SiteLink>

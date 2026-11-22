@@ -16,6 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiClientError, httpClient } from "../api/client/httpClient";
 import type {
+  AlertStopResult,
   PublicEnquiryCreated as GeneratedPublicEnquiryCreated,
   PublicOriginator as GeneratedPublicOriginator,
   PublicProject as GeneratedPublicProject,
@@ -28,7 +29,8 @@ import { siteOriginatorsFixture, siteProjectsFixture, siteStatisticsFixture } fr
 // ---------------------------------------------------------------------------------------------
 // Contract types
 
-export type PublicProjectStatus = "open" | "fully_funded" | "repaying" | "late" | "repaid" | "default";
+/** coming_soon: shown before it opens, nothing can be invested yet (U33-DEC-17). */
+export type PublicProjectStatus = "coming_soon" | "open" | "fully_funded" | "repaying" | "late" | "repaid" | "default";
 
 export interface PublicProjectRecord {
   installments_total: number;
@@ -66,8 +68,10 @@ export interface PublicProject {
   term_months: number;
   /** RepaymentType value. */
   repayment_type: string;
-  /** RiskRating value. */
-  risk_rating: string;
+  /** monthly, quarterly, half_yearly or annual (18.6); older payloads: monthly. */
+  payment_frequency?: string;
+  /** First months with interest only (interest_only_then_amortizing); 0 when none. */
+  interest_only_months?: number;
   /** CollateralType value. */
   collateral_type: string;
   collateral_description: string;
@@ -84,6 +88,8 @@ export interface PublicProject {
   originator: null | { id: string; name: string; country: string };
   published_at: string | null;
   funding_deadline: string | null;
+  /** Planned opening date of a coming_soon project (U33-DEC-17); null otherwise. */
+  planned_opening_date?: string | null;
   /** Funding close date (null while open). */
   funded_at: string | null;
   /** Only for repaying / late / repaid / default. */
@@ -138,40 +144,35 @@ export interface NewsletterTokenBody {
 
 export type EnquiryKind = "company" | "originator" | "contact";
 
-/** Field names per kind (contract section 5). All values are trimmed strings. */
+/** Field names per kind (the U33 forms). All values are trimmed strings. */
 export interface CompanyEnquiryFields {
   company_name: string;
   country: string;
-  company_number: string;
+  /** "EUR" or "CHF". */
+  currency: string;
   amount: string;
-  term: string;
   purpose: string;
-  security: string;
-  revenue?: string;
-  founded: string;
-  about?: string;
+  collateral: string;
   contact_name: string;
-  role: string;
   email: string;
-  phone: string;
 }
 
 export interface OriginatorEnquiryFields {
   company_name: string;
   country: string;
-  licence: string;
-  product: string;
-  loan_book: string;
-  about?: string;
   contact_name: string;
   email: string;
+  /** "New loans", "Refinancing of existing loans" or "Both new and existing loans". */
+  proposal: string;
+  about?: string;
 }
 
 export interface ContactEnquiryFields {
   name: string;
   email: string;
-  topic: string;
-  message: string;
+  /** "How investing works", "An opportunity", "Another question" or left out. */
+  topic?: string;
+  message?: string;
 }
 
 export type EnquiryBody =
@@ -205,6 +206,7 @@ const ORIGINATORS_URL = "/api/v1/marketplace/primary/public/originators/";
 const SUBSCRIBE_URL = "/api/v1/public/newsletter/subscribe/";
 const CONFIRM_URL = "/api/v1/public/newsletter/confirm/";
 const UNSUBSCRIBE_URL = "/api/v1/public/newsletter/unsubscribe/";
+const ALERT_STOP_URL = "/api/v1/public/alerts/stop/";
 const ENQUIRIES_URL = "/api/v1/public/enquiries/";
 
 export const siteQueryKeys = {
@@ -298,6 +300,16 @@ export function useNewsletterConfirm() {
   });
 }
 
+/** Q14: the one-click "Stop these alerts" link of an alert email (no sign-in). */
+export function useAlertStop() {
+  return useMutation<AlertStopResult, unknown, NewsletterTokenBody>({
+    mutationFn: (body) =>
+      isFixturePreview
+        ? previewAnswer<AlertStopResult>({ kind: "smart_invest", loan_id: null, loan_title: "", message: "Smart Invest emails are stopped. Your preferences, the in-app alerts and your matches stay." })
+        : postJson<AlertStopResult>(ALERT_STOP_URL, body)
+  });
+}
+
 export function useNewsletterUnsubscribe() {
   return useMutation<{ status: "unsubscribed" }, unknown, NewsletterTokenBody>({
     mutationFn: (body) =>
@@ -313,7 +325,7 @@ const previewReferences: Record<EnquiryKind, string> = {
   contact: "MSG-2026-0412"
 };
 
-/** The three public forms (For companies, For loan originators, Contact). */
+/** The three public forms (For borrowers, For loan originators, Contact). */
 export function useEnquirySubmit() {
   return useMutation<EnquiryResponse, unknown, EnquiryBody>({
     mutationFn: (body) =>

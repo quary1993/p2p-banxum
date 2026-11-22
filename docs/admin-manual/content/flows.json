@@ -5,7 +5,7 @@
       "goal": "Take a brand-new business borrower from nothing to a live, investable loan on the marketplace.",
       "actor": "Operations admin (any active admin can do every step).",
       "preconditions": [
-        "You are signed in to the ops console (email + password, then a 6-digit code sent to your admin email).",
+        "You are signed in to the ops console (email + password, then the 6-digit code from your authenticator app).",
         "A borrower is a business without a portal login. KYB means Know Your Business: Garanta completes and retains company checks offline. Platform KYB records are optional; explicit compliance holds and Declined or Manual review decisions block transactions. A draft is not public; publishing opens it to investor funding.",
         "You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral).",
         "A current Primary Market Investment document template is published in Superadmin Settings. Without it, investors cannot complete the investment clickwrap because the server cannot load the project investment confirmation / claim assignment agreement."
@@ -39,9 +39,9 @@
         { "n": 3, "screen": "Finance ops > Lender deposit", "action": "If there is no usable reference, type the payer's name (or email) in the 'Payer name' field, or search directly in the 'Investor from bank reference' lookup.", "detail": "On the Lender deposit card the investor lookup matches on reference, full name, email, and UUID only - it does NOT match on IBAN (IBAN matching is wired only into the Payout instruction card's lookup). You MUST pick a result from the list - typing a name that is not selected will block submission." },
         { "n": 4, "screen": "Finance ops > Lender deposit", "action": "Enter 'Amount minor units' (the field's exact label), Currency, Booking date, Value date, and confirm the Collection account.", "detail": "Watch the live 'Formatted amount' helper under the amount box - it shows, e.g., 'CHF 25,000.00' so you can sanity-check you did not slip a decimal. Enter whole minor units only." },
         { "n": 5, "screen": "Finance ops > Lender deposit", "action": "Copy the payer's Source IBAN from the bank statement, then complete payer name and reference evidence.", "detail": "Source IBAN is required. The backend removes spaces, uppercases it, checks the country-specific length and MOD-97 checksum, and rejects the entire deposit before ledger mutation if it is invalid." },
-        { "n": 6, "screen": "Finance ops > Lender deposit", "action": "Click 'Declare deposit'.", "detail": "GATES: currency enabled, positive amount, eligible lender, and valid source IBAN. On success the reconciled bank operation, balanced ledger entry, balance lot, and active verified payout instruction for that exact source IBAN/currency are committed atomically. If the investor paid CHF by QR bill, remember that the QR itself did not carry the investor-specific BANXUM reference; verify the bank reference still contains the displayed BX-CHF-... code before matching automatically." }
+        { "n": 6, "screen": "Finance ops > Lender deposit", "action": "Click 'Declare deposit'.", "detail": "GATES: currency enabled, positive amount, eligible lender, and valid source IBAN. On success the reconciled bank operation, balanced ledger entry and balance lot are committed atomically. The deposit verifies NO bank account. If the source IBAN is not yet a verified account of the investor, the card 'Verify a return account from a deposit' opens under the form: compare the holder of the transfer with the name from the identity check (the legal name from Didit, not the name typed at registration), tick both checks (holder matches; not a collecting or intermediary account), give the evidence reference and click 'Verify from this deposit'. If the holder differs or is unclear, do not verify: ask for a bank statement or bank confirmation. If the investor paid CHF by QR bill, remember that the QR itself did not carry the investor-specific BANXUM reference; verify the bank reference still contains the displayed BX-CHF-... code before matching automatically." }
       ],
-      "outcome": "The investor's available balance increases by the deposited amount; the reconciled bank operation and ledger entry are audited; and the valid source IBAN becomes a verified payout destination without a second verification step.",
+      "outcome": "The investor's available balance increases by the deposited amount; the reconciled bank operation and ledger entry are audited. The source IBAN becomes a verified return account only after the separate verification from the deposit, with both checks and the evidence.",
       "pitfalls": [
         "Do not guess the investor from the payer name alone if a reference exists - names can collide. Prefer the investor reference in the BX-{currency}-{investor_reference} payment reference.",
         "Entering major units (25000) instead of minor units (2500000) credits 250.00 instead of 25,000.00. Always read the 'Formatted amount' helper.",
@@ -76,7 +76,7 @@
       "actor": "Operations admin (finance).",
       "preconditions": [
         "Jargon: 'IBAN' = the international bank account number money is sent to. 'Payout instruction' = the stored, verified IBAN BANXUM is allowed to pay this investor at. 'Withdrawal' = the investor's request to take money off the platform; it sits in status 'requested' until you execute the bank transfer and 'finalize' it. 'Finalize' = confirm the bank actually sent the money and clear the liability in the ledger.",
-        "The investor has a requested withdrawal waiting, OR an automatically created Payout instruction verification task for an additional IBAN. A valid source IBAN from a declared deposit is already verified automatically and does not need this flow."
+        "The investor has a requested withdrawal waiting, OR an automatically created Payout instruction verification task for an IBAN that the investor requested. The source IBAN of a declared deposit is not verified by the deposit: verify it in 'Verify a return account from a deposit' (see the deposit flow) or through this flow."
       ],
       "steps": [
         { "n": 1, "screen": "Finance ops > Pending finance operations", "action": "Open Finance ops and locate the payout-verification task or pending withdrawal at the top of the screen.", "detail": "The pending table combines unresolved finance tasks with actionable money-operation queues. A self-service IBAN request appears here automatically; use its linked instruction to continue in the Payout instruction card." },
@@ -94,29 +94,35 @@
       ]
     },
     {
-      "title": "Handle a day-60 forced withdrawal",
-      "goal": "Return funds that an investor has held idle past the 60-day regulatory limit, then pay them out.",
+      "title": "Handle an automatic return of money not invested (day 57)",
+      "goal": "Return money that an investor has not invested by day 56, before the 60-day legal limit, and handle a return that the bank sends back.",
       "actor": "Operations admin (finance).",
       "preconditions": [
-        "Jargon: 'balance lot' = a dated chunk of an investor's money; each lot's ageing is tracked from the deposit's VALUE DATE (the value_date entered on the deposit), not literally the day it arrived. 'Ageing' = how old a lot is. The platform must not hold uninvested money beyond 60 days. 'Forced withdrawal' = the platform automatically returning over-age funds to the investor. 'Penalty mode' = what happens to an over-age lot when there is NO verified payout IBAN to send it to: the lot is moved to penalty mode AND a real per-day penalty (rate BALANCE_PENALTY_BPS_PER_DAY) is charged against the lot's available balance every time the scan runs while it stays overdue. Penalty mode also blocks FX exchanges and secondary-market purchases until resolved; withdrawal remains the intended way out. Reminder days fire at 25, 46, 53, 58, 59, 60 days held.",
-        "Investors with over-age lots need a verified payout instruction on file (see the payout-IBAN flow) for a forced withdrawal to be created automatically."
+        "Jargon: 'balance lot' = a dated chunk of an investor's money; each lot's days are counted from the deposit's VALUE DATE (day 0), not from the day it arrived. The platform must not hold money that is not invested beyond 60 days. Rule since November 2026: day 56 is the last day (the investor can withdraw the money but not invest it). The return is requested on day 57, or on the settlement day before when the bank is closed or when the debit would come after day 59. 'Forced withdrawal' = the platform's automatic return of that money to the investor's default return account. There is no penalty and no penalty mode.",
+        "The investor gets notices 14, 10 and 3 days before the return date, one when the return is requested ('Planned transfer date') and one after the transfer ('Transfer sent on').",
+        "A forced withdrawal needs a verified payout account of the investor. A deposit does not verify an account: see the deposit flow ('Verify a return account from a deposit').",
+        "The CHF (SIX SIC) and EUR (TARGET) settlement calendars decide the return dates. Confirm each year in Finance ops > Settlement calendars; if you close or open a day in a confirmed year, confirm the year again."
       ],
       "steps": [
-        { "n": 1, "screen": "Daily dashboard", "action": "On the dashboard, open the 'Balance ageing' and 'Forced withdrawals' queues to see what is near or past 60 days.", "detail": "'Balance ageing' lists lots near or past the 60-day holding windows; 'Forced withdrawals' lists day-60 return-of-funds withdrawals already generated by the ageing scan." },
-        { "n": 2, "screen": "Finance ops > Balance ageing scan", "action": "Open Finance ops, go to 'Balance ageing scan'. First run it as a DRY RUN (leave 'Dry run only' ticked) to preview.", "detail": "Optionally set 'As of timestamp' and a 'Currency filter'. A dry run reports how many reminders are due and how many forced withdrawals WOULD be created, without changing anything." },
-        { "n": 3, "screen": "Finance ops > Balance ageing scan", "action": "When the preview looks right, untick 'Dry run only' and click 'Run ageing scan' for real.", "detail": "GATE / BEHAVIOR: for each investor whose lots are past the withdrawal deadline, the scan checks for an active VERIFIED payout instruction. If one exists, it CREATES a forced withdrawal request (status 'requested') for the over-age amount. If NONE exists, the lot instead moves to 'penalty mode' and no withdrawal is created - and on this and every subsequent live scan while still overdue, the scan charges a real daily penalty (rate BALANCE_PENALTY_BPS_PER_DAY) against the lot's balance, recording a journal entry each time. So registering a verified IBAN (see the payout-IBAN flow) and re-running is TIME-SENSITIVE, not just bookkeeping." },
-        { "n": 4, "screen": "Finance ops > Withdrawal execution", "action": "Go to 'Withdrawal execution', pick the newly generated forced withdrawal in the 'Requested withdrawal' lookup, send the bank transfer, then click 'Finalize withdrawal'.", "detail": "A forced withdrawal is executed exactly like a normal one - it lives in the same 'requested' withdrawal queue. Enter Booking date, Value date, Collection account, and finalize after the money has been sent." }
+        { "n": 1, "screen": "Daily dashboard", "action": "On the dashboard, open the 'Balance ageing' and 'Forced withdrawals' queues to see what is due back.", "detail": "'Balance ageing' lists lots that are due back; 'Forced withdrawals' lists the automatic returns that the ageing scan created." },
+        { "n": 2, "screen": "Finance ops > Balance ageing scan", "action": "Open Finance ops, go to 'Balance ageing scan'. First run it as a DRY RUN (leave 'Dry run only' ticked) to preview.", "detail": "Optionally set 'As of timestamp' and a 'Currency filter'. A dry run reports the notices that are due and the forced withdrawals that WOULD be created, without changing anything. The daily scheduled job runs the same scan." },
+        { "n": 3, "screen": "Finance ops > Balance ageing scan", "action": "When the preview looks right, untick 'Dry run only' and click 'Run ageing scan' for real.", "detail": "For each investor with money on its return date the scan creates one forced withdrawal request (status 'requested') to the default return account. Its note gives the day and the cut-off (12:00 Europe/Zurich) by which you must send the transfer so that the bank debits by day 59. Without a verified account no withdrawal is created: the money stays due back and withdraw-only, the investor gets urgent notices, and compliance is alerted when the money reaches day 59." },
+        { "n": 4, "screen": "Finance ops > Withdrawal execution", "action": "Send the bank transfer before the cut-off on the order day. Then pick the forced withdrawal in the 'Requested withdrawal' lookup and click 'Finalize withdrawal'.", "detail": "Enter Booking date, Value date and Collection account, and finalize only after the money has been sent. If you cancel a forced withdrawal before the transfer, the money is on the balance again and the next scan creates a new request, also on the same day." },
+        { "n": 5, "screen": "Finance ops > Record a returned transfer", "action": "If the bank sends the transfer back, record it once: the withdrawal, the value date of the returned money and the bank's reason.", "detail": "The money goes back to the same lots with their original age (no new period, no penalty). A failed return opens: the investor is told at once and every day, an urgent task opens, and compliance takes the case after 5 days, or at once when the money is at day 57 or later. An account that the bank reports as closed, unknown, blocked or in another name is revoked." },
+        { "n": 6, "screen": "Finance ops > Failed returns", "action": "Open the failed return, choose a verified account of the investor and click 'Send again'.", "detail": "The platform never sends a failed return again by itself. Send again only to a corrected or newly verified account. After a bank restriction or a technical error you may use the same account only when you tick that the cause is cleared and write in the note who confirmed it. A note alone cannot close the case while the money is on the balance; the case closes when the money is sent again or leaves through a withdrawal." }
       ],
-      "outcome": "Over-age funds leave the platform as finalized withdrawals; lots with no verified IBAN are moved to penalty mode and are actively charged a daily penalty against their balance on every live scan until a verified IBAN is registered.",
+      "outcome": "Money not invested leaves the platform as a finalized withdrawal with the debit by day 59. Money without a verified account stays due back, with no penalty, until the investor adds an account. A returned transfer is reconciled once and followed as a failed return until the money is sent again.",
       "pitfalls": [
-        "Always dry-run first. The live scan writes reminders and creates real withdrawal requests.",
-        "If a forced withdrawal was NOT created for someone over 60 days, they almost certainly lack a verified payout instruction - and their over-age lot is now in penalty mode being charged a daily penalty on each live scan. Register a verified IBAN and re-run promptly; the delay costs the investor money.",
-        "The 60-day clock is per-lot, not per-account; a new deposit does not reset an older lot. The clock runs from each lot's VALUE DATE, so back- or forward-dating a deposit's value date shifts that lot's whole ageing timeline."
+        "Always dry-run first. The live scan sends notices and creates real withdrawal requests.",
+        "Send the transfer before the cut-off on the order day. A late transfer can put the debit after day 59; the platform then alerts compliance.",
+        "If no forced withdrawal was created for money that is due back, the investor has no verified payout account. Ask the investor to add one, or verify the account from a deposit. There is no penalty, but the 60-day legal limit still applies.",
+        "Do not close a failed return with a note while the money is on the balance, and do not send it again to an account that the bank refused for an account or holder reason.",
+        "The days are counted per lot, not per account; a new deposit does not reset an older lot. The clock runs from each lot's VALUE DATE."
       ]
     },
     {
-      "title": "Record a borrower repayment, run servicing, and handle a late loan",
-      "goal": "Book the money a borrower pays back, keep the loan's status accurate, and act when a loan falls behind.",
+      "title": "Record a borrower repayment, run servicing, and handle a late loan (loans before the 18.6 engine)",
+      "goal": "Book the money a borrower pays back, keep the loan's status accurate, and act when a loan falls behind. This flow is for loans created before 19 November 2026 (earlier schedule). For newer direct loans use the next flow.",
       "actor": "Operations admin (servicing).",
       "preconditions": [
         "Jargon: 'servicing' = ongoing management of a live loan (collecting installments, tracking lateness). 'Installment' = a scheduled repayment. 'late' = at least 5 days past a due date. 'defaulted' = at least 16 days past due. 'status scan' = a job that re-checks each loan's due dates and moves it to late/defaulted as appropriate. 'recovery' = collecting money on a defaulted loan. 'risk note' = a public update to affected investors. Every payment uses the same order: Garanta legal costs/recovery fee, penalty, contractual interest, then principal.",
@@ -136,6 +142,53 @@
         "Always read the repayment-in-advance preview before confirming: it shows the interest/principal allocation and the regenerated schedule side by side with the old one. Nothing is written until you confirm.",
         "Do not try to record a repayment on a defaulted loan - it is refused. Switch to 'Record a recovery payment' in Manage.",
         "Run the status scan regularly; lateness/default is driven by it, not by the repayment form."
+      ]
+    },
+    {
+      "title": "Service a direct loan on the 18.6 interest engine",
+      "goal": "Record borrower payments and recovery expenses, follow the Pending, Due and Late states, and declare (or cancel) a Default on a direct loan created since 19 November 2026.",
+      "actor": "Operations admin (servicing); a super admin to cancel a Default.",
+      "preconditions": [
+        "Jargon: 'engine loan' = a direct loan on the 18.6 interest engine (Actual/365 Fixed from the payout day). Every direct loan created since 19 November 2026 is one; a Loan Originator claim never is. 'Pending' = the due date to 2 business days after it. 'Due' = unpaid after Pending. 'Late' = unpaid for the Late days of the loan. 'Penalty X' = the daily penalty rate of the loan on what is overdue. 'Value date' = the bank's value date of the money.",
+        "The loan is active (disbursed), late or in Default. At the disbursement the schedule is calculated again from the real payout day; the loan history shows 'Schedule confirmed'."
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "screen": "Loans > Manage (loan row) > Record a borrower payment",
+          "action": "Enter the amount received and its value date. Read the preview, then confirm.",
+          "detail": "Any amount is accepted up to everything the borrower owes on that value date. The server pays expenses first, then the oldest installment (penalty X, interest, principal), then the next one. Money beyond what is due repays principal early: interest to the day before the value date, the rest principal, and the later rows are recalculated with the same final date. A second early payment pays only the interest not yet paid."
+        },
+        {
+          "n": 2,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "To record a recovery expense (for example a lawyer's letter), enter the amount, the value date, what it is for and the invoice reference or a document of the borrower, then confirm.",
+          "detail": "On the expense's value date an installment must have been Due, Late or in Default (not in the Pending days). Penalty X runs on the expense from the next day. After an expense, a payment cannot have an earlier value date: record the payments in the order of their value dates. The same idempotency key with other details is refused."
+        },
+        {
+          "n": 3,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "When the panel says 'Default can be declared', write a note and click 'Declare Default'.",
+          "detail": "Default is never automatic. It is possible once the oldest unpaid installment is late by the Default days of the loan. The whole amount becomes due on the declaration day; penalty X then runs on the whole amount. The holders get a notice."
+        },
+        {
+          "n": 4,
+          "screen": "Loans > Manage > Record a borrower payment",
+          "action": "After a Default, record recovered money with the same 'Record a borrower payment' action.",
+          "detail": "The earlier 'Record a recovery payment' form is refused for engine loans: the server works out expenses, penalties, interest and principal."
+        },
+        {
+          "n": 5,
+          "screen": "Loans > Manage > Late payments and Default",
+          "action": "A super admin can cancel a Default declared by mistake: write the reason and click 'Cancel the Default declaration'.",
+          "detail": "Only while no money was recorded after the declaration (no payment, recovery receipt, expense, write-off or Loan Originator repayment). After that, a correction needs a compensating accounting entry; ask the finance lead."
+        }
+      ],
+      "outcome": "The loan's position, status and schedule follow the engine; the investors receive whole cents (fractions are carried and paid at the end of the loan, also at a final write-off) and see their share of each installment the receipt paid.",
+      "pitfalls": [
+        "Enter value dates from the bank statement: they decide interest and penalty X.",
+        "Record payments and expenses in the order of their value dates; an older value date after a newer event is refused.",
+        "Garanta's part of penalty X and repaid recovery expenses go to two different Garanta ledger accounts."
       ]
     },
     {
@@ -209,19 +262,19 @@
       "goal": "Add a colleague to the ops console, and put a hold on a problematic investor account.",
       "actor": "Superadmin (for creating admins) / compliance admin (for the access change).",
       "preconditions": [
-        "Jargon: 'admin user' = a staff member who can log in to the ops console. 'account access change' = restricting, locking, reactivating, or closing any user (investor or admin) account. Statuses: Active, Restricted, Locked, Closed. 'reason code' = why (e.g. Compliance Hold, Kyc Aml Review, Account Closure). There is no self-serve forgot-password; passwords stay superadmin-managed.",
-        "For creating an admin you need their email, full name, and an initial password."
+        "Jargon: 'admin user' = a staff member who can log in to the ops console. 'account access change' = restricting, locking, reactivating, or closing any user (investor or admin) account. Statuses: Active, Restricted, Locked, Closed. 'reason code' = why (e.g. Compliance Hold, Kyc Aml Review, Account Closure). Admins sign in with email, password and an authenticator app. There is no self-serve forgot-password for admins.",
+        "For creating an admin you need their email, full name, and an initial password of 12 to 128 characters. The system refuses common passwords and passwords found in known data leaks."
       ],
       "steps": [
         { "n": 1, "screen": "Users (left nav 'Users')", "action": "Open Users and search the paginated user table by name, email, investor reference, or UUID.", "detail": "The table is backend-filtered and shows all account types by default. Regular admins can manage account access. Superadmins additionally see the read-only impersonation action for non-admin users." },
-        { "n": 2, "screen": "Users > User accounts", "action": "Click 'Create admin', fill Email, Full name, and Initial password, then click 'Create admin'.", "detail": "Only a superadmin can create admin users. The new admin logs in with email + password + an email code. There is NO forgot-password flow; a superadmin must reset passwords manually." },
+        { "n": 2, "screen": "Users > User accounts", "action": "Click 'Create admin', fill Email, Full name, and Initial password, then click 'Create admin'.", "detail": "Only a superadmin can create admin users. The initial password must have 12 to 128 characters and must not be a common or leaked password. At the first sign-in the new admin sets up an authenticator app: the system sends a one-time code to the admin's email for this set-up only. After that the admin signs in with email + password + the code from the app. There is NO forgot-password flow for admins." },
         { "n": 3, "screen": "Users > User accounts", "action": "To act on an existing account, search for it and click 'Access controls' on its row.", "detail": "Account access controls have moved out of Compliance and Superadmin Settings so account-level actions are reviewed in one place." },
         { "n": 4, "screen": "Users > Account access controls", "action": "Set 'New account status' to 'Restricted' (or Locked/Closed), pick a Reason code, and write an Admin note plus Evidence summary.", "detail": "'Restricted' limits what the user can do while you investigate; 'Locked' is harder; 'Closed' ends the account." },
         { "n": 5, "screen": "Account access controls", "action": "If closing an account, tick 'Clean/empty account checked where required for closure', then click 'Apply access change'.", "detail": "The clean-account checkbox is an admin attestation that you verified the balance is empty before closure (it is not yet auto-checked by this endpoint). The change is saved and audit-logged." }
       ],
       "outcome": "A new admin can log in; the targeted account is moved to the chosen status with a documented reason in the audit trail.",
       "pitfalls": [
-        "No forgot-password exists - record the initial admin password securely and hand it over safely.",
+        "No forgot-password exists for admins - record the initial admin password securely and hand it over safely. An admin who lost the phone asks a superadmin to reset the authenticator app; the affected admin gets a security email and a task, and sets up the app again at the next sign-in. There is no screen for this reset yet: the technical team does it.",
         "Closing an account asserts it is empty; do not tick the clean-account box unless you actually confirmed there is no balance or holding.",
         "Always provide a reason code and note; access changes are compliance-sensitive and audited.",
         "Users cannot be deleted from the directory - only their access status is changed."
@@ -252,7 +305,7 @@
     },
     {
       "title": "Run a staging fast-forward QA test and revert it",
-      "goal": "Safely test time-based behavior such as funding-window/day-60 balance ageing, forced withdrawals, penalty mode, late/default transitions, campaign expiry, and scheduled notices without waiting real days.",
+      "goal": "Safely test time-based behavior such as funding-window and 56-day balance ageing, return notices, forced withdrawals, late/default transitions, campaign expiry, and scheduled notices without waiting real days.",
       "actor": "Active regular admin or superadmin on staging/local only.",
       "preconditions": [
         "You are on the staging deployment (staging.nxnarena.com), not production. QA mode is blocked in production.",
@@ -263,8 +316,8 @@
         { "n": 1, "screen": "QA mode", "action": "Open the QA mode section and read the environment, clock and restore points.", "detail": "Regular active admins have access when staging/local allows QA. Production never exposes this section. Coordinate with all testers before changing the shared database." },
         { "n": 2, "screen": "QA mode", "action": "Use the enabled regression seed, or enter QA mode if the environment owner has not enabled it yet.", "detail": "The regression seed already contains the starting clock, accounts, balances and loans. Create snapshot optionally saves a later checkpoint without replacing the seed. Without a manual snapshot, Restore seed is the default." },
         { "n": 3, "screen": "Relevant module before fast-forward", "action": "Create or select the records you want to test.", "detail": "Examples: declare a deposit with a known value date, publish a campaign with a short deadline, create a funded loan with due installments, or register a payout instruction before testing forced withdrawals." },
-        { "n": 4, "screen": "QA mode", "action": "Enter the number of days to advance and run the fast-forward.", "detail": "The system advances simulated business time day by day. For every crossed Europe/Zurich business date it runs the daily scheduled jobs: balance ageing and penalty charging, servicing status scan, primary funding-expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, Loan Originator opportunity/activation lifecycle scan, and due email dispatch." },
-        { "n": 5, "screen": "Daily dashboard / Finance ops / Loans", "action": "Inspect the effects exactly as you would in normal operations.", "detail": "Check that ageing buckets changed, forced withdrawals appeared, penalty-mode lots charged, loans moved to late/defaulted, campaigns expired, reconciliation tasks synced, and expected notifications were queued or sent." },
+        { "n": 4, "screen": "QA mode", "action": "Enter the number of days to advance and run the fast-forward.", "detail": "The system advances simulated business time day by day. For every crossed Europe/Zurich business date it runs the daily scheduled jobs: settlement calendar check, balance ageing (return notices and automatic returns), servicing status scan, primary funding-expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, Loan Originator opportunity/activation lifecycle scan, and due email dispatch." },
+        { "n": 5, "screen": "Daily dashboard / Finance ops / Loans", "action": "Inspect the effects exactly as you would in normal operations.", "detail": "Check that ageing buckets changed, forced withdrawals appeared on the return date (no penalty is charged), loans moved to late/defaulted, campaigns expired, reconciliation tasks synced, and expected notifications were queued or sent." },
         { "n": 6, "screen": "QA mode", "action": "Save evidence outside the database. Enter REVERT QA DB and choose Restore seed for a clean regression branch, or Restore snapshot for the saved checkpoint. Confirm the selected target.", "detail": "The selected database state and clock are restored atomically. The restoring admin normally keeps access through a fresh session; everyone else signs in again. If the admin's restored credentials or permissions differ, that admin signs in again too. Verify the restored balances and catalogue before continuing." }
       ],
       "outcome": "Daily jobs run for the advanced dates. Restore seed returns to the same original seed and QA clock on every run; Restore snapshot returns to the separately saved checkpoint.",
@@ -285,22 +338,67 @@
       ],
       "steps": [
         { "n": 1, "screen": "Loans > Loan Originators", "action": "Select or create the originator; verify its identity, jurisdiction, settlement details and Active status.", "detail": "Active confirms completed offline review. KYB references are optional. The LO has no platform login or wallet." },
-        { "n": 2, "screen": "Loans > Create originator claim", "action": "Enter borrower disclosure, funding deadline, boundary installment/date/principal, coupon, participation rates, minimum investment and retention.", "detail": "One currency unit buys one unit of post-boundary principal. Coupon is the borrower's rate; interest/penalty participation defines investor rights. The boundary installment belongs wholly to the LO." },
+        { "n": 2, "screen": "Loans > Create originator claim", "action": "Enter borrower disclosure (with the Swiss UID and the underlying financing ID for a Swiss borrower), funding deadline, the day-count convention, coupon, participation rates, minimum investment and retention.", "detail": "Investors pay the principal at the planned settlement day (1 settlement day after the funding deadline) plus the accrued interest of the rights they buy, and receive the whole next payment. Coupon is the borrower's rate; interest/penalty participation defines investor rights." },
         { "n": 3, "screen": "Originator claim import", "action": "Upload the full schedule and all payments through the import as-of date.", "detail": "Check outstanding principal, maturity and validation results. Every component must reconcile; investigate errors rather than altering evidence to pass validation." },
-        { "n": 4, "screen": "Loans > Manage", "action": "Choose Publish funding round; review all terms and the schedule, then confirm.", "detail": "Check public disclosure, participation, boundary principal and the maximum 50-day inclusive subscription window. Inactive originators, holds/adverse states, impaired loans and invalid imports block publishing." },
-        { "n": 5, "screen": "Investment Opportunities", "action": "In QA, place an at-par subscription and inspect the result.", "detail": "A partial subscription reserves eligible balance in funding escrow. Filling the round closes and activates it automatically. Repeating the same idempotency key must not duplicate the order." },
+        { "n": 4, "screen": "Loans > Manage", "action": "Choose Publish funding round; review all terms and the schedule, then confirm.", "detail": "Check public disclosure, participation, the planned settlement day (before the next due date) and the maximum 50-day inclusive subscription window. Inactive originators, holds/adverse states, impaired loans and invalid imports block publishing." },
+        { "n": 5, "screen": "Investment Opportunities", "action": "In QA, place a subscription and check the price: principal plus accrued interest.", "detail": "A partial subscription reserves eligible balance in funding escrow. Filling the round closes and activates it automatically. Repeating the same idempotency key must not duplicate the order." },
         { "n": 6, "screen": "Loans > Manage > Close funding round", "action": "For deadline closure, use the resolver or Close funding round after the deadline.", "detail": "Any positive round closes; an empty round cancels. Close creates holdings, fixed entitlements and LO payable atomically. A failed close preserves reservations, raises an urgent task/email, and retries automatically after the cause is repaired." },
-        { "n": 7, "screen": "Loans > Manage", "action": "After the boundary payment reaches Garanta, choose Record borrower repayment / schedule revision.", "detail": "Enter the actual bank evidence and reconciled replacement CSV. Holdings already exist. The entire boundary payment is payable to the LO, with zero credited to investors." },
+        { "n": 7, "screen": "Loans > Manage", "action": "When a borrower payment reaches Garanta after the close, choose Record borrower repayment / schedule revision. If the borrower paid during the offer, use 'Borrower paid during the offer' with the payment reference, value date, amount and evidence: the offer fails.", "detail": "Enter the actual bank evidence and reconciled replacement CSV. Holdings already exist. The first payment includes the accrued interest the investors paid in the price; it is shown to them as paid back, not as interest earned." },
         { "n": 8, "screen": "Loans > Manage", "action": "Record later repayments with complete replacement CSV history. Review investor credits, LO payable and Garanta costs in the confirmation and retained history.", "detail": "Priority is legal/recovery costs, penalty, interest, principal. Principal follows ownership; interest and penalty use the declared participation rates." },
         { "n": 9, "screen": "Finance operations > Originator settlement", "action": "Reconcile the originator/currency batch and record the external transfer with bank evidence.", "detail": "Settle the complete batch once. Tasks start at day 3; escalate before day 5. Partial settlement is not supported." },
         { "n": 10, "screen": "Reconciliation / Tasks", "action": "Create a reconciliation snapshot, check for breaks and resolve the settlement task.", "detail": "Funding escrow is tracked before close; LO payable remains tracked until external settlement." }
       ],
       "outcome": "Active holdings start at funding close; repayments and external LO settlements remain reconciled and auditable.",
       "pitfalls": [
-        "Use LO actions, not direct-loan disbursement or servicing forms. Never invent a boundary receipt to activate holdings.",
+        "Use LO actions, not direct-loan disbursement or servicing forms. One underlying financing can be on the platform in one live offer only.",
         "Borrower legal name is private unless explicitly published per loan; bank details and settlement state remain internal.",
         "Holds and legacy repair exceptions preserve reservations. Investigate promptly. A subscribed expired or failed round requires repair and automatic retry, not discretionary cancellation; historical upgrade exceptions retain their reviewed legacy resolution path.",
         "Only performing originator holdings may be resold; late/defaulted transfers remain blocked."
+      ]
+    },
+    {
+      "title": "Handle a declaration review (compliance)",
+      "goal": "Decide a review opened by an investor's declarations or by compliance, so that the investor can invest again or the file is explained.",
+      "actor": "An admin with the compliance or compliance deputy role.",
+      "preconditions": [
+        "A necessary review is open: you see the admin task \"Compliance review: <investor>\" and the team email, or the review in Compliance > Declaration reviews.",
+        "New investments of this investor are paused until you close the review."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Compliance > Declaration reviews", "action": "Choose Open and click the investor's row.", "detail": "The reasons show why the review opened (PEP, another beneficial owner, source \"Other\", volume over 250,000, or a manual reason). The file shows the latest declaration." },
+        { "n": 2, "screen": "Compliance > Declaration reviews", "action": "If you need more facts, write the message and click \"Ask for more information\".", "detail": "The investor gets an email. When the investor sends a new declaration, the review is open again and waits for you." },
+        { "n": 3, "screen": "Compliance > Declaration reviews", "action": "When the file is clear, write the outcome and click \"Close the review\".", "detail": "The outcome is recorded with your name. The admin task closes, and the investor can invest again (if no other block applies)." },
+        { "n": 4, "screen": "Compliance > Investor compliance file", "action": "If the investor needs a later check, set a re-verification date.", "detail": "The investor gets notices 30 and 7 days before. After the date, new investments pause until you mark the re-verification done." }
+      ]
+    },
+    {
+      "title": "Open a manual review or a re-verification date for any investor",
+      "goal": "Start a compliance check without a declaration trigger (for example, after adverse media).",
+      "actor": "An admin with the compliance or compliance deputy role.",
+      "preconditions": [
+        "You know the investor's name, email or account ID."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Compliance > Investor compliance file", "action": "Type at least two characters of the name, email or ID and click \"Open file\".", "detail": "Only investor accounts are found. The file shows the declarations and the current re-verification date." },
+        { "n": 2, "screen": "Compliance > Investor compliance file", "action": "Write the reason, keep \"Necessary review\" on to pause new investments, and click \"Open the review\".", "detail": "If a necessary review is already open, your reason joins it. The review then appears in Declaration reviews." },
+        { "n": 3, "screen": "Compliance > Investor compliance file", "action": "Optionally set a re-verification date with the internal reason.", "detail": "A new date replaces the current one; the history stays." }
+      ]
+    },
+    {
+      "title": "Verify the securities of a loan before publication",
+      "goal": "Record a named verification for each security, so that the loan can be published and stays open for investments.",
+      "actor": "An admin with the security verifier or security verifier deputy role.",
+      "preconditions": [
+        "The proof documents are uploaded: the borrower's documents for a direct loan, or loan documents (Loans > loan > Securities > Loan documents) for any loan, including a Loan Originator claim.",
+        "The required proofs per security type come from the setting loans.security_required_proofs (the Q13 list by default)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Loans > loan > Securities > Loan documents", "action": "To add a file, choose a PDF, PNG or JPEG file (20 MB at most), enter the document name, type and date, and click \"Upload\".", "detail": "The file is stored with the loan and waits for its check. It is visible to admins only." },
+        { "n": 2, "screen": "Loans > loan > Securities > Loan documents", "action": "On your computer, scan the original file with your malware scanner and read it. Enter its SHA-256 (on a Mac: shasum -a 256 file.pdf), write a note (5 characters or more) and click \"Confirm check\".", "detail": "The platform does not open a file before its check, and there is no automatic malware scan yet. The check is accepted only when the SHA-256 matches the uploaded copy. It is recorded with your name, the time, the note and the SHA-256. Only checked files can prove a security, and a file that later fails a scan ends the verification." },
+        { "n": 3, "screen": "Loans > loan > Proof of securities", "action": "For each security, read the linked documents (title, type, date, full ID) and click \"Open\" to check each file.", "detail": "Each opening is in the audit log. Only documents linked to the security open." },
+        { "n": 4, "screen": "Loans > loan > Proof of securities", "action": "Choose one checked document per required proof, add a note and click \"Record the verification\".", "detail": "The verification records your name and the date. The history keeps every earlier verification." },
+        { "n": 5, "screen": "Loans > loan", "action": "Publish the loan when every security that is not released is verified.", "detail": "Publication is refused while one is missing." },
+        { "n": 6, "screen": "Loans > loan > Proof of securities", "action": "After an essential change (type, holder, value, valuation details, rank, prior debt, LTV counting, scope, limit, insurance or documents) or a change of the required proofs, verify the security again.", "detail": "Until then, new orders, allocations, Loan Originator purchases and resale purchases of this loan stop. Existing investments do not change. The panel shows why a new verification is needed." }
       ]
     }
   ]

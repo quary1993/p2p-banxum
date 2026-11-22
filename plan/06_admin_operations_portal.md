@@ -217,7 +217,7 @@ Amended 2026-09-07: Garanta completes and retains legal-entity lender KYB/AML of
 - Configure FX platform fee, enabled FX pairs, per-investor daily conversion limit, FX quote settings, and FX sanity-check thresholds.
 - Configure balance deadline reminders and reminder email templates. Balance penalty mechanics are deployment/env-configurable at launch.
 - Attempt or record forced withdrawal for balances at the 60-day limit when a usable IBAN is known (since 2026-10-16 created automatically on day 59, after the 58-day last day).
-- Review penalty-mode accounts missing usable IBAN and frozen financial actions.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Review penalty-mode accounts missing usable IBAN and frozen financial actions.
 - Query net FX deltas and record external FX execution evidence.
 - Generate operational subledger and configurable monthly Bexio debit/credit accounting exports.
 - Generate borrower account statements and annual tax information statements as PDF and CSV.
@@ -271,9 +271,9 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 - Configure FX platform fee, enabled FX pairs, quote settings, and sanity-check thresholds: superadmin.
 - Configure FX per-investor daily conversion limit: admin, with audit trail.
 - Configure balance deadline reminders: superadmin.
-- Configure day-60 balance penalty mechanics: deployment/env configuration at launch.
-- Attempt or record forced withdrawal for day-60 balances: admin.
-- Review missing-IBAN penalty-mode freezes: admin.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Configure day-60 balance penalty mechanics: deployment/env configuration at launch.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Attempt or record forced withdrawal for day-60 balances: admin.
+- Superseded 2026-11-19 (18.4; PAY-DEC-017 in `plan/10_payments_ledger_custody.md`, U33-DEC-03, U33-DEC-04): day 56 is the last day, the return is requested on day 57 or the settlement day before so that the debit is by day 59, notices come 14, 10 and 3 days before, a lot funds a direct loan only if the funding close plus the payout margin is by day 56, and there is no penalty and no penalty mode. Earlier text: Review missing-IBAN penalty-mode freezes: admin.
 - Query net FX deltas and record external FX execution evidence: admin.
 - Generate accounting exports and finance reports: admin.
 - Generate borrower account statements and annual tax information statements as PDF/CSV: admin.

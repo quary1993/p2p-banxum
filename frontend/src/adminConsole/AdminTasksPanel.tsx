@@ -37,7 +37,7 @@ import {
 import { adminTaskEventsFixture, adminTasksFixture } from "./adminFixtures";
 import { useAdminBusinessDate } from "./adminBusinessDate";
 import { PayoutInstructionTaskBlock } from "./PayoutIbans";
-import { useAdminParam, useAdminSegments } from "./adminRoute";
+import { adminHref, navigateAdmin, useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   useAdminBorrowerLookupData,
   useAdminDocumentTemplateVersionLookupData,
@@ -366,6 +366,7 @@ export function AdminTasksPanel() {
       notes: data.notes ?? "",
       related_object_type: data.related_object_type ?? "",
       related_object_id: data.related_object_id ?? "",
+      subject_user_id: null,
       completed_at: null,
       completion_note: "",
       is_terminal: false,
@@ -782,6 +783,14 @@ export function TaskDetailDrawer({
         </div>
 
         {isPayoutIbanTask ? <PayoutInstructionTaskBlock instructionId={task.related_object_id} /> : null}
+
+        {task.subject_user_id ? (
+          // U33-DEC-28: a closure request leads to the investor's account and messages.
+          <div className="row gap-8 wrap admin-task-links">
+            <Button onClick={() => navigateAdmin(adminHref("users", [task.subject_user_id as string, "access"]))} size="sm">Open account access</Button>
+            <Button onClick={() => navigateAdmin(adminHref("users", [task.subject_user_id as string, "messages"]))} size="sm" variant="ghost">Help messages of the investor</Button>
+          </div>
+        ) : null}
 
         <form className="admin-drawer-body" onSubmit={submitUpdate}>
           <Field label="Title">

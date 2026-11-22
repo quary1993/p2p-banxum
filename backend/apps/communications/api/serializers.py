@@ -10,68 +10,26 @@ from typing import Any
 from rest_framework import serializers
 
 from backend.apps.communications.models import NewsletterSource
-from backend.apps.platform_core.domain.time import business_date, now_utc
 
 SHORT_TEXT_MAX_LENGTH = 200
 EMAIL_MAX_LENGTH = 254
-PHONE_MAX_LENGTH = 40
 FREE_TEXT_MAX_LENGTH = 4000
 MAX_LINKS_IN_FREE_TEXT = 5
 MAX_AMOUNT = Decimal("1000000000000")
-EARLIEST_FOUNDED_YEAR = 1800
 
-# Select options exactly as the public site forms show them.
-COUNTRY_CHOICES = (
-    "Switzerland",
-    "Germany",
-    "Austria",
-    "Italy",
-    "Romania",
-    "France",
-    "Other EU country",
-)
-TERM_CHOICES = (
-    "1 month",
-    "3 months",
-    "6 months",
-    "12 months",
-    "18 months",
-    "24 months",
-    "36 months",
-    "48 months",
-    "60 months",
-)
-PURPOSE_CHOICES = (
-    "Extension or construction",
-    "Machines and equipment",
-    "Real estate",
-    "Stock and working capital",
-    "Refinancing",
-    "Other",
-)
-SECURITY_CHOICES = (
-    "Mortgage note",
-    "Pledge on equipment",
-    "Receivables",
-    "Guarantee of the owners",
-    "Not sure yet",
-)
-PRODUCT_CHOICES = (
-    "Leasing",
-    "Invoices (factoring)",
-    "Business loans",
-    "Real estate loans",
-    "Other",
+# Select options exactly as the U33 public site forms show them (updated 2026-11-09).
+CURRENCY_CHOICES = ("EUR", "CHF")
+PROPOSAL_CHOICES = (
+    "New loans",
+    "Refinancing of existing loans",
+    "Both new and existing loans",
 )
 TOPIC_CHOICES = (
-    "Investing",
-    "My account",
-    "A loan for my company",
-    "Loan originators",
-    "Press",
-    "Other",
+    "How investing works",
+    "An opportunity",
+    "Another question",
 )
-FREE_TEXT_FIELDS = ("about", "message")
+FREE_TEXT_FIELDS = ("collateral", "about", "message")
 
 # Bidirectional overrides and isolates can make text read differently from what it is.
 _BIDI_CONTROLS = frozenset(chr(code) for code in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
@@ -81,8 +39,6 @@ _PLAIN_AMOUNT_RE = re.compile(r"\A[0-9]+(?:\.[0-9]{1,2})?\Z")
 _GROUPED_AMOUNT_RE = re.compile(
     r"\A[0-9]{1,3}(?P<sep>[,'’   ])[0-9]{3}(?:(?P=sep)[0-9]{3})*(?:\.[0-9]{1,2})?\Z"
 )
-_PHONE_RE = re.compile(r"\A\+?[0-9 ()./-]+\Z")
-_YEAR_RE = re.compile(r"\A[0-9]{4}\Z")
 
 
 def clean_free_text(value: str) -> str:
@@ -195,39 +151,6 @@ class AmountField(SingleLineField):
             raise  # pragma: no cover - fail() always raises
 
 
-class YearField(SingleLineField):
-    default_error_messages = {
-        "invalid_year": "Enter a year between {earliest} and {latest}.",
-    }
-
-    def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("max_length", 4)
-        super().__init__(**kwargs)
-
-    def to_internal_value(self, data: Any) -> str:
-        value = super().to_internal_value(data)
-        latest = business_date(now_utc()).year
-        if not _YEAR_RE.match(value) or not EARLIEST_FOUNDED_YEAR <= int(value) <= latest:
-            self.fail("invalid_year", earliest=EARLIEST_FOUNDED_YEAR, latest=latest)
-        return value
-
-
-class PhoneField(SingleLineField):
-    default_error_messages = {
-        "invalid_phone": "Enter a phone number, for example +41 44 000 00 00."
-    }
-
-    def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("max_length", PHONE_MAX_LENGTH)
-        super().__init__(**kwargs)
-
-    def to_internal_value(self, data: Any) -> str:
-        value = super().to_internal_value(data)
-        if not _PHONE_RE.match(value) or sum(character.isdigit() for character in value) < 6:
-            self.fail("invalid_phone")
-        return value
-
-
 class PublicEmailField(serializers.EmailField):
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("max_length", EMAIL_MAX_LENGTH)
@@ -248,38 +171,36 @@ class _EnquiryFieldsSerializer(serializers.Serializer[Any]):
 
 
 class CompanyEnquiryFieldsSerializer(_EnquiryFieldsSerializer):
+    """For borrowers: the financing request."""
+
     company_name = SingleLineField()
-    country = SelectField(choices=COUNTRY_CHOICES)
-    company_number = SingleLineField()
+    country = SingleLineField(help_text="Country of registration, as typed.")
+    currency = SelectField(choices=CURRENCY_CHOICES)
     amount = AmountField()
-    term = SelectField(choices=TERM_CHOICES)
-    purpose = SelectField(choices=PURPOSE_CHOICES)
-    security = SelectField(choices=SECURITY_CHOICES)
-    revenue = AmountField(required=False, allow_blank=True)
-    founded = YearField()
-    about = FreeTextField(required=False, allow_blank=True)
+    purpose = SingleLineField()
+    collateral = FreeTextField(help_text="The collateral or guarantees available.")
     contact_name = SingleLineField()
-    role = SingleLineField()
     email = PublicEmailField()
-    phone = PhoneField()
 
 
 class OriginatorEnquiryFieldsSerializer(_EnquiryFieldsSerializer):
+    """For loan originators: the partnership request."""
+
     company_name = SingleLineField()
-    country = SelectField(choices=COUNTRY_CHOICES)
-    licence = SingleLineField()
-    product = SelectField(choices=PRODUCT_CHOICES)
-    loan_book = AmountField()
-    about = FreeTextField(required=False, allow_blank=True)
+    country = SingleLineField(help_text="Country of registration, as typed.")
     contact_name = SingleLineField()
     email = PublicEmailField()
+    proposal = SelectField(choices=PROPOSAL_CHOICES)
+    about = FreeTextField(required=False, allow_blank=True)
 
 
 class ContactEnquiryFieldsSerializer(_EnquiryFieldsSerializer):
+    """Contact: request a conversation (topic and message optional)."""
+
     name = SingleLineField()
     email = PublicEmailField()
-    topic = SelectField(choices=TOPIC_CHOICES)
-    message = FreeTextField()
+    topic = SelectField(choices=TOPIC_CHOICES, required=False, allow_blank=True)
+    message = FreeTextField(required=False, allow_blank=True)
 
 
 class _EnquiryRequestSerializer(serializers.Serializer[Any]):
@@ -370,3 +291,16 @@ class NewsletterTokenRequestSerializer(serializers.Serializer[Any]):
 
 class NewsletterStatusSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
+
+
+class AlertStopRequestSerializer(serializers.Serializer[Any]):
+    token = serializers.CharField(max_length=512)
+
+
+class AlertStopResultSerializer(serializers.Serializer[Any]):
+    """Q14: what the "Stop these alerts" link stopped."""
+
+    kind = serializers.ChoiceField(choices=["smart_invest", "opening_alert", "saved_reminder"])
+    loan_id = serializers.UUIDField(allow_null=True)
+    loan_title = serializers.CharField(allow_blank=True)
+    message = serializers.CharField()

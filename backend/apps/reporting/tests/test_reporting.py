@@ -4,6 +4,7 @@ import base64
 import csv
 import hashlib
 import io
+import re
 import zipfile
 from datetime import date, datetime, time
 from importlib import import_module
@@ -20,6 +21,7 @@ from pypdf import PdfReader
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.reporting.models import (
     ReportEvent,
     ReportOutputFormat,
@@ -33,6 +35,9 @@ from backend.apps.reporting.services import (
     ReportingAuthorizationError,
     generate_report,
 )
+
+# Audit S5-7: written for the earlier monthly schedule (contracts from before the 18.6 engine).
+pytestmark = pytest.mark.usefixtures("pre_cutover_loans")
 
 
 @pytest.mark.django_db
@@ -229,14 +234,15 @@ def investor() -> Model:
 
 
 @pytest.mark.django_db
-def test_balance_ageing_report_buckets_follow_the_58_day_return(
+def test_balance_ageing_report_buckets_follow_the_56_day_return(
     admin_user: Model,
     investor: Model,
 ) -> None:
-    # On 2026-03-01: day 59 (due back), day 58 (last day), day 55, day 40.
-    with freeze_time("2026-01-20T12:00:00Z"):
+    # 18.4, on Tuesday 2026-03-03: day 57 (due back), day 56 (last day), day 53 (its return
+    # moves to Friday 03-06, last day 03-05), day 40.
+    with freeze_time("2026-01-25T12:00:00Z"):
         for index, value_date in enumerate(
-            (date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 20))
+            (date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 9), date(2026, 1, 22))
         ):
             _declare_deposit(
                 admin_user,
@@ -250,16 +256,16 @@ def test_balance_ageing_report_buckets_follow_the_58_day_return(
             GenerateReportCommand(
                 actor=admin_user,
                 report_type=ReportType.BALANCE_AGEING,
-                start_date=date(2026, 3, 1),
-                end_date=date(2026, 3, 1),
+                start_date=date(2026, 3, 3),
+                end_date=date(2026, 3, 3),
             )
         ).content
     )
 
     assert [(row["age_days"], row["ageing_bucket"], row["action_required"]) for row in rows] == [
-        ("59", "return_due_or_penalty_mode", "forced_return_or_usable_iban_required"),
-        ("58", "last_day_withdraw_only", "last_day_reminder"),
-        ("55", "final_reminders", "withdrawal_reminder"),
+        ("57", "return_due_or_penalty_mode", "forced_return_or_usable_iban_required"),
+        ("56", "last_day_withdraw_only", "last_day_reminder"),
+        ("53", "final_reminders", "withdrawal_reminder"),
         ("40", "investable", "loan_specific_funding_deadline_check"),
     ]
 
@@ -278,7 +284,7 @@ def _declare_deposit(
     bank_reference: str | None = None,
 ) -> None:
     ledger_services: Any = import_module("backend.apps.ledger.services")
-    ledger_services.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -470,7 +476,20 @@ def _post_originator_claim_reporting_entries(
 
 
 def _csv_rows(content: str) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(content)))
+    """Rows of a CSV report. A personal report in the European format (C09 / F15: ";" columns,
+    "," decimals) is read back with "." decimals, so the expected amounts stay comparable."""
+    header = content.split("\n", 1)[0]
+    if ";" not in header:
+        return list(csv.DictReader(io.StringIO(content)))
+    rows = list(csv.DictReader(io.StringIO(content), delimiter=";"))
+    decimal = re.compile(r"^-?\d+,\d+$")
+    return [
+        {
+            key: value.replace(",", ".") if decimal.match(value or "") else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
 
 
 @pytest.mark.django_db
@@ -1180,7 +1199,8 @@ def test_lender_tax_statement_reports_own_principal_at_period_end_not_current(
         _investor_tax_statement(investor, date(2026, 2, 1), date(2026, 2, 28), "pdf")
     )
     assert "Outstanding principal at period end" in february_pdf
-    assert "10'000.00" in february_pdf
+    # C09: the investor's number format (European by default).
+    assert "10.000,00" in february_pdf
     assert "1'000'000" not in february_pdf
     assert "outstanding_principal_at_period_end" not in february_pdf
     assert "Amount Minor" not in february_pdf

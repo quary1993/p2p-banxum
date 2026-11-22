@@ -62,7 +62,7 @@
         {
           "item": 2,
           "label": "Column: Status",
-          "text": "The current state of the underlying record, shown as a coloured chip. Green means a settled/healthy state (e.g. approved, active, reconciled, finalized, settled, completed); red means a problem (e.g. break, defaulted, dead_letter, penalty_mode); amber means it needs review (e.g. late, manual_review, pending_review); blue means in-progress/requested (e.g. requested, due, published, open). The colour is a quick triage cue."
+          "text": "The current state of the underlying record, shown as a coloured chip. Green means a settled/healthy state (e.g. approved, active, reconciled, finalized, settled, completed); red means a problem (e.g. break, defaulted, dead_letter, return failed); amber means it needs review (e.g. late, manual_review, pending_review); blue means in-progress/requested (e.g. requested, due, published, open). The colour is a quick triage cue."
         },
         {
           "item": 3,
@@ -112,7 +112,7 @@
         {
           "item": 12,
           "label": "Queue tab: Balance ageing (Finance)",
-          "text": "Investor balance 'lots' (tracked chunks of deposited money) that are near or past the regulatory time windows. The rules: each reserved source must cover the loan's remaining funding period, and uninvested money must be returned by day 60. This queue surfaces lots already past the 60-day withdrawal deadline and lots stuck in penalty mode (waiting for a usable payout IBAN)."
+          "text": "Investor balance 'lots' (tracked chunks of deposited money) that are near or past the regulatory time windows. The rules: each reserved source must cover the loan's remaining funding period, and uninvested money goes back after day 56 (request on day 57 or the settlement day before, debit by day 59; the legal limit is 60 days). This queue surfaces lots that are due back, for example because the investor has no verified payout IBAN. There is no penalty mode since November 2026."
         },
         {
           "item": 13,
@@ -196,7 +196,7 @@
         {
           "item": 1,
           "label": "Column: Available",
-          "text": "The total unconsumed investor balance in this currency across all balance lots (a 'lot' is a tracked chunk of deposited funds), including frozen and penalty-mode amounts. The balance bucket columns explain what can be done with this money. It is not the amount eligible for a particular loan."
+          "text": "The total unconsumed investor balance in this currency across all balance lots (a 'lot' is a tracked chunk of deposited funds), including frozen and due-back amounts. The balance bucket columns explain what can be done with this money. It is not the amount eligible for a particular loan."
         },
         {
           "item": 2,
@@ -206,7 +206,7 @@
         {
           "item": 3,
           "label": "Column: Withdraw-only",
-          "text": "A compatibility bucket, normally zero. The current policy does not make money withdraw-only at day 30: investment eligibility depends on the remaining funding window. At day 60, uninvested sources enter the overdue return process."
+          "text": "A compatibility bucket, normally zero. The current policy does not make money withdraw-only at day 30: investment eligibility depends on the remaining funding window. After day 56, uninvested sources are due back: withdraw-only until the automatic return."
         },
         {
           "item": 4,
@@ -221,12 +221,12 @@
         {
           "item": 6,
           "label": "Column: Penalty",
-          "text": "Money in lots in 'penalty mode' - typically because the investor has no usable payout IBAN, so the funds cannot be returned automatically. These lots also appear in the Balance ageing queue and need operator follow-up to obtain valid payout details."
+          "text": "Historical column, normally zero. The daily penalty and penalty mode were removed in November 2026: money past the limit stays on the balance as due back, with no charge. Penalties charged before stay in the history. Lots without a usable payout IBAN appear in the Balance ageing queue and need operator follow-up to obtain valid payout details."
         },
         {
           "item": 7,
           "label": "Column: Pending withdrawals",
-          "text": "The total value of investor withdrawals in this currency that have been requested but not yet paid out. This figure combines normal pending withdrawals and forced (day-60 return) withdrawals into a single number. It matches the Withdrawals and Forced withdrawals queues."
+          "text": "The total value of investor withdrawals in this currency that have been requested but not yet paid out. This figure combines normal pending withdrawals and forced withdrawals (automatic returns of money not invested) into a single number. It matches the Withdrawals and Forced withdrawals queues."
         },
         {
           "item": 8,

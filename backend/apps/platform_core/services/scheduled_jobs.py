@@ -25,6 +25,8 @@ from backend.apps.platform_core.services.qa_guard import qa_environment_guard
 
 EMAIL_OUTBOX_DISPATCH_JOB = "email_outbox_dispatch"
 BALANCE_AGEING_SCAN_JOB = "balance_ageing_scan"
+# 18.4 (F17): preload this and next year's settlement calendars; alert while next year is open.
+SETTLEMENT_CALENDAR_CHECK_JOB = "settlement_calendar_check"
 LOAN_SERVICING_STATUS_SCAN_JOB = "loan_servicing_status_scan"
 PRIMARY_FUNDING_EXPIRY_SCAN_JOB = "primary_funding_expiry_scan"
 RECONCILIATION_BREAK_TASK_SYNC_JOB = "reconciliation_break_task_sync"
@@ -34,26 +36,57 @@ ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB = "originator_opportunity_lifecycle_sc
 # the retention clean-up of public forms and newsletter rows.
 NEWSLETTER_NEW_PROJECTS_JOB = "newsletter_new_projects"
 PUBLIC_SITE_RETENTION_JOB = "public_site_retention"
+# U33-DEC-25: the sign-in history and ended device sessions are deleted after the period.
+ACCOUNT_SECURITY_RETENTION_JOB = "account_security_retention"
+# 18.5: the single-use link of an approved assisted recovery, once its 24-hour wait is over.
+# Runs at every invocation (real time, like sessions), not once a day.
+ASSISTED_RECOVERY_LINKS_JOB = "assisted_recovery_links"
+# U33-DEC-18: the 7, 3 and 1 day closing reminders of saved opportunities.
+SAVED_OPPORTUNITY_REMINDERS_JOB = "saved_opportunity_reminders"
+# 18.3: last month's account statement of each investor with money movements (idempotent).
+MONTHLY_INVESTOR_STATEMENTS_JOB = "monthly_investor_statements"
+# 18.10: re-verification notices 30 and 7 days before the date set by compliance.
+REVERIFICATION_NOTICES_JOB = "reverification_notices"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
+    ASSISTED_RECOVERY_LINKS_JOB,
     EMAIL_OUTBOX_DISPATCH_JOB,
     PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
     ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
+    # Before the balance scan: return dates use the calendars.
+    SETTLEMENT_CALENDAR_CHECK_JOB,
     BALANCE_AGEING_SCAN_JOB,
     LOAN_SERVICING_STATUS_SCAN_JOB,
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
     ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB,
     # After the funding scans, so a project whose round just closed is not announced.
+    SAVED_OPPORTUNITY_REMINDERS_JOB,
     NEWSLETTER_NEW_PROJECTS_JOB,
     PUBLIC_SITE_RETENTION_JOB,
+    ACCOUNT_SECURITY_RETENTION_JOB,
+    MONTHLY_INVESTOR_STATEMENTS_JOB,
+    REVERIFICATION_NOTICES_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 # Jobs that change no financial or admin state run as the system, without the admin actor.
 SYSTEM_JOB_NAMES = frozenset(
-    {EMAIL_OUTBOX_DISPATCH_JOB, NEWSLETTER_NEW_PROJECTS_JOB, PUBLIC_SITE_RETENTION_JOB}
+    {
+        ASSISTED_RECOVERY_LINKS_JOB,
+        EMAIL_OUTBOX_DISPATCH_JOB,
+        NEWSLETTER_NEW_PROJECTS_JOB,
+        PUBLIC_SITE_RETENTION_JOB,
+        ACCOUNT_SECURITY_RETENTION_JOB,
+        SAVED_OPPORTUNITY_REMINDERS_JOB,
+        REVERIFICATION_NOTICES_JOB,
+    }
 )
+# Audit S2-3: monthly statements are generated with system authority, but a failure opens an
+# operations task, so that job runs with the scheduled-job admin as the task's author.
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - SYSTEM_JOB_NAMES
-DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
+DAILY_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {
+    EMAIL_OUTBOX_DISPATCH_JOB,
+    ASSISTED_RECOVERY_LINKS_JOB,
+}
 
 
 class ScheduledJobError(RuntimeError):
@@ -362,6 +395,8 @@ def _balance_ageing_summary(
         "forced_withdrawal_request_count": len(result.forced_withdrawal_requests),
         "penalty_mode_transition_count": len(result.penalty_mode_transitions),
         "skipped_lot_ids": list(result.skipped_lot_ids),
+        "compliance_alerts": list(result.compliance_alerts),
+        "return_failure_notice_count": len(result.return_failure_notices),
         "forced_withdrawal_request_ids": [
             str(withdrawal_request.id) for withdrawal_request in result.forced_withdrawal_requests
         ],
@@ -506,6 +541,23 @@ def _public_site_retention_summary(*, as_of: datetime) -> dict[str, Any]:
     return cast(dict[str, Any], jobs.public_site_retention_job(as_of=as_of))
 
 
+def _account_security_retention_summary(*, as_of: datetime) -> dict[str, Any]:
+    sessions: Any = import_module("backend.apps.accounts_auth.security_sessions")
+    return cast(dict[str, Any], sessions.purge_account_security_history(as_of=as_of))
+
+
+def _monthly_investor_statements_summary(
+    *, actor: models.Model, as_of: datetime
+) -> dict[str, Any]:
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    return cast(dict[str, Any], reports.generate_monthly_statements(as_of=as_of, actor=actor))
+
+
+def _saved_opportunity_reminders_summary(*, as_of: datetime) -> dict[str, Any]:
+    saved: Any = import_module("backend.apps.marketplace_primary.saved_opportunities")
+    return cast(dict[str, Any], saved.send_saved_opportunity_reminders(as_of=as_of))
+
+
 def _execute_scheduled_job(
     *,
     job_name: str,
@@ -519,8 +571,23 @@ def _execute_scheduled_job(
         return _newsletter_new_projects_summary(as_of=as_of)
     if job_name == PUBLIC_SITE_RETENTION_JOB:
         return _public_site_retention_summary(as_of=as_of)
+    if job_name == ACCOUNT_SECURITY_RETENTION_JOB:
+        return _account_security_retention_summary(as_of=as_of)
+    if job_name == ASSISTED_RECOVERY_LINKS_JOB:
+        two_factor: Any = import_module("backend.apps.accounts_auth.two_factor")
+        return {"links_sent": len(two_factor.send_due_recovery_links())}
+    if job_name == SAVED_OPPORTUNITY_REMINDERS_JOB:
+        return _saved_opportunity_reminders_summary(as_of=as_of)
+    if job_name == REVERIFICATION_NOTICES_JOB:
+        compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+        return dict(compliance.send_reverification_notices(as_of=business_date(as_of)))
     if actor is None:
         raise ScheduledJobValidationError(f"{job_name} requires an admin actor.")
+    if job_name == MONTHLY_INVESTOR_STATEMENTS_JOB:
+        return _monthly_investor_statements_summary(actor=actor, as_of=as_of)
+    if job_name == SETTLEMENT_CALENDAR_CHECK_JOB:
+        calendars: Any = import_module("backend.apps.platform_core.services.settlement_calendar")
+        return dict(calendars.check_settlement_calendars(actor=actor, as_of=as_of))
     if job_name == BALANCE_AGEING_SCAN_JOB:
         return _balance_ageing_summary(command, actor=actor, as_of=as_of)
     if job_name == LOAN_SERVICING_STATUS_SCAN_JOB:

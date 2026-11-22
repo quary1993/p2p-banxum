@@ -34,6 +34,10 @@ class ReportType(models.TextChoices):
         "Participant account statement",
     )
     ANNUAL_TAX_INFORMATION = "annual_tax_information", "Annual tax information"
+    # 18.3: the design's investor reports (reporting/investor_reports.py).
+    INVESTOR_PORTFOLIO = "investor_portfolio", "Portfolio report"
+    INVESTOR_INTEREST_REPAYMENTS = "investor_interest_repayments", "Interest and repayments"
+    INVESTOR_TAX_REPORT = "investor_tax_report", "Tax report"
 
 
 class ReportOutputFormat(models.TextChoices):
@@ -112,3 +116,57 @@ class ReportEvent(AppendOnlyModel):
             models.Index(fields=["actor_user_id", "occurred_at"]),
             models.Index(fields=["event_type", "occurred_at"]),
         ]
+
+
+class InvestorReportKind(models.TextChoices):
+    """18.3: the reports an investor creates (design #/reports) and the monthly statements."""
+
+    ACCOUNT_STATEMENT = "account_statement", "Account statement"
+    PORTFOLIO = "portfolio", "Portfolio report"
+    INTEREST_REPAYMENTS = "interest_repayments", "Interest and repayments"
+    TAX = "tax", "Tax report"
+    MONTHLY_STATEMENT = "monthly_statement", "Monthly statement"
+
+
+class InvestorReportDocument(AppendOnlyModel):
+    """18.3: a report generated for one investor, kept so it opens again as it was issued.
+
+    The file is stored as generated (base64 for PDF, text for CSV) with its checksum; the report
+    run records how it was made. A monthly statement is created by the platform (automatic).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    investor_user_id = models.UUIDField()
+    kind = models.CharField(max_length=32, choices=InvestorReportKind.choices)
+    # Empty: every currency of the investor (EUR and CHF are reported separately).
+    currency = models.CharField(max_length=3, blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    output_format = models.CharField(max_length=16, choices=ReportOutputFormat.choices)
+    filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    content_encoding = models.CharField(max_length=16)
+    content = models.TextField()
+    content_sha256 = models.CharField(max_length=64)
+    issued_at = models.DateTimeField()
+    automatic = models.BooleanField(default=False)
+    report_run = models.ForeignKey(
+        ReportRun, on_delete=models.PROTECT, related_name="investor_documents"
+    )
+    created_by_user_id = models.UUIDField()
+
+    class Meta:
+        ordering = ["-issued_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="reporting_investor_report_valid_date_range",
+            ),
+            # One automatic monthly statement per investor and month.
+            models.UniqueConstraint(
+                fields=["investor_user_id", "kind", "start_date"],
+                condition=models.Q(automatic=True),
+                name="reporting_one_automatic_statement_per_month",
+            ),
+        ]
+        indexes = [models.Index(fields=["investor_user_id", "issued_at"])]

@@ -79,12 +79,20 @@ Complete these before calling any environment production-like.
   - Closure-time reversible pseudonymization, offline private-key custody, and the recovery procedure are implemented and tested before processing a production closure request.
   - Production data is never copied to staging without an approved anonymization/pseudonymization process.
 - Communications and monitoring:
-  - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, and Loan Originator opportunity/activation lifecycle scan.
+  - Scheduled jobs are installed for email dispatch, daily balance ageing and 56-day returns (no penalty charging since 18.4), servicing status scan, campaign expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, and Loan Originator opportunity/activation lifecycle scan.
   - `check_scheduled_jobs` runs at least every 15 minutes and alerts on non-zero exit.
     Verify missing job history, overdue success, failed runs and stuck runs all fail;
     a dry run must not satisfy successful execution coverage or suppress a real run.
   - Failed email/outbox queues are visible in the admin dashboard.
   - Operational mailbox owners are assigned for support, tech alerts, provider alerts, and DMARC reports.
+  - `COMPLIANCE_ALERT_EMAIL` is set to the compliance team's address (else necessary reviews email `OPERATIONS_ALERT_EMAIL`).
+- Compliance (18.10, audit step 7):
+  - A superadmin gives the compliance and security verifier roles (and deputies) to named admins.
+  - `loans.security_required_proofs` is the list approved by legal (the save refuses unknown, blank, duplicate or empty lists).
+  - The QA and demo seeds are run again with verified securities (the always-on proof rule refuses a loan without them).
+  - Every proof document of a loan to publish has a recorded manual check (Loans > loan > Securities > Loan documents) until a malware scanner exists.
+  - The 5-minute cron line includes `--job assisted_recovery_links` (the monitor treats it as a frequent job).
+  - The deploy user can read `/etc/banxum/<target>-backup.env`; the `Deploy` workflow takes its pre-migration backup with it.
 
 ## 2. Admin Operations Checklist
 
@@ -102,7 +110,7 @@ Use this as the daily operating checklist once the environment is live.
 - Finance:
   - Match lender deposits from bank statements using the `BX-{currency}-{investor_reference}` reference first.
   - Verify collector account/currency/value date against the bank line.
-  - Register verified payout IBANs before finalizing withdrawals or expecting day-60 forced withdrawals to succeed.
+  - Register verified payout IBANs before finalizing withdrawals or expecting the 56-day returns (18.4) to succeed.
   - Run balance-ageing scan as dry-run first, then live only after the preview is understood.
   - Create reconciliation snapshots after bank-operation batches and investigate every break/anomaly.
   - Finalize withdrawals and borrower disbursements only after the external bank transfer is actually executed.
@@ -126,9 +134,14 @@ Use this as the daily operating checklist once the environment is live.
   - Record borrower repayments with exact value date and warning acknowledgement for irregular payments.
   - Record recoveries only for defaulted loans and use final loss recognition only after Garanta/legal/accounting approval.
   - For a current originator claim, verify originator status/settlement instructions,
-    anonymized borrower disclosure, funding deadline, boundary installment and
-    resulting principal, coupon, interest/penalty participation, minimum investment,
-    retention, current outstanding principal, import as-of date, and maturity.
+    anonymized borrower disclosure, the underlying financing ID (and the Swiss UID for a
+    Swiss borrower), funding deadline, the day-count convention, the planned settlement day
+    (before the next due date) and the accrued-interest price, coupon, interest/penalty
+    participation, minimum investment, retention, current outstanding principal, import
+    as-of date, and maturity. Test an F04 failure in QA (a due date before the settlement
+    and a recorded borrower payment with its evidence): every reservation is released.
+  - Run `python backend/manage.py open_missing_swiss_uid_tasks --actor-email ...` and record
+    the UID of every Swiss financing it lists before go-live.
   - Put an originator opportunity on hold for any contract/import/bank discrepancy.
     Do not edit amounts merely to make an import validate.
   - Record an originator repayment only with a replacement CSV that preserves every
@@ -151,8 +164,8 @@ Run these checks in staging before production, and again in production before re
   - Sender domain DNS authentication is green in the Twilio Console.
   - `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email`; email API-key credentials are separate from Twilio Verify credentials.
   - DMARC has exactly the intended policy record; remove duplicate/conflicting DMARC records before production.
-  - Magic-link email is delivered to a real mailbox and the link is clickable.
-  - Admin email-code login is delivered within the expected latency.
+  - Registration email link and password-reset link are delivered to a real mailbox and the links are clickable (18.5: sign-in is password + second factor; no sign-in link).
+  - Twilio Verify SMS codes for sign-in, factor set-up and PIN reset arrive within the expected latency; admins sign in with password + authenticator app (no email or SMS code).
   - Sensitive-action email code is delivered and not exposed in portal notifications.
   - Legal-document acceptance does not enqueue/send PDF attachments; any legacy document-acceptance email outbox row renders as a portal notice with no attachment.
   - The asynchronous operation reaches `COMPLETED`, and the recipient email reaches `DELIVERED` rather than only receiving HTTP 202.
@@ -214,12 +227,17 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
 - Primary investment:
   - Publish a test borrower/loan after offline company KYB, with no explicit hold or
     adverse decision, and with a funding deadline no later than the 50th inclusive subscription date.
-  - Place an investment order with automatic email-code issuance.
+  - Place an investment order: the email code for this operation plus the PIN, or plus the authenticator app code for an investor with the app (18.5, D-1). Change the amount and confirm that the old code is refused.
   - Accept project investment confirmation and download the generated PDF.
   - Allocate above the configured minimum, advance past the deadline/run the resolver, and verify automatic close plus holding creation.
   - Repeat below the threshold and verify cancellation plus exact reservation restoration.
   - Exercise a controlled resolution failure and verify the non-public failure status, preserved reservations, urgent task, operations email, and successful retry.
   - Confirm the loan no longer accepts release/cancel actions after close.
+- Compliance and proof of securities (18.10):
+  - Give a declaration with PEP "Not sure": a necessary review, an admin task and a compliance email appear; an order is refused; close the review and the order goes through.
+  - Open a manual review for an investor from the Investor compliance file; a second one joins the first.
+  - Upload a loan document to a Loan Originator claim, confirm its check, verify the security with it and publish the offer.
+  - Verify a security (open each document first), publish, then change its value: new orders stop until a new verification.
 - Loan Originator claim:
   - Import and publish one controlled loan for every enabled repayment type, plus a
     loan with a historical advance payment.
@@ -258,10 +276,9 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Run servicing scan and confirm late/default transitions on controlled test loans.
 - Withdrawals and ageing:
   - Register a payout instruction.
-  - Request an investor withdrawal with email code.
+  - Request an investor withdrawal with the email code plus the PIN, or plus the authenticator app code for an investor with the app (18.5, D-1).
   - Finalize and cancel separate test withdrawals.
-  - Test day-60 forced-withdrawal behavior with and without verified IBAN.
-  - Test daily penalty charging only after Garanta has approved the policy.
+  - Test the 56-day return of uninvested money (18.4) with and without a verified return account, and a failed return. There is no penalty on uninvested money.
 - Secondary market and FX:
   - List a holding, cancel the seller listing, relist, and approve a non-standard listing.
   - Purchase a listing and confirm buyer/seller anonymity in UI and emails.

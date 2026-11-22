@@ -15,6 +15,9 @@ from typing import Any, Protocol, cast
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -27,6 +30,7 @@ from backend.apps.communications.models import (
     NotificationReadReceipt,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.money import clean_number_format, localize_number_text
 from backend.apps.platform_core.domain.time import now_utc, to_business_time
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
@@ -121,6 +125,8 @@ class EmailTemplateContent:
     # site) and for internal emails. Empty keeps the default footer.
     footer_note: str = ""
     footer_links: tuple[tuple[str, str], ...] = ()
+    # Q14: the one-click "Stop these alerts" link of an alert email (label, URL).
+    stop_link: tuple[str, str] | None = None
 
 
 class EmailProvider(Protocol):
@@ -627,6 +633,12 @@ def _render_banxum_email_html(content: EmailTemplateContent) -> str:
         if content.fine_print
         else ""
     )
+    if content.stop_link:
+        stop_label, stop_url = content.stop_link
+        fine_print += f"""
+                    <p class="font-sans" style="margin:12px 0 0 0; color:{EMAIL_STEEL}; font-size:12px; line-height:19px;">
+                      <a href="{_escape_attr(stop_url)}" target="_blank" style="color:{EMAIL_INK}; text-decoration:underline;">{html.escape(stop_label)}</a>
+                    </p>"""
     footer_link = "color:#ffffff; text-decoration:underline; font-size:12px; line-height:18px;"
     if content.footer_note:
         footer_note = _linkified_text(content.footer_note, link_color="#ffffff")
@@ -913,13 +925,27 @@ def _render_sensitive_action_code_email(
     platform = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
     subject = f"Your {platform} confirmation code"
+    # 18.5: a code of an operation confirms only that operation (stored on the code record).
+    summary = str(getattr(code_record, "operation_summary", "") or "").strip()
+    summary_text = (
+        f"It confirms only this operation: {summary}.\n"
+        "If these details are not what you asked for, do not use the code.\n"
+        if summary
+        else ""
+    )
     body_text = (
         f"Your {platform} confirmation code is:\n\n"
         f"{raw_code}\n\n"
         f"It expires at {_email_time(code_record.expires_at)} and is valid for: "
         f"{_action_label(action)}.\n"
+        f"{summary_text}"
         "If you did not request this code, contact support and do not share it.\n\n"
         f"{platform} is operated by {operator}."
+    )
+    data_rows: tuple[tuple[str, str], ...] = (
+        ("Action", _action_label(action)),
+        *((("Operation", summary),) if summary else ()),
+        ("Expires", _email_time(code_record.expires_at)),
     )
     return RenderedEmail(
         recipient_email=recipient,
@@ -934,13 +960,18 @@ def _render_sensitive_action_code_email(
                 headline="Confirm this account action",
                 paragraphs=(
                     f"Use this code to confirm your {platform} action.",
+                    *(
+                        (
+                            f"It confirms only this operation: {summary}. If these details are "
+                            "not what you asked for, do not use the code.",
+                        )
+                        if summary
+                        else ()
+                    ),
                     "Never share this code. If you did not request it, contact support and do not continue.",
                 ),
                 highlight=("Your confirmation code", raw_code),
-                data_rows=(
-                    ("Action", _action_label(action)),
-                    ("Expires", _email_time(code_record.expires_at)),
-                ),
+                data_rows=data_rows,
                 buttons=(EmailButton("Open BANXUM", _base_url()),),
                 fine_print=f"{platform} is operated by {operator}.",
             )
@@ -1092,8 +1123,85 @@ def _payload_buttons(payload: dict[str, Any]) -> tuple[EmailButton, ...]:
     return ()
 
 
-def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
-    payload = message.payload
+_LOCALIZED_PAYLOAD_KEYS = (
+    "subject",
+    "body_text",
+    "body_html",
+    "preheader",
+    "headline",
+    "status_label",
+    "fine_print",
+)
+
+
+def recipient_number_format(payload: dict[str, Any]) -> str:
+    """U33-DEC-32: the recipient's number format (European when the account has none)."""
+    user_id = str(payload.get("user_id") or "").strip()
+    number_format: Any = None
+    if user_id:
+        user_model = get_user_model()
+        try:
+            number_format = (
+                user_model.objects.filter(pk=user_id)
+                .values_list("number_format", flat=True)
+                .first()
+            )
+        except (ValueError, DjangoValidationError):
+            number_format = None
+    return clean_number_format(number_format)
+
+
+def _localized_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """The amounts and percentages of a message in the recipient's format (U33-DEC-32)."""
+    number_format = recipient_number_format(payload)
+    localized = dict(payload)
+    for key in _LOCALIZED_PAYLOAD_KEYS:
+        value = localized.get(key)
+        if isinstance(value, str):
+            localized[key] = localize_number_text(value, number_format)
+    rows = localized.get("data_rows")
+    if isinstance(rows, list):
+        localized["data_rows"] = [
+            [
+                localize_number_text(cell, number_format) if isinstance(cell, str) else cell
+                for cell in row
+            ]
+            if isinstance(row, list | tuple)
+            else row
+            for row in rows
+        ]
+    return localized
+
+
+def _resolve_secret_link(payload: dict[str, Any], *, redact: bool) -> str:
+    """18.5: a single-use security link whose token is read from the auth record at send time
+    and never stored: the payload has only ``action_url_template`` with ``{secret}``."""
+    template = str(payload.get("action_url_template", "") or "")
+    secret_type = str(payload.get("delivery_secret_type", "") or "")
+    auth = _auth_services_module()
+    if not template or secret_type not in auth.SECURITY_LINK_SECRET_TYPES:
+        return ""
+    if redact:
+        return template.replace("{secret}", REDACTED_SECRET)
+    secret = auth.delivery_secret_for_security_link(
+        secret_type, str(payload.get("delivery_secret_ref", ""))
+    )
+    return template.replace("{secret}", urllib.parse.quote(secret, safe=""))
+
+
+def _render_payload_email(message: OutboxMessage, *, redact: bool = False) -> RenderedEmail:
+    payload = _localized_payload(dict(message.payload or {}))
+    secret_link = _resolve_secret_link(payload, redact=redact)
+    if secret_link:
+        payload["action_url"] = secret_link
+        payload["body_text"] = (
+            f"{str(payload.get('body_text', '')).strip()}\n\n"
+            f"{payload.get('action_label') or 'Open the link'}: {secret_link}"
+        )
+    from backend.apps.communications.alert_stop import stop_link_from_payload
+
+    # Q14: alert emails carry a one-click "Stop these alerts" link (redacted in stored copies).
+    stop_link = stop_link_from_payload(payload, base_url=_base_url(), redact=redact)
     recipient = (
         str(payload.get("email") or payload.get("recipient_email") or payload.get("to_email") or "")
         .strip()
@@ -1109,9 +1217,16 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
         )
     if not body_text:
         body_text = html.unescape(body_html)
+    if stop_link is not None and not body_html:
+        paragraphs_text = body_text
+        body_text = f"{body_text}\n\n{stop_link[0]}: {stop_link[1]}"
+    else:
+        paragraphs_text = body_text
     if not body_html:
         status_label, status_tone = _payload_status_for_topic(message.topic, template_key)
-        paragraphs = tuple(paragraph for paragraph in body_text.split("\n\n") if paragraph.strip())
+        paragraphs = tuple(
+            paragraph for paragraph in paragraphs_text.split("\n\n") if paragraph.strip()
+        )
         body_html = _render_banxum_email_html(
             EmailTemplateContent(
                 notice_label=str(payload.get("notice_label", "Investor notice")),
@@ -1131,6 +1246,7 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
                         ),
                     )
                 ),
+                stop_link=stop_link,
             )
         )
     return RenderedEmail(
@@ -1140,7 +1256,20 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
         body_html=body_html,
         template_key=template_key,
         metadata={"payload_template": True},
+        reply_to=_payload_reply_to(payload.get("reply_to")),
     )
+
+
+def _payload_reply_to(value: Any) -> str:
+    """A payload's Reply-To only if it is one valid address (no CR/LF or list)."""
+    address = str(value or "").strip()
+    if not address or len(address) > 254 or any(ch in address for ch in '\r\n\x00,;<>"'):
+        return ""
+    try:
+        validate_email(address)
+    except DjangoValidationError:
+        return ""
+    return address
 
 
 def render_email_for_outbox_message(
@@ -1170,7 +1299,7 @@ def render_email_for_outbox_message(
 
         return newsletter.render_newsletter_email(message, redact=redact_secrets)
     if message.topic.startswith("email."):
-        return _render_payload_email(message)
+        return _render_payload_email(message, redact=redact_secrets)
     raise UnsupportedEmailTopicError(f"Outbox topic '{message.topic}' is not an email topic.")
 
 

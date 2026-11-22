@@ -8,7 +8,30 @@ The server also runs unrelated trading bots. BANXUM deployment must remain isola
 
 - Use only BANXUM-specific directories under `/opt/banxum`.
 - Use Docker Compose project names `banxum_staging` and `banxum_prod`.
-- Do not run global Docker cleanup commands such as `docker system prune`.
+- Do not run global Docker cleanup commands such as `docker system prune`. The `Deploy`
+  workflow removes only dangling images of the BANXUM project it deploys (label
+  `com.docker.compose.project`). When the host disk fills up, an operator checks the inventory
+  (`docker system df`, images per project) and removes BANXUM images or build cache by hand.
+- The `Deploy` workflow does these steps in this order, and shows the output of each one:
+  1. It builds the images.
+  2. It runs `check --deploy` of the new release in a one-shot `backend` container. The
+     previous release keeps serving. If the check fails, nothing changes.
+  3. It stops the previous `backend` container. The backend is the only writer (the cron
+     jobs run inside it), so the backup that follows is the exact cut-off, and old code never
+     runs on the new schema. The API is not available from here until the new release starts
+     (about 20 seconds of migrations in the rehearsal of 2026-11-20, plus the backup time).
+  4. It takes a database backup with `infra/deploy/backup_postgres.sh`. The off-site settings
+     come from `/etc/banxum/<target>-backup.env` when that file exists and the deploy user can
+     read it. Otherwise the dump stays in `/opt/banxum/<environment>/backups`. If the backup
+     fails, the workflow starts the previous backend again and stops; nothing changed.
+     Then it runs `migrate` in a one-shot container (`MIGRATION_TIMEOUT_SECONDS`, default
+     1800).
+  5. Only after a successful migration does it start the new release and wait up to five
+     minutes for the health check.
+- If the migration fails before it applies any migration, the workflow starts the previous
+  `backend` container again. If it fails after it applied some migrations, the backend stays
+  stopped and the log names the backup to restore. Then restore that backup and deploy the
+  previous release.
 - Do not stop containers or processes that are not labeled with the BANXUM Compose project.
 - Do not bind common bot or development ports unless they are confirmed unused.
 
@@ -310,7 +333,9 @@ The monitor fails when it finds:
 - success evidence older than `SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES` for email
   dispatch or `SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES` for daily jobs, or dated in the future.
 
-Daily coverage defaults to 30 hours; email coverage defaults to five minutes. Choose
+Daily coverage defaults to 30 hours; email coverage defaults to five minutes; the
+assisted-recovery links (`assisted_recovery_links`, every five minutes with the email job since
+Phase 18.5) default to 15 minutes (`SCHEDULED_JOBS_FREQUENT_MAX_AGE_MINUTES`). Choose
 the email threshold with enough headroom for the installed cadence and runtime. A
 monitor failure is expected on a fresh environment until all required jobs have run.
 Dry runs use separate execution keys and neither satisfy coverage nor occupy the
@@ -332,7 +357,7 @@ Each attempt has distinct audit/domain evidence. Apply and verify these schedule
 deployment; editing this runbook alone does not change installed server cron entries.
 
 ```cron
-*/5 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job email_outbox_dispatch >> /var/log/banxum-staging-jobs.log 2>&1
+*/5 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job email_outbox_dispatch --job assisted_recovery_links >> /var/log/banxum-staging-jobs.log 2>&1
 */5 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job primary_funding_expiry_scan --job originator_opportunity_lifecycle_scan >> /var/log/banxum-staging-jobs.log 2>&1
 10 0 * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs >> /var/log/banxum-staging-jobs.log 2>&1
 */15 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py check_scheduled_jobs >> /var/log/banxum-staging-job-monitor.log 2>&1

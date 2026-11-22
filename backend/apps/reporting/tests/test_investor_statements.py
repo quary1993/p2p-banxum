@@ -6,6 +6,7 @@ import base64
 import csv
 import io
 import json
+import re
 import zipfile
 from datetime import date, datetime, time, timedelta
 from importlib import import_module
@@ -20,8 +21,10 @@ from pypdf import PdfReader
 
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 from backend.apps.reporting.models import (
+    InvestorReportDocument,
     ReportOutputFormat,
     ReportPeriodPreset,
     ReportRedactionMode,
@@ -34,6 +37,9 @@ from backend.apps.reporting.services import (
     generate_investor_self_service_report,
     generate_report,
 )
+
+# Audit S6-4: written for the boundary-installment offers of before 18.7.
+pytestmark = pytest.mark.usefixtures("boundary_offers")
 
 
 @pytest.fixture
@@ -100,7 +106,7 @@ def _approve_lender(investor: Model) -> None:
 
 def _deposit(admin_user: Model, investor: Model, *, amount_minor: int, value_date: date) -> None:
     ledger: Any = import_module("backend.apps.ledger.services")
-    ledger.declare_lender_deposit(
+    declare_deposit_and_verify_account(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -172,13 +178,36 @@ def _ledger_balance_minor(investor: Model, currency: str, end_date: date) -> int
 
 
 def _csv_rows(content: str) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(content)))
+    """Rows of a CSV report. A personal report in the European format (C09 / F15: ";" columns,
+    "," decimals) is read back with "." decimals, so the expected amounts stay comparable."""
+    header = content.split("\n", 1)[0]
+    if ";" not in header:
+        return list(csv.DictReader(io.StringIO(content)))
+    rows = list(csv.DictReader(io.StringIO(content), delimiter=";"))
+    decimal = re.compile(r"^-?\d+,\d+$")
+    return [
+        {
+            key: value.replace(",", ".") if decimal.match(value or "") else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
 
 
 def _pdf_text(artifact: Any) -> str:
     pdf = base64.b64decode(artifact.content.encode("ascii"))
     text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
     return " ".join(text.split())
+
+
+def _zip_parts(artifact: Any) -> tuple[str, str]:
+    """The CSV text and the PDF text of a ZIP report."""
+    archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(artifact.content)))
+    names = archive.namelist()
+    csv_text = archive.read(next(n for n in names if n.endswith(".csv"))).decode("utf-8")
+    pdf_bytes = archive.read(next(n for n in names if n.endswith(".pdf")))
+    text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf_bytes)).pages)
+    return csv_text, " ".join(text.split())
 
 
 def _statement(investor: Model, start: date, end: date, output_format: str) -> Any:
@@ -334,6 +363,7 @@ def test_investor_statement_is_signed_formatted_and_reconciles_to_ledger(
         assert internal not in content
     assert "406000" not in content and "'-" not in content
 
+    # C09: the investor's number format (European by default), texts included.
     pdf = _pdf_text(_statement(investor, start, end, "pdf"))
     for expected in (
         "Account statement",
@@ -341,18 +371,35 @@ def test_investor_statement_is_signed_formatted_and_reconciles_to_ledger(
         "01 Feb 2026 to 31 Mar 2026",
         "CHF account",
         "Opening balance",
-        "4'000.00",
+        "4.000,00",
         "Repayment from Alpine Equipment Loan",
-        "Principal CHF 1'000.00, interest CHF 60.00.",
-        "+1'060.00",
-        "-1'000.00",
-        "-500.00",
+        "Principal CHF 1.000,00, interest CHF 60,00.",
+        "+1.060,00",
+        "-1.000,00",
+        "-500,00",
         "Closing balance",
-        "3'560.00",
+        "3.560,00",
         "EUR account",
-        "+1'083.50",
+        "+1.083,50",
     ):
         assert expected in pdf, expected
+    # An investor who chose the Swiss format gets "'" and "." in a new statement.
+    user_model = apps.get_model("accounts_auth", "User")
+    user_model.objects.filter(pk=investor.pk).update(number_format="swiss")
+    swiss_pdf = _pdf_text(_statement(investor, start, end, "pdf"))
+    assert "Principal CHF 1'000.00, interest CHF 60.00." in swiss_pdf
+    assert "3'560.00" in swiss_pdf
+    swiss_csv = _statement(investor, start, end, "csv").content
+    assert swiss_csv.startswith("investor,currency,")
+    assert ",3560.00," in swiss_csv
+    # Audit S1-4: the ZIP download holds the same CSV and PDF formats.
+    swiss_zip_csv, swiss_zip_pdf = _zip_parts(_statement(investor, start, end, "zip"))
+    assert swiss_zip_csv.startswith("investor,currency,") and ",3560.00," in swiss_zip_csv
+    assert "3'560.00" in swiss_zip_pdf
+    user_model.objects.filter(pk=investor.pk).update(number_format="european")
+    european_zip_csv, european_zip_pdf = _zip_parts(_statement(investor, start, end, "zip"))
+    assert european_zip_csv.startswith("investor;currency;") and ";3560,00;" in european_zip_csv
+    assert "3.560,00" in european_zip_pdf
     for internal in ("investor_balance_liability", "Journal Entry", "406000", "Amount Minor"):
         assert internal not in pdf
 
@@ -729,3 +776,106 @@ def test_statement_lists_money_in_first_when_entries_share_a_timestamp(
     assert rows[0]["balance"] == "1000.00"
     assert [row["amount"] for row in movements] == ["500.00", "-600.00"]
     assert [row["balance"] for row in movements] == ["1500.00", "900.00"]
+
+
+@pytest.mark.django_db
+def test_monthly_statement_is_kept_after_the_investor_loses_access(
+    admin_user: Model, investor: Model
+) -> None:
+    """Audit S2-3: a month with movements gets its automatic statement with system authority,
+    also when the investor's access ended since; a rerun creates none."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    _approve_lender(investor)
+    with freeze_time("2026-01-05T09:00:00Z"):
+        _deposit(admin_user, investor, amount_minor=1_000_00, value_date=date(2026, 1, 5))
+    # KYC is declined at re-verification before the statement job runs: no financial access.
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.filter(
+        user_id=investor.pk
+    ).update(status="declined")
+    access: Any = import_module("backend.apps.platform_core.domain.access")
+    investor.refresh_from_db()
+    assert not access.user_can_access_financial_features(investor)
+    first = reports.generate_monthly_statements(as_of=_at(date(2026, 2, 1), 6), actor=admin_user)
+    assert (first["month"], first["statements_created"], first["statements_failed"]) == (
+        "2026-01",
+        1,
+        0,
+    )
+    again = reports.generate_monthly_statements(as_of=_at(date(2026, 2, 2), 6), actor=admin_user)
+    assert (again["statements_created"], again["statements_failed"]) == (0, 0)
+    [document] = InvestorReportDocument.objects.filter(
+        investor_user_id=investor.pk, kind="monthly_statement"
+    )
+    assert (document.automatic, document.start_date) == (True, date(2026, 1, 1))
+    assert document.report_run.metadata["run_mode"] == "investor_scheduled_statement"
+    assert "statement" in _pdf_text(document).lower()
+
+
+@pytest.mark.django_db
+def test_a_failed_monthly_statement_opens_one_operations_task(
+    admin_user: Model, investor: Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit S2-3: a failure is recorded as one task per investor and month; retries reuse it."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    reporting: Any = import_module("backend.apps.reporting.services")
+    _approve_lender(investor)
+    with freeze_time("2026-01-05T09:00:00Z"):
+        _deposit(admin_user, investor, amount_minor=1_000_00, value_date=date(2026, 1, 5))
+
+    def broken(_command: Any) -> Any:
+        raise reporting.ReportingValidationError("Renderer unavailable.")
+
+    monkeypatch.setattr(reporting, "generate_investor_scheduled_statement", broken)
+    for day in (1, 2):
+        summary = reports.generate_monthly_statements(
+            as_of=_at(date(2026, 2, day), 6), actor=admin_user
+        )
+        assert (summary["statements_created"], summary["failed_investor_ids"]) == (
+            0,
+            [str(investor.pk)],
+        )
+    [task] = apps.get_model("admin_ops", "AdminTask").objects.filter(
+        related_object_type="InvestorMonthlyStatement"
+    )
+    assert task.related_object_id == f"{investor.pk}:2026-01"
+    assert (task.task_type, task.priority, task.status) == ("reporting", "high", "open")
+    assert "Renderer unavailable." in task.notes
+    assert not InvestorReportDocument.objects.filter(investor_user_id=investor.pk).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("effective_at", "year"),
+    [
+        # 00:30 on 1 January in Zurich (UTC+1 in winter): the new year, not the old one.
+        ("2025-12-31T23:30:00+00:00", 2026),
+        # 23:59 on 31 December in Zurich: still this year.
+        ("2026-12-31T22:59:00+00:00", 2026),
+        # Midnight in Zurich: the next year.
+        ("2026-12-31T23:00:00+00:00", 2027),
+    ],
+)
+def test_report_summary_years_begin_at_midnight_in_zurich(
+    admin_user: Model, investor: Model, effective_at: str, year: int
+) -> None:
+    """Audit S2-5: the invested total uses the same local year as the payments."""
+    reports: Any = import_module("backend.apps.reporting.investor_reports")
+    secondary_tests: Any = import_module(
+        "backend.apps.secondary_market.tests.test_secondary_market"
+    )
+    loan = secondary_tests._create_funded_loan(admin_user)
+    holding = secondary_tests._create_holding(
+        admin_user, investor, loan, current_principal_minor=2_500_00, idempotency_key="s25"
+    )
+    apps.get_model("holdings", "InvestorLoanHolding").objects.filter(pk=holding.pk).update(
+        assignment_effective_at=datetime.fromisoformat(effective_at)
+    )
+
+    def invested(in_year: int) -> int:
+        summary = reports.investor_report_summary(investor_user_id=str(investor.pk), year=in_year)
+        return int(
+            next(c for c in summary["currencies"] if c["currency"] == "CHF")["invested_minor"]
+        )
+
+    assert invested(year) == 2_500_00
+    assert invested(year - 1) + invested(year + 1) == 0

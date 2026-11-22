@@ -3,8 +3,10 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.marketplace_primary.api.views import (
+    MarketplaceComingSoonListView,
     MarketplaceLoanDetailView,
     MarketplaceLoanDocumentDownloadView,
+    MarketplaceOpeningAlertView,
     MarketplaceOpportunityListView,
     PrimaryInvestmentOrderAllocateView,
     PrimaryInvestmentOrderCreateView,
@@ -12,11 +14,12 @@ from backend.apps.marketplace_primary.api.views import (
     PrimaryLoanCancellationView,
     PrimaryLoanCloseView,
     PrimaryLoanExpiryScanView,
-    PrimaryOrderBatchView,
     PublicOriginatorListView,
     PublicProjectDetailView,
     PublicProjectListView,
     PublicStatisticsView,
+    SavedOpportunityListView,
+    SavedOpportunityView,
 )
 
 urlpatterns = [
@@ -46,9 +49,29 @@ urlpatterns = [
         name="marketplace-primary-opportunities",
     ),
     path(
+        "coming-soon/",
+        MarketplaceComingSoonListView.as_view(),
+        name="marketplace-primary-coming-soon",
+    ),
+    path(
         "loans/<uuid:loan_id>/",
         MarketplaceLoanDetailView.as_view(),
         name="marketplace-primary-loan-detail",
+    ),
+    path(
+        "saved/",
+        SavedOpportunityListView.as_view(),
+        name="marketplace-saved-opportunities",
+    ),
+    path(
+        "loans/<uuid:loan_id>/saved/",
+        SavedOpportunityView.as_view(),
+        name="marketplace-saved-opportunity",
+    ),
+    path(
+        "loans/<uuid:loan_id>/opening-alert/",
+        MarketplaceOpeningAlertView.as_view(),
+        name="marketplace-primary-opening-alert",
     ),
     path(
         "loans/<uuid:loan_id>/documents/<uuid:document_id>/",
@@ -59,11 +82,6 @@ urlpatterns = [
         "orders/",
         PrimaryInvestmentOrderCreateView.as_view(),
         name="marketplace-primary-order-create",
-    ),
-    path(
-        "orders/batch/",
-        PrimaryOrderBatchView.as_view(),
-        name="marketplace-primary-order-batch",
     ),
     path(
         "orders/<uuid:order_id>/allocate-balance/",

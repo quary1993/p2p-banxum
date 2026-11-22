@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import field as dataclass_field
+from datetime import datetime, timedelta
 from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher, make_password
-from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -22,20 +22,26 @@ from backend.apps.accounts_auth.crypto import (
     digest_secret,
     encrypt_delivery_secret,
 )
+from backend.apps.accounts_auth.factors import factor_kind
 from backend.apps.accounts_auth.models import (
     AccountAccessEvent,
     AccountAccessReason,
     AccountStatus,
     AccountType,
+    AssistedRecoveryCase,
     EmailLoginToken,
+    PasswordResetToken,
     PhoneVerificationChallenge,
     PhoneVerificationPurpose,
     PhoneVerificationStatus,
     RegistrationTermsAcceptance,
     SensitiveAction,
     SensitiveActionCode,
+    SignInMethod,
+    SignInResult,
     User,
 )
+from backend.apps.accounts_auth.passwords import PasswordPolicyError, validate_new_password
 from backend.apps.accounts_auth.phone_numbers import (
     InvalidPhoneNumberError,
     normalize_e164_phone_number,
@@ -45,6 +51,8 @@ from backend.apps.accounts_auth.phone_providers import (
     check_twilio_verify,
     start_twilio_verify,
 )
+from backend.apps.accounts_auth.security_sessions import record_sign_in
+from backend.apps.platform_core.domain import operation_binding
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     has_admin_role,
@@ -54,6 +62,7 @@ from backend.apps.platform_core.domain.access import (
     is_superadmin_actor,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.money import NUMBER_FORMATS
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -61,6 +70,7 @@ from backend.apps.platform_core.services.events import (
     enqueue_outbox_message,
     record_domain_event,
 )
+from backend.apps.platform_core.services.ip_privacy import keyed_ip_hash as ip_hash
 
 
 class AccountsAuthError(ValueError):
@@ -91,6 +101,14 @@ class InvalidOrExpiredCodeError(AccountsAuthError):
     pass
 
 
+class OperationDetailsError(AccountsAuthError):
+    """18.5: a code request for an operation without valid operation details."""
+
+
+class OperationMismatchError(InvalidOrExpiredCodeError):
+    """18.5: the code is right but was sent for other operation details (it is now spent)."""
+
+
 class TooManyCodeAttemptsError(AccountsAuthError):
     pass
 
@@ -104,13 +122,44 @@ class SensitiveActionCodeThrottleError(AccountsAuthError):
 
 
 class PhoneVerificationThrottleError(AccountsAuthError):
-    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int | None = None,
+        account_limit: bool = False,
+    ) -> None:
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        # True for the account's hourly or daily SMS limit (not the short cooldown).
+        self.account_limit = account_limit
 
 
 class PhoneVerificationProviderError(AccountsAuthError):
     pass
+
+
+def lock_account_for_sms(user: User, *, now: datetime) -> None:
+    """Audit S4-2: the account-wide SMS limits. Call it first in the transaction that sends a
+    code. It locks the account's row, so two requests at the same time are served one after the
+    other (the cooldown that follows is then exact too), and refuses when the account already
+    got its hourly or daily number of SMS codes, for all purposes together.
+
+    Real time from expires_at (created_at follows the QA clock).
+    """
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    ttl = timedelta(seconds=int(settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS))
+    sent = PhoneVerificationChallenge.objects.filter(user=user)
+    for window, limit in (
+        (timedelta(hours=1), int(settings.AUTH_SMS_ACCOUNT_HOURLY_LIMIT)),
+        (timedelta(days=1), int(settings.AUTH_SMS_ACCOUNT_DAILY_LIMIT)),
+    ):
+        if limit > 0 and sent.filter(expires_at__gt=now - window + ttl).count() >= limit:
+            raise PhoneVerificationThrottleError(
+                "Too many SMS codes were sent to this account. Try again later.",
+                retry_after_seconds=int(window.total_seconds()),
+                account_limit=True,
+            )
 
 
 class PhoneAlreadyVerifiedError(AccountsAuthError):
@@ -154,6 +203,8 @@ LOCAL_PHONE_VERIFICATION_PROVIDERS = {"mock", "local"}
 MAGIC_LINK_PURPOSE_LOGIN = "login"
 MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT = "existing_account"
 MAGIC_LINK_PURPOSES = frozenset({MAGIC_LINK_PURPOSE_LOGIN, MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT})
+# 18.5: the purpose stored on a link that continues a registration.
+REGISTRATION_LINK_PURPOSE = "registration"
 REGISTRATION_OUTCOME_CREATED = "created"
 REGISTRATION_OUTCOME_INCOMPLETE = "incomplete_existing"
 REGISTRATION_OUTCOME_EXISTING = "existing"
@@ -387,6 +438,8 @@ class RegisterNaturalPersonCommand:
     ip_address: str | None = None
     user_agent: str = ""
     marketing_consent: bool = False
+    # 18.5: the account password, chosen at registration (password policy in passwords.py).
+    password: str = dataclass_field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,6 +482,9 @@ class SensitiveActionCodeCommand:
     ttl: timedelta = timedelta(minutes=10)
     # None uses settings.AUTH_SENSITIVE_CODE_MAX_ATTEMPTS (default 3).
     max_attempts: int | None = None
+    # 18.5: the details of the operation (platform_core.domain.operation_binding). Required
+    # for the operation actions; the code then confirms only this operation.
+    operation: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,6 +504,9 @@ class SensitiveActionCodeConsumeCommand:
     # False only checks the code (a wrong code still counts as an attempt) and leaves it
     # usable, for a flow that must check a second factor before using the code up.
     consume: bool = True
+    # 18.5: the fingerprint of the operation being confirmed, built by the module that runs it.
+    # Required for the operation actions; a right code for other details is spent and refused.
+    expected_operation_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,19 +539,6 @@ class PhoneVerificationConfirmCommand:
 class AdminLoginStartCommand:
     email: str
     password: str
-    ip_address: str | None = None
-    user_agent: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class AdminLoginStartResult:
-    code_record: SensitiveActionCode
-
-
-@dataclass(frozen=True, slots=True)
-class AdminLoginConfirmCommand:
-    code_id: str
-    raw_code: str
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -558,7 +604,8 @@ def _record_repeated_registration(
             target_id=str(user.id),
             metadata={
                 "outcome": outcome,
-                "requested_ip": command.ip_address or "",
+                # Audit S4-1: the keyed hash, never the address.
+                "requested_ip_hash": ip_hash(command.ip_address),
                 "profile_changed": False,
             },
         )
@@ -575,6 +622,12 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         raise InvalidRegistrationDataError(str(exc)) from exc
     terms_version, terms_hash = _registration_terms_evidence_values(command)
     current_risk_template = _validate_registration_risk_disclosure(command)
+    # Checked for every request (also for an existing address), so the answer does not
+    # reveal which addresses have an account.
+    try:
+        validate_new_password(command.password, email=email)
+    except PasswordPolicyError as exc:
+        raise InvalidRegistrationDataError(str(exc)) from exc
 
     user = User.objects.select_for_update().filter(email=email).first()
     if user is not None:
@@ -583,6 +636,8 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         with transaction.atomic():
             user = User.objects.create_user(
                 email=email,
+                password=command.password,
+                password_changed_at=timezone.now(),
                 full_name=command.full_name.strip(),
                 account_type=AccountType.NATURAL_PERSON_LENDER,
                 status=AccountStatus.PENDING_KYC,
@@ -599,7 +654,7 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
         user=user,
         terms_version=terms_version,
         terms_hash=terms_hash,
-        ip_address=command.ip_address,
+        ip_hash=ip_hash(command.ip_address),
         user_agent=command.user_agent,
     )
     _accept_registration_document_terms(
@@ -655,7 +710,14 @@ def send_registration_follow_up_email(
 
     user = result.user
     try:
-        if (
+        if result.outcome == REGISTRATION_OUTCOME_EXISTING or factor_kind(user):
+            # 18.5: an account with a second factor signs in with its password only; the
+            # email says so and carries no link.
+            if user.is_active and user.status in LOGIN_BLOCKED_NOTICE_STATUSES:
+                _enqueue_login_blocked_notice(user)
+            else:
+                _enqueue_existing_account_notice(user)
+        elif (
             user.is_active
             and user.account_type in MAGIC_LINK_ACCOUNT_TYPES
             and (user.can_login or user.status in LOGIN_BLOCKED_NOTICE_STATUSES)
@@ -665,11 +727,7 @@ def send_registration_follow_up_email(
                     email=user.email,
                     ip_address=ip_address,
                     user_agent=user_agent,
-                    purpose=(
-                        MAGIC_LINK_PURPOSE_EXISTING_ACCOUNT
-                        if result.outcome == REGISTRATION_OUTCOME_EXISTING
-                        else MAGIC_LINK_PURPOSE_LOGIN
-                    ),
+                    purpose=MAGIC_LINK_PURPOSE_LOGIN,
                 )
             )
         else:
@@ -679,7 +737,36 @@ def send_registration_follow_up_email(
 
 
 @transaction.atomic
+def stop_marketing_consent_for_email(email: str, *, source: str) -> bool:
+    """Q14: an unsubscribe from the public newsletter also stops "News from Banxum" of the
+    account with the same (verified) email. Returns True when it changed."""
+    normalized = email.strip().lower()
+    if not normalized:
+        return False
+    user = (
+        User.objects.select_for_update()
+        .filter(email__iexact=normalized, marketing_consent=True)
+        .first()
+    )
+    if user is None:
+        return False
+    user.marketing_consent = False
+    user.save(update_fields=["marketing_consent"])
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="account.marketing_consent_changed",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"previous_value": True, "new_value": False, "source": source},
+        )
+    )
+    return True
+
+
+@transaction.atomic
 def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
+    # Lock order (audit S1-1): the account first, then the newsletter subscription.
     user = User.objects.select_for_update().filter(id=command.user.id).first()
     if user is None or not is_lender_actor(user):
         raise AccountsAuthError("Only an active lender can update communication preferences.")
@@ -688,6 +775,14 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
         return user
     user.marketing_consent = command.marketing_consent
     user.save(update_fields=["marketing_consent"])
+    newsletter_stopped = False
+    if not command.marketing_consent:
+        # Q14: one preference with the public newsletter of the same verified address.
+        newsletter_stopped = bool(
+            import_module(
+                "backend.apps.communications.newsletter"
+            ).unsubscribe_email_from_newsletter(str(user.email))
+        )
     record_audit_event(
         AuditCommand(
             actor=actor_for_user(user),
@@ -697,6 +792,7 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
             metadata={
                 "previous_value": previous_value,
                 "new_value": command.marketing_consent,
+                "newsletter_unsubscribed": newsletter_stopped,
             },
         )
     )
@@ -712,6 +808,56 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
             idempotency_key=f"user:{user.id}:marketing-consent:{timezone.now().isoformat()}",
         )
     )
+    return user
+
+
+# U33-DEC-31: the interface languages of the investor platform (the public site adds DE/FR).
+INTERFACE_LANGUAGES = ("en", "de-CH")
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateDisplayPreferencesCommand:
+    user: User
+    number_format: str | None = None
+    language: str | None = None
+
+
+@transaction.atomic
+def update_display_preferences(command: UpdateDisplayPreferencesCommand) -> User:
+    """U33-DEC-31/-32: save the language and number format in the account (all devices, emails,
+    reports)."""
+    if command.number_format is None and command.language is None:
+        raise AccountsAuthError("Choose a language or a number format.")
+    if command.number_format is not None and command.number_format not in NUMBER_FORMATS:
+        raise AccountsAuthError("Unknown number format.")
+    if command.language is not None and command.language not in INTERFACE_LANGUAGES:
+        raise AccountsAuthError("Unknown language.")
+    user = User.objects.select_for_update().filter(id=command.user.id).first()
+    if user is None:
+        raise AccountsAuthError("Account does not exist.")
+    changes = [
+        (field, action, getattr(user, field), value)
+        for field, action, value in (
+            ("number_format", "account.number_format_changed", command.number_format),
+            ("language", "account.language_changed", command.language),
+        )
+        if value is not None and getattr(user, field) != value
+    ]
+    if not changes:
+        return user
+    for field, _action, _previous, value in changes:
+        setattr(user, field, value)
+    user.save(update_fields=[field for field, *_rest in changes])
+    for _field, action, previous, value in changes:
+        record_audit_event(
+            AuditCommand(
+                actor=actor_for_user(user),
+                action=action,
+                target_type="User",
+                target_id=str(user.id),
+                metadata={"previous_value": previous, "new_value": value},
+            )
+        )
     return user
 
 
@@ -785,6 +931,8 @@ def _enqueue_existing_account_notice(user: User) -> None:
                     f"We received a request to open a new {brand} account with this email "
                     "address. An account with this address already exists, so we did not "
                     "open a new one.\n\n"
+                    "To use your account, sign in with your email address and password. If "
+                    'you forgot the password, use "Forgot password" on the sign-in page.\n\n'
                     "If you did not make this request, you can ignore this email.\n\n"
                     f"For help, contact support at {_support_email()}."
                 ),
@@ -869,7 +1017,9 @@ def _issue_magic_link_for_user(
         user is None
         or not user.can_login
         or user.account_type not in MAGIC_LINK_ACCOUNT_TYPES
+        or factor_kind(user)
     ):
+        # 18.5: the email link only continues a registration (no second factor yet).
         raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
 
     # Serialize link issuance per account.
@@ -909,8 +1059,9 @@ def _issue_magic_link_for_user(
         token_digest=digest_secret(raw_token),
         encrypted_token=encrypt_delivery_secret(raw_token),
         expires_at=now + command.ttl,
-        requested_ip=command.ip_address,
+        requested_ip_hash=ip_hash(command.ip_address),
         requested_user_agent=command.user_agent,
+        purpose=REGISTRATION_LINK_PURPOSE,
     )
     outbox_message = enqueue_outbox_message(
         OutboxCommand(
@@ -968,6 +1119,18 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                 },
             )
             failure = InvalidOrExpiredTokenError("Login link is invalid or expired.")
+        elif token.purpose != REGISTRATION_LINK_PURPOSE or factor_kind(token.user):
+            # 18.5: a link signs in only to continue a registration; an account with a
+            # second factor signs in with its password and the factor.
+            _audit_auth_failure(
+                action="auth.magic_link_failed",
+                user_id=str(token.user_id),
+                actor=actor_for_user(token.user),
+                metadata={"reason": "second_factor_active"},
+            )
+            failure = InvalidOrExpiredTokenError(
+                "This link no longer signs you in. Sign in with your email address and password."
+            )
         elif not token.user.can_login or token.user.account_type not in MAGIC_LINK_ACCOUNT_TYPES:
             _audit_auth_failure(
                 action="auth.magic_link_failed",
@@ -987,14 +1150,22 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                     f"{_support_email()} for further details.",
                     account_status=str(token.user.status),
                 )
+                # U33-DEC-25: a refused sign-in of a known account is in its history.
+                record_sign_in(
+                    user=token.user,
+                    method=SignInMethod.EMAIL_LINK,
+                    result=SignInResult.BLOCKED,
+                    user_agent=command.user_agent,
+                    ip_address=command.ip_address or "",
+                )
             else:
                 failure = InvalidOrExpiredTokenError("Account cannot log in.")
         else:
             token.used_at = now
-            token.consumed_ip = command.ip_address
+            token.consumed_ip_hash = ip_hash(command.ip_address)
             token.consumed_user_agent = command.user_agent
             token.save(
-                update_fields=["used_at", "consumed_ip", "consumed_user_agent", "updated_at"]
+                update_fields=["used_at", "consumed_ip_hash", "consumed_user_agent", "updated_at"]
             )
             record_audit_event(
                 AuditCommand(
@@ -1011,7 +1182,24 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
     return token.user
 
 
-@transaction.atomic
+def _check_sensitive_code_volume(user: User, now: datetime, ttl: timedelta) -> None:
+    """18.5: at most AUTH_SENSITIVE_CODE_HOURLY_LIMIT / _DAILY_LIMIT codes per account.
+
+    Changed operation details skip the cooldown, so this cap stops a loop of new amounts from
+    sending unlimited emails. Real time from expires_at (created_at follows the QA clock).
+    The caller holds the account's row lock (audit S4-3).
+    """
+    codes = SensitiveActionCode.objects.filter(user=user)
+    for window, limit in (
+        (timedelta(hours=1), settings.AUTH_SENSITIVE_CODE_HOURLY_LIMIT),
+        (timedelta(days=1), settings.AUTH_SENSITIVE_CODE_DAILY_LIMIT),
+    ):
+        if codes.filter(expires_at__gt=now - window + ttl).count() >= limit:
+            raise SensitiveActionCodeThrottleError(
+                "Too many confirmation codes requested. Try again later."
+            )
+
+
 def issue_sensitive_action_code(
     command: SensitiveActionCodeCommand,
 ) -> SensitiveActionCodeIssueResult:
@@ -1029,72 +1217,98 @@ def issue_sensitive_action_code(
     )
     if max_attempts <= 0:
         raise AccountsAuthError("max_attempts must be positive.")
+    fingerprint = ""
+    summary = ""
+    if operation_binding.is_bound_action(command.action):
+        if not command.operation:
+            raise OperationDetailsError("Send the details of the operation with the code request.")
+        try:
+            fingerprint = operation_binding.operation_fingerprint(command.action, command.operation)
+            summary = operation_binding.operation_summary(command.action, command.operation)
+        except operation_binding.OperationBindingError as exc:
+            raise OperationDetailsError(str(exc)) from exc
+    elif command.operation:
+        raise OperationDetailsError("This code is not for an operation.")
 
-    now = timezone.now()
-    cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
-    latest_active = (
-        SensitiveActionCode.objects.filter(
+    # Audit S4-3: the caps, the cooldown, the supersession of the older code and the new code
+    # are one transaction under the account's row lock. Two requests at the same time are
+    # served one after the other: the second one sees the first one's code, so the cooldown and
+    # the caps hold and only one active code per action is left.
+    with transaction.atomic():
+        User.objects.select_for_update().filter(pk=command.user.pk).first()
+        now = timezone.now()
+        _check_sensitive_code_volume(command.user, now, command.ttl)
+        cooldown_seconds = settings.AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS
+        latest_active = (
+            SensitiveActionCode.objects.filter(
+                user=command.user,
+                action=command.action,
+                consumed_at__isnull=True,
+                superseded_at__isnull=True,
+                expires_at__gt=now,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_active is not None:
+            # created_at follows the platform (QA) clock, expires_at real time. Measure the
+            # cooldown in real time: after a QA clock advance the QA-time created_at lies in
+            # the future, and no new code could be sent until the old one expired.
+            elapsed = now - (latest_active.expires_at - command.ttl)
+            # 18.5: changed operation details (a new amount, or a price that moved) need a new
+            # code at once; the cooldown holds only a repeated request for the same details.
+            same_operation = latest_active.operation_fingerprint == fingerprint
+            if same_operation and elapsed < timedelta(seconds=cooldown_seconds):
+                raise SensitiveActionCodeThrottleError(
+                    "Sensitive-action code requested too recently."
+                )
+
+            SensitiveActionCode.objects.filter(
+                user=command.user,
+                action=command.action,
+                consumed_at__isnull=True,
+                superseded_at__isnull=True,
+                expires_at__gt=now,
+            ).update(superseded_at=now)
+
+        raw_code = f"{secrets.randbelow(1_000_000):06d}"
+        code_record = SensitiveActionCode.objects.create(
             user=command.user,
             action=command.action,
-            consumed_at__isnull=True,
-            superseded_at__isnull=True,
-            expires_at__gt=now,
+            code_digest=digest_secret(raw_code),
+            encrypted_code=encrypt_delivery_secret(raw_code),
+            expires_at=now + command.ttl,
+            max_attempts=max_attempts,
+            requested_ip_hash=ip_hash(command.ip_address),
+            requested_user_agent=command.user_agent,
+            operation_fingerprint=fingerprint,
+            operation_summary=summary[:255],
         )
-        .order_by("-created_at")
-        .first()
-    )
-    if latest_active is not None:
-        # created_at follows the platform (QA) clock, expires_at real time. Measure the
-        # cooldown in real time: after a QA clock advance the QA-time created_at lies in
-        # the future, and no new code could be sent until the old one expired.
-        elapsed = now - (latest_active.expires_at - command.ttl)
-        if elapsed < timedelta(seconds=cooldown_seconds):
-            raise SensitiveActionCodeThrottleError("Sensitive-action code requested too recently.")
-
-        SensitiveActionCode.objects.filter(
-            user=command.user,
-            action=command.action,
-            consumed_at__isnull=True,
-            superseded_at__isnull=True,
-            expires_at__gt=now,
-        ).update(superseded_at=now)
-
-    raw_code = f"{secrets.randbelow(1_000_000):06d}"
-    code_record = SensitiveActionCode.objects.create(
-        user=command.user,
-        action=command.action,
-        code_digest=digest_secret(raw_code),
-        encrypted_code=encrypt_delivery_secret(raw_code),
-        expires_at=now + command.ttl,
-        max_attempts=max_attempts,
-        requested_ip=command.ip_address,
-        requested_user_agent=command.user_agent,
-    )
-    outbox_message = enqueue_outbox_message(
-        OutboxCommand(
-            idempotency_key=f"sensitive-action-code:{code_record.id}",
-            topic="email.sensitive_action_code_requested",
-            payload={
-                "user_id": str(command.user.id),
-                "email": command.user.email,
-                "action": command.action,
-                "delivery_secret_type": "sensitive_action_code",
-                "delivery_secret_ref": str(code_record.id),
-                "secret_redacted": True,
-                "expires_at": code_record.expires_at.isoformat(),
-            },
+        outbox_message = enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"sensitive-action-code:{code_record.id}",
+                topic="email.sensitive_action_code_requested",
+                payload={
+                    "user_id": str(command.user.id),
+                    "email": command.user.email,
+                    "action": command.action,
+                    "delivery_secret_type": "sensitive_action_code",
+                    "delivery_secret_ref": str(code_record.id),
+                    "secret_redacted": True,
+                    "expires_at": code_record.expires_at.isoformat(),
+                },
+            )
         )
-    )
-    _dispatch_auth_email_after_commit(outbox_message.id)
-    record_audit_event(
-        AuditCommand(
-            actor=actor_for_user(command.user),
-            action="auth.sensitive_action_code_requested",
-            target_type="User",
-            target_id=str(command.user.id),
-            metadata={"action": command.action},
+        _dispatch_auth_email_after_commit(outbox_message.id)
+        record_audit_event(
+            AuditCommand(
+                actor=actor_for_user(command.user),
+                action="auth.sensitive_action_code_requested",
+                target_type="User",
+                target_id=str(command.user.id),
+                metadata={"action": command.action, "operation_summary": summary},
+            )
         )
-    )
     return SensitiveActionCodeIssueResult(code_record=code_record, raw_code=raw_code)
 
 
@@ -1160,6 +1374,7 @@ def request_phone_verification(
         raise AccountsAuthError("Phone number is required.")
 
     now = timezone.now()
+    lock_account_for_sms(user, now=now)
     cooldown_seconds = settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS
     latest_active = (
         PhoneVerificationChallenge.objects.filter(
@@ -1222,7 +1437,7 @@ def request_phone_verification(
         encrypted_code=encrypted_code,
         expires_at=now + ttl,
         max_attempts=max_attempts,
-        requested_ip=command.ip_address,
+        requested_ip_hash=ip_hash(command.ip_address),
         requested_user_agent=command.user_agent,
     )
     if provider == TWILIO_VERIFY_PROVIDER:
@@ -1345,9 +1560,7 @@ def confirm_phone_verification(
                         user_id=str(challenge.user_id),
                         metadata={"reason": "too_many_attempts", "provider": provider},
                     )
-                    failure = TooManyCodeAttemptsError(
-                        "Phone verification attempt limit exceeded."
-                    )
+                    failure = TooManyCodeAttemptsError("Phone verification attempt limit exceeded.")
                 else:
                     challenge.save(update_fields=["attempts", "provider_reference", "updated_at"])
                     _audit_auth_failure(
@@ -1362,7 +1575,7 @@ def confirm_phone_verification(
                 challenge.attempts += 1
                 challenge.status = PhoneVerificationStatus.VERIFIED
                 challenge.verified_at = now
-                challenge.confirmed_ip = command.ip_address
+                challenge.confirmed_ip_hash = ip_hash(command.ip_address)
                 challenge.confirmed_user_agent = command.user_agent
                 challenge.save(
                     update_fields=[
@@ -1370,7 +1583,7 @@ def confirm_phone_verification(
                         "provider_reference",
                         "status",
                         "verified_at",
-                        "confirmed_ip",
+                        "confirmed_ip_hash",
                         "confirmed_user_agent",
                         "updated_at",
                     ]
@@ -1424,10 +1637,7 @@ def consume_sensitive_action_code(
                 metadata={"reason": "invalid_expired_or_superseded"},
             )
             failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
-        elif (
-            command.expected_user is not None
-            and code_record.user_id != command.expected_user.id
-        ):
+        elif command.expected_user is not None and code_record.user_id != command.expected_user.id:
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(command.expected_user.id),
@@ -1435,10 +1645,7 @@ def consume_sensitive_action_code(
                 metadata={"reason": "user_mismatch"},
             )
             failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
-        elif (
-            command.expected_action is not None
-            and code_record.action != command.expected_action
-        ):
+        elif command.expected_action is not None and code_record.action != command.expected_action:
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(code_record.user_id),
@@ -1472,9 +1679,7 @@ def consume_sensitive_action_code(
                     actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "too_many_attempts"},
                 )
-                failure = TooManyCodeAttemptsError(
-                    "Sensitive-action code attempt limit exceeded."
-                )
+                failure = TooManyCodeAttemptsError("Sensitive-action code attempt limit exceeded.")
             else:
                 _audit_auth_failure(
                     action="auth.sensitive_action_code_failed",
@@ -1482,19 +1687,38 @@ def consume_sensitive_action_code(
                     actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "invalid_code"},
                 )
-                failure = InvalidOrExpiredCodeError(
-                    "Sensitive-action code is invalid or expired."
-                )
+                failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
+        elif operation_binding.is_bound_action(code_record.action) and not (
+            command.expected_operation_fingerprint
+            and code_record.operation_fingerprint
+            and secrets.compare_digest(
+                code_record.operation_fingerprint, command.expected_operation_fingerprint
+            )
+        ):
+            # The right code for other operation details: spend it, so it cannot be tried again.
+            code_record.attempts += 1
+            code_record.superseded_at = now
+            code_record.save(update_fields=["attempts", "superseded_at", "updated_at"])
+            _audit_auth_failure(
+                action="auth.sensitive_action_code_failed",
+                user_id=str(code_record.user_id),
+                actor=actor_for_user(code_record.user),
+                metadata={"action": code_record.action, "reason": "operation_mismatch"},
+            )
+            failure = OperationMismatchError(
+                "This email code was sent for other operation details. Ask for a new code "
+                "and check the details in the email."
+            )
         elif failure is None and command.consume:
             code_record.attempts += 1
             code_record.consumed_at = now
-            code_record.consumed_ip = command.ip_address
+            code_record.consumed_ip_hash = ip_hash(command.ip_address)
             code_record.consumed_user_agent = command.user_agent
             code_record.save(
                 update_fields=[
                     "attempts",
                     "consumed_at",
-                    "consumed_ip",
+                    "consumed_ip_hash",
                     "consumed_user_agent",
                     "updated_at",
                 ]
@@ -1571,9 +1795,7 @@ def bootstrap_env_superadmin() -> BootstrapEnvSuperadminResult:
 
     disabled_ids = []
     for old_user in (
-        User.objects.select_for_update()
-        .filter(is_env_managed_superadmin=True)
-        .exclude(email=email)
+        User.objects.select_for_update().filter(is_env_managed_superadmin=True).exclude(email=email)
     ):
         old_user.is_active = False
         old_user.status = AccountStatus.LOCKED
@@ -1646,11 +1868,13 @@ def create_admin_user(command: CreateAdminUserCommand) -> User:
         is_superuser=False,
         is_active=True,
     )
+    # Audit S4-5: the one password policy (length, common list, breach check), as for investors.
     try:
-        validate_password(command.password, user=user)
-    except DjangoValidationError as exc:
-        raise InvalidPasswordError("; ".join(exc.messages)) from exc
+        validate_new_password(command.password, email=email)
+    except PasswordPolicyError as exc:
+        raise InvalidPasswordError(str(exc)) from exc
     user.set_password(command.password)
+    user.password_changed_at = timezone.now()
     user.save()
     record_audit_event(
         AuditCommand(
@@ -1823,7 +2047,9 @@ def _spend_password_hash_time(password: str) -> None:
     make_password(password)
 
 
-def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
+def check_admin_credentials(command: AdminLoginStartCommand) -> User:
+    """18.5: the first admin sign-in step (password). The second is the authenticator app
+    (accounts_auth.two_factor). Wrong data gets one generic error."""
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
     if user is not None and is_admin_actor(user) and user.has_usable_password():
@@ -1831,7 +2057,16 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
     else:
         _spend_password_hash_time(command.password)
         password_ok = False
-    if user is None or not password_ok:
+    if user is not None and is_admin_actor(user) and not password_ok:
+        # U33-DEC-25: a wrong password of a known admin account is in its sign-in history.
+        record_sign_in(
+            user=user,
+            method=SignInMethod.ADMIN_PASSWORD_APP,
+            result=SignInResult.FAILED,
+            user_agent=command.user_agent,
+            ip_address=command.ip_address or "",
+        )
+    if user is None or not password_ok or not user.can_login:
         _audit_auth_failure(
             action="auth.admin_login_failed",
             user_id=str(user.id) if user is not None else "",
@@ -1839,56 +2074,29 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
             metadata={"reason": "invalid_credentials_or_account"},
         )
         raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
-
-    with transaction.atomic():
-        code_result = issue_sensitive_action_code(
-            SensitiveActionCodeCommand(
-                user=user,
-                action=SensitiveAction.ADMIN_LOGIN,
-                ip_address=command.ip_address,
-                user_agent=command.user_agent,
-            )
-        )
-        record_audit_event(
-            AuditCommand(
-                actor=actor_for_user(user),
-                action="auth.admin_login_password_accepted",
-                target_type="User",
-                target_id=str(user.id),
-            )
-        )
-    return AdminLoginStartResult(code_record=code_result.code_record)
-
-
-def confirm_admin_login(command: AdminLoginConfirmCommand) -> User:
-    code_record = consume_sensitive_action_code(
-        SensitiveActionCodeConsumeCommand(
-            code_id=command.code_id,
-            raw_code=command.raw_code,
-            expected_action=SensitiveAction.ADMIN_LOGIN,
-            ip_address=command.ip_address,
-            user_agent=command.user_agent,
-        )
-    )
-    user = code_record.user
-    if not is_admin_actor(user):
-        _audit_auth_failure(
-            action="auth.admin_login_failed",
-            user_id=str(user.id),
-            actor=actor_for_user(user),
-            metadata={"reason": "account_cannot_login"},
-        )
-        raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
-
     record_audit_event(
         AuditCommand(
             actor=actor_for_user(user),
-            action="auth.admin_login_completed",
+            action="auth.admin_login_password_accepted",
             target_type="User",
             target_id=str(user.id),
         )
     )
     return user
+
+
+def issue_admin_enrollment_code(
+    user: User, *, ip_address: str | None, user_agent: str
+) -> SensitiveActionCode:
+    """The email code an admin needs once, to set up the authenticator app."""
+    return issue_sensitive_action_code(
+        SensitiveActionCodeCommand(
+            user=user,
+            action=SensitiveAction.ADMIN_LOGIN,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+    ).code_record
 
 
 def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:
@@ -1897,6 +2105,22 @@ def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:
 
 def delivery_secret_for_sensitive_action_code(code_record: SensitiveActionCode) -> str:
     return decrypt_delivery_secret(code_record.encrypted_code)
+
+
+SECURITY_LINK_SECRET_TYPES = frozenset(
+    {"password_reset_link", "assisted_recovery_link", "assisted_recovery_dispute_link"}
+)
+
+
+def delivery_secret_for_security_link(secret_type: str, ref: str) -> str:
+    """18.5: the single-use token of a security email link, for the email provider only."""
+    if secret_type in {"password_reset_link", "assisted_recovery_link"}:
+        token = PasswordResetToken.objects.get(id=ref)
+        return decrypt_delivery_secret(token.encrypted_token)
+    if secret_type == "assisted_recovery_dispute_link":
+        case = AssistedRecoveryCase.objects.get(id=ref)
+        return decrypt_delivery_secret(case.encrypted_dispute_token)
+    raise AccountsAuthError("Unknown security link.")
 
 
 def delivery_secret_for_phone_verification(challenge: PhoneVerificationChallenge) -> str:

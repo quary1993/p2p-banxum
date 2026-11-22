@@ -33,6 +33,7 @@ from backend.apps.platform_core.services.settings import (
     seed_default_platform_settings,
     set_platform_setting,
 )
+from backend.apps.platform_core.tests.deposit_accounts import declare_deposit_and_verify_account
 
 
 @pytest.fixture
@@ -128,7 +129,7 @@ def _declare_deposit(
     currency: str = "CHF",
 ) -> Model:
     ledger_services = import_module("backend.apps.ledger.services")
-    result = ledger_services.declare_lender_deposit(
+    result = declare_deposit_and_verify_account(
         ledger_services.DeclareLenderDepositCommand(
             actor=admin_user,
             investor_user_id=str(investor.pk),
@@ -410,7 +411,8 @@ def test_balances_are_self_scoped_and_bucketed(
     assert chf["withdraw_only_minor"] == 0
     assert chf["overdue_minor"] == 3_000_00
     assert chf["penalty_mode_minor"] == 4_000_00
-    assert payload["has_penalty_mode_balance"] is True
+    # U33-DEC-04: no penalty-mode flag; an old penalty-mode lot still shows as such.
+    assert "has_penalty_mode_balance" not in payload
     assert {lot["bucket"] for lot in payload["lots"]} == {
         "investable",
         "overdue",
@@ -419,12 +421,13 @@ def test_balances_are_self_scoped_and_bucketed(
 
 
 @pytest.mark.django_db
-def test_day_58_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_59(
+def test_day_56_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_57(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    # Received 2026-01-14: last day (day 58) 03-13, return 03-14, legal limit 03-15.
+    # 18.4: received 2026-01-14 (day 0): return on day 57 (Thursday 03-12), last day 03-11,
+    # legal limit 03-15.
     _declare_deposit(
         admin_user=admin_user,
         investor=investor,
@@ -433,20 +436,28 @@ def test_day_58_is_the_last_withdraw_only_day_and_the_money_is_due_back_on_day_5
         idempotency_key="portal-deadline-day",
     )
 
-    day_57 = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 12)))
-    last_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 13)))
-    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 14)))
+    early = get_investor_balances(actor=investor, as_of=_at(date(2026, 2, 1)))
+    day_55 = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 10)))
+    last_day = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 11)))
+    day_after = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 12)))
 
-    assert last_day["auto_return_after_days"] == 58
-    assert day_57["lots"][0]["bucket"] == "investable"
+    assert last_day["auto_return_after_days"] == 56
+    assert last_day["return_failures"] == []
+    # F01: a direct loan must pay out by day 56 (03-11) with 3 business days after the close;
+    # a close on Sunday 03-08 pays out on Wednesday 03-11, so Saturday 03-07 still fits.
+    assert early["lots"][0]["direct_funding_until"] == date(2026, 3, 7)
+    assert day_55["lots"][0]["bucket"] == "investable"
+    assert day_55["lots"][0]["direct_funding_until"] is None
     lot = last_day["lots"][0]
     assert (lot["bucket"], lot["days_until_last_day"]) == ("withdraw_only", 0)
-    assert (lot["last_day"], lot["return_date"]) == (date(2026, 3, 13), date(2026, 3, 14))
-    assert lot["days_until_withdrawal_deadline"] == 2
+    assert (lot["last_day"], lot["return_date"]) == (date(2026, 3, 11), date(2026, 3, 12))
+    assert (lot["return_after_days"], lot["return_date_adjusted"]) == (56, False)
+    assert lot["return_failed"] is False
+    assert lot["days_until_withdrawal_deadline"] == 4
     assert lot["requires_withdrawal"] is True
     chf = next(item for item in last_day["summaries"] if item["currency"] == "CHF")
     assert (chf["withdraw_only_minor"], chf["overdue_minor"]) == (1_000_00, 0)
-    assert chf["next_return_date"] == date(2026, 3, 14)
+    assert chf["next_return_date"] == date(2026, 3, 12)
     assert day_after["lots"][0]["bucket"] == "overdue"
     assert day_after["lots"][0]["days_until_last_day"] == -1
     # Money already due back is in overdue_minor; the next return date looks ahead only.
@@ -961,7 +972,9 @@ def test_investor_statement_download_is_self_scoped(
 
     assert artifact["content_type"].startswith("text/csv")
     assert cast(Any, investor).investor_reference in artifact["content"]
-    assert "1500.00" in artifact["content"]
+    # C09 / F15: the investor's format (European by default): ";" columns, "," decimals.
+    assert artifact["content"].startswith("investor;currency;")
+    assert "1500,00" in artifact["content"]
     assert cast(Any, other_investor).investor_reference not in artifact["content"]
     assert "9500.00" not in artifact["content"]
     assert "950000" not in artifact["content"]
@@ -1141,7 +1154,8 @@ def test_notifications_show_human_labels_and_hide_delivery_internals(investor: M
     # A queued notice shows its own subject and content, not a title made from the topic key.
     assert activated["id"] == str(queued.id)
     assert activated["title"] == "BANXUM investment activated: LO Main"
-    assert activated["body"] == "Your CHF 1'000.00 subscription in LO Main is now active."
+    # U33-DEC-32: shown in the investor's number format (European by default).
+    assert activated["body"] == "Your CHF 1.000,00 subscription in LO Main is now active."
     assert activated["topic_label"] == "Investment"
 
 
@@ -1619,7 +1633,7 @@ def test_balance_summary_reports_penalty_charged_apart_from_frozen_balance(
 
 
 @pytest.mark.django_db
-def test_activity_shows_penalty_charges_and_labels_forced_returns(
+def test_activity_labels_forced_returns_and_shows_no_penalty(
     admin_user: Model,
     investor: Model,
     other_investor: Model,
@@ -1662,18 +1676,16 @@ def test_activity_shows_penalty_charges_and_labels_forced_returns(
     assert forced_entry["metadata"]["is_forced"] is True
     assert forced_entry["metadata"]["destination_iban"] == "CH9300762011623852957"
 
+    # U33-DEC-04: after day 60 the other investor's money stays, with no penalty charge.
     _approve_financial_access(other_investor)
     other_entries = get_investor_activity(actor=other_investor, limit=50)["entries"]
-    penalties = [e for e in other_entries if e["activity_type"] == "balance_penalty_charge"]
-    assert len(penalties) == 1
-    assert penalties[0]["direction"] == "out"
-    assert penalties[0]["amount_minor"] == 20_00
-    assert penalties[0]["currency"] == "CHF"
-    assert penalties[0]["metadata"]["balance_lot_id"] == str(penalty_lot.pk)
+    assert not [e for e in other_entries if e["activity_type"] == "balance_penalty_charge"]
+    cast(Any, penalty_lot).refresh_from_db()
+    assert cast(Any, penalty_lot).available_amount_minor > 0
 
 
 @pytest.mark.django_db
-def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_penalty(
+def test_balances_list_pending_withdrawals_with_forced_returns(
     admin_user: Model,
     investor: Model,
     settings: Any,
@@ -1727,7 +1739,7 @@ def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_pen
 
     payload = get_investor_balances(actor=investor)
 
-    assert payload["penalty_bps_per_day"] == 100
+    assert "penalty_bps_per_day" not in payload
     rows = payload["pending_withdrawals"]
     assert [row["id"] for row in rows] == [str(pending.id), str(forced.id)]
     assert rows[0]["amount_minor"] == 150_00
@@ -1741,7 +1753,7 @@ def test_balances_list_pending_withdrawals_with_forced_returns_and_the_daily_pen
     response = client.get("/api/v1/investor/portal/balances/")
     assert response.status_code == 200
     assert response.json()["pending_withdrawals"][1]["is_forced"] is True
-    assert response.json()["penalty_bps_per_day"] == 100
+    assert "penalty_bps_per_day" not in response.json()
 
 
 @pytest.mark.django_db
@@ -1766,3 +1778,30 @@ def test_fx_history_carries_the_daily_limit_and_quote_lock_from_settings(investo
     assert terms["daily_limit_used_chf_minor"] == 0
     assert terms["quote_ttl_seconds"] == 60
     assert terms["platform_fee_bps"] >= 0
+
+
+@pytest.mark.django_db
+def test_bank_cards_show_the_bank_name_from_the_six_master_or_as_typed(
+    admin_user: Model, investor: Model
+) -> None:
+    """18.3: CH and LI names from the SIX bank master; other IBANs as the investor typed them."""
+    _approve_financial_access(investor)
+    master = import_module("backend.apps.platform_core.services.bank_master")
+    master.import_six_bank_master("IID;Name of bank/institution\n4835;Example Bank AG\n")
+    instruction_model = apps.get_model("ledger", "InvestorPayoutInstruction")
+    for currency, iban, metadata in (
+        ("CHF", "CH5604835012345678009", {"bank_name": "Typed name is ignored"}),
+        ("EUR", "DE89370400440532013000", {"bank_name": "Commerzbank"}),
+    ):
+        instruction_model.objects.create(
+            investor_user_id=investor.pk,
+            currency_id=currency,
+            destination_iban=iban,
+            destination_account_name="Investor Name",
+            created_by_admin_id=admin_user.pk,
+            metadata=metadata,
+        )
+    payload = get_investor_balances(actor=investor)
+    names = {row["destination_iban"]: row["bank_name"] for row in payload["payout_instructions"]}
+    assert names["CH5604835012345678009"] == "Example Bank AG"
+    assert names["DE89370400440532013000"] == "Commerzbank"

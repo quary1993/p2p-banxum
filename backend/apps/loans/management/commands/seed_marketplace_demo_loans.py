@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from importlib import import_module
 
 from django.apps import apps
 from django.conf import settings
@@ -18,6 +19,7 @@ from backend.apps.loans.models import (
     RepaymentType,
     RiskRating,
 )
+from backend.apps.loans.security_proofs import seed_verified_securities
 from backend.apps.loans.services import (
     CreateLoanCommand,
     LoansError,
@@ -87,7 +89,7 @@ DEMO_LOAN_SPECS = (
         currency="CHF",
         interest_rate_bps=810,
         term_months=24,
-        repayment_type=RepaymentType.AMORTIZING_PRINCIPAL_INTEREST,
+        repayment_type=RepaymentType.EQUAL_INSTALLMENTS,  # F14: equal principal closed
         interest_only_months=0,
         collateral_type=CollateralType.EQUIPMENT,
         collateral_value_minor=70_000_000,
@@ -172,7 +174,7 @@ DEMO_LOAN_SPECS = (
         currency="EUR",
         interest_rate_bps=780,
         term_months=15,
-        repayment_type=RepaymentType.AMORTIZING_PRINCIPAL_INTEREST,
+        repayment_type=RepaymentType.EQUAL_INSTALLMENTS,  # F14: equal principal closed
         interest_only_months=0,
         collateral_type=CollateralType.RECEIVABLES,
         collateral_value_minor=41_000_000,
@@ -237,6 +239,25 @@ def _format_minor(amount_minor: int) -> str:
 def _format_bps(rate_bps: int) -> str:
     percent, fraction = divmod(rate_bps, 100)
     return f"{percent}.{fraction:02d}%"
+
+
+def _demo_creditor_mode(*, actor: object, borrower: object) -> None:
+    """18.9: a Swiss demo borrower without a mode yet gets the 10/20 mode (no CHF total needed).
+
+    A borrower that already has a mode keeps it. A Swiss borrower without a UID stops the seed at
+    publication with the usual message.
+    """
+    uid = str(getattr(borrower, "uid", "") or "")
+    if not uid:
+        return
+    if apps.get_model("entities", "SwissCreditorRegime").objects.filter(uid=uid).exists():
+        return
+    regimes = import_module("backend.apps.entities.creditor_regime")
+    regimes.set_creditor_mode(
+        regimes.SetCreditorModeCommand(
+            actor=actor, uid=uid, mode="ten_twenty", note="Marketplace demo seed."
+        )
+    )
 
 
 class Command(BaseCommand):
@@ -347,6 +368,10 @@ class Command(BaseCommand):
                             note=marker,
                         )
                     )
+                    _demo_creditor_mode(actor=actor, borrower=borrower)
+                    # Re-audit P-2: new direct loans use the interest engine (18.6); the
+                    # placeholder proofs let the always-on proof rule publish the demo loan.
+                    seed_verified_securities(actor=actor, loan_id=str(loan.pk))
                     loan = publish_loan(
                         PublishLoanCommand(
                             actor=actor,

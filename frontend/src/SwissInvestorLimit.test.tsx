@@ -1,8 +1,9 @@
 // IP of Webby-Soft SRL.
-// Swiss-borrower loans: at most 20 investors (plan/09 MKT-DEC-028, 2026-10-16). The invest
-// page shows the minimum from the API and, for these loans, the places left under the amount;
-// a new investor cannot continue when no place is left, and the server's 409 is shown.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+// Swiss creditor modes (18.9, replaces MKT-DEC-028): a borrower in 10/20 mode has at most 10
+// creditors per financing and 20 in total. Review & sign shows the minimum from the API and the places
+// left under the amount; a new investor cannot continue when no place is left, and the server's 409 is
+// shown. A borrower in sandbox mode has no limit, but the investor confirms a separate notice.
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -14,7 +15,6 @@ import {
   getV1MarketplacePrimaryLoansRetrieveResponseMock,
   getV1MarketplacePrimaryOrdersCreateResponseMock
 } from "./api/generated/banxumApi";
-import { SwissInvestorLimitNote } from "./investorPortal/SwissInvestorLimitNote";
 import { emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
 import { enterPin } from "./test/pin";
 
@@ -27,7 +27,8 @@ beforeAll(async () => {
 });
 
 const LOAN_ID = "33333333-3333-4333-8333-333333333333";
-const FULL = "This loan to a Swiss company already has the maximum of 20 investors.";
+const FULL = "This loan to a Swiss company has no place left for a new creditor (10/20 mode: at most 10 creditors per financing and 20 per borrower).";
+const NOTICE = "Sandbox notice: the borrower is not supervised by FINMA.";
 let calls: RecordedCalls;
 beforeEach(() => {
   calls = emptyCalls("orders", "acceptances", "allocate", "codes");
@@ -48,7 +49,6 @@ function swissLoan(overrides: Record<string, unknown> = {}) {
     underlying_interest_rate_bps: 800,
     term_months: 12,
     remaining_term_days: null,
-    risk_rating: "A",
     funding_deadline: "2026-10-20",
     maturity_date: null,
     status: "published",
@@ -59,11 +59,13 @@ function swissLoan(overrides: Record<string, unknown> = {}) {
     committed_principal_minor: 2_000_000,
     remaining_capacity_minor: 8_000_000,
     fillable_amount_minor: 8_000_000,
-    // 80,000.00 left over 19 places: 4,210.53, rounded up by the server.
-    minimum_investment_minor: 421_100,
-    max_investors: 20,
-    places_left: 19,
+    // 30,000.00 still missing to minimum funding over 9 places: 3,333.34, rounded up by the server.
+    minimum_investment_minor: 333_400,
+    max_investors: 10,
+    places_left: 9,
     is_existing_investor: false,
+    creditor_mode: "ten_twenty",
+    sandbox_notice: null,
     ltv_bps: 5000,
     is_refinancing: false,
     originator_id: null,
@@ -110,18 +112,28 @@ function orderHandlers(loan: Record<string, unknown>, allocate: () => Response) 
   ];
 }
 
-test("the invest page shows the API minimum and the places left of a Swiss-borrower loan", async () => {
+async function applyAmount(amount: string) {
+  const input = await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
+  fireEvent.change(input, { target: { value: amount } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  return input;
+}
+
+test("Review & sign shows the API minimum and the places left of a Swiss-borrower loan", async () => {
   server.use(...investorShellHandlers(calls), ...orderHandlers(swissLoan(), () => HttpResponse.json({})));
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
 
-  const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
-  expect(screen.getByText("Swiss borrower: at most 20 investors. 19 places left.")).toBeInTheDocument();
-  expect(screen.getByText(/Between CHF 4.211\.00 and/)).toBeInTheDocument();
-  fireEvent.change(amountInput, { target: { value: "4000" } });
-  expect(await screen.findByText(/Minimum order is CHF 4.211\.00\./)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
-  fireEvent.change(amountInput, { target: { value: "4211" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled());
+  await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
+  expect(screen.getByText("Swiss borrower (10/20 mode): at most 10 creditors in this financing. 9 places left.")).toBeInTheDocument();
+  expect(screen.getByText(/Minimum CHF 3\.334,00 · CHF 80\.000,00 available in this opportunity/)).toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "Swiss sandbox notice" })).not.toBeInTheDocument();
+  await applyAmount("3000");
+  expect(await screen.findByText("The minimum investment is CHF 3.334,00.")).toBeInTheDocument();
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  await applyAmount("3334");
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm investment" })).toBeEnabled());
 }, 30_000);
 
 test("a full Swiss-borrower loan stops a new investor; the server's 409 message is shown", async () => {
@@ -132,34 +144,30 @@ test("a full Swiss-borrower loan stops a new investor; the server's 409 message 
     )
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
-  expect(screen.getByText("Swiss borrower: at most 20 investors. 1 place left.")).toBeInTheDocument();
-  fireEvent.change(amountInput, { target: { value: "80000" } });
-  fireEvent.click(screen.getByRole("button", { name: "Review order" }));
-  for (const box of await screen.findAllByRole("checkbox")) fireEvent.click(box);
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
-  enterPin();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm order" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Confirm order" }));
+  await applyAmount("80000");
+  expect(screen.getByText("Swiss borrower (10/20 mode): at most 10 creditors in this financing. 1 place left.")).toBeInTheDocument();
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  const dialog = await screen.findByRole("dialog", { name: "Confirm your investment" });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin(undefined, undefined, dialog);
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm and reserve" })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm and reserve" }));
 
-  expect(await screen.findByText(FULL, {}, { timeout: 5000 })).toBeInTheDocument();
+  expect(await within(dialog).findByText(FULL, {}, { timeout: 5000 })).toBeInTheDocument();
   expect(calls.allocate).toHaveLength(1);
 }, 30_000);
 
-test("the note names the full state for a new investor and lets an existing investor add", () => {
-  const { rerender } = render(<SwissInvestorLimitNote loan={{ max_investors: 20, places_left: 0, is_existing_investor: false }} />);
-  expect(screen.getByRole("alert")).toHaveTextContent(FULL);
-
-  rerender(<SwissInvestorLimitNote loan={{ max_investors: 20, places_left: 0, is_existing_investor: true }} />);
+test("an investor who already invests may add to a full Swiss-borrower loan", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    ...orderHandlers(swissLoan({ places_left: 0, is_existing_investor: true, minimum_investment_minor: 100_000 }), () => HttpResponse.json({}))
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  expect(
-    screen.getByText("Swiss borrower: at most 20 investors. No places left for new investors. You already invest in this loan, so you can add to it.")
-  ).toBeInTheDocument();
-
-  rerender(<SwissInvestorLimitNote loan={{ max_investors: null, places_left: null, is_existing_investor: null }} />);
-  expect(screen.queryByText(/Swiss borrower/)).not.toBeInTheDocument();
-});
+  expect(screen.getByText("Swiss borrower (10/20 mode): at most 10 creditors in this financing. You already invest in this loan, so you can add to it.")).toBeInTheDocument();
+}, 30_000);
 
 test("a new investor cannot continue on a Swiss-borrower loan with no place left", async () => {
   server.use(
@@ -167,9 +175,83 @@ test("a new investor cannot continue on a Swiss-borrower loan with no place left
     ...orderHandlers(swissLoan({ places_left: 0, minimum_investment_minor: 100_000 }), () => HttpResponse.json({}))
   );
   renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
-  const amountInput = await screen.findByRole("textbox", { name: "Investment amount" }, { timeout: 5000 });
+  await screen.findByRole("textbox", { name: "Your investment amount" }, { timeout: 5000 });
   expect(screen.getByRole("alert")).toHaveTextContent(FULL);
-  fireEvent.change(amountInput, { target: { value: "5000" } });
-  expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
+  await applyAmount("5000");
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
   expect(calls.orders).toHaveLength(0);
+
+  // The opportunity page says the same and keeps the amount step closed.
+  window.history.pushState({}, "", `/marketplace/${LOAN_ID}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  await waitFor(() => expect(screen.getByText(FULL)).toBeInTheDocument(), { timeout: 5000 });
+  expect(screen.getByRole("button", { name: /Review investment/ })).toBeDisabled();
+}, 30_000);
+
+test("a sandbox borrower has no places line; the separate notice must be confirmed and its version is sent", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    ...orderHandlers(
+      swissLoan({
+        creditor_mode: "sandbox",
+        max_investors: null,
+        places_left: null,
+        minimum_investment_minor: 100_000,
+        sandbox_notice: { text: NOTICE, version: "notice-v1" }
+      }),
+      () =>
+        HttpResponse.json({
+          ...getV1MarketplacePrimaryOrdersCreateResponseMock(),
+          id: "order-1",
+          status: "allocated",
+          requested_amount_minor: 500_000,
+          allocated_amount_minor: 500_000,
+          closed_reason: ""
+        })
+    )
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("5000");
+  expect(screen.queryByText(/10\/20 mode/)).not.toBeInTheDocument();
+  const notice = screen.getByRole("group", { name: "Swiss sandbox notice" });
+  expect(within(notice).getByText(NOTICE)).toBeInTheDocument();
+  const noticeBox = within(notice).getByRole("checkbox");
+  for (const box of screen.getAllByRole("checkbox")) if (box !== noticeBox) fireEvent.click(box);
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  fireEvent.click(noticeBox);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm investment" })).toBeEnabled());
+
+  fireEvent.click(screen.getByRole("button", { name: "Confirm investment" }));
+  const dialog = await screen.findByRole("dialog", { name: "Confirm your investment" });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Email confirmation code" }), { target: { value: "123456" } });
+  enterPin(undefined, undefined, dialog);
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Confirm and reserve" })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm and reserve" }));
+  await waitFor(() => expect(calls.allocate).toHaveLength(1), { timeout: 5000 });
+  expect(calls.allocate[0]).toMatchObject({ sandbox_notice_confirmed: true, sandbox_notice_version: "notice-v1" });
+}, 30_000);
+
+test("18.10: a compliance review in progress pauses the investment with a link to the declarations", async () => {
+  server.use(
+    ...investorShellHandlers(calls),
+    ...orderHandlers(swissLoan(), () => HttpResponse.json({})),
+    http.get("*/api/v1/kyc/declarations/", () =>
+      HttpResponse.json({
+        declaration: null,
+        review_open: true,
+        review_status: "open",
+        review_message: "",
+        reverification_due_date: null,
+        investment_block: "compliance_review_open",
+        investment_block_message: "Our compliance team is reviewing your declarations."
+      })
+    )
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("5000");
+  for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box);
+  expect(await screen.findByText("Our compliance team is reviewing your declarations.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See your declarations" })).toHaveAttribute("href", "/settings/declarations");
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
 }, 30_000);

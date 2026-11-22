@@ -14,7 +14,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Model, Sum
+from django.db.models import F, Max, Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -94,11 +94,17 @@ class SecondaryMarketSwissInvestorLimitError(SecondaryMarketValidationError):
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
-# Owner decision 2026-10-16 (row 4): a sale price is par or a discount, never a premium.
+# U33-DEC-06: the principal price is 0-102% of the outstanding principal (discount allowed,
+# premium at most 2%); accrued interest is added separately.
 PAR_PRICE_BPS = 10_000
-SALE_PRICE_ABOVE_PAR_MESSAGE = "The sale price can be at most 100% (par)."
-# Owner decision 2026-10-16 (rows 2 and 3): seller fee 2% of the price, no buyer fee.
-# The platform settings hold the live values; these are the code defaults.
+MAX_PRICE_BPS = 10_200
+SALE_PRICE_ABOVE_PAR_MESSAGE = "The sale price can be at most 102% of the outstanding principal."
+ZERO_TOTAL_SALE_MESSAGE = (
+    "Nothing would be paid for this sale: at 0% there is no accrued interest to pay today. "
+    "Choose a price above 0%."
+)
+# U33-DEC-07: seller fee = min(2% x principal price, 2% x outstanding principal); no fee on
+# accrued interest and no buyer fee. The platform settings hold the live rates.
 DEFAULT_MAKER_FEE_BPS = 200
 DEFAULT_TAKER_FEE_BPS = 0
 LISTING_CONTEXT_TYPE = "secondary_market_listing"
@@ -307,17 +313,16 @@ def _assert_transfer_within_investor_limit(
     seller_user_id: str,
     holding_id: str,
 ) -> None:
-    """A whole-holding purchase by a new investor must not raise a Swiss-borrower loan's
-    investor count above its limit (plan/09 MKT-DEC-028).
+    """A whole-holding purchase by a new creditor must not raise the creditor counts of a Swiss
+    borrower in 10/20 mode above the limits (18.9: 10 per financing, 20 per borrower).
 
-    The buyer takes the seller's place when this is the seller's last holding of the
-    loan; otherwise the buyer needs a free place. The authoritative check runs under the
-    loan lock.
+    The buyer takes the seller's place in the financing when this is the seller's last holding
+    of the loan, and in the borrower count when the seller also has no holding in another
+    financing of the borrower; otherwise the buyer needs a free place. The authoritative check
+    runs under the loan lock and the borrower's regime lock.
     """
-    limit = cast(
-        InvestorLimit,
-        import_module("backend.apps.marketplace_primary.investor_limit").loan_investor_limit(loan),
-    )
+    selectors = import_module("backend.apps.marketplace_primary.investor_limit")
+    limit = cast(InvestorLimit, selectors.loan_investor_limit(loan))
     if not limit.applies or limit.is_investor(buyer_user_id):
         return
     seller_stays_investor = (
@@ -327,9 +332,13 @@ def _assert_transfer_within_investor_limit(
         .exclude(id=holding_id)
         .exists()
     )
+    seller_stays_borrower_creditor = seller_stays_investor or bool(
+        selectors.is_creditor_in_other_financings(loan, seller_user_id)
+    )
     if limit.transfer_refused(
         buyer_user_id=buyer_user_id,
         seller_stays_investor=seller_stays_investor,
+        seller_stays_borrower_creditor=seller_stays_borrower_creditor,
     ):
         raise SecondaryMarketSwissInvestorLimitError(
             swiss_investor_limit_message(int(limit.max_investors or 0))
@@ -343,17 +352,50 @@ def _is_originator_claim_loan(loan: Model) -> bool:
 def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
     """Every listing sells at par or a discount, Direct and Loan Originator alike.
 
-    Repeated at purchase, so a listing priced above par before the rule (migration 0011
-    cancelled those) can never settle.
+    Repeated at purchase. U33-DEC-06 allows up to 102% of the outstanding principal.
     """
-    if price_bps > PAR_PRICE_BPS:
+    if price_bps > MAX_PRICE_BPS:
         raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
+
+
+# C03 (Vlad, 2026-11-17): from the due date of an unpaid installment until the payment is
+# recorded, the loan is closed to new buyers. Listings stay open but leave the market (the
+# seller sees them as "Pending"); they return when the payment is recorded.
+DUE_INSTALLMENT_LISTING_MESSAGE = (
+    "An installment of this loan is due and not yet paid. "
+    "You can list it after the payment is recorded."
+)
+DUE_INSTALLMENT_PURCHASE_MESSAGE = (
+    "This listing is paused while an installment of the loan is due and not yet paid."
+)
+
+
+def loan_ids_closed_to_new_buyers(*, loans: list[Model], as_of_date: date) -> set[str]:
+    """Loans with an installment due on or before ``as_of_date`` and not yet paid (C03)."""
+    direct = [loan for loan in loans if not _is_originator_claim_loan(loan)]
+    originator = [loan for loan in loans if _is_originator_claim_loan(loan)]
+    closed: set[str] = set()
+    if direct:
+        closed |= _servicing_services().loan_ids_with_due_unpaid_installment(
+            loans=direct, as_of_date=as_of_date
+        )
+    if originator:
+        closed |= _originator_services().originator_loan_ids_with_due_unpaid_installment(
+            loans=originator, as_of_date=as_of_date
+        )
+    return closed
+
+
+def _loan_closed_to_new_buyers(loan: Model) -> bool:
+    return bool(loan_ids_closed_to_new_buyers(loans=[loan], as_of_date=business_date(now_utc())))
 
 
 def _require_listable_loan_status(loan: Model) -> str:
     """Only holdings of performing (``active``) loans can be listed, edited or bought."""
     loan_status = str(cast(Any, loan).status)
     if loan_status == PERFORMING_LOAN_STATUS:
+        if _loan_closed_to_new_buyers(loan):
+            raise SecondaryMarketValidationError(DUE_INSTALLMENT_LISTING_MESSAGE)
         return loan_status
     if _is_originator_claim_loan(loan):
         raise SecondaryMarketValidationError(LATE_OR_DEFAULTED_ORIGINATOR_LISTING_MESSAGE)
@@ -363,9 +405,11 @@ def _require_listable_loan_status(loan: Model) -> str:
 
 
 def _require_purchasable_loan_status(loan: Model) -> None:
-    """A listing can be bought only while its loan performs (rule C18)."""
+    """A listing can be bought only while its loan performs (rule C18) and no installment is due."""
     loan_status = str(cast(Any, loan).status)
     if loan_status == PERFORMING_LOAN_STATUS:
+        if _loan_closed_to_new_buyers(loan):
+            raise SecondaryMarketValidationError(DUE_INSTALLMENT_PURCHASE_MESSAGE)
         return
     if loan_status in NON_PERFORMING_LOAN_STATUSES:
         raise SecondaryMarketValidationError(
@@ -468,6 +512,25 @@ def _minimum_fee_minor(setting_key: str, currency_code: str) -> int:
 def _fee_minor(transfer_price_minor: int, fee_bps: int, minimum_fee_minor: int) -> int:
     calculated = _round_minor(Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000))
     return max(calculated, minimum_fee_minor)
+
+
+def _seller_fee_minor(
+    *,
+    transfer_price_minor: int,
+    current_principal_minor: int,
+    fee_bps: int,
+    minimum_fee_minor: int,
+) -> int:
+    """U33-DEC-07: min(rate x principal price, rate x outstanding principal).
+
+    The minimum is the one an older listing accepted (MKT-DEC-017); new and edited listings
+    store 0, so a principal price of zero has no fee.
+    """
+    on_price = _round_minor(Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000))
+    on_principal = _round_minor(
+        Decimal(current_principal_minor) * Decimal(fee_bps) / Decimal(10_000)
+    )
+    return max(min(on_price, on_principal), minimum_fee_minor)
 
 
 def _transfer_price_minor(current_principal_minor: int, price_bps: int) -> int:
@@ -745,15 +808,14 @@ def _pricing_snapshot(
         "Current holding principal",
     )
     transfer_price_minor = _transfer_price_minor(current_principal_minor, price_bps)
-    _validate_money(transfer_price_minor, currency_code, "Transfer price")
+    if transfer_price_minor < 0:
+        raise SecondaryMarketValidationError("Transfer price cannot be negative.")
     if listing_maker_fee is None:
         maker_fee_bps = _platform_int_setting(
             "secondary_market.maker_fee_bps", DEFAULT_MAKER_FEE_BPS
         )
-        minimum_maker_fee_minor = _minimum_fee_minor(
-            "secondary_market.minimum_maker_fee_minor_by_currency",
-            currency_code,
-        )
+        # U33-DEC-07 has no minimum seller fee: a principal price of zero has no fee.
+        minimum_maker_fee_minor = 0
     else:
         # A sale charges the seller fee the seller accepted for the listing (MKT-DEC-017).
         maker_fee_bps, minimum_maker_fee_minor = listing_maker_fee
@@ -762,7 +824,12 @@ def _pricing_snapshot(
         "secondary_market.minimum_taker_fee_minor_by_currency",
         currency_code,
     )
-    maker_fee_minor = _fee_minor(transfer_price_minor, maker_fee_bps, minimum_maker_fee_minor)
+    maker_fee_minor = _seller_fee_minor(
+        transfer_price_minor=transfer_price_minor,
+        current_principal_minor=current_principal_minor,
+        fee_bps=maker_fee_bps,
+        minimum_fee_minor=minimum_maker_fee_minor,
+    )
     taker_fee_minor = _fee_minor(transfer_price_minor, taker_fee_bps, minimum_taker_fee_minor)
     default_last_payment_date = (
         _originator_last_payment_date(str(loan_ref.id))
@@ -789,6 +856,8 @@ def _pricing_snapshot(
     if seller_net < 0:
         raise SecondaryMarketValidationError("Seller fee exceeds listing proceeds.")
     buyer_total = transfer_price_minor + accrued_interest_minor + taker_fee_minor
+    if buyer_total <= 0:
+        raise SecondaryMarketValidationError(ZERO_TOTAL_SALE_MESSAGE)
     status = str(loan_ref.status)
     return SecondaryMarketListingPricing(
         current_principal_minor=current_principal_minor,
@@ -876,12 +945,12 @@ def _apply_current_buyer_pricing(
 
 
 def _validate_listing_price_bps(price_bps: int) -> int:
-    """More than 0% and at most 100% (par) of the current principal."""
+    """0% to 102% of the current principal (U33-DEC-06)."""
     if type(price_bps) is not int:
         raise SecondaryMarketValidationError("Sale price percentage must be an integer bps value.")
-    if price_bps <= 0:
-        raise SecondaryMarketValidationError("Sale price percentage must be positive.")
-    if price_bps > PAR_PRICE_BPS:
+    if price_bps < 0:
+        raise SecondaryMarketValidationError("Sale price percentage cannot be negative.")
+    if price_bps > MAX_PRICE_BPS:
         raise SecondaryMarketValidationError(SALE_PRICE_ABOVE_PAR_MESSAGE)
     return price_bps
 
@@ -1106,13 +1175,17 @@ def purchase_terms_acceptance_snapshot(
 def _validate_expected_purchase_values(command: PurchaseSecondaryMarketListingCommand) -> None:
     for value, label in (
         (command.expected_buyer_total_cost_minor, "Expected buyer total cost"),
-        (command.expected_price_bps, "Expected sale price"),
         (command.expected_current_principal_minor, "Expected principal"),
     ):
         if type(value) is not int or value <= 0:
             raise SecondaryMarketValidationError(
                 f"{label} must be the positive amount shown in the purchase review."
             )
+    # U33-DEC-06: a principal price of 0% is allowed (the buyer pays the accrued interest).
+    if type(command.expected_price_bps) is not int or command.expected_price_bps < 0:
+        raise SecondaryMarketValidationError(
+            "Expected sale price must be the amount shown in the purchase review."
+        )
 
 
 def _require_reviewed_purchase_economics(
@@ -1702,13 +1775,6 @@ def _record_audit_and_domain(
     )
 
 
-def _require_not_in_penalty_mode(actor: Model, action: str) -> None:
-    """PAY-DEC-022: a penalty-mode investor cannot start new financial actions."""
-    ledger = _ledger_services()
-    if ledger.investor_has_penalty_mode_balance(str(actor.pk)):
-        raise SecondaryMarketValidationError(ledger.penalty_mode_frozen_message(action))
-
-
 def _open_listing_exists_for_holding(holding_id: str) -> bool:
     return SecondaryMarketListing.objects.filter(
         holding_id=cast(Any, holding_id),
@@ -1774,7 +1840,6 @@ def create_secondary_market_listing(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
@@ -1790,6 +1855,7 @@ def create_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"holding_id": command.holding_id, "price_bps": command.price_bps},
             )
         )
     except SensitiveActionPinError:
@@ -1857,7 +1923,6 @@ def _create_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Listing a holding for sale")
     if _open_listing_exists_for_holding(str(holding_ref.id)):
         raise SecondaryMarketValidationError(
             "Holding already has an open secondary-market listing."
@@ -1997,7 +2062,6 @@ def edit_secondary_market_listing(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     listing = (
         SecondaryMarketListing.objects.select_related("holding")
         .filter(id=command.listing_id, seller_user_id=command.actor.pk)
@@ -2031,6 +2095,7 @@ def edit_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={"listing_id": command.listing_id, "price_bps": command.price_bps},
             )
         )
     except SensitiveActionPinError:
@@ -2060,7 +2125,6 @@ def _edit_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
-    _require_not_in_penalty_mode(command.actor, "Changing a listing")
     locator = (
         SecondaryMarketListing.objects.filter(
             id=command.listing_id,
@@ -2708,6 +2772,11 @@ def purchase_secondary_market_listing(
     command: PurchaseSecondaryMarketListingCommand,
 ) -> SecondaryMarketPurchase:
     _require_investor_financial_access(command.actor)
+    # 18.10: declarations missing, a necessary review open or re-verification overdue.
+    _compliance: Any = import_module("backend.apps.kyc_compliance.declarations")
+    _block = _compliance.investment_block(command.actor)
+    if _block is not None:
+        raise SecondaryMarketValidationError(_compliance.BLOCK_MESSAGES[_block])
     buyer_user_id = str(command.actor.pk)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     _validate_expected_purchase_values(command)
@@ -2845,6 +2914,11 @@ def purchase_secondary_market_listing(
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": command.expected_buyer_total_cost_minor,
+                    "currency": str(listing.currency_id),
+                    "listing_id": str(listing.id),
+                },
             )
         )
     except SensitiveActionPinError:
@@ -2945,7 +3019,27 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError(
             "Buyer must acknowledge the non-standard listing risk disclosure."
         )
-    # The loan row is locked: two new investors cannot both take the last place.
+    # The loan row is locked, and (18.9) the borrower's regime row: two new creditors of one
+    # UID cannot both take the last place.
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.lock_borrower(loan)
+    except regimes.CreditorRegimeViolation as exc:
+        # Audit S6-5: a Swiss loan without a valid UID cannot change creditors.
+        raise SecondaryMarketValidationError(str(exc)) from exc
+    # Audit S7-2: the buyer's compliance block again, under the investor row lock.
+    compliance_locked: Any = import_module("backend.apps.kyc_compliance.declarations")
+    try:
+        compliance_locked.assert_can_invest_locked(command.actor)
+    except compliance_locked.InvestmentComplianceBlock as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
+    # Audit S7-4: no resale purchase while a security of a verified loan needs a new
+    # verification (the loan row is locked above).
+    proofs: Any = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_investment_allowed(loan)
+    except proofs.SecurityProofError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
     _assert_transfer_within_investor_limit(
         loan=loan,
         buyer_user_id=buyer_user_id,
@@ -3293,19 +3387,38 @@ def list_active_secondary_market_listings(
 ) -> list[SecondaryMarketListing]:
     _require_investor_financial_access(actor)
     safe_limit = min(max(int(limit), 1), 250)
-    listings = list(
-        SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
-        .filter(
-            status=SecondaryMarketListingStatus.ACTIVE,
-            loan__status=F("loan_status_at_listing"),
-        )
+    offered = SecondaryMarketListing.objects.filter(
+        status=SecondaryMarketListingStatus.ACTIVE,
+        loan__status=F("loan_status_at_listing"),
+    ).filter(
         # Rule C18: only performing loans are offered, Direct and Loan Originator alike.
-        .filter(loan__status=PERFORMING_LOAN_STATUS)
+        loan__status=PERFORMING_LOAN_STATUS
+    )
+    # Audit S2-4: C03 is applied before the limit, so hidden listings do not use up the page.
+    as_of_date = business_date(now_utc())
+    loan_model = SecondaryMarketListing._meta.get_field("loan").related_model
+    closed_loan_ids = loan_ids_closed_to_new_buyers(
+        loans=list(
+            cast(Any, loan_model).objects.filter(pk__in=offered.values("loan_id").distinct())
+        ),
+        as_of_date=as_of_date,
+    )
+    listings = list(
+        offered.select_related(
+            "holding",
+            "loan",
+            "loan__borrower",
+            "loan__originator_profile__originator",
+            "currency",
+        )
+        # C03: other sellers' listings of a loan with a due installment leave the market.
+        .exclude(Q(loan_id__in=list(closed_loan_ids)) & ~Q(seller_user_id=actor.pk))
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
     for listing in listings:
         # The viewer's own listing is shown as "Your listing", without a Buy action.
         listing.is_own_listing = str(listing.seller_user_id) == str(actor.pk)  # type: ignore[attr-defined]
+        listing.paused_for_due_installment = str(listing.loan_id) in closed_loan_ids  # type: ignore[attr-defined]
     if not listings:
         return listings
 
@@ -3313,7 +3426,6 @@ def list_active_secondary_market_listings(
         listing for listing in listings if not _is_originator_claim_loan(cast(Model, listing.loan))
     ]
     loans_by_id = {str(listing.loan_id): cast(Model, listing.loan) for listing in direct_listings}
-    as_of_date = business_date(now_utc())
     schedule_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
         loans=list(loans_by_id.values()),
         as_of_date=as_of_date,
@@ -3339,6 +3451,7 @@ def list_active_secondary_market_listings(
                 as_of_date=as_of_date,
             )
             profile = cast(Any, listing.loan).originator_profile
+            listing.maturity_date = profile.maturity_date  # type: ignore[attr-defined]
             listing.remaining_term_months = max(  # type: ignore[attr-defined]
                 1,
                 ((profile.maturity_date - as_of_date).days + 29) // 30,
@@ -3367,6 +3480,9 @@ def list_active_secondary_market_listings(
         listing.remaining_term_months = sum(  # type: ignore[attr-defined]
             1 for row in schedule if row.row_type == "scheduled_installment" and not row.is_paid
         )
+        listing.maturity_date = _schedule_maturity_date(  # type: ignore[attr-defined]
+            schedule, listing.loan
+        )
         direct_projection = _direct_holding_projection(
             holding=cast(Model, listing.holding),
             loan_schedule=schedule,
@@ -3377,6 +3493,27 @@ def list_active_secondary_market_listings(
             pricing_date=as_of_date,
         )
     return listings
+
+
+def _schedule_maturity_date(schedule: Any, loan: Any = None) -> date | None:
+    """18.3: the last due date of the scheduled installments (the loan's maturity).
+
+    Without installments yet, the loan's start date plus its term in months.
+    """
+    dates: list[date] = []
+    for row in schedule or []:
+        row_type = row.get("row_type") if isinstance(row, dict) else getattr(row, "row_type", "")
+        due = row.get("due_date") if isinstance(row, dict) else getattr(row, "due_date", None)
+        if row_type in {"scheduled_installment", "originator_schedule"} and isinstance(due, date):
+            dates.append(due)
+    if dates:
+        return max(dates)
+    start = getattr(loan, "loan_start_date", None)
+    term = getattr(loan, "term_months", None)
+    if isinstance(start, date) and isinstance(term, int) and term > 0:
+        schedules = import_module("backend.apps.loans.domain.schedules")
+        return cast(date, schedules.add_months(start, term))
+    return None
 
 
 def get_active_secondary_market_listing_detail(
@@ -3410,6 +3547,13 @@ def get_active_secondary_market_listing_detail(
     holding = cast(Model, listing.holding)
     as_of = now_utc()
     as_of_date = business_date(as_of)
+    is_own_listing = str(listing.seller_user_id) == str(actor.pk)
+    paused_for_due_installment = bool(
+        loan_ids_closed_to_new_buyers(loans=[cast(Model, loan)], as_of_date=as_of_date)
+    )
+    # C03: only the seller still opens a listing paused for a due installment.
+    if paused_for_due_installment and not is_own_listing:
+        raise SecondaryMarketValidationError("Secondary-market listing is not available.")
     is_originator = _is_originator_claim_loan(cast(Model, loan))
     originator_loan_payload: dict[str, Any] | None = None
     if is_originator:
@@ -3474,7 +3618,8 @@ def get_active_secondary_market_listing_detail(
         "loan_id": str(listing.loan_id),
         "loan_title": str(loan.title),
         "product_type": str(getattr(loan, "product_type", "direct")),
-        "is_own_listing": str(listing.seller_user_id) == str(actor.pk),
+        "is_own_listing": is_own_listing,
+        "paused_for_due_installment": paused_for_due_installment,
         "status": str(listing.status),
         "current_principal_minor": current_pricing.current_principal_minor,
         "currency": str(listing.currency_id),
@@ -3516,7 +3661,6 @@ def get_active_secondary_market_listing_detail(
         ),
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
-        "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "yield_bps": projected_yield_bps,
         "projected_yield_bps": projected_yield_bps,
@@ -3541,7 +3685,7 @@ def get_active_secondary_market_listing_detail(
         "maturity_date": (
             originator_loan_payload["maturity_date"]
             if originator_loan_payload is not None
-            else None
+            else _schedule_maturity_date(loan_schedule, loan)
         ),
         "schedule_version": (
             int(originator_loan_payload["schedule_version"])

@@ -1120,6 +1120,11 @@ def execute_fx_quote(command: ExecuteFxQuoteCommand) -> FxExchange:
                 pin=command.pin,
                 ip_address=command.ip_address,
                 user_agent=command.user_agent,
+                operation={
+                    "amount_minor": int(quote.source_amount_minor),
+                    "source_currency": str(quote.source_currency_id),
+                    "target_currency": str(quote.target_currency_id),
+                },
             )
         )
     except SensitiveActionPinError:

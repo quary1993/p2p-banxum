@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from importlib import import_module
 from typing import Any, cast
 
@@ -9,6 +10,7 @@ from django.apps import apps
 from django.db import transaction
 from django.db.models import Model
 
+from backend.apps.loans import securities as loan_securities
 from backend.apps.loans.domain.schedules import (
     ManualScheduleRow,
     ScheduleGenerationError,
@@ -22,6 +24,7 @@ from backend.apps.loans.domain.schedules import (
 )
 from backend.apps.loans.models import (
     CollateralType,
+    InterestConvention,
     Loan,
     LoanEvent,
     LoanEventType,
@@ -29,9 +32,11 @@ from backend.apps.loans.models import (
     LoanProductType,
     LoanPurpose,
     LoanStatus,
+    PaymentFrequency,
     RepaymentType,
     RiskRating,
 )
+from backend.apps.platform_core.domain import interest_engine
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.funding import (
     DEFAULT_FUNDING_PERIOD_DAYS,
@@ -44,6 +49,7 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.settlement_calendar import settlement_calendar
 
 
 class LoansError(ValueError):
@@ -66,6 +72,9 @@ MAX_FUNDING_DEADLINE_DAYS = MAX_FUNDING_PERIOD_DAYS - 1
 MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS = MAX_FUNDING_DEADLINE_DAYS
 DEFAULT_FUNDING_DEADLINE_DAYS = DEFAULT_FUNDING_PERIOD_DAYS - 1
 MAX_RATE_BPS = 100_000
+# 18.6: grace in business days per project (input default 0) and the daily penalty X (% per day).
+MAX_GRACE_BUSINESS_DAYS = 30
+MAX_PENALTY_DAILY_RATE_PERCENT = Decimal("1")
 MAX_FEE_BPS = 10_000
 
 
@@ -110,6 +119,16 @@ class CreateLoanCommand:
     minimum_subscription_bps: int = 5_000
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     note: str = ""
+    # 18.6 (audit S5-7): every new direct loan uses the Actual/365 Fixed engine (None = the
+    # engine). The earlier monthly schedule is only for a contract signed before the engine
+    # (``pre_cutover_contract_signed_on`` before ENGINE_CUTOVER_DATE); the admin API never
+    # creates one.
+    interest_convention: str | None = None
+    pre_cutover_contract_signed_on: date | None = None
+    payment_frequency: str = PaymentFrequency.MONTHLY
+    grace_business_days: int = 0
+    penalty_daily_rate_percent: Decimal = Decimal("0")
+    penalty_investor_share_bps: int = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +166,10 @@ class UpdateLoanCommand:
     investor_message: str = ""
     note: str = ""
     funding_close_adjustment: bool = False
+    payment_frequency: str | None = None
+    grace_business_days: int | None = None
+    penalty_daily_rate_percent: Decimal | None = None
+    penalty_investor_share_bps: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,8 +217,43 @@ def _collateral_type(value: str) -> CollateralType:
     return cast(CollateralType, _text_choice(CollateralType, value, "collateral type"))
 
 
+UNSECURED_LOAN_MESSAGE = (
+    "Every loan needs collateral or guarantees (U33-DEC-38). Choose the collateral or "
+    "guarantee of the loan; an unsecured loan cannot be offered."
+)
+
+
+def _eligible_collateral_type(value: str, *, current: str | None = None) -> CollateralType:
+    """U33-DEC-38: no unsecured exception for a new loan or a draft. Q15: no new "Invoices"
+    security (a record that has it keeps it)."""
+    collateral_type = _collateral_type(value)
+    if collateral_type == CollateralType.UNSECURED_EXCEPTION:
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
+    if collateral_type == CollateralType.INVOICES and current != CollateralType.INVOICES:
+        raise LoanValidationError(
+            "Invoices are closed for new securities: record the pledged claim as Receivables "
+            "and attach the invoice as a document."
+        )
+    return collateral_type
+
+
 def _repayment_type(value: str) -> RepaymentType:
     return cast(RepaymentType, _text_choice(RepaymentType, value, "repayment type"))
+
+
+def _eligible_repayment_type(value: str, *, current: str | None = None) -> RepaymentType:
+    """F14 (2026-11-16): the equal-principal type ("Amortizing principal and interest") is closed
+    for new direct loans; a loan that already has it keeps it (imported contracts too)."""
+    repayment = _repayment_type(value)
+    if (
+        repayment == RepaymentType.AMORTIZING_PRINCIPAL_INTEREST
+        and current != RepaymentType.AMORTIZING_PRINCIPAL_INTEREST
+    ):
+        raise LoanValidationError(
+            "Equal principal repayments are closed for new loans: use equal installments "
+            "(principal and interest) or interest with the principal at the end."
+        )
+    return repayment
 
 
 def _risk_rating(value: str) -> RiskRating:
@@ -257,6 +315,53 @@ def _validate_interest_only_months_for_repayment(
     return interest_only_months
 
 
+def _validate_penalty_rate(value: object) -> Decimal:
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise LoanValidationError("Penalty X must be a percentage per day.") from exc
+    if not rate.is_finite() or rate < 0 or rate > MAX_PENALTY_DAILY_RATE_PERCENT:
+        raise LoanValidationError("Penalty X must be between 0% and 1% per day.")
+    if rate != rate.quantize(Decimal("0.0001")):
+        raise LoanValidationError("Penalty X can have at most 4 decimals.")
+    return rate
+
+
+def _validate_penalty_share(value: int) -> int:
+    if type(value) is not int or not 0 <= value <= 10_000:
+        raise LoanValidationError("The investors' share of penalty X must be between 0% and 100%.")
+    return value
+
+
+def _validate_frequency(value: str) -> str:
+    return str(_text_choice(PaymentFrequency, value, "payment frequency"))
+
+
+def _validate_convention(value: str) -> str:
+    return str(_text_choice(InterestConvention, value, "interest convention"))
+
+
+# Audit S5-7: the 18.6 engine applies to every direct loan created from this day on. Loans that
+# existed then kept the earlier monthly schedule (migration loans 0029).
+ENGINE_CUTOVER_DATE = date(2026, 11, 19)
+
+
+def _resolve_interest_convention(command: CreateLoanCommand) -> str:
+    """The convention of a new loan: the engine, unless the loan records a contract signed
+    before the engine existed (an import of a real earlier contract)."""
+    if not command.interest_convention:
+        return str(InterestConvention.ACT_365_FIXED)
+    convention = _validate_convention(command.interest_convention)
+    if convention == InterestConvention.LEGACY_MONTHLY:
+        signed_on = command.pre_cutover_contract_signed_on
+        if signed_on is None or signed_on >= ENGINE_CUTOVER_DATE:
+            raise LoanValidationError(
+                "New loans use the Actual/365 Fixed interest engine. The earlier monthly schedule "
+                "is only for a contract signed before 19 November 2026; give its signing date."
+            )
+    return convention
+
+
 def _validate_rate_bps(value: int, label: str, *, allow_zero: bool = False) -> int:
     if type(value) is not int:
         raise LoanValidationError(f"{label} must be an integer bps value.")
@@ -270,6 +375,19 @@ def _validate_rate_bps(value: int, label: str, *, allow_zero: bool = False) -> i
 def _validate_fee_bps(value: int, label: str) -> int:
     if type(value) is not int or value < 0 or value > MAX_FEE_BPS:
         raise LoanValidationError(f"{label} must be between 0 and 10,000 bps.")
+    return value
+
+
+NO_RECOVERY_FEE_MESSAGE = (
+    "Banxum charges investors no recovery fee (U33-DEC-12). Real external recovery costs are "
+    "recorded with each recovery payment."
+)
+
+
+def _validate_no_recovery_fee(value: int) -> int:
+    """U33-DEC-12: no Banxum recovery fee for investors, so a loan's recovery fee is 0."""
+    if type(value) is not int or value != 0:
+        raise LoanValidationError(NO_RECOVERY_FEE_MESSAGE)
     return value
 
 
@@ -451,6 +569,8 @@ def generate_schedule_for_terms(
             raise LoanValidationError(str(exc)) from exc
 
     repayment = _repayment_type(repayment_type)
+    if repayment in {RepaymentType.FULL_AT_MATURITY, RepaymentType.CUSTOM_SCHEDULE}:
+        raise LoanValidationError("This repayment type needs the Actual/365 Fixed engine.")
     effective_interest_only_months = _validate_interest_only_months_for_repayment(
         repayment_type=repayment,
         interest_only_months=interest_only_months,
@@ -507,6 +627,228 @@ def generate_schedule_for_terms(
         )
     except ScheduleGenerationError as exc:
         raise LoanValidationError(str(exc)) from exc
+
+
+def engine_kind_for_repayment_type(repayment_type: str) -> str:
+    try:
+        return interest_engine.REPAYMENT_TYPE_KINDS[repayment_type]
+    except KeyError as exc:
+        raise LoanValidationError(
+            "This repayment type is closed for new loans: choose equal installments, interest "
+            "with the principal at the end, full payment at maturity or a custom schedule."
+        ) from exc
+
+
+def generate_engine_schedule(
+    *,
+    principal_minor: int,
+    currency: str,
+    term_months: int,
+    annual_interest_bps: int,
+    repayment_type: str,
+    payout_date: date,
+    frequency: str,
+    interest_only_months: int,
+    grace_business_days: int,
+    manual_schedule_rows: list[ManualScheduleRowCommand] | None = None,
+) -> list[ScheduleInstallmentDraft]:
+    """18.6: the schedule of a new direct loan (Actual/365 Fixed, frequency, calendar, grace).
+
+    Before funding it is an estimate from the planned payout day; at the payout it is calculated
+    again from the real day (``confirm_engine_schedule_at_payout``).
+    """
+    kind = engine_kind_for_repayment_type(repayment_type)
+    if frequency not in interest_engine.FREQUENCY_MONTHS:
+        raise LoanValidationError("Choose a payment frequency.")
+    grace_ok = type(grace_business_days) is int and (
+        0 <= grace_business_days <= MAX_GRACE_BUSINESS_DAYS
+    )
+    if not grace_ok:
+        raise LoanValidationError(
+            f"Grace must be between 0 and {MAX_GRACE_BUSINESS_DAYS} business days."
+        )
+    step = interest_engine.FREQUENCY_MONTHS[frequency]
+    interest_only_periods = 0
+    if repayment_type == RepaymentType.INTEREST_ONLY_THEN_AMORTIZING:
+        if interest_only_months <= 0 or interest_only_months % step:
+            raise LoanValidationError(
+                "Interest-only months must be a whole number of payment periods."
+            )
+        interest_only_periods = interest_only_months // step
+    custom_rows: tuple[interest_engine.CustomRow, ...] = ()
+    if kind == interest_engine.KIND_CUSTOM:
+        if not manual_schedule_rows:
+            raise LoanValidationError("Import the rows of the custom schedule.")
+        custom_rows = tuple(
+            interest_engine.CustomRow(
+                original_due_date=row.due_date, principal_minor=row.principal_minor
+            )
+            for row in manual_schedule_rows
+        )
+    elif manual_schedule_rows:
+        raise LoanValidationError("Imported rows are only used with the custom schedule type.")
+    try:
+        rows = interest_engine.generate_schedule(
+            interest_engine.ScheduleTerms(
+                principal_minor=principal_minor,
+                annual_rate_bps=annual_interest_bps,
+                payout_date=payout_date,
+                term_months=term_months,
+                frequency=frequency,
+                kind=kind,
+                interest_only_periods=interest_only_periods,
+                grace_business_days=grace_business_days,
+                custom_rows=custom_rows,
+            ),
+            settlement_calendar(currency),
+        )
+    except interest_engine.InterestEngineError as exc:
+        raise LoanValidationError(str(exc)) from exc
+    return [
+        ScheduleInstallmentDraft(
+            installment_number=row.number,
+            due_date=row.due_date,
+            principal_minor=row.principal_minor,
+            interest_minor=row.interest_minor,
+            total_minor=row.total_minor,
+            admin_overridden=kind == interest_engine.KIND_CUSTOM,
+            metadata={
+                "original_due_date": row.original_due_date.isoformat(),
+                "interest_start": row.interest_start.isoformat(),
+            },
+        )
+        for row in rows
+    ]
+
+
+def custom_schedule_term_months(payout_date: date, rows: list[ManualScheduleRowCommand]) -> int:
+    """The term of a custom schedule: whole months from the payout to the last due date."""
+    if not rows:
+        raise LoanValidationError("Import the rows of the custom schedule.")
+    last = max(row.due_date for row in rows)
+    months = (last.year - payout_date.year) * 12 + (last.month - payout_date.month)
+    if last.day > payout_date.day:
+        months += 1
+    return max(1, months)
+
+
+def is_engine_loan(loan: Loan) -> bool:
+    """A direct loan on the 18.6 engine (a Loan Originator claim never is)."""
+    return (
+        str(loan.interest_convention) == InterestConvention.ACT_365_FIXED
+        and str(loan.product_type) == "direct"
+    )
+
+
+def engine_schedule_for_loan(loan: Loan, *, payout_date: date) -> list[ScheduleInstallmentDraft]:
+    manual_rows: list[ManualScheduleRowCommand] | None = None
+    if loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+        current = LoanInstallment.objects.filter(
+            loan=loan, schedule_version=loan.schedule_version
+        ).order_by("installment_number")
+        manual_rows = [
+            ManualScheduleRowCommand(
+                due_date=date.fromisoformat(
+                    str((row.metadata or {}).get("original_due_date") or row.due_date.isoformat())
+                ),
+                principal_minor=int(row.principal_minor),
+                interest_minor=0,
+            )
+            for row in current
+        ]
+    return generate_engine_schedule(
+        principal_minor=loan.principal_minor,
+        currency=loan.currency_id,
+        term_months=loan.term_months,
+        annual_interest_bps=loan.interest_rate_bps,
+        repayment_type=loan.repayment_type,
+        payout_date=payout_date,
+        frequency=loan.payment_frequency,
+        interest_only_months=loan.interest_only_months,
+        grace_business_days=loan.grace_business_days,
+        manual_schedule_rows=manual_rows,
+    )
+
+
+def confirm_engine_schedule_at_payout(*, loan_id: str, payout_date: date, actor: Model) -> bool:
+    """F10: at the payout the schedule is calculated again from the real payout day.
+
+    Called by the ledger when the borrower disbursement is finalized. Interest starts on the payout
+    day. Audit S5-11: a confirmed version is always written (also when the rounded amounts and
+    dates are the same as planned), with the payout day on every row, so the current rows always
+    carry the real interest start. Returns True when a due date, an amount, the unadjusted due
+    date or the interest start changed. Earlier loans (before 18.6) keep their schedule.
+    """
+    loan = Loan.objects.select_for_update().get(id=loan_id)
+    if not is_engine_loan(loan):
+        return False
+    confirmed_on = payout_date.isoformat()
+    rows = [
+        replace(row, metadata={**dict(row.metadata or {}), "payout_confirmed_on": confirmed_on})
+        for row in engine_schedule_for_loan(loan, payout_date=payout_date)
+    ]
+    current = list(
+        LoanInstallment.objects.filter(loan=loan, schedule_version=loan.schedule_version).order_by(
+            "installment_number"
+        )
+    )
+
+    def _shape(number: int, due: date, principal: int, interest: int, meta: Any) -> tuple[Any, ...]:
+        values = dict(meta or {})
+        return (
+            number,
+            due,
+            principal,
+            interest,
+            values.get("original_due_date", ""),
+            values.get("interest_start", ""),
+        )
+
+    changed = [
+        _shape(row.installment_number, row.due_date, row.principal_minor, row.interest_minor,
+               row.metadata)
+        for row in rows
+    ] != [
+        _shape(int(row.installment_number), row.due_date, int(row.principal_minor),
+               int(row.interest_minor), row.metadata)
+        for row in current
+    ]
+    previous_start = loan.loan_start_date
+    previous_version = int(loan.schedule_version)
+    loan.payout_date = payout_date
+    loan.loan_start_date = payout_date
+    loan.schedule_version = previous_version + 1
+    loan.first_payment_date = rows[0].due_date
+    loan.total_scheduled_principal_minor = sum(row.principal_minor for row in rows)
+    loan.total_scheduled_interest_minor = sum(row.interest_minor for row in rows)
+    _write_schedule(loan=loan, schedule_rows=rows, schedule_version=loan.schedule_version)
+    loan.save(
+        update_fields=[
+            "payout_date",
+            "loan_start_date",
+            "schedule_version",
+            "first_payment_date",
+            "total_scheduled_principal_minor",
+            "total_scheduled_interest_minor",
+            "updated_at",
+        ]
+    )
+    _record_loan_event(
+        loan=loan,
+        actor=actor,
+        event_type=LoanEventType.SCHEDULE_CONFIRMED,
+        new_status=loan.status,
+        note="Schedule calculated from the real payout day.",
+        metadata={
+            "payout_date": confirmed_on,
+            "planned_payout_date": previous_start.isoformat(),
+            "planned_schedule_version": previous_version,
+            "schedule_version": loan.schedule_version,
+            "schedule_changed": changed,
+            **_schedule_summary(rows),
+        },
+    )
+    return changed
 
 
 def original_schedule_for_loan(loan: Loan) -> list[ScheduleInstallmentDraft]:
@@ -599,7 +941,7 @@ def _write_schedule(
                 interest_minor=row.interest_minor,
                 total_minor=row.total_minor,
                 admin_overridden=row.admin_overridden,
-                metadata={},
+                metadata=dict(row.metadata or {}),
             )
             for row in schedule_rows
         ]
@@ -764,8 +1106,8 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     loan_start_date = _resolve_loan_start_date(command.loan_start_date, funding_deadline)
     first_payment_date = _derive_first_payment_date(loan_start_date)
     purpose = _purpose(command.purpose)
-    collateral_type = _collateral_type(command.collateral_type)
-    repayment_type = _repayment_type(command.repayment_type)
+    collateral_type = _eligible_collateral_type(command.collateral_type)
+    repayment_type = _eligible_repayment_type(command.repayment_type)
     risk_rating = _risk_rating(command.risk_rating)
     principal_minor = _validate_principal(command.principal_minor, currency)
     (
@@ -786,7 +1128,22 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         principal_minor=principal_minor,
         loan_start_date=loan_start_date,
     )
-    term_months = _validate_term(command.term_months)
+    convention = _resolve_interest_convention(command)
+    engine_loan = convention == InterestConvention.ACT_365_FIXED
+    payment_frequency = _validate_frequency(command.payment_frequency)
+    penalty_daily_rate_percent = _validate_penalty_rate(command.penalty_daily_rate_percent)
+    penalty_investor_share_bps = _validate_penalty_share(command.penalty_investor_share_bps)
+    if engine_loan and repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+        term_months = custom_schedule_term_months(
+            loan_start_date, command.manual_schedule_rows or []
+        )
+    else:
+        term_months = _validate_term(command.term_months)
+    if not engine_loan and repayment_type in {
+        RepaymentType.FULL_AT_MATURITY,
+        RepaymentType.CUSTOM_SCHEDULE,
+    }:
+        raise LoanValidationError("This repayment type needs the Actual/365 Fixed engine.")
     interest_rate_bps = _validate_rate_bps(command.interest_rate_bps, "Interest rate")
     collateral_value_minor = _validate_minor_nonnegative(
         command.collateral_value_minor,
@@ -805,20 +1162,40 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         "Default penalty interest",
         allow_zero=True,
     )
-    recovery_fee_bps = _validate_fee_bps(command.recovery_fee_bps, "Recovery fee")
+    recovery_fee_bps = _validate_no_recovery_fee(command.recovery_fee_bps)
     minimum_subscription_bps = int(command.minimum_subscription_bps)
     if minimum_subscription_bps < 0 or minimum_subscription_bps > 10_000:
         raise LoanValidationError("Minimum subscription must be between 0% and 100%.")
-    schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
-        principal_minor=principal_minor,
-        currency=currency.code,
-        term_months=term_months,
-        annual_interest_bps=interest_rate_bps,
-        repayment_type=repayment_type,
-        first_payment_date=first_payment_date,
-        interest_only_months=command.interest_only_months,
-        manual_schedule_rows=command.manual_schedule_rows,
-    )
+    if engine_loan:
+        schedule_rows = generate_engine_schedule(
+            principal_minor=principal_minor,
+            currency=currency.code,
+            term_months=term_months,
+            annual_interest_bps=interest_rate_bps,
+            repayment_type=repayment_type,
+            payout_date=loan_start_date,
+            frequency=payment_frequency,
+            interest_only_months=command.interest_only_months,
+            grace_business_days=command.grace_business_days,
+            manual_schedule_rows=command.manual_schedule_rows,
+        )
+        effective_interest_only_months = (
+            command.interest_only_months
+            if repayment_type == RepaymentType.INTEREST_ONLY_THEN_AMORTIZING
+            else 0
+        )
+        first_payment_date = schedule_rows[0].due_date
+    else:
+        schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
+            principal_minor=principal_minor,
+            currency=currency.code,
+            term_months=term_months,
+            annual_interest_bps=interest_rate_bps,
+            repayment_type=repayment_type,
+            first_payment_date=first_payment_date,
+            interest_only_months=command.interest_only_months,
+            manual_schedule_rows=command.manual_schedule_rows,
+        )
     loan = Loan.objects.create(
         borrower=cast(Any, borrower),
         title=_clean_required(command.title, "Title"),
@@ -853,13 +1230,25 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         recovery_waterfall_version=PAYMENT_WATERFALL_VERSION,
         total_scheduled_principal_minor=sum(row.principal_minor for row in schedule_rows),
         total_scheduled_interest_minor=sum(row.interest_minor for row in schedule_rows),
+        interest_convention=convention,
+        payment_frequency=payment_frequency,
+        grace_business_days=command.grace_business_days,
+        penalty_daily_rate_percent=penalty_daily_rate_percent,
+        penalty_investor_share_bps=penalty_investor_share_bps,
         created_by_admin_id=command.actor.pk,
     )
     _write_schedule(loan=loan, schedule_rows=schedule_rows, schedule_version=loan.schedule_version)
+    # U33-DEC-21: the form's collateral is the loan's first security.
+    loan_securities.sync_first_security_from_loan(loan, actor=command.actor)
     if loan.is_refinancing:
         # Fail fast if the declared original terms cannot produce an informational schedule.
         original_schedule_for_loan(loan)
     metadata = _loan_metadata(loan, schedule_rows)
+    metadata["interest_convention"] = convention
+    if command.pre_cutover_contract_signed_on is not None:
+        metadata["pre_cutover_contract_signed_on"] = (
+            command.pre_cutover_contract_signed_on.isoformat()
+        )
     _record_loan_event(
         loan=loan,
         actor=command.actor,
@@ -919,6 +1308,10 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "recovery_fee_bps": command.recovery_fee_bps,
         "minimum_subscription_bps": command.minimum_subscription_bps,
         "manual_schedule_rows": command.manual_schedule_rows,
+        "payment_frequency": command.payment_frequency,
+        "grace_business_days": command.grace_business_days,
+        "penalty_daily_rate_percent": command.penalty_daily_rate_percent,
+        "penalty_investor_share_bps": command.penalty_investor_share_bps,
     }
     return {key for key, value in values.items() if value is not None}
 
@@ -1051,7 +1444,9 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="repayment_type",
-            value=_repayment_type(command.repayment_type),
+            value=_eligible_repayment_type(
+                command.repayment_type, current=str(loan.repayment_type)
+            ),
             changes=changes,
         )
         schedule_needs_regeneration = True
@@ -1059,14 +1454,27 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="collateral_type",
-            value=_collateral_type(command.collateral_type),
+            value=_eligible_collateral_type(
+                command.collateral_type, current=str(loan.collateral_type)
+            ),
             changes=changes,
         )
     if command.collateral_value_minor is not None:
+        new_value = _validate_minor_nonnegative(command.collateral_value_minor, "Collateral value")
+        # C06 / F16: with several securities the loan's value is the sum of the counted assets;
+        # each value is changed on its security.
+        if (
+            new_value != loan.collateral_value_minor
+            and loan.securities.exclude(status="released").count() > 1
+        ):
+            raise LoanValidationError(
+                "This loan has several securities: change each value under Securities. "
+                "The loan-to-value uses the sum of the values that count."
+            )
         _set_if_changed(
             loan=loan,
             field="collateral_value_minor",
-            value=_validate_minor_nonnegative(command.collateral_value_minor, "Collateral value"),
+            value=new_value,
             changes=changes,
         )
     optional_collateral = _optional_clean(command.collateral_description)
@@ -1146,7 +1554,7 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         _set_if_changed(
             loan=loan,
             field="recovery_fee_bps",
-            value=_validate_fee_bps(command.recovery_fee_bps, "Recovery fee"),
+            value=_validate_no_recovery_fee(command.recovery_fee_bps),
             changes=changes,
         )
     if command.minimum_subscription_bps is not None:
@@ -1236,8 +1644,73 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             _set_if_changed(loan=loan, field=cleared_field, value=None, changes=changes)
         _set_if_changed(loan=loan, field="original_repayment_type", value="", changes=changes)
 
+    engine_terms_changed = False
+    for engine_field, engine_value in (
+        ("payment_frequency", command.payment_frequency),
+        ("grace_business_days", command.grace_business_days),
+        ("penalty_daily_rate_percent", command.penalty_daily_rate_percent),
+        ("penalty_investor_share_bps", command.penalty_investor_share_bps),
+    ):
+        if engine_value is None:
+            continue
+        if engine_field == "payment_frequency":
+            engine_value = _validate_frequency(str(engine_value))
+        elif engine_field == "penalty_daily_rate_percent":
+            engine_value = _validate_penalty_rate(engine_value)
+        elif engine_field == "penalty_investor_share_bps":
+            engine_value = _validate_penalty_share(cast(int, engine_value))
+        elif type(engine_value) is not int or not 0 <= engine_value <= MAX_GRACE_BUSINESS_DAYS:
+            raise LoanValidationError(
+                f"Grace must be between 0 and {MAX_GRACE_BUSINESS_DAYS} business days."
+            )
+        if getattr(loan, engine_field) != engine_value and loan.status != LoanStatus.DRAFT:
+            raise LoanValidationError(
+                "Frequency, grace and penalty X can only be changed while the loan is a draft."
+            )
+        if getattr(loan, engine_field) != engine_value and engine_field in {
+            "payment_frequency",
+            "grace_business_days",
+        }:
+            engine_terms_changed = True
+        _set_if_changed(loan=loan, field=engine_field, value=engine_value, changes=changes)
+    if engine_terms_changed and is_engine_loan(loan):
+        schedule_needs_regeneration = True
+
     schedule_rows: list[ScheduleInstallmentDraft] | None = None
-    if schedule_needs_regeneration:
+    if schedule_needs_regeneration and is_engine_loan(loan):
+        manual_rows = command.manual_schedule_rows
+        if manual_rows is not None and loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+            _set_if_changed(
+                loan=loan,
+                field="term_months",
+                value=custom_schedule_term_months(loan.loan_start_date, manual_rows),
+                changes=changes,
+            )
+        if manual_rows is None and loan.repayment_type == RepaymentType.CUSTOM_SCHEDULE:
+            schedule_rows = engine_schedule_for_loan(loan, payout_date=loan.loan_start_date)
+        else:
+            schedule_rows = generate_engine_schedule(
+                principal_minor=loan.principal_minor,
+                currency=loan.currency_id,
+                term_months=loan.term_months,
+                annual_interest_bps=loan.interest_rate_bps,
+                repayment_type=loan.repayment_type,
+                payout_date=loan.loan_start_date,
+                frequency=loan.payment_frequency,
+                interest_only_months=loan.interest_only_months,
+                grace_business_days=loan.grace_business_days,
+                manual_schedule_rows=manual_rows,
+            )
+        _set_if_changed(
+            loan=loan, field="first_payment_date", value=schedule_rows[0].due_date, changes=changes
+        )
+        loan.schedule_version += 1
+        changes["schedule_version"] = {
+            "previous": str(loan.schedule_version - 1),
+            "new": str(loan.schedule_version),
+        }
+        _save_loan_totals_from_schedule(loan=loan, schedule_rows=schedule_rows)
+    elif schedule_needs_regeneration:
         schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
             principal_minor=loan.principal_minor,
             currency=loan.currency_id,
@@ -1266,6 +1739,8 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
 
     loan.updated_by_admin_id = command.actor.pk
     loan.save()
+    if {"collateral_type", "collateral_value_minor", "collateral_description"} & set(changes):
+        loan_securities.sync_first_security_from_loan(loan, actor=command.actor)
     if schedule_rows is not None:
         _write_schedule(
             loan=loan,
@@ -1331,8 +1806,28 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         )
     if loan.funding_deadline is None:
         raise LoanValidationError("Direct loans require a funding deadline before publication.")
+    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION or (
+        loan_securities.all_securities_released(loan)
+    ):
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
+    # Audit S1-3 (C06): one asset never counts twice in the loan-to-value.
+    asset_problems = import_module("backend.apps.loans.securities").counted_asset_problems(loan)
+    if asset_problems:
+        raise LoanValidationError(" ".join(asset_problems))
+    # 18.10 (Q13): every kept security has its documents and a named verification.
+    proofs = import_module("backend.apps.loans.security_proofs")
+    try:
+        proofs.assert_securities_verified(loan)
+    except proofs.SecurityProofError as exc:
+        raise LoanValidationError(str(exc)) from exc
+    # 18.9: a Swiss borrower needs its UID and a confirmed creditor mode; the mode's limits.
+    regimes = import_module("backend.apps.marketplace_primary.creditor_regime")
+    try:
+        regimes.check_publication(loan, actor=command.actor, on=_business_today())
+    except regimes.CreditorRegimeViolation as exc:
+        raise LoanValidationError(str(exc)) from exc
     paid_installments, original_loan_state = _validate_publication_original_loan_state(
         loan,
         pre_publication_paid_installments=command.pre_publication_paid_installment_numbers,
@@ -1381,10 +1876,122 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
             idempotency_key=f"loan:{loan.id}:published",
         )
     )
+    # U33-DEC-17: the opening alerts go out at the real opening, before Smart Invest, which
+    # then leaves out the investors who just got the opening alert for this loan.
+    import_module("backend.apps.marketplace_primary.services").send_loan_opening_alerts(
+        loan_id=str(loan.id)
+    )
     import_module(
         "backend.apps.smart_invest.services"
     ).notify_smart_invest_matches_for_published_loan(
         loan_id=str(loan.id),
         product_type=LoanProductType.DIRECT,
+    )
+    return loan
+
+
+@dataclass(frozen=True, slots=True)
+class AnnounceComingSoonCommand:
+    actor: Model
+    loan_id: str
+    planned_opening_date: date
+    note: str = ""
+
+
+@transaction.atomic
+def announce_loan_coming_soon(command: AnnounceComingSoonCommand) -> Loan:
+    """U33-DEC-17: show a draft loan (Direct, or a Loan Originator offer since Q17) as "Coming
+    soon" with its planned opening date.
+
+    The loan stays a draft: nothing can be invested or reserved. Investors can ask for an
+    opening alert; the alert goes out when the admin publishes the loan, not on the date.
+    Calling it again changes the planned date.
+    """
+    _require_admin_actor(command.actor)
+    loan = Loan.objects.select_for_update().filter(id=command.loan_id).first()
+    if loan is None:
+        raise LoanValidationError("Loan does not exist.")
+    # Q17 (18.7): Loan Originator offers can be Coming soon too.
+    if loan.status != LoanStatus.DRAFT or loan.product_type not in {
+        LoanProductType.DIRECT,
+        LoanProductType.ORIGINATOR_CLAIM,
+    }:
+        raise LoanValidationError("Only a draft loan or offer can be shown as Coming soon.")
+    if loan.collateral_type == CollateralType.UNSECURED_EXCEPTION:
+        raise LoanValidationError(UNSECURED_LOAN_MESSAGE)
+    if command.planned_opening_date < _business_today():
+        raise LoanValidationError("The planned opening date cannot be in the past.")
+    if loan.funding_deadline is not None and command.planned_opening_date > loan.funding_deadline:
+        raise LoanValidationError("The planned opening date must be before the funding deadline.")
+    previous_date = loan.planned_opening_date
+    loan.coming_soon_at = loan.coming_soon_at or now_utc()
+    loan.planned_opening_date = command.planned_opening_date
+    loan.updated_by_admin_id = command.actor.pk
+    loan.save(
+        update_fields=[
+            "coming_soon_at",
+            "planned_opening_date",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    metadata = {
+        "decision": "U33-DEC-17",
+        "planned_opening_date": command.planned_opening_date.isoformat(),
+        "previous_planned_opening_date": previous_date.isoformat() if previous_date else None,
+    }
+    _record_loan_event(
+        loan=loan,
+        actor=command.actor,
+        event_type=LoanEventType.COMING_SOON_ANNOUNCED,
+        note=command.note,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="loan.coming_soon_announced",
+            target_type="Loan",
+            target_id=str(loan.id),
+            metadata=metadata,
+        )
+    )
+    return loan
+
+
+@transaction.atomic
+def withdraw_loan_coming_soon(*, actor: Model, loan_id: str, note: str = "") -> Loan:
+    """U33-DEC-17: hide a draft again; the opening alerts asked for it are not sent."""
+    _require_admin_actor(actor)
+    loan = Loan.objects.select_for_update().filter(id=loan_id).first()
+    if loan is None:
+        raise LoanValidationError("Loan does not exist.")
+    if loan.status != LoanStatus.DRAFT or loan.coming_soon_at is None:
+        raise LoanValidationError("Only a draft shown as Coming soon can be withdrawn.")
+    loan.coming_soon_at = None
+    loan.planned_opening_date = None
+    loan.updated_by_admin_id = actor.pk
+    loan.save(
+        update_fields=[
+            "coming_soon_at",
+            "planned_opening_date",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    _record_loan_event(
+        loan=loan,
+        actor=actor,
+        event_type=LoanEventType.COMING_SOON_WITHDRAWN,
+        note=note,
+        metadata={"decision": "U33-DEC-17"},
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="loan.coming_soon_withdrawn",
+            target_type="Loan",
+            target_id=str(loan.id),
+        )
     )
     return loan
