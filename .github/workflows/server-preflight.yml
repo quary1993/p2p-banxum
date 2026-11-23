@@ -300,11 +300,52 @@ jobs:
               -f infra/deploy/docker-compose.yml \
               "$@" < /dev/null
           }
-          echo "scheduled_jobs_dry_run=starting"
-          compose exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs \
-            --job balance_ageing_scan --dry-run
-          echo "scheduled_jobs_all_once=starting"
-          compose exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --force
+          echo "scheduled_jobs_stale_recovery=starting"
+          compose exec -T backend .venv/bin/python backend/manage.py shell -c '
+          from datetime import timedelta
+
+          from django.conf import settings
+          from django.db import transaction
+          from django.utils import timezone
+
+          from backend.apps.platform_core.models.scheduled_jobs import (
+              ScheduledJobRun,
+              ScheduledJobRunStatus,
+          )
+          from backend.apps.platform_core.services.scheduled_jobs import (
+              _complete_job_run,
+              _record_scheduled_job_evidence,
+          )
+
+          timeout = max(
+              1,
+              int(getattr(settings, "SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES", 120)),
+          )
+          cutoff = timezone.now() - timedelta(minutes=timeout)
+          with transaction.atomic():
+              stale = list(
+                  ScheduledJobRun.objects.select_for_update()
+                  .filter(
+                      status=ScheduledJobRunStatus.RUNNING,
+                      started_at__lte=cutoff,
+                  )
+                  .order_by("started_at", "id")
+              )
+              for run in stale:
+                  summary = dict(run.summary or {})
+                  summary["stale_run_recovery"] = {
+                      "outcome": "skipped",
+                      "reason": "The preserved execution did not finish before the running timeout.",
+                      "recovered_at": timezone.now().isoformat(),
+                  }
+                  _complete_job_run(
+                      job_run=run,
+                      status=ScheduledJobRunStatus.SKIPPED,
+                      summary=summary,
+                  )
+                  _record_scheduled_job_evidence(job_run=run, actor=None)
+          print(f"stale_scheduled_job_runs_reconciled={len(stale)}")
+          '
           echo "scheduled_jobs_monitor=starting"
           compose exec -T backend .venv/bin/python backend/manage.py check_scheduled_jobs
           echo "post_deploy_operations_status=passed"
