@@ -304,7 +304,7 @@ jobs:
             export BANXUM_APP_DIR="$app_dir" BANXUM_COMPOSE_PROJECT="$project_name"
             export BANXUM_BACKUP_DIR="$backup_dir"
             mkdir -p "$BANXUM_BACKUP_DIR"
-            infra/deploy/backup_postgres.sh
+            infra/deploy/backup_postgres.sh < /dev/null
           ); then
             compose start backend
             echo "$TARGET backup failed; nothing was changed and the previous release was started again." >&2
