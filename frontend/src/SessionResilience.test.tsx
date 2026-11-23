@@ -68,14 +68,14 @@ test("a 502 on the minute session re-check keeps the investor on the page", asyn
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   expect(screen.getByRole("heading", { name: /^Welcome back/ })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 
   // A real "signed out" answer still leads to the login form.
   meStatus = 403;
   await act(async () => {
     await queryClient.refetchQueries({ queryKey: getV1AuthMeRetrieveQueryKey() });
   });
-  expect(await screen.findByRole("button", { name: "Sign in" }, { timeout: 5000 })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Log in" }, { timeout: 5000 })).toBeInTheDocument();
 }, 30_000);
 
 test("a returning visitor whose session ended sees the public home page at /", async () => {
@@ -84,7 +84,7 @@ test("a returning visitor whose session ended sees the public home page at /", a
   renderLiveApp(App, "/");
 
   expect(await screen.findByRole("heading", { level: 1, name: /Invest in business loans/ }, { timeout: 5000 })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
   expect(window.location.pathname).toBe("/");
 }, 15_000);
 
@@ -114,7 +114,7 @@ test("an unknown address shows a page-not-found page and keeps the address", asy
 test("form labels are linked to their inputs on the investor and admin login screens", async () => {
   server.use(http.get("*/api/v1/auth/me/", signedOut));
   renderLiveApp(App, "/login");
-  expect(await screen.findByLabelText("Email address", {}, { timeout: 5000 })).toHaveAttribute("type", "email");
+  expect(await screen.findByLabelText("Email", {}, { timeout: 5000 })).toHaveAttribute("type", "email");
 
   act(() => {
     window.history.pushState({}, "", "/admin");

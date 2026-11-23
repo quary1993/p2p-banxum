@@ -46,12 +46,12 @@ function renderLoggedOutAt(path: string) {
 test("a logged-out deep link settles on the login form without polling the session", async () => {
   const session = renderLoggedOutAt("/portfolio");
 
-  expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Log in" })).toBeInTheDocument();
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
   });
 
-  expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
   expect(screen.queryByText("Checking your session")).not.toBeInTheDocument();
   expect(session.meCalls()).toBeLessThanOrEqual(2);
 });
@@ -59,7 +59,7 @@ test("a logged-out deep link settles on the login form without polling the sessi
 test("typed login email survives a later session re-check", async () => {
   renderLoggedOutAt("/dashboard");
 
-  await screen.findByRole("button", { name: "Sign in" });
+  await screen.findByRole("button", { name: "Log in" });
   const email = screen.getByPlaceholderText("you@example.com") as HTMLInputElement;
   fireEvent.change(email, { target: { value: "investor@example.com" } });
   await act(async () => {

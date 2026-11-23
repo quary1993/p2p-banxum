@@ -354,7 +354,7 @@ test("direct registration and login URLs render the requested public flow", () =
   registration.unmount();
 
   renderApp("/login");
-  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
 });
 
 test("client navigation writes a stable URL and browser history restores the screen", () => {
@@ -778,7 +778,7 @@ test("read-only impersonation token survives a new tab and opens the investor po
 test("sign-in asks for the password, then the second factor, and offers a recovery code (18.5)", () => {
   renderApp("/login");
 
-  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
   // No passkeys (D-2); the forgotten password is one click away.
   expect(screen.queryByText(/passkey/i)).not.toBeInTheDocument();
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
@@ -813,7 +813,7 @@ test("a forgotten password sends a link without saying whether the account exist
   expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
   expect(screen.getByText(/If the address belongs to an account/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
-  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
 });
 
 test("an expired session returns to the login screen with an explanation", () => {
@@ -823,7 +823,7 @@ test("an expired session returns to the login screen with an explanation", () =>
   act(() => reportSessionExpired());
 
   expect(window.location.pathname).toBe("/login");
-  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
   expect(screen.getByText("Your session has expired")).toBeInTheDocument();
 
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
@@ -2609,7 +2609,7 @@ function loginDemo() {
   fireEvent.click(screen.getByRole("link", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "preview-password-1" } });
-  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }

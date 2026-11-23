@@ -1,6 +1,6 @@
 // IP of Webby-Soft SRL.
 // Sign-in (design: views.login, views.loginCode and views.forgot of the U33 prototype, in the
-// create-account layout). 18.5 (U33-DEC-01): email and password, then the second factor: the code of
+// create-account layout; the design's texts "Welcome back", "Email", "Log in"). 18.5 (U33-DEC-01): email and password, then the second factor: the code of
 // the authenticator app or an SMS code to the verified phone (no passkeys, D-2); a recovery code
 // replaces either. "Remember this browser" skips the code for 30 days (the password is still asked).
 // A wrong email or password gets one answer (no account enumeration, U33-DEC-29).
@@ -353,7 +353,7 @@ export function LoginScreen() {
     );
   } else {
     content = (
-      <AuthCard intro={t("Welcome back. Sign in with your email and password.")} title={t("Sign in")}>
+      <AuthCard title={t("Welcome back")}>
         <form data-testid="login-password-form" noValidate onSubmit={submitPassword}>
           {sessionExpired ? (
             <div className="ca-notice" role="status">
@@ -363,7 +363,7 @@ export function LoginScreen() {
           ) : null}
           <div className="ca-fields">
             <div className="ca-field ca-wide">
-              <label htmlFor="login-email">{t("Email address")}</label>
+              <label htmlFor="login-email">{t("Email")}</label>
               <input autoComplete="username" id="login-email" maxLength={120} name="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />
             </div>
             <AuthPasswordField
@@ -377,7 +377,7 @@ export function LoginScreen() {
           <CaError>{error ? t("Could not sign in: {reason}", { reason: error }) : null}</CaError>
           <div className="acc-auth-submit">
             <button className="ca-primary" disabled={loginMutation.isPending} type="submit">
-              {loginMutation.isPending ? t("Signing in...") : t("Sign in")}
+              {loginMutation.isPending ? t("Logging in...") : t("Log in")}
               <CaIcon name="right" />
             </button>
           </div>
