@@ -57,6 +57,10 @@ def post_json(client: Client, path: str, payload: dict[str, Any]) -> Any:
     return client.post(path, data=payload, content_type="application/json", secure=True)
 
 
+def smoke_client() -> Client:
+    return Client(HTTP_HOST="staging.nxnarena.com", HTTP_X_FORWARDED_PROTO="https")
+
+
 def add_confirmed_email(user: Any) -> None:
     EmailLoginToken.objects.create(
         user=user,
@@ -283,7 +287,7 @@ def sign_in_checks() -> None:
         account_type=AccountType.NATURAL_PERSON_LENDER,
         password=password,
     )
-    client = Client()
+    client = smoke_client()
     started = post_json(
         client,
         "/api/v1/auth/login/",
@@ -316,7 +320,7 @@ def sign_in_checks() -> None:
             is_staff=True,
             is_superuser=superuser,
         )
-        admin_client = Client()
+        admin_client = smoke_client()
         start = post_json(
             admin_client,
             "/api/v1/auth/admin/login/start/",
@@ -365,7 +369,7 @@ def read_paths() -> tuple[Any, Any]:
     check(investor is not None, "seed-funded-investor-present")
     check(admin is not None, "seed-regular-admin-present")
 
-    investor_client = Client()
+    investor_client = smoke_client()
     investor_client.force_login(investor)
     for path, name in (
         ("/api/v1/investor/portal/dashboard/", "investor-dashboard-api"),
@@ -381,7 +385,7 @@ def read_paths() -> tuple[Any, Any]:
     check(export.status_code == 200, "investor-transactions-csv", str(export.status_code))
     check("csv" in str(export.get("Content-Type", "")).lower(), "investor-transactions-csv-type")
 
-    admin_client = Client()
+    admin_client = smoke_client()
     admin_client.force_login(admin)
     for path, name in (
         ("/api/v1/admin-ops/dashboard/", "admin-dashboard-api"),
@@ -502,8 +506,8 @@ def main() -> None:
     check(settings.ENVIRONMENT == "staging", "staging-environment")
     check(not settings.IS_PRODUCTION, "production-guard-off")
     check(settings.QA_DEV_MODE_ALLOWED, "qa-mode-allowed")
-    check(Client().get("/api/v1/health/", secure=True).status_code == 200, "health-api")
-    public = Client().get("/api/v1/marketplace/primary/public/projects/", secure=True)
+    check(smoke_client().get("/api/v1/health/", secure=True).status_code == 200, "health-api")
+    public = smoke_client().get("/api/v1/marketplace/primary/public/projects/", secure=True)
     check(public.status_code == 200, "public-projects-api", str(public.status_code))
 
     loan_model = apps.get_model("loans", "Loan")
