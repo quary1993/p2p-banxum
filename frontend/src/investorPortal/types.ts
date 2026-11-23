@@ -65,6 +65,8 @@ export interface InvestorDocument {
   size: string;
   /** Acceptance category of the documents API (registration, primary_market_investment...). */
   category?: string;
+  /** The investment (holding) an accepted agreement created; none while its funding is open. */
+  holdingId?: string;
   /** Period of a statement or tax document (YYYY-MM-DD). */
   periodStart?: string;
   periodEnd?: string;

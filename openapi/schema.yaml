@@ -14711,6 +14711,10 @@ components:
           type: string
         context_id:
           type: string
+        holding_id:
+          type: string
+          description: The investor's investment (holding) behind an accepted investment
+            agreement.
         output_formats:
           type: array
           items:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from importlib import import_module
@@ -1034,6 +1035,119 @@ def test_notification_centre_leaves_out_sign_in_and_code_receipts(investor: Mode
     ).first()
     response = client.post(f"/api/v1/investor/portal/notifications/{receipt_record.id}/read/")
     assert response.status_code == 404
+
+
+def _create_acceptance(
+    investor: Model, *, category: str, context_type: str, context_id: str, key: str
+) -> Model:
+    template_model = apps.get_model("documents", "DocumentTemplate")
+    version_model = apps.get_model("documents", "DocumentTemplateVersion")
+    acceptance_model = apps.get_model("documents", "DocumentAcceptanceEvidence")
+    template = template_model.objects.create(
+        category=category,
+        template_key=key,
+        language="en",
+        name="Investment terms",
+        created_by_superadmin_id=investor.pk,
+    )
+    version = version_model.objects.create(
+        template=template,
+        version_number=1,
+        status="published",
+        title="Investment terms",
+        body="Terms",
+        checkbox_labels=["I accept."],
+        variable_schema={},
+        content_hash="e" * 64,
+        created_by_superadmin_id=investor.pk,
+        published_at=timezone.now(),
+    )
+    return cast(
+        Model,
+        acceptance_model.objects.create(
+            user_id=investor.pk,
+            category=category,
+            template=template,
+            template_version=version,
+            template_version_number=1,
+            template_hash=version.content_hash,
+            context_type=context_type,
+            context_id=context_id,
+            accepted_checkbox_labels=["I accept."],
+            data_snapshot={},
+            idempotency_key=key,
+        ),
+    )
+
+
+@pytest.mark.django_db
+def test_investment_documents_link_to_their_investment(
+    admin_user: Model, investor: Model, other_investor: Model
+) -> None:
+    # Design #/documents: the row of an accepted agreement links to the investment it created.
+    _approve_financial_access(investor)
+    loan = _create_loan(admin_user, _create_borrower(admin_user, name="Doc AG"), title="Doc loan")
+    allocated = _create_primary_order(investor=investor, loan=loan, idempotency_key="doc-order-1")
+    pending = _create_primary_order(investor=investor, loan=loan, idempotency_key="doc-order-2")
+    holding = _create_holding(
+        admin_user=admin_user,
+        investor=investor,
+        loan=loan,
+        amount_minor=2_000_00,
+        idempotency_key="doc-holding",
+    )
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holding_model.objects.filter(pk=holding.pk).update(
+        source_type="primary_market", source_id=str(allocated.pk), source_primary_order=allocated
+    )
+    linked = _create_acceptance(
+        investor,
+        category="primary_market_investment",
+        context_type="primary_order",
+        context_id=str(allocated.pk),
+        key="doc-accept-1",
+    )
+    waiting = _create_acceptance(
+        investor,
+        category="primary_market_investment",
+        context_type="primary_order",
+        context_id=str(pending.pk),
+        key="doc-accept-2",
+    )
+    # A context id that is not a key of its model is skipped, not an error.
+    odd = _create_secondary_listing_acceptance(investor)
+    # Claim quotes and resale purchases without a purchase or holding get no link.
+    unknown = [
+        _create_acceptance(
+            investor,
+            category=category,
+            context_type=context_type,
+            context_id=str(uuid.uuid4()),
+            key=f"doc-accept-{context_type}",
+        )
+        for category, context_type in (
+            ("primary_market_investment", "originator_claim_quote"),
+            ("secondary_market_purchase", "secondary_market_purchase"),
+            ("secondary_market_listing", "secondary_market_listing"),
+        )
+    ]
+    # Another investor's acceptance of the same order never sees this holding.
+    _approve_financial_access(other_investor)
+    foreign = _create_acceptance(
+        other_investor,
+        category="primary_market_investment",
+        context_type="primary_order",
+        context_id=str(allocated.pk),
+        key="doc-accept-3",
+    )
+
+    documents = {item["id"]: item for item in get_investor_documents(actor=investor)["documents"]}
+    assert documents[str(linked.pk)]["holding_id"] == str(holding.pk)
+    assert "holding_id" not in documents[str(waiting.pk)]
+    assert "holding_id" not in documents[str(odd.pk)]
+    assert all("holding_id" not in documents[str(item.pk)] for item in unknown)
+    other = {item["id"]: item for item in get_investor_documents(actor=other_investor)["documents"]}
+    assert "holding_id" not in other[str(foreign.pk)]
 
 
 @pytest.mark.django_db

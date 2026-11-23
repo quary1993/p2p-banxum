@@ -4,7 +4,8 @@
  * investment documents (the investment and resale agreements accepted with the email code + PIN),
  * statements and tax information (generated on request, also under Reports) and platform documents
  * (accepted terms and risk disclosures). Search, type and year filters; "View" opens the PDF in the
- * in-app reader (18.3), "Download" saves it.
+ * in-app reader (18.3), "Download" saves it. The investment under an agreement links to its page
+ * when the investment exists (holding_id; not for an order whose funding has not closed).
  * U33-DEC-13: an acceptance is not a signature; there are no "Signed by Banxum" (QES) assignment
  * declarations yet (TODO, Phase 17.6).
  */
@@ -14,7 +15,7 @@ import { v1InvestorPortalDocumentsDownloadCreate, type InvestorDocument } from "
 import { useT } from "../../../i18n";
 import { useDocumentsData } from "../../../investorPortal/data";
 import { formatDate } from "../../../investorPortal/format";
-import { ButtonLink, EmptyState, NiIcon, PageHead, PdfReader, Tabs, bytesOfArtifact, type PdfFile } from "../../components";
+import { ButtonLink, EmptyState, NiIcon, PageHead, PdfReader, PortalLink, Tabs, bytesOfArtifact, type PdfFile } from "../../components";
 import { DESIGN_TYPES, documentGroup, documentTab, documentTitle, documentYears, newestFirst, type DocumentTab } from "./documentsModel";
 import { documentDownloadRequest, useDocumentDownload, type OutputFormat } from "./parts/downloads";
 import "./wallet.css";
@@ -186,7 +187,12 @@ export function DocumentsScreen() {
                             <button className="rss-document-title" disabled={Boolean(busyKey)} onClick={() => onDownload(document, "pdf")} type="button">{tab === "investment" ? t(documentTitle(document)) : document.title}</button>
                             {tab === "investment" ? (
                               <>
-                                <span className="dp-investment">{document.title}</span>
+                                {document.holding_id ? (
+                                  // Design: the investment under the document title links to its page.
+                                  <PortalLink className="dp-investment" params={{ holdingId: document.holding_id }} to="investment">{document.title}</PortalLink>
+                                ) : (
+                                  <span className="dp-investment">{document.title}</span>
+                                )}
                                 {document.context_label ? <small className="dp-reference">{document.context_label}</small> : null}
                               </>
                             ) : (

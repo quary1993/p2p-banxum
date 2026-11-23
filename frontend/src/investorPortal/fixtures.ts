@@ -166,6 +166,17 @@ export const portalFixture: InvestorPortalFixture = {
       context: "Resale purchase SM-3290",
       size: "164 KB",
       category: "secondary_market_purchase"
+    },
+    {
+      id: "D-8920",
+      title: "Loan Savoie Logistique SAS EUR 6,000.00 agreement",
+      type: "Investment agreement",
+      version: "v3",
+      date: "2025-08-28",
+      context: "Order O-55210",
+      size: "196 KB",
+      category: "primary_market_investment",
+      holdingId: "H-2201"
     }
   ],
   notifications: [

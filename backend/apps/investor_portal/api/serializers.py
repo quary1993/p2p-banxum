@@ -153,8 +153,7 @@ class PendingWithdrawalSerializer(serializers.Serializer[Any]):
     requested_at = serializers.DateTimeField()
     is_forced = serializers.BooleanField(
         help_text=(
-            "Automatic return of money not invested in time (day 57), not asked by the "
-            "investor."
+            "Automatic return of money not invested in time (day 57), not asked by the investor."
         )
     )
 
@@ -222,6 +221,10 @@ class InvestorDocumentSerializer(serializers.Serializer[Any]):
     context_label = serializers.CharField()
     context_type = serializers.CharField(required=False)
     context_id = serializers.CharField(required=False)
+    holding_id = serializers.CharField(
+        required=False,
+        help_text="The investor's investment (holding) behind an accepted investment agreement.",
+    )
     output_formats = serializers.ListField(child=serializers.CharField())
     generated_on_request = serializers.BooleanField()
     content_hash = serializers.CharField(required=False)

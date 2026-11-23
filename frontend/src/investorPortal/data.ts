@@ -128,6 +128,7 @@ const documentsFixture: InvestorDocuments = {
         ? "preview-content-hash"
         : undefined,
     category: document.category,
+    holding_id: document.holdingId,
     period_start: document.periodStart,
     period_end: document.periodEnd
   }))
