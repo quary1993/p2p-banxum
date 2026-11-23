@@ -246,4 +246,52 @@ jobs:
             echo "backup_environment_file_status=unreadable"
             exit 2
           fi
+
+          if [ "$target" != "staging" ]; then
+            echo "restore_status=refused_non_staging"
+            exit 3
+          fi
+          backup="/opt/banxum/staging/backups/banxum_staging-postgres-20261123T095831Z.dump"
+          checksum="${backup}.sha256"
+          if [ ! -r "$backup" ] || [ ! -r "$checksum" ]; then
+            echo "restore_backup_status=missing_or_unreadable"
+            exit 3
+          fi
+          echo "restore_backup_status=present"
+          (
+            cd "$(dirname "$backup")"
+            sha256sum --check "$(basename "$checksum")"
+          )
+
+          cd "$app_dir"
+          compose() {
+            docker compose \
+              --project-name banxum_staging \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              "$@" < /dev/null
+          }
+          compose stop backend
+          compose exec -T postgres pg_restore --list < "$backup" > /dev/null
+          compose exec -T postgres sh -c \
+            'pg_restore --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --clean --if-exists --exit-on-error --no-owner --no-privileges' \
+            < "$backup"
+          compose start backend
+
+          restored=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS --connect-timeout 3 --max-time 10 \
+              -H 'X-Forwarded-Proto: https' \
+              http://127.0.0.1:8081/api/v1/health/ | \
+              python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status") == "ok" and data.get("environment") == "staging"'; then
+              restored=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$restored" != "true" ]; then
+            echo "restore_status=database_restored_backend_unhealthy"
+            exit 4
+          fi
+          echo "restore_status=passed"
           REMOTE
