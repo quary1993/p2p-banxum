@@ -472,6 +472,11 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     remaining_term_days = serializers.IntegerField(required=False)
     maturity_date = serializers.DateField(required=False)
     repayment_type = serializers.CharField()
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text="18.6: monthly, quarterly, half_yearly or annual (the loan's PaymentFrequency).",
+    )
     currency = serializers.CharField()
     is_refinancing = serializers.BooleanField()
     original_principal_minor = serializers.IntegerField()

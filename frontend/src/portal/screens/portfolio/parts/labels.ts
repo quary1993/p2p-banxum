@@ -4,6 +4,7 @@
 import { t } from "../../../../i18n";
 import { formatRateBps } from "../../../../investorPortal/format";
 import type { TagTone } from "../../../components";
+import { frequencyWords } from "../../invest/loanFacts";
 import type { InvestmentState } from "./investmentModel";
 
 /** Status pill of an investment (design INV_STATUS): tone and label. */
@@ -29,34 +30,39 @@ export function stateTag(state: InvestmentState, daysPastDue = 0): { tone: TagTo
   }
 }
 
-/** How the loan pays back (today: monthly schedules only, PROD-DEC-005 until U33-DEC-11). */
-export function repaymentText(repaymentType: string) {
+/** How the loan pays back, with the loan's payment frequency (18.6, Q08). */
+export function repaymentText(repaymentType: string, frequency?: string | null) {
+  const words = frequencyWords(frequency);
   switch (repaymentType) {
     case "equal_installments":
     case "amortizing_principal_interest":
-      return t("Principal and interest paid monthly");
+      return t("Principal and interest paid {frequency}", { frequency: words.adverb });
     case "bullet_periodic_interest":
-      return t("Interest paid monthly; principal at the end");
+      return t("Interest paid {frequency}; principal at the end", { frequency: words.adverb });
     case "interest_only_then_bullet":
       return t("Interest only, then principal at the end");
     case "interest_only_then_amortizing":
-      return t("Interest only first, then principal and interest monthly");
+      return t("Interest only first, then principal and interest {frequency}", { frequency: words.adverb });
+    case "full_at_maturity":
+    case "bullet":
+      return t("Principal and interest at maturity");
     default:
       return t("Repayments follow the payment schedule");
   }
 }
 
 /** The short cadence line above a schedule (design: "Monthly interest · Principal repaid at maturity"). */
-export function cadenceText(repaymentType: string) {
+export function cadenceText(repaymentType: string, frequency?: string | null) {
+  const words = frequencyWords(frequency);
   switch (repaymentType) {
     case "equal_installments":
     case "amortizing_principal_interest":
-      return t("Monthly payments · Principal and interest");
+      return t("{frequency} payments · Principal and interest", { frequency: words.adjective });
     case "bullet_periodic_interest":
     case "interest_only_then_bullet":
-      return t("Monthly interest · Principal repaid at maturity");
+      return t("{frequency} interest · Principal repaid at maturity", { frequency: words.adjective });
     case "interest_only_then_amortizing":
-      return t("Monthly interest first · Then principal and interest");
+      return t("{frequency} interest first · Then principal and interest", { frequency: words.adjective });
     default:
       return "";
   }

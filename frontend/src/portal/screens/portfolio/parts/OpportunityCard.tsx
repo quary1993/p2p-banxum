@@ -13,6 +13,7 @@ import { useT } from "../../../../i18n";
 import { daysBetweenDateKeys, formatDateShort, formatDecimal, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
 import { platformTodayKey } from "../../../../investorPortal/platformClock";
 import { NiIcon, PortalLink, usePortalNav } from "../../../components";
+import { CountryFlag } from "../../../components/CountryFlag";
 import { placeName } from "../../invest/loanFacts";
 import { investmentTypeText, monthsText, securityLabel, tileIcon } from "./labels";
 
@@ -58,7 +59,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
               </PortalLink>
             </div>
             <div className="r35-location">
-              <span className="r35-location-text">{location ? <span>{location}</span> : null}</span>
+              <span className="r35-location-text">{match.borrower_country ? <CountryFlag code={match.borrower_country} /> : null}{location ? <span>{location}</span> : null}</span>
               <span className="r35-location-badges">
                 <span className="bxm-tag si-match-label r31-discovery-hidden" title={t("Matches your Smart Invest preferences.")}>{t("Smart Invest")}</span>
               </span>

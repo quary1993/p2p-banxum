@@ -461,7 +461,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                   <NiIcon name="calendar" />
                   <span className="r36-toggle-copy">
                     <strong>{t("Payment schedule")}</strong>
-                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : reviewRepaymentCopy(loan.repayment_type)}</small>
+                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : reviewRepaymentCopy(loan.repayment_type, loan.payment_frequency)}</small>
                   </span>
                   <span className="r36-chevron"><NiIcon name="arrow-up-right" /></span>
                 </button>

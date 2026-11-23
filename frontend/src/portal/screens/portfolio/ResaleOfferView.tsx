@@ -22,7 +22,7 @@ import { isFixturePreview, useBalancesData, useLoanDetailData, useSecondaryListi
 import { formatDate, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { currentLoanPrincipalMinor, loanLtvBps } from "../../../investorPortal/portfolioCollateral";
 import { Button, ButtonLink, Dialog, EmptyState, NiIcon, PortalLink, StatusTag } from "../../components";
-import { borrowerDisclosure, collateralLabel, placeName } from "../invest/loanFacts";
+import { borrowerDisclosure, collateralLabel, frequencyWords, placeName } from "../invest/loanFacts";
 import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
@@ -32,8 +32,8 @@ import { SecuritySection } from "./parts/SecuritySection";
 import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { InfoButton } from "./parts/ui";
 
-/** Repayment types paid monthly (design: "Remaining monthly payments"). */
-const MONTHLY_REPAYMENTS = new Set(["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"]);
+/** Repayment types with periodic payments (design: "Remaining monthly payments", with the loan's frequency). */
+const PERIODIC_REPAYMENTS = new Set(["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"]);
 
 const PAGE_CLASS = "bxm-invest-desktop ip-page l8-opportunity r34-project-entry r36-opportunity r69-page";
 
@@ -139,7 +139,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
                 <span>{t("Remaining term")}</span>
               </div>
             </div>
-            <p className="l8-repayment">{repaymentText(detail.repayment_type)}</p>
+            <p className="l8-repayment">{repaymentText(detail.repayment_type, detail.payment_frequency)}</p>
             {story ? (
               <div className="l8-project-story">
                 <h2>{t("About this project")}</h2>
@@ -181,7 +181,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
                     <NiIcon name="calendar" />
                     <span className="r36-toggle-copy">
                       <strong>{t("Payment schedule")}</strong>
-                      <small>{MONTHLY_REPAYMENTS.has(detail.repayment_type) ? t("Remaining monthly payments") : t("Remaining payments")}</small>
+                      <small>{PERIODIC_REPAYMENTS.has(detail.repayment_type) ? t("Remaining {frequency} payments", { frequency: frequencyWords(detail.payment_frequency).adverb }) : t("Remaining payments")}</small>
                     </span>
                     <span className="r36-chevron"><NiIcon name={scheduleOpen ? "chevron-up" : "chevron-down"} /></span>
                   </button>

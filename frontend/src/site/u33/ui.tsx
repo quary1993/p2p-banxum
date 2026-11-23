@@ -10,6 +10,7 @@ import { SiteLink } from "../components";
 import { useSiteNav } from "../context";
 import { isPlainLeftClick } from "../links";
 import { t } from "../../i18n";
+import { CountryFlag } from "../../portal/components/CountryFlag";
 import { countryName } from "../projects";
 import { GLYPHS, type GlyphName } from "./glyphs";
 import { scrollToSection } from "./hooks";
@@ -26,90 +27,14 @@ export function Ni({ glyph, className, id }: { glyph: GlyphName; className?: str
   );
 }
 
-type Stripe = [string, number, number, number, number];
-
-/** Flag shapes in the design's 19x14 box: [fill, x, y, width, height]. */
-const FLAG_STRIPES: Record<string, Stripe[]> = {
-  RO: [
-    ["#003f91", 0, 0, 6.34, 14],
-    ["#f6d63e", 6.33, 0, 6.34, 14],
-    ["#cc2734", 12.66, 0, 6.34, 14]
-  ],
-  IT: [
-    ["#159366", 0, 0, 6.34, 14],
-    ["white", 6.33, 0, 6.34, 14],
-    ["#cd3442", 12.66, 0, 6.34, 14]
-  ],
-  FR: [
-    ["#0055a4", 0, 0, 6.34, 14],
-    ["white", 6.33, 0, 6.34, 14],
-    ["#ef4135", 12.66, 0, 6.34, 14]
-  ],
-  BE: [
-    ["#1d1d1b", 0, 0, 6.34, 14],
-    ["#fdda24", 6.33, 0, 6.34, 14],
-    ["#ef3340", 12.66, 0, 6.34, 14]
-  ],
-  DE: [
-    ["#1d1d1b", 0, 0, 19, 4.67],
-    ["#dd0000", 0, 4.66, 19, 4.68],
-    ["#ffce00", 0, 9.33, 19, 4.67]
-  ],
-  AT: [
-    ["#c8102e", 0, 0, 19, 4.67],
-    ["white", 0, 4.66, 19, 4.68],
-    ["#c8102e", 0, 9.33, 19, 4.67]
-  ],
-  NL: [
-    ["#ae1c28", 0, 0, 19, 4.67],
-    ["white", 0, 4.66, 19, 4.68],
-    ["#21468b", 0, 9.33, 19, 4.67]
-  ],
-  LU: [
-    ["#ea141d", 0, 0, 19, 4.67],
-    ["white", 0, 4.66, 19, 4.68],
-    ["#51adda", 0, 9.33, 19, 4.67]
-  ],
-  LI: [
-    ["#002b7f", 0, 0, 19, 7],
-    ["#ce1126", 0, 7, 19, 7]
-  ],
-  ES: [
-    ["#aa151b", 0, 0, 19, 3.5],
-    ["#f1bf00", 0, 3.5, 19, 7],
-    ["#aa151b", 0, 10.5, 19, 3.5]
-  ],
-  PT: [
-    ["#046a38", 0, 0, 7.6, 14],
-    ["#da291c", 7.6, 0, 11.4, 14]
-  ]
-};
-
 /**
  * The design's country flag (svg.r35-flag, 19x14). Decorative flags (next to the country's name
  * or in a choice button) are hidden from screen readers; the others are an image with the name.
+ * The drawing is shared with the investor area (portal/components/CountryFlag.tsx).
  */
 export function Flag({ code, decorative = false, className = "r35-flag" }: { code: string; decorative?: boolean; className?: string }) {
   const iso = (code || "").trim().toUpperCase();
-  const name = countryName(iso);
-  const label = decorative ? { "aria-hidden": true as const } : { role: "img", "aria-label": name || iso };
-  return (
-    <svg className={className} viewBox="0 0 19 14" {...label}>
-      {decorative ? null : <title>{name || iso}</title>}
-      {iso === "CH" ? (
-        <>
-          <rect fill="#dc272f" height="14" width="19" />
-          <path d="M8 3h3v2.5h2.5v3H11V11H8V8.5H5.5v-3H8Z" fill="white" />
-        </>
-      ) : FLAG_STRIPES[iso] ? (
-        FLAG_STRIPES[iso].map(([fill, x, y, width, height]) => (
-          <rect fill={fill} height={height} key={`${x}-${y}`} width={width} x={x} y={y} />
-        ))
-      ) : (
-        <rect fill="#d7dce0" height="14" width="19" />
-      )}
-    </svg>
-  );
+  return <CountryFlag className={className} code={iso} label={decorative ? null : countryName(iso) || iso} />;
 }
 
 type HashLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {

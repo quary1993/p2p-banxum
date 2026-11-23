@@ -142,6 +142,11 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     collateral_type = serializers.CharField()
     security_types = serializers.ListField(child=serializers.CharField(), required=False)
     repayment_type = serializers.CharField(required=False, allow_blank=True)
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text="18.6: monthly, quarterly, half_yearly or annual (the loan's PaymentFrequency).",
+    )
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()
     underlying_interest_rate_bps = serializers.IntegerField()

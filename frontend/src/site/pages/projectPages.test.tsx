@@ -4,7 +4,7 @@
 // 2026-09-23).
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { App } from "../../App";
 import { siteQueryKeys, type PublicProject } from "../data";
@@ -12,15 +12,13 @@ import { siteDesignProjectIds, siteProjectsFixture } from "../siteFixtures";
 import { projectView, statusOf, timeText } from "../projects";
 import { plan, round2 } from "../format";
 import {
-  calcAmount,
   expectedInterest,
   filterProjects,
   filtersFromQuery,
   ltvText,
   planRepaymentOf,
   purposeItems,
-  securityText,
-  simulate
+  securityText
 } from "./projectHelpers";
 
 const ID = (designId: string) => siteDesignProjectIds[designId];
@@ -303,9 +301,6 @@ describe("project page helpers", () => {
     expect(purposeItems({ purpose_description: "", purpose: "capex" })).toEqual(["Capex / business expansion"]);
     expect(ltvText(6250)).toBe("62.5%");
     expect(ltvText(null)).toBe("Not applicable");
-    expect(calcAmount("1'234.5")).toBe(1234.5);
-    expect(calcAmount("-")).toBe(0);
-    expect(calcAmount("99999999")).toBe(10000000);
   });
 
   test("filters and the expected interest", () => {

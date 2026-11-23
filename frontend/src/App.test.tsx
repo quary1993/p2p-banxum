@@ -95,20 +95,18 @@ function setUxState(value: string) {
 test("renders the public site shell on the projects page", () => {
   renderApp("/projects");
 
+  // Q24, D-10: All projects is in the U33 public shell (the October shell is retired).
   const header = screen.getByRole("banner");
-  expect(within(header).getByRole("img", { name: "Banxum" })).toBeInTheDocument();
-  const footer = screen.getByRole("contentinfo");
-  expect(within(footer).getByText(/Owned and operated by Garanta Finanzgruppe AG\./)).toBeInTheDocument();
-  expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Garanta Finanzgruppe AG`);
-  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
-  expect(within(header).getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
   expect(within(header).getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
-  expect(within(header).getByRole("link", { name: "Projects" })).toHaveAttribute("aria-current", "page");
-  expect(within(header).getByRole("link", { name: "Help" })).not.toHaveAttribute("aria-current");
-  // The design's skin: html.bxs (not the investor area's html.bxm) and body.bxm-site.
-  expect(document.documentElement).toHaveClass("bxs");
+  const footer = screen.getByRole("contentinfo");
+  expect(within(footer).getByText(/^Banxum is a brand of Garanta Finanzgruppe AG, Schauplatzgasse 26/)).toBeInTheDocument();
+  expect(within(footer).getByRole("link", { name: "All projects" })).toHaveAttribute("href", "/projects");
+  expect(screen.getByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+  // The U33 public skin with the home page's rules (loan cards, calculator), never the October skin.
+  expect(document.documentElement).toHaveClass("bxp", "bxp-home");
+  expect(document.documentElement).not.toHaveClass("bxs");
   expect(document.documentElement).not.toHaveClass("bxm");
-  expect(document.body).toHaveClass("bxm-site");
+  expect(document.body).toHaveClass("home-preview");
 });
 
 test("public project URLs open the project, and the crumbs lead back to the opportunities", () => {
@@ -131,7 +129,7 @@ test("public project URLs open the project, and the crumbs lead back to the oppo
 
 test("page titles follow public routes and reset after sign out", () => {
   const projects = renderApp("/projects");
-  expect(document.title).toBe("Projects · Banxum");
+  expect(document.title).toBe("All projects · Banxum");
   projects.unmount();
 
   renderApp("/smart-invest");
@@ -185,9 +183,9 @@ test("public home page shows three open projects, the calculator and links to al
 
   fireEvent.click(screen.getByRole("link", { name: "All projects, including funded and repaid loans" }));
   expect(window.location.pathname).toBe("/projects");
-  expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
-  expect(document.documentElement).toHaveClass("bxs");
-  expect(document.documentElement).not.toHaveClass("bxp");
+  expect(screen.getByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+  expect(document.documentElement).toHaveClass("bxp");
+  expect(document.documentElement).not.toHaveClass("bxs");
 });
 
 test("the old FAQ address opens Help for logged-out visitors", () => {
@@ -228,7 +226,7 @@ test("site routing: U33 pages, backend legal templates, unknown addresses", () =
   expect(window.location.pathname).toBe("/help");
   expect(window.location.hash).toBe("#how-it-works");
   expect(screen.getByRole("heading", { level: 1, name: "Questions and answers" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { level: 2, name: "From your first transfer to the last repayment" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "From your first transfer to the last repayment." })).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 2, name: "How you invest" })).toBeInTheDocument();
   fireEvent.click(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Statistics" }));
   expect(window.location.pathname).toBe("/statistics");
@@ -311,23 +309,23 @@ test("the language menu announces German and French with a toast (kept for 18.13
 });
 
 test("the projects page newsletter checks the address and shows the double opt-in note", async () => {
-  // U33 home has no newsletter block; the sign-up stays on the October pages (U33-DEC-39).
+  // The U33 home page has no newsletter block; the sign-up is on All projects and Guides (Q24, Q14).
   renderApp("/projects");
   const input = screen.getByLabelText("Email address");
   const submit = screen.getByRole("button", { name: "Get new projects" });
 
   fireEvent.click(submit);
-  expect(input).toHaveClass("is-invalid");
+  expect(input).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByText("Enter a valid email address.")).toBeInTheDocument();
 
   fireEvent.change(input, { target: { value: "anna@example.com" } });
-  expect(input).not.toHaveClass("is-invalid");
+  expect(input).not.toHaveAttribute("aria-invalid");
   fireEvent.click(submit);
   expect(await screen.findByText(/We sent a confirmation link to anna@example\.com\./)).toBeInTheDocument();
   expect(screen.getByText("Almost done.")).toBeInTheDocument();
   expect(screen.getByText("Check your inbox to confirm.")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("link", { name: "Use another address" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use another address" }));
   expect(screen.getByLabelText("Email address")).toHaveValue("");
 });
 
@@ -2574,7 +2572,7 @@ function loginDemo() {
 test("public and portal footers link the platform Terms and Conditions", () => {
   // The public site's footer links the design's terms page; the portal links the published template.
   const site = renderApp("/projects");
-  const siteLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "Terms" });
+  const siteLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "Terms & conditions" });
   expect(siteLink).toHaveAttribute("href", "/legal/terms");
   site.unmount();
 

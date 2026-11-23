@@ -18590,6 +18590,11 @@ components:
           type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         collateral_description:
           type: string
         published_at:
@@ -18885,6 +18890,11 @@ components:
           type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         collateral_description:
           type: string
         published_at:
@@ -21744,6 +21754,11 @@ components:
           format: date
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         currency:
           type: string
         is_refinancing:
@@ -23984,6 +23999,11 @@ components:
           type: integer
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         ltv_bps:
           type: integer
           nullable: true
@@ -25272,6 +25292,11 @@ components:
             type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         interest_rate_bps:
           type: integer
         yield_bps:

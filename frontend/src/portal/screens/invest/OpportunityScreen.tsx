@@ -183,7 +183,7 @@ function OpportunityPage({
   const blocked = investBlockedReason(demoState, frozenAccount);
   const days = daysUntil(loan.funding_deadline, balances?.as_of);
   const statusPill = statusPillOf(loan, t);
-  const cadence = repaymentCadence(loan.repayment_type);
+  const cadence = repaymentCadence(loan.repayment_type, loan.payment_frequency);
 
   const fieldAmountMinor = amountText.trim() ? parseMoneyInputToMinorUnits(amountText, loan.currency) : null;
   const isSaved = Boolean(savedItem) && (fieldAmountMinor === null ? savedAmountMinor === null : !fieldAmountMinor.error && fieldAmountMinor.amountMinor === savedAmountMinor);
@@ -266,7 +266,7 @@ function OpportunityPage({
                 <div><strong>{loan.term_months} <small>{t("months")}</small></strong><span>{t("Duration")}</span></div>
               )}
             </div>
-            {repaymentText(loan.repayment_type) ? <p className="l8-repayment">{repaymentText(loan.repayment_type)}</p> : null}
+            {repaymentText(loan.repayment_type, loan.payment_frequency) ? <p className="l8-repayment">{repaymentText(loan.repayment_type, loan.payment_frequency)}</p> : null}
             <div className="l8-project-story">
               <h2>{t("About this project")}</h2>
               <p>{loan.purpose_description || loan.investor_summary || collateralLabel(loan.purpose)}</p>
@@ -346,7 +346,7 @@ function OpportunityPage({
                   <NiIcon name="calendar" />
                   <span className="r36-toggle-copy">
                     <strong>{t("Payment schedule")}</strong>
-                    <small>{paymentFrequencyLabel(loan.repayment_type) || cadence || t("Full loan schedule")}</small>
+                    <small>{paymentFrequencyLabel(loan.repayment_type, undefined, loan.payment_frequency) || cadence || t("Full loan schedule")}</small>
                   </span>
                   <span className="r36-chevron"><NiIcon name={scheduleOpen ? "chevron-up" : "chevron-down"} /></span>
                 </button>

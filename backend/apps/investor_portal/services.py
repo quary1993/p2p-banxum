@@ -1359,6 +1359,7 @@ def _loan_projection(
         "default_penalty_interest_bps": int(loan.default_penalty_interest_bps),
         "term_months": int(loan.term_months),
         "repayment_type": str(loan.repayment_type),
+        "payment_frequency": str(getattr(loan, "payment_frequency", "") or "monthly"),
         "currency": _currency_code(loan.currency),
         "is_refinancing": bool(loan.is_refinancing),
         "original_principal_minor": int(loan.original_principal_minor),

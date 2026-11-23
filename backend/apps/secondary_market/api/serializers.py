@@ -257,6 +257,11 @@ class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSer
     projected_yield_bps = serializers.IntegerField(allow_null=True)  # type: ignore[assignment]
     term_months = serializers.IntegerField()
     repayment_type = serializers.CharField()
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text="18.6: monthly, quarterly, half_yearly or annual (the loan's PaymentFrequency).",
+    )
     ltv_bps = serializers.IntegerField(allow_null=True)
     loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField(allow_null=True)

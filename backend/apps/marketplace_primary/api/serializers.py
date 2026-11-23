@@ -377,6 +377,11 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     borrower_country = serializers.CharField(allow_blank=True)
     borrower_city = serializers.CharField(allow_blank=True)
     repayment_type = serializers.CharField(allow_blank=True)
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text="18.6: monthly, quarterly, half_yearly or annual (the loan's PaymentFrequency).",
+    )
     collateral_description = serializers.CharField(allow_blank=True)
     published_at = serializers.DateTimeField(allow_null=True)
     distribution_model = serializers.CharField(

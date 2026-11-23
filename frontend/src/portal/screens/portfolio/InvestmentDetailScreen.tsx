@@ -221,7 +221,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
                 <div className="p99v2-facts">
                   <div className="p99v2-repayment">
                     <span>{t("Repayments")}</span>
-                    <strong>{repaymentText(loan.repayment_type)}</strong>
+                    <strong>{repaymentText(loan.repayment_type, loan.payment_frequency)}</strong>
                     <small>{t("Credited to your Banxum balance")}</small>
                   </div>
                   {lifetime !== null ? (
@@ -329,7 +329,7 @@ function ReservedView({ order }: { order: PrimaryOrderPortal }) {
                   <div className="p99v2-facts">
                     <div className="p99v2-repayment">
                       <span>{t("Repayments")}</span>
-                      <strong>{repaymentText(loan.repayment_type)}</strong>
+                      <strong>{repaymentText(loan.repayment_type, loan.payment_frequency)}</strong>
                       <small>{t("Payments start after closing")}</small>
                     </div>
                   </div>

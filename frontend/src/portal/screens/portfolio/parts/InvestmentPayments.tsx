@@ -55,7 +55,7 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
     : filter === "upcoming" && (!projectable || rows.length === 0)
       ? t("No upcoming payments.")
       : "";
-  const cadence = cadenceText(holding.loan.repayment_type);
+  const cadence = cadenceText(holding.loan.repayment_type, holding.loan.payment_frequency);
   const emptyText = state === "repaid" || state === "sold"
     ? state === "sold" ? t("No more payments. You sold this investment.") : t("All payments have been received.")
     : state === "default" || state === "writtenOff"

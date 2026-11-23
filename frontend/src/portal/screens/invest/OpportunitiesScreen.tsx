@@ -19,6 +19,7 @@ import { useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, usePo
 import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportunities";
 import { formatDate, formatDateShort, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
+import { CountryFlag } from "../../components/CountryFlag";
 import {
   collateralGroup,
   collateralIcon,
@@ -387,7 +388,7 @@ export function OpportunityCard({ loan, asOf, matched, invested, saved = false }
   const places = placesInfo(loan);
   const company = isOriginatorClaimLoan(loan) ? loan.borrower_display_name || loan.originator_name : loan.borrower_display_name;
   const country = placeName(loan.borrower_city, loan.borrower_country);
-  const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
+  const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status, loan.payment_frequency);
   const securityName = collateralLabel(loan.collateral_type);
   const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
   const securityHelp = securityHelpText(loan.collateral_type) || securityVocabText();
@@ -408,7 +409,7 @@ export function OpportunityCard({ loan, asOf, matched, invested, saved = false }
             </div>
             {country || invested || saved ? (
               <div className="r35-location">
-                <span className="r35-location-text"><span>{country}</span></span>
+                <span className="r35-location-text">{loan.borrower_country ? <CountryFlag code={loan.borrower_country} /> : null}<span>{country}</span></span>
                 <span className="r35-location-badges">
                   {invested ? <span className="bxm-tag is-muted">{t("Invested")}</span> : null}
                   {saved ? (
@@ -514,7 +515,7 @@ function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPrev
             const company = [name, loan.borrower_country ? loan.borrower_country.toUpperCase() : ""].filter(Boolean).join(" · ");
             const securityName = collateralLabel(loan.collateral_type);
             const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
-            const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status);
+            const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status, loan.payment_frequency);
             const soon = isComingSoonLoan(loan);
             const days = soon || usesImmediateClaimAssignment(loan) ? null : daysUntil(loan.funding_deadline, asOf);
             return (

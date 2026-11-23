@@ -3671,6 +3671,7 @@ def get_active_secondary_market_listing_detail(
             else int(loan.term_months)
         ),
         "repayment_type": str(loan.repayment_type),
+        "payment_frequency": str(getattr(loan, "payment_frequency", "") or "monthly"),
         "ltv_bps": (
             originator_loan_payload["ltv_bps"]
             if originator_loan_payload is not None
