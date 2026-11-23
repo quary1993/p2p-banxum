@@ -246,4 +246,29 @@ jobs:
             echo "backup_environment_file_status=unreadable"
             exit 2
           fi
+
+          if [ "$target" = "staging" ]; then
+            cd "$app_dir"
+            docker compose \
+              --project-name banxum_staging \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              start backend < /dev/null
+            recovered=false
+            for attempt in $(seq 1 30); do
+              if curl -fsS --connect-timeout 3 --max-time 10 \
+                -H 'X-Forwarded-Proto: https' \
+                http://127.0.0.1:8081/api/v1/health/ | \
+                python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status") == "ok" and data.get("environment") == "staging"'; then
+                recovered=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "$recovered" != "true" ]; then
+              echo "staging_backend_recovery_status=failed"
+              exit 3
+            fi
+            echo "staging_backend_recovery_status=healthy"
+          fi
           REMOTE
