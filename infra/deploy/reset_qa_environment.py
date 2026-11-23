@@ -288,22 +288,20 @@ def main() -> None:
         if environment == "production":
             command.append("--allow-production")
         run(command, cwd=app_dir, input=regression_input)
-        run(
-            compose
-            + [
-                "run",
-                "--rm",
-                "--no-deps",
-                "-T",
-                "--entrypoint",
-                ".venv/bin/python",
-                "backend",
-                "backend/manage.py",
-                "check_qa_restore_points",
-                "--require-seed",
-            ],
-            cwd=app_dir,
-        )
+        restore_check = compose + [
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "--entrypoint",
+            ".venv/bin/python",
+            "backend",
+            "backend/manage.py",
+            "check_qa_restore_points",
+        ]
+        if args.regression_accounts:
+            restore_check.append("--require-seed")
+        run(restore_check, cwd=app_dir)
     finally:
         if maintenance_started:
             run(["docker", "start", backend, frontend])
