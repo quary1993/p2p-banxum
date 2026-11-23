@@ -238,3 +238,17 @@ def test_login_secret_crypto_has_no_fallback_outside_local() -> None:
     with override_settings(ENVIRONMENT="staging", AUTH_SECRET_DIGEST_PEPPER=""):
         with pytest.raises(ImproperlyConfigured):
             digest_secret("token")
+
+
+def test_deploy_one_shot_containers_cannot_consume_the_remote_script() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/deploy.yml").read_text()
+    normalized = " ".join(workflow.replace("\\\n", " ").split())
+
+    assert (
+        "compose run --rm --no-TTY backend .venv/bin/python backend/manage.py "
+        "check --deploy --fail-level ERROR < /dev/null"
+    ) in normalized
+    assert (
+        "run --rm --no-TTY backend .venv/bin/python backend/manage.py "
+        "migrate --noinput < /dev/null"
+    ) in normalized

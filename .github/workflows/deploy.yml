@@ -281,7 +281,7 @@ jobs:
           # 1. The settings check of the new release. The running release keeps serving.
           echo "Running the settings check of the new release for $TARGET..."
           if ! compose run --rm --no-TTY backend \
-            .venv/bin/python backend/manage.py check --deploy --fail-level ERROR; then
+            .venv/bin/python backend/manage.py check --deploy --fail-level ERROR < /dev/null; then
             echo "$TARGET settings check failed; nothing was changed." >&2
             exit 5
           fi
@@ -326,7 +326,7 @@ jobs:
             --project-name "$project_name" \
             --env-file infra/deploy/.env \
             -f infra/deploy/docker-compose.yml \
-            run --rm --no-TTY backend .venv/bin/python backend/manage.py migrate --noinput; then
+            run --rm --no-TTY backend .venv/bin/python backend/manage.py migrate --noinput < /dev/null; then
             applied_after=$(applied_migrations || echo unknown)
             if [ "$applied_after" = "$applied_before" ]; then
               compose start backend
