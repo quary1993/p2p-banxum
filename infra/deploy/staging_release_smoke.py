@@ -57,8 +57,12 @@ def post_json(client: Client, path: str, payload: dict[str, Any]) -> Any:
     return client.post(path, data=payload, content_type="application/json", secure=True)
 
 
-def smoke_client() -> Client:
-    return Client(HTTP_HOST="staging.nxnarena.com", HTTP_X_FORWARDED_PROTO="https")
+def smoke_client(ip_address: str = "198.51.100.1") -> Client:
+    return Client(
+        HTTP_HOST="staging.nxnarena.com",
+        HTTP_X_FORWARDED_PROTO="https",
+        REMOTE_ADDR=ip_address,
+    )
 
 
 def add_confirmed_email(user: Any) -> None:
@@ -287,7 +291,7 @@ def sign_in_checks() -> None:
         account_type=AccountType.NATURAL_PERSON_LENDER,
         password=password,
     )
-    client = smoke_client()
+    client = smoke_client("198.51.100.10")
     started = post_json(
         client,
         "/api/v1/auth/login/",
@@ -308,9 +312,9 @@ def sign_in_checks() -> None:
     check(verified.status_code == 200, "investor-authenticator-sign-in", str(verified.status_code))
     check(client.get("/api/v1/auth/me/", secure=True).status_code == 200, "investor-session")
 
-    for label, account_type, superuser in (
-        ("admin", AccountType.ADMIN, False),
-        ("superadmin", AccountType.SUPERADMIN, True),
+    for label, account_type, superuser, ip_address in (
+        ("admin", AccountType.ADMIN, False, "198.51.100.11"),
+        ("superadmin", AccountType.SUPERADMIN, True, "198.51.100.12"),
     ):
         admin_password = f"Smoke-{uuid.uuid4().hex}-admin"
         admin, admin_secret = make_user(
@@ -320,7 +324,7 @@ def sign_in_checks() -> None:
             is_staff=True,
             is_superuser=superuser,
         )
-        admin_client = smoke_client()
+        admin_client = smoke_client(ip_address)
         start = post_json(
             admin_client,
             "/api/v1/auth/admin/login/start/",
@@ -369,7 +373,7 @@ def read_paths() -> tuple[Any, Any]:
     check(investor is not None, "seed-funded-investor-present")
     check(admin is not None, "seed-regular-admin-present")
 
-    investor_client = smoke_client()
+    investor_client = smoke_client("198.51.100.20")
     investor_client.force_login(investor)
     for path, name in (
         ("/api/v1/investor/portal/dashboard/", "investor-dashboard-api"),
@@ -385,7 +389,7 @@ def read_paths() -> tuple[Any, Any]:
     check(export.status_code == 200, "investor-transactions-csv", str(export.status_code))
     check("csv" in str(export.get("Content-Type", "")).lower(), "investor-transactions-csv-type")
 
-    admin_client = smoke_client()
+    admin_client = smoke_client("198.51.100.21")
     admin_client.force_login(admin)
     for path, name in (
         ("/api/v1/admin-ops/dashboard/", "admin-dashboard-api"),
