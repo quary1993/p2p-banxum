@@ -618,7 +618,8 @@ export function OpportunityCard({ loan, asOf, matched, invested, saved = false }
   );
 }
 
-function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPreview[]; asOf?: string; matchIds: Set<string> }) {
+/** The design's list view (ol-table); also the List view of the Smart Invest matches. */
+export function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceLoanPreview[]; asOf?: string; matchIds: Set<string> }) {
   const t = useT();
   return (
     <section aria-label={t("Investment opportunities list")} className="ol-preview">

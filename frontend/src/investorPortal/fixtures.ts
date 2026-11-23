@@ -774,6 +774,9 @@ export const smartInvestFixture: SmartInvestResponse = {
       borrower_display_name: loan.borrower_display_name,
       borrower_country: loan.borrower_country,
       borrower_city: loan.borrower_city,
+      repayment_type: loan.repayment_type,
+      payment_frequency: loan.payment_frequency,
+      collateral_description: loan.collateral_description,
       skin_in_the_game_bps: loan.skin_in_the_game_bps,
       minimum_subscription_bps: loan.minimum_subscription_bps
     })),

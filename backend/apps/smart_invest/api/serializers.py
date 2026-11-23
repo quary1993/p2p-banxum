@@ -170,6 +170,10 @@ class SmartInvestOpportunitySerializer(serializers.Serializer[Any]):
     borrower_display_name = serializers.CharField(allow_null=True)
     borrower_country = serializers.CharField(allow_blank=True)
     borrower_city = serializers.CharField(allow_blank=True)
+    # The security line under the security type on the match card (as on the opportunity cards).
+    collateral_description = serializers.CharField(required=False, allow_blank=True, default="")
+    # The design's "Newest" sort of the matches.
+    published_at = serializers.DateTimeField(required=False, allow_null=True)
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
     # U33-DEC-17: only for a Coming soon match.

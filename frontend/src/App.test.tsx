@@ -491,6 +491,12 @@ test("Smart Invest shows each match as its own opportunity with no bulk selectio
   // No risk rating anywhere (U33-DEC-16).
   expect(screen.queryByText(/risk rating|Rating/)).not.toBeInTheDocument();
 
+  // Design si-results-view: the same matches as a list, then back to cards.
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
+  expect(screen.getByRole("region", { name: "Investment opportunities list" })).toHaveTextContent(smartInvestFixture.matches[0].title);
+  fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+  expect(screen.getAllByRole("button", { name: /^Review investment in / })).toHaveLength(smartInvestFixture.matches.length);
+
   // U33-DEC-30: the in-app and email alerts have their own switches.
   expect(screen.getByText("New matches appear in your notifications.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Notification settings/ }));

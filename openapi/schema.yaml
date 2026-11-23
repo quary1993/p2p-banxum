@@ -25357,6 +25357,13 @@ components:
           type: string
         borrower_city:
           type: string
+        collateral_description:
+          type: string
+          default: ''
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
         skin_in_the_game_bps:
           type: integer
           default: 0

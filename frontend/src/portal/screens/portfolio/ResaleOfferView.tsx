@@ -27,7 +27,7 @@ import { ConfirmFields } from "./parts/ConfirmFields";
 import { confirmationReady, useActionConfirmation } from "./parts/confirmation";
 import { TermsLink } from "./parts/documents";
 import { errorMessage, idempotencyKey, isPriceChangedError, isReadonlyView, templateLabels } from "./parts/errors";
-import { investmentTypeText, priceAdjustmentText, repaymentText, tileIcon } from "./parts/labels";
+import { investmentTypeText, priceAdjustmentText, projectedReturnText, repaymentText, tileIcon } from "./parts/labels";
 import { SecuritySection } from "./parts/SecuritySection";
 import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { InfoButton } from "./parts/ui";
@@ -235,7 +235,7 @@ function OfferPage({ detail, back, onMine, refetch, refreshing }: { detail: Seco
                       title={t("Projected annual return")}
                     />
                   </span>
-                  <strong className="r69-yield">{formatRateBps(detail.projected_yield_bps)}</strong>
+                  <strong className="r69-yield">{projectedReturnText(detail.projected_yield_bps)}</strong>
                 </div>
               ) : null}
             </div>

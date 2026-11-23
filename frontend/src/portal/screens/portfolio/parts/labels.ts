@@ -2,7 +2,7 @@
 // Readable labels of the portfolio area: investment states, repayment types, security types and their
 // design groups, project tiles. English keys for t(); never raw API tokens on screen.
 import { t } from "../../../../i18n";
-import { formatRateBps } from "../../../../investorPortal/format";
+import { formatPercent, formatRateBps } from "../../../../investorPortal/format";
 import type { TagTone } from "../../../components";
 import { frequencyWords } from "../../invest/loanFacts";
 import type { InvestmentState } from "./investmentModel";
@@ -184,4 +184,9 @@ export function securityValueLabel(collateralType: string | null | undefined) {
     default:
       return "Collateral value";
   }
+}
+
+/** Projected annual return of a resale offer: one decimal, as in the design ("9,4%"); it is an estimate. */
+export function projectedReturnText(bps: number | null | undefined) {
+  return bps === null || bps === undefined ? "—" : formatPercent(bps / 100, 1);
 }

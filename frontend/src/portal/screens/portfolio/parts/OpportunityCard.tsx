@@ -1,21 +1,21 @@
 // IP of Webby-Soft SRL.
 // A Smart Invest match as the design's opportunity card (.bxm-project.r35-card), from the match data of
-// the Smart Invest API. No risk rating (U33-DEC-16) and no "Banxum co-investment" claim (U33-DEC-15).
+// the Smart Invest API, with the same figures, security block and icons as the Investment opportunities
+// card. No risk rating (U33-DEC-16) and no "Banxum co-investment" claim (U33-DEC-15).
 // "Review investment" opens the opportunity page; nothing is reserved or confirmed here (U33-DEC-19).
 // With a usual amount, a card says when that amount cannot be invested here (below the minimum or more
 // than is left); the opportunity stays a match (U33-DEC-19).
 // As in the design's Smart Invest page, the badge, funded amount and availability are .r31-discovery-hidden.
-// Slice S2 builds the same card for Investment opportunities; the main session merges the two.
 // U33-DEC-17: a Coming soon match has the design's soon card (r31-coming-soon: no funding block,
 // "Opens {date}") and "View details" instead of "Review investment".
 import type { SmartInvestOpportunity } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { daysBetweenDateKeys, formatDateShort, formatDecimal, formatMoneyMinor, formatRateBps, useNumberFormat } from "../../../../investorPortal/format";
 import { platformTodayKey } from "../../../../investorPortal/platformClock";
-import { NiIcon, PortalLink, usePortalNav } from "../../../components";
+import { InfoTip, NiIcon, PortalLink, usePortalNav } from "../../../components";
 import { CountryFlag } from "../../../components/CountryFlag";
-import { placeName } from "../../invest/loanFacts";
-import { investmentTypeText, monthsText, securityLabel, tileIcon } from "./labels";
+import { collateralIcon, collateralLabel, paymentFrequencyLabel, placeName, projectIcon, securityHelpText, securityVocabText } from "../../invest/loanFacts";
+import { investmentTypeText } from "./labels";
 
 /** "95k", "1,2M": the design's short loan amount; the exact amount is in the title. */
 function shortAmount(amountMinor: number, currency: string) {
@@ -33,7 +33,11 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
   const days = match.funding_deadline ? daysBetweenDateKeys(platformTodayKey(asOf), match.funding_deadline) : null;
   const money = (amount: number) => `${match.currency} ${formatMoneyMinor(amount, match.currency)}`;
   const subtitle = match.borrower_display_name || match.originator_name || "";
-  const unsecured = /unsecured/i.test(match.collateral_type) || match.ltv_bps === null;
+  const payments = paymentFrequencyLabel(match.repayment_type, match.loan_status, match.payment_frequency);
+  // As on the opportunity cards: the security type, then its description when it says more.
+  const securityName = collateralLabel(match.collateral_type);
+  const description = match.collateral_description ?? "";
+  const securityDetail = description && description !== match.collateral_type && description !== securityName ? description : "";
   const location = placeName(match.borrower_city, match.borrower_country);
   const soon = match.opportunity_status === "coming_soon";
   const usualMinor = preferredAmount === null || soon ? null : Math.round(preferredAmount * 100);
@@ -51,7 +55,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
           <div className={`project bxm-project r35-card${soon ? " r31-coming-soon" : ""}`}>
             <div className="project-head">
               <PortalLink className="project-title" params={{ loanId: match.loan_id }} to="loan">
-                <div className="bxm-project-tile"><NiIcon name={tileIcon(match.collateral_type)} /></div>
+                <div className="bxm-project-tile"><NiIcon name={projectIcon(match)} /></div>
                 <div className="project-info">
                   <h3 className="title h6">{match.title}</h3>
                   {subtitle ? <span className="sub-text">{subtitle}</span> : null}
@@ -76,7 +80,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
                 </div>
                 <div>
                   <dt>{t("Term")}</dt>
-                  <dd>{monthsText(match.term_months)}</dd>
+                  <dd>{t("{count} mo", { count: match.term_months })}{payments ? <small className="r74-card-payments">{payments}</small> : null}</dd>
                 </div>
                 <div>
                   <dt>{t("Loan amount · {currency}", { currency: match.currency })}</dt>
@@ -85,12 +89,15 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
               </dl>
             </div>
             <section className="r35-security">
-              <div className="r35-security-heading">{t("Security")}</div>
+              <div className="r35-security-heading">
+                {t("Security")}
+                <InfoTip label={t("Security")} title={t("Security")}>{securityHelpText(match.collateral_type) || securityVocabText()}</InfoTip>
+              </div>
               <div className="r35-security-content">
-                <NiIcon className="r35-security-icon" name={tileIcon(match.collateral_type)} />
+                <NiIcon className="r35-security-icon" name={collateralIcon(match.collateral_type)} />
                 <div>
-                  <strong>{securityLabel(match.collateral_type)}</strong>
-                  {!unsecured && match.ltv_bps !== null ? <small>{t("Loan-to-value {ratio}", { ratio: formatRateBps(match.ltv_bps) })}</small> : null}
+                  <strong>{securityName}</strong>
+                  {securityDetail ? <small>{securityDetail}</small> : null}
                 </div>
               </div>
             </section>
@@ -110,7 +117,7 @@ export function OpportunityCard({ match, asOf, preferredAmount = null }: { match
             </div>
             <div className="project-meta mt-3">
               <span className="bxm-muted">
-                <NiIcon name="clock" />
+                <NiIcon name="clock" />{" "}
                 {soon
                   ? t("Opens {date}", { date: formatDateShort(match.planned_opening_date) })
                   : days === null ? t("Open") : days <= 0 ? t("Closes today") : days === 1 ? t("1 day left") : t("{days} days left", { days })}
