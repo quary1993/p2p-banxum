@@ -264,19 +264,18 @@ jobs:
           )
 
           cd "$app_dir"
-          compose() {
-            docker compose \
-              --project-name banxum_staging \
-              --env-file infra/deploy/.env \
-              -f infra/deploy/docker-compose.yml \
-              "$@" < /dev/null
-          }
-          compose stop backend
-          compose exec -T postgres pg_restore --list < "$backup" > /dev/null
-          compose exec -T postgres sh -c \
+          compose=(
+            docker compose
+            --project-name banxum_staging
+            --env-file infra/deploy/.env
+            -f infra/deploy/docker-compose.yml
+          )
+          "${compose[@]}" stop backend < /dev/null
+          "${compose[@]}" exec -T postgres pg_restore --list < "$backup" > /dev/null
+          "${compose[@]}" exec -T postgres sh -c \
             'pg_restore --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --clean --if-exists --exit-on-error --no-owner --no-privileges' \
             < "$backup"
-          compose start backend
+          "${compose[@]}" start backend < /dev/null
 
           restored=false
           for attempt in $(seq 1 30); do
