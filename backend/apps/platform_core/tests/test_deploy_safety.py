@@ -256,6 +256,12 @@ def test_deploy_one_shot_containers_cannot_consume_the_remote_script() -> None:
     assert "infra/deploy/backup_postgres.sh < /dev/null" in normalized
     assert "seed_marketplace_demo_loans $seed_args < /dev/null" in normalized
     assert "seed_originator_demo_loans $seed_args < /dev/null" in normalized
+    assert 'rm -f "$REMOTE_COMPLETION_MARKER"' in normalized
+    assert ': > "$REMOTE_COMPLETION_MARKER"' in normalized
+    assert (
+        "test -f '$remote_completion_marker' && rm -f '$remote_completion_marker'"
+        in normalized
+    )
 
     backup_script = (REPO_ROOT / "infra/deploy/backup_postgres.sh").read_text()
     backup_normalized = " ".join(backup_script.replace("\\\n", " ").split())

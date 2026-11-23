@@ -127,6 +127,7 @@ jobs:
           for target in $targets; do
             release_name="banxum-${GITHUB_SHA}-${target}.tgz"
             remote_archive="/tmp/${release_name}"
+            remote_completion_marker="/tmp/${release_name}.complete"
             provider_env=""
             remote_provider_env=""
 
@@ -165,12 +166,14 @@ jobs:
               "$SSH_USER@$SSH_HOST" \
               TARGET="$target" \
               REMOTE_ARCHIVE="$remote_archive" \
+              REMOTE_COMPLETION_MARKER="$remote_completion_marker" \
               REMOTE_PROVIDER_ENV="$remote_provider_env" \
               SEED_MARKETPLACE_DEMO_LOANS="$SEED_MARKETPLACE_DEMO_LOANS" \
               SEED_ORIGINATOR_DEMO_LOANS="$SEED_ORIGINATOR_DEMO_LOANS" \
               'bash -s' <<'REMOTE'
           set -euo pipefail
           trap 'rm -f "${REMOTE_ARCHIVE:-}" "${REMOTE_PROVIDER_ENV:-}"' EXIT
+          rm -f "$REMOTE_COMPLETION_MARKER"
 
           case "$TARGET" in
             staging)
@@ -391,6 +394,14 @@ jobs:
           fi
 
           check_health
+          : > "$REMOTE_COMPLETION_MARKER"
           echo "$TARGET deployment completed successfully."
           REMOTE
+            ssh \
+              -i "$HOME/.ssh/banxum_deploy_key" \
+              -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" \
+              "test -f '$remote_completion_marker' && rm -f '$remote_completion_marker'"
           done
