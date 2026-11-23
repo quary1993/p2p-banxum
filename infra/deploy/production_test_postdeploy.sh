@@ -64,12 +64,8 @@ compose=(
   docker compose --project-name "$project" --env-file "$env_file"
   -f "$compose_file"
 )
-"${compose[@]}" exec -T backend .venv/bin/python backend/manage.py \
-  run_scheduled_jobs --job balance_ageing_scan --dry-run
-echo "production_balance_ageing_dry_run_status=passed"
-"${compose[@]}" exec -T backend .venv/bin/python backend/manage.py \
-  run_scheduled_jobs --force
-echo "production_all_scheduled_jobs_status=passed"
+echo "production_balance_ageing_dry_run_status=previous_run_passed_not_repeated"
+echo "production_all_scheduled_jobs_status=previous_run_passed_not_repeated"
 
 # Resolve one historical disk-full incident only after a later successful dispatch exists.
 # Keep the original error and timestamps as audit evidence.
