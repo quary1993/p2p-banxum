@@ -3,8 +3,9 @@
  * Investment opportunities (design #/projects, slice S2): search, EUR/CHF, filters, sort, Cards/List,
  * the counter, Smart Invest match marks while a rule is active, and the link to past opportunities.
  * Filters are the ones today's data can apply: currency, security type, minimum rate, maximum term and
- * originator. No ratings (U33-DEC-16), no purpose or loan-kind filters (U33-DEC-19); LTV, country and
- * repayment filters wait for Phase 17.2/17.4 data. No co-investment claim (U33-DEC-15).
+ * originator, and the design's maximum loan-to-value, borrower country and repayment structure (the
+ * Smart Invest repayment groups). No ratings (U33-DEC-16), no purpose or loan-kind filters
+ * (U33-DEC-19). No co-investment claim (U33-DEC-15).
  * U33-DEC-17: Coming soon opportunities follow the open ones, the next to open first, as in the design
  * (r31-coming-soon card without the funding block, "Opens {date}", the ol-soon list tag).
  * U33-DEC-18: a saved opportunity has the design's "Saved" badge (v107-saved-badge), which removes it.
@@ -13,7 +14,7 @@
  */
 import { useState } from "react";
 
-import type { MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
+import { SmartInvestRepaymentEnum, type MarketplaceLoanPreview } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
 import { useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, usePortfolioData, usePrimaryOrdersData, useSavedOpportunitiesData, useSmartInvestData } from "../../../investorPortal/data";
 import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportunities";
@@ -34,6 +35,8 @@ import {
   isOpenLoan,
   isOriginatorClaimLoan,
   loanTypeLabel,
+  countryName,
+  loanLtv,
   loanYieldBps,
   paymentFrequencyLabel,
   placesInfo,
@@ -45,23 +48,40 @@ import {
   type SecurityGroup
 } from "./loanFacts";
 import { isOpenOrder } from "../portfolio/parts/investmentModel";
+import { repaymentOption } from "../portfolio/parts/smartInvestModel";
 import { readStored, writeStored } from "./storage";
 import "./invest.css";
 
 type Layout = "cards" | "list";
 type Sort = "closing" | "newest" | "rate" | "term" | "funded";
-type Filters = { q: string; currency: string; minRate: number | null; maxTerm: number | null; security: string[]; originator: string };
+type Filters = { q: string; currency: string; minRate: number | null; maxTerm: number | null; security: string[]; maxLtv: number | null; country: string; repayment: string[]; originator: string };
 
 const LAYOUT_KEY = "banxum:marketplace-layout:v1";
 const DIRECT = "direct";
-const emptyFilters: Filters = { q: "", currency: "", minRate: null, maxTerm: null, security: [], originator: "" };
+const emptyFilters: Filters = { q: "", currency: "", minRate: null, maxTerm: null, security: [], maxLtv: null, country: "", repayment: [], originator: "" };
 const rateOptions = [5, 6, 7, 8, 9, 10, 12];
 const termOptions = [6, 12, 18, 24, 36, 48, 60];
+/** Design: "Up to 60%" / "Up to 70%" / "Up to 80%" (maximum loan-to-value, C06 figure). */
+const ltvOptions = [60, 70, 80];
+/** Design "Repayment structure": the Smart Invest repayment groups (same grouping as the backend). */
+const repaymentGroups: Array<[value: string, label: string]> = [
+  [SmartInvestRepaymentEnum.principal_and_interest, "Periodic principal and interest"],
+  [SmartInvestRepaymentEnum.interest_only, "Periodic interest; principal at maturity"],
+  [SmartInvestRepaymentEnum.at_maturity, "Principal and interest at maturity"]
+];
 const groupOrder: SecurityGroup[] = ["physical", "rights", "guarantees", "other"];
 
 /** U33-DEC-21: every security type in force; the collateral type for older payloads. */
 function securityTypesOf(loan: MarketplaceLoanPreview) {
   return loan.security_types && loan.security_types.length > 0 ? loan.security_types : [loan.collateral_type];
+}
+
+type NumberFilter = "minRate" | "maxTerm" | "maxLtv";
+
+/** A typed custom value (design bxm-op-custom: "7.5", "7,5"); null when empty or not a positive number. */
+function parseCustomNumber(text: string) {
+  const value = Number(text.trim().replace(/['’\s]/g, "").replace(",", "."));
+  return text.trim() === "" || !Number.isFinite(value) || value <= 0 ? null : value;
 }
 
 function matchesFilters(loan: MarketplaceLoanPreview, filters: Filters) {
@@ -74,6 +94,16 @@ function matchesFilters(loan: MarketplaceLoanPreview, filters: Filters) {
   if (filters.minRate !== null && loanYieldBps(loan) < filters.minRate * 100) return false;
   if (filters.maxTerm !== null && loan.term_months > filters.maxTerm) return false;
   if (filters.security.length > 0 && !securityTypesOf(loan).some((type) => filters.security.includes(type))) return false;
+  if (filters.maxLtv !== null) {
+    // An opportunity without a stated loan-to-value does not match a limit (as Smart Invest).
+    const ltv = loanLtv(loan);
+    if (ltv === null || ltv > filters.maxLtv * 100) return false;
+  }
+  if (filters.country && (loan.borrower_country ?? "").toUpperCase() !== filters.country) return false;
+  if (filters.repayment.length > 0) {
+    const group = repaymentOption({ term_months: loan.term_months, repayment_type: loan.repayment_type });
+    if (!group || !filters.repayment.includes(group)) return false;
+  }
   if (filters.originator) {
     const source = isOriginatorClaimLoan(loan) ? loan.originator_id ?? "" : DIRECT;
     if (source !== filters.originator) return false;
@@ -149,6 +179,40 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
     writeStored(LAYOUT_KEY, next);
   };
   const update = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch }));
+  // Design "Custom…": the field shows a number input next to its unit; the typed text is kept here.
+  const [custom, setCustom] = useState<Record<NumberFilter, string | null>>({ minRate: null, maxTerm: null, maxLtv: null });
+  const numberSelect = (key: NumberFilter, presets: number[]) => ({
+    value: custom[key] !== null ? "custom" : filters[key] !== null && presets.includes(filters[key] as number) ? String(filters[key]) : "",
+    onChange: (event: { target: { value: string } }) => {
+      const next = event.target.value;
+      if (next === "custom") {
+        setCustom((current) => ({ ...current, [key]: "" }));
+        update({ [key]: null } as Partial<Filters>);
+        // As in the design, the typed value is next: move the focus to the new field.
+        window.setTimeout(() => document.getElementById(`op-custom-${key}`)?.focus(), 0);
+        return;
+      }
+      setCustom((current) => ({ ...current, [key]: null }));
+      update({ [key]: next ? Number(next) : null } as Partial<Filters>);
+    }
+  });
+  const customInput = (key: NumberFilter, label: string, unit: string, extraClass = "") =>
+    custom[key] !== null ? (
+      <div className={`bxm-op-custom${extraClass}`}>
+        <input
+          aria-label={label}
+          id={`op-custom-${key}`}
+          inputMode="decimal"
+          onChange={(event) => {
+            setCustom((current) => ({ ...current, [key]: event.target.value }));
+            update({ [key]: parseCustomNumber(event.target.value) } as Partial<Filters>);
+          }}
+          type="text"
+          value={custom[key] ?? ""}
+        />
+        <span>{unit}</span>
+      </div>
+    ) : null;
 
   const loans = loansQuery.data ?? [];
   const openLoans = loans.filter(isOpenLoan);
@@ -166,14 +230,29 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const originators = Array.from(
     new Map(listedLoans.filter((loan) => isOriginatorClaimLoan(loan) && loan.originator_id).map((loan) => [loan.originator_id as string, loan.originator_name ?? ""])).entries()
   ).sort((a, b) => a[1].localeCompare(b[1]));
-  const panelCount = [filters.minRate !== null, filters.maxTerm !== null, filters.security.length > 0, Boolean(filters.originator)].filter(Boolean).length;
+  const countries = Array.from(new Set(listedLoans.map((loan) => (loan.borrower_country ?? "").toUpperCase()).filter(Boolean)))
+    .map((code) => [code, countryName(code)] as const)
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const panelCount = [
+    filters.minRate !== null,
+    filters.maxTerm !== null,
+    filters.security.length > 0,
+    filters.maxLtv !== null,
+    Boolean(filters.country),
+    filters.repayment.length > 0,
+    Boolean(filters.originator)
+  ].filter(Boolean).length;
   const anyFilter = panelCount > 0 || Boolean(filters.q.trim()) || Boolean(filters.currency) || (matchesOnly && ruleActive);
   const securitySummary = filters.security.length === 0
     ? t("No preference")
     : filters.security.map(collateralLabel).join(", ");
+  const repaymentSummary = filters.repayment.length === 0
+    ? t("Any repayment")
+    : repaymentGroups.filter(([value]) => filters.repayment.includes(value)).map(([, label]) => t(label)).join(", ");
   const maxInvestors = openLoans.map((loan) => loan.max_investors).find((value): value is number => typeof value === "number");
   const clearAll = () => {
     setFilters(emptyFilters);
+    setCustom({ minRate: null, maxTerm: null, maxLtv: null });
     setMatchesOnly(false);
   };
 
@@ -245,17 +324,21 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
           <div className="bxm-op-grid">
             <div className="bxm-op-field">
               <label htmlFor="op-minRate">{t("Minimum annual interest rate")}</label>
-              <select className="bxm-op-select" id="op-minRate" onChange={(event) => update({ minRate: event.target.value ? Number(event.target.value) : null })} value={filters.minRate ?? ""}>
+              <select className="bxm-op-select" id="op-minRate" {...numberSelect("minRate", rateOptions)}>
                 <option value="">{t("No preference")}</option>
                 {rateOptions.map((rate) => <option key={rate} value={rate}>{t("{rate} or more", { rate: formatPercent(rate, 0) })}</option>)}
+                <option value="custom">{t("Custom…")}</option>
               </select>
+              {customInput("minRate", t("Custom minimum annual interest rate"), t("% per year"))}
             </div>
             <div className="bxm-op-field">
               <label htmlFor="op-maxTerm">{t("Maximum investment duration")}</label>
-              <select className="bxm-op-select" id="op-maxTerm" onChange={(event) => update({ maxTerm: event.target.value ? Number(event.target.value) : null })} value={filters.maxTerm ?? ""}>
+              <select className="bxm-op-select" id="op-maxTerm" {...numberSelect("maxTerm", termOptions)}>
                 <option value="">{t("No preference")}</option>
                 {termOptions.map((months) => <option key={months} value={months}>{t("Up to {count} months", { count: months })}</option>)}
+                <option value="custom">{t("Custom…")}</option>
               </select>
+              {customInput("maxTerm", t("Custom maximum investment duration"), t("months"))}
             </div>
             <div className="bxm-op-field">
               <span className="bxm-op-label" id="op-collateral-label">
@@ -297,14 +380,35 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
                 </div>
               </details>
             </div>
+            <div className="bxm-op-field">
+              <label htmlFor="op-minCover">
+                {t("Maximum loan-to-value")}
+                <InfoTip label={t("About loan-to-value")} title={t("Loan-to-value")}>
+                  {t("The loan amount divided by the value of the assets that count for the loan-to-value. A lower figure leaves more room if an asset sells for less. An opportunity without a stated loan-to-value does not match a limit.")}
+                </InfoTip>
+              </label>
+              <select className="bxm-op-select" id="op-minCover" {...numberSelect("maxLtv", ltvOptions)}>
+                <option value="">{t("No preference")}</option>
+                {ltvOptions.map((ltv) => <option key={ltv} value={ltv}>{t("Up to {ltv}", { ltv: formatPercent(ltv, 0) })}</option>)}
+                <option value="custom">{t("Custom…")}</option>
+              </select>
+              {customInput("maxLtv", t("Maximum loan-to-value percent"), "%", " r79-ltv-custom")}
+            </div>
           </div>
           <div className="bxm-op-more">
             <button aria-controls="op-secondary" aria-expanded={moreOpen} id="op-more-toggle" onClick={() => setMoreOpen((open) => !open)} type="button">
-              <span>{moreOpen ? t("Fewer filters") : t("More filters")}</span>
+              <span>{t("More filters")}</span>
               <NiIcon name={moreOpen ? "chevron-up" : "chevron-down"} />
             </button>
           </div>
           <div className="bxm-op-grid" hidden={!moreOpen} id="op-secondary">
+            <div className="bxm-op-field">
+              <label htmlFor="op-country">{t("Borrower country")}</label>
+              <select className="bxm-op-select" id="op-country" onChange={(event) => update({ country: event.target.value })} value={filters.country}>
+                <option value="">{t("All countries")}</option>
+                {countries.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+              </select>
+            </div>
             <div className="bxm-op-field">
               <label htmlFor="op-originator">
                 {t("Originator")}
@@ -317,6 +421,35 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
                 <option value={DIRECT}>{t("Banxum (direct)")}</option>
                 {originators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
+            </div>
+            <div className="bxm-op-field">
+              <span className="bxm-op-label" id="op-repayment-label">
+                {t("Repayment structure")}
+                <InfoTip label={t("About Repayment structure")} title={t("Repayment structure")}>
+                  {t("How the borrower pays back: regular payments of principal and interest, regular interest with the principal at maturity, or everything at maturity. An opportunity matches any structure you select.")}
+                </InfoTip>
+              </span>
+              <details className="bxm-op-multi" id="op-repayment-menu">
+                <summary aria-labelledby="op-repayment-label op-repayment-value" className="bxm-op-select" id="op-repayment-toggle">
+                  <span id="op-repayment-value" title={repaymentSummary}>{repaymentSummary}</span>
+                </summary>
+                <div className="bxm-op-options bxm-op-repayment-options">
+                  <p className="bxm-op-hint">{t("Match any selected repayment structure.")}</p>
+                  {repaymentGroups.map(([value, label]) => (
+                    <label className="bxm-op-check" htmlFor={`op-repayment-${value}`} key={value}>
+                      <input
+                        checked={filters.repayment.includes(value)}
+                        id={`op-repayment-${value}`}
+                        onChange={(event) =>
+                          update({ repayment: event.target.checked ? [...filters.repayment, value] : filters.repayment.filter((item) => item !== value) })
+                        }
+                        type="checkbox"
+                      />
+                      <span>{t(label)}</span>
+                    </label>
+                  ))}
+                </div>
+              </details>
             </div>
           </div>
         </section>

@@ -1008,7 +1008,7 @@ test("Investment opportunities search and filter by currency, and the opportunit
   expect(within(dialog).getByText(/released to your balance/)).toBeInTheDocument();
 });
 
-test("opportunity filters use today's data: security type, rate, term and originator, never ratings or purpose", () => {
+test("opportunity filters use today's data: security type, rate, term, loan-to-value, country, repayment and originator, never ratings or purpose", () => {
   renderApp();
   loginDemo();
   clickNav("Investment opportunities");
@@ -1045,6 +1045,39 @@ test("opportunity filters use today's data: security type, rate, term and origin
   fireEvent.change(originator, { target: { value: "direct" } });
   // Four open Direct loans and the Coming soon one (U33-DEC-17).
   expect(resultLine()).toHaveTextContent("5 opportunities · 5 open in total · 1 coming soon");
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+  // Maximum loan-to-value: an opportunity without a stated LTV (Léman BioTech) does not match a limit.
+  const ltv = within(panel).getByRole("combobox", { name: /^Maximum loan-to-value/ });
+  fireEvent.change(ltv, { target: { value: "80" } });
+  expect(resultLine()).toHaveTextContent("5 opportunities");
+  expect(screen.queryByRole("heading", { name: "Léman BioTech SA" })).not.toBeInTheDocument();
+  // "Custom…" shows a number field next to its unit, as in the design.
+  fireEvent.change(ltv, { target: { value: "custom" } });
+  const customLtv = within(panel).getByRole("textbox", { name: "Maximum loan-to-value percent" });
+  expect(customLtv.parentElement).toHaveTextContent("%");
+  fireEvent.change(customLtv, { target: { value: "50" } });
+  expect(resultLine()).toHaveTextContent("2 opportunities");
+  expect(screen.getByRole("heading", { name: "Rhône Vignobles SA" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(within(panel).queryByRole("textbox", { name: "Maximum loan-to-value percent" })).not.toBeInTheDocument();
+
+  // A custom minimum rate takes a decimal comma.
+  fireEvent.change(within(panel).getByLabelText("Minimum annual interest rate"), { target: { value: "custom" } });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Custom minimum annual interest rate" }), { target: { value: "8,0" } });
+  expect(resultLine()).toHaveTextContent("2 opportunities");
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+  // Borrower country and repayment structure, under More filters.
+  fireEvent.change(within(panel).getByRole("combobox", { name: "Borrower country" }), { target: { value: "DE" } });
+  expect(resultLine()).toHaveTextContent("1 opportunity");
+  expect(screen.getByRole("heading", { name: "Nordwind Energie GmbH" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Principal and interest at maturity" }));
+  expect(resultLine()).toHaveTextContent("2 opportunities");
+  expect(screen.getByRole("heading", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Periodic interest; principal at maturity" }));
+  expect(resultLine()).toHaveTextContent("2 opportunities");
 });
 
 test("Smart Invest preferences save several security types and an originator", async () => {
