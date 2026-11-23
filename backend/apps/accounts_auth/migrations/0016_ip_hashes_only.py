@@ -39,6 +39,13 @@ def hash_stored_addresses(apps: Any, schema_editor: Any) -> None:
             if address:
                 model.objects.filter(pk=pk).update(**{hashed: _keyed_hash(str(address))})
 
+    # PostgreSQL defers foreign-key trigger checks until the transaction ends. The
+    # RemoveField operations below alter the same populated tables, which PostgreSQL
+    # refuses while those trigger events are pending. Complete the checks here and
+    # keep the migration atomic.
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
 
 class Migration(migrations.Migration):
     dependencies = [
