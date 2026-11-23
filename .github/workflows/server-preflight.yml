@@ -16,7 +16,7 @@ jobs:
   preflight:
     name: SSH and host readiness preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -275,4 +275,25 @@ jobs:
             .venv/bin/python backend/manage.py shell < "$REMOTE_SCRIPT"
           curl -fsS https://staging.nxnarena.com/api/v1/health/ >/dev/null
           echo "external_staging_health=passed"
+          REMOTE
+
+      - name: Complete private-test production maintenance
+        if: inputs.environment == 'production'
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          remote_script="/tmp/banxum-production-postdeploy-${GITHUB_RUN_ID}.sh"
+          scp -i "$HOME/.ssh/banxum_deploy_key" -P "$SSH_PORT" -o BatchMode=yes \
+            infra/deploy/production_test_postdeploy.sh \
+            "$SSH_USER@$SSH_HOST:$remote_script"
+          ssh -i "$HOME/.ssh/banxum_deploy_key" -p "$SSH_PORT" -o BatchMode=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            REMOTE_SCRIPT="$remote_script" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          trap 'rm -f "$REMOTE_SCRIPT"' EXIT
+          chmod 700 "$REMOTE_SCRIPT"
+          "$REMOTE_SCRIPT"
           REMOTE
