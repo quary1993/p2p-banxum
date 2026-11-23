@@ -330,6 +330,9 @@ def test_transactions_page_filters_pages_and_shows_the_available_balance_after_e
         ("primary_reservation_released", 30_000_00),
         ("primary_reservation", 26_000_00),
     ]
+    # Design repayment line "Borrower · Loan": the loan's borrower as the investor sees it.
+    borrower_name = str(cast(Any, loan).borrower.legal_name)
+    assert {row.get("borrower_name") for row in page["entries"]} == {borrower_name}
     rest = client.get("/api/v1/investor/portal/transactions/", {"offset": 2}).json()
     assert [(row["group"], row["available_after_minor"]) for row in rest["entries"]] == [
         ("deposit", 30_000_00)

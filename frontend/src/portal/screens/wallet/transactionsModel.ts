@@ -102,6 +102,13 @@ function withdrawalStatus(status: string) {
   return humanize(status);
 }
 
+/** Design repayment line "Borrower · Loan" (the borrower name comes with the Transactions page). */
+function borrowerAndLoan(entry: ActivityEntry | TransactionEntry): Description {
+  const borrower = "borrower_name" in entry && typeof entry.borrower_name === "string" ? entry.borrower_name : "";
+  const loan = entry.loan_title || "";
+  return borrower && loan && borrower !== loan ? { text: "{borrower} · {loan}", vars: { borrower, loan } } : plain(loan || borrower);
+}
+
 /** How the page shows one activity entry. */
 export function transactionRow(entry: ActivityEntry): TransactionRow {
   const type = entry.activity_type;
@@ -173,9 +180,9 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
     case "interest_distribution":
     case "originator_repayment_distribution":
       // U33-DEC-02: repayments are credited to the Banxum balance.
-      return { ...base, group: "repayment", label: "Repayment", status: "Credited to your balance", icon: "arrow-up-right" };
+      return { ...base, group: "repayment", label: "Repayment", status: "Credited to your balance", icon: "arrow-up-right", description: borrowerAndLoan(entry) };
     case "recovery_distribution":
-      return { ...base, group: "recovery", label: "Recovery payment", status: "Credited to your balance", icon: "arrow-up-right" };
+      return { ...base, group: "recovery", label: "Recovery payment", status: "Credited to your balance", icon: "arrow-up-right", description: borrowerAndLoan(entry) };
     case "withdrawal_request":
       return {
         ...base,

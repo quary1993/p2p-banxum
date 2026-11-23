@@ -25912,6 +25912,8 @@ components:
         available_after_minor:
           type: integer
           nullable: true
+        borrower_name:
+          type: string
       required:
       - activity_type
       - amount_minor

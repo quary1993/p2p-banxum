@@ -2087,7 +2087,7 @@ def get_investor_transactions(
         # Audit S2-1: the whole history; no cap that would hide the oldest movements.
         limit=None,
     )
-    return cast(
+    page = cast(
         dict[str, Any],
         transactions.transaction_page(
             investor_user_id=investor_user_id,
@@ -2097,6 +2097,34 @@ def get_investor_transactions(
             limit=limit,
         ),
     )
+    _attach_borrower_names(page["entries"])
+    return page
+
+
+def _attach_borrower_names(entries: list[dict[str, Any]]) -> None:
+    """
+    The design's repayment line "Borrower · Loan": the borrower name the investor already sees on
+    the loan (a Direct loan's borrower legal name; the borrower display name of a Loan Originator
+    claim). Only the entries of the page are looked up.
+    """
+    loan_ids = {str(entry["loan_id"]) for entry in entries if entry.get("loan_id")}
+    if not loan_ids:
+        return
+    names: dict[str, str] = {}
+    loan_model = _model("loans", "Loan")
+    for loan in loan_model.objects.filter(id__in=_valid_keys(loan_model, loan_ids)).select_related(
+        "borrower", "originator_profile"
+    ):
+        loan_ref = cast(Any, loan)
+        if str(getattr(loan_ref, "product_type", "direct")) == "originator_claim":
+            profile = getattr(loan_ref, "originator_profile", None)
+            names[str(loan_ref.pk)] = str(getattr(profile, "borrower_display_name", "") or "")
+        else:
+            names[str(loan_ref.pk)] = str(getattr(loan_ref.borrower, "legal_name", "") or "")
+    for entry in entries:
+        name = names.get(str(entry.get("loan_id") or ""), "")
+        if name:
+            entry["borrower_name"] = name
 
 
 def export_investor_transactions_csv(*, actor: Model, filters: Any) -> str:

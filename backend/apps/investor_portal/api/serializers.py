@@ -652,6 +652,8 @@ class TransactionEntrySerializer(ActivityEntrySerializer):
     group = serializers.CharField()
     # The investor's available balance in this currency right after the movement.
     available_after_minor = serializers.IntegerField(allow_null=True)
+    # The borrower of the movement's loan as the investor sees it (design repayment line).
+    borrower_name = serializers.CharField(required=False, allow_blank=True)
 
 
 class TransactionSummarySerializer(serializers.Serializer[Any]):

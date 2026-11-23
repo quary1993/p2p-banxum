@@ -83,6 +83,13 @@ test("repayments and recoveries are credited to the Banxum balance (U33-DEC-02)"
   }
 });
 
+test("a repayment reads \"Borrower · Loan\" when the page gives the borrower (design)", () => {
+  const withBorrower = transactionRow({ ...entry({ activity_type: "repayment_distribution", loan_title: "Agricultural machinery" }), borrower_name: "Agro Someș SRL" } as ActivityEntry);
+  expect(withBorrower.description).toEqual({ text: "{borrower} · {loan}", vars: { borrower: "Agro Someș SRL", loan: "Agricultural machinery" } });
+  const loanOnly = transactionRow(entry({ activity_type: "recovery_distribution", loan_title: "Agricultural machinery" }));
+  expect(loanOnly.description).toEqual({ text: "{value}", vars: { value: "Agricultural machinery" } });
+});
+
 test("orders read as reservation until funding closes, then as an investment", () => {
   const reserved = transactionRow(entry({ activity_type: "primary_order", direction: "internal", status: "balance_allocated" }));
   expect(reserved).toMatchObject({ group: "reservation", label: "Reservation", status: "Until closing", pending: true, sign: "none" });
