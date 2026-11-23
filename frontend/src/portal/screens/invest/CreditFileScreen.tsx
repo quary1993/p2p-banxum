@@ -109,7 +109,8 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
     { id: "financials", label: t("Financials"), short: t("Financials") },
     { id: "security", label: t("Security"), short: t("Security") },
     { id: "terms", label: t("Loan terms"), short: t("Terms") },
-    { id: "checks", label: t("Checks & updates"), short: t("Checks") },
+    // Design cover tab: "06 Review" (the chapter itself is "Checks & updates").
+    { id: "checks", label: t("Checks & updates"), short: t("Review") },
     { id: "documents", label: t("Documents"), short: t("Documents") }
   ];
   const financialYears = loan.financial_years ?? [];

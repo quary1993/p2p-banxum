@@ -17,7 +17,8 @@ export function HelpWithThisStep({
   items,
   label,
   leading,
-  inline = false
+  inline = false,
+  buttonClassName = ""
 }: {
   /** Dialog heading, e.g. "Choosing your amount". */
   title: ReactNode;
@@ -30,6 +31,8 @@ export function HelpWithThisStep({
   leading?: ReactNode;
   /** Opens in place under the button (inside a dialog). */
   inline?: boolean;
+  /** Extra button classes (Review & sign: the design's bordered ".ip-help.r34-context-help"). */
+  buttonClassName?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -62,7 +65,7 @@ export function HelpWithThisStep({
   return (
     <div className="v107-help-row">
       {leading}
-      <button aria-haspopup="dialog" className="v107-help" onClick={() => setOpen(true)} type="button">
+      <button aria-haspopup="dialog" className={`v107-help${buttonClassName ? ` ${buttonClassName}` : ""}`} onClick={() => setOpen(true)} type="button">
         <NiIcon name="help" />
         {label ?? t("Help with this step")}
         <NiIcon name="arrow-right" />

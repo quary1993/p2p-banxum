@@ -83,6 +83,7 @@ export function ReviewFrame({
         <div className="rl29-help">
           {/* 18.3: help for this step with its live values (design r34-invest-help, "Reviewing and signing"). */}
           <HelpWithThisStep
+            buttonClassName="ip-help r34-context-help"
             context={loan.title}
             items={[
               {
