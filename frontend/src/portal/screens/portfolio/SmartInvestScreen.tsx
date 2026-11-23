@@ -218,7 +218,7 @@ export function SmartInvestScreen() {
           <span> · {t("{count} open", { count: matches.length })} · {t("{count} coming soon", { count: soonMatches.length })}</span>
         </div>
         <div className="si-results-tools">
-          <button className="si-link" onClick={() => setWhyOpen(true)} type="button">
+          <button className="si-link" data-action="si-why" onClick={() => setWhyOpen(true)} type="button">
             {t("Why these matches?")} <NiIcon name="info" />
           </button>
           {matches.length > 1 ? (
@@ -258,7 +258,7 @@ export function SmartInvestScreen() {
           <NiIcon name="bell" />
           <span>{channelsLine(data.notification_channels)}</span>
         </div>
-        <button className="si-link" onClick={() => setChannelsOpen(true)} type="button">
+        <button className="si-link" data-action="si-notifications" onClick={() => setChannelsOpen(true)} type="button">
           {t("Notification settings")} <NiIcon name="chevron-right" />
         </button>
       </div>

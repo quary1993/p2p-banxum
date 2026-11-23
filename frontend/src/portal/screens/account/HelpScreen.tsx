@@ -150,7 +150,8 @@ export function HelpScreen() {
               <p>{t("Try another phrase or browse all questions.")}</p>
               <div>
                 <button className="btn btn-outline-light" id="hp-reset" onClick={resetSearch} type="button">{t("Show all questions")}</button>
-                <button className="btn btn-primary" onClick={() => setDialog({ kind: "contact" })} type="button">{t("Contact support")}</button>
+                {/* data-action as in the design: its refined CSS hides this button (support is in the side box). */}
+                <button className="btn btn-primary" data-action="help-contact" onClick={() => setDialog({ kind: "contact" })} type="button">{t("Contact support")}</button>
               </div>
             </div>
           ) : null}

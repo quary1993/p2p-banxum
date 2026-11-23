@@ -1,6 +1,7 @@
 // IP of Webby-Soft SRL.
 // "Payments" of the investment page (design .r71-payments.r84-payments): interest to be received, the
-// next payment and the "All payments" schedule with the design's Upcoming / Paid / All payments filters.
+// next payment and the "All payments" schedule with the design's Upcoming / Paid / All payments filters
+// and "Download schedule" (CSV, design data-action="export-schedule").
 // The API gives the investor's share of every remaining payment and, since 18.3, of every payment
 // already received (`received_payments`). Received money without such rows (older records) stays one
 // "Received to date" row; nothing is reconstructed in the browser.
@@ -21,6 +22,7 @@ import {
   principalReturnedMinor,
   projectedInterestMinor
 } from "./investmentModel";
+import { downloadSchedule, hasScheduleRows } from "./investmentsCsv";
 import { cadenceText } from "./labels";
 
 type ScheduleFilter = "upcoming" | "paid" | "all";
@@ -28,7 +30,7 @@ const FILTERS: Array<[ScheduleFilter, string]> = [["upcoming", "Upcoming"], ["pa
 
 export function InvestmentPayments({ holding }: { holding: Holding }) {
   const t = useT();
-  useNumberFormat();
+  const { format } = useNumberFormat();
   const scheduleId = useId();
   const titleId = useId();
   const state = holdingState(holding);
@@ -70,6 +72,12 @@ export function InvestmentPayments({ holding }: { holding: Holding }) {
           <h3 className="h6" id={titleId}>{t("Payment schedule")}</h3>
           <p>{t("All amounts relate to your investment · {currency}.", { currency })}</p>
         </div>
+        {hasScheduleRows(holding) ? (
+          <button className="link ps-download" onClick={() => downloadSchedule(holding, format, t)} type="button">
+            <NiIcon name="download" />
+            <span>{t("Download schedule")}</span>
+          </button>
+        ) : null}
         {counts.total > 0 ? (
           <span className="rid-payment-count">{t("{received} of {total} payments received · {currency}", { received: counts.received, total: counts.total, currency })}</span>
         ) : null}

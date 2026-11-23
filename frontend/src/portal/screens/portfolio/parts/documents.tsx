@@ -1,11 +1,13 @@
 // IP of Webby-Soft SRL.
 // "Your documents" of an investment: today's acceptance documents (terms accepted for this investment,
-// its resale listing or purchase), downloaded through the existing documents endpoint. The QES
-// assignment declaration of U33-DEC-13 does not exist yet (Phase 17.6), so it is never listed.
+// its resale listing or purchase), downloaded through the existing documents endpoint, and the design's
+// "Repayment schedule" row (the schedule as CSV). The QES assignment declaration of U33-DEC-13 does not
+// exist yet (Phase 17.6), so it is never listed.
 import { useState, type ReactNode } from "react";
 
 import {
   DocumentKindEnum,
+  type Holding,
   InvestorDocumentDownloadRequestOutputFormatEnum,
   useV1InvestorPortalDocumentsDownloadCreate,
   type InvestorDocument,
@@ -13,10 +15,12 @@ import {
 } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { useDocumentsData } from "../../../../investorPortal/data";
-import { formatDate } from "../../../../investorPortal/format";
+import { formatDate, useNumberFormat } from "../../../../investorPortal/format";
 import { NiIcon } from "../../../components";
 import { documentsForInvestment } from "./documentMatch";
 import { errorMessage, legalDocumentPath } from "./errors";
+import { installmentCounts } from "./investmentModel";
+import { downloadSchedule, hasScheduleRows } from "./investmentsCsv";
 
 function downloadArtifact(artifact: InvestorDocumentDownloadResponse) {
   const bytes =
@@ -34,8 +38,36 @@ function downloadArtifact(artifact: InvestorDocumentDownloadResponse) {
 }
 
 /** The design's "Your documents" disclosure (details.r71-documents > .rid-document rows). */
-export function InvestmentDocuments({ orderId, holdingId, loanTitle, footer }: { orderId?: string; holdingId?: string; loanTitle: string; footer?: ReactNode }) {
+export function InvestmentDocuments({
+  orderId,
+  holdingId,
+  holding,
+  loanTitle,
+  footer
+}: {
+  orderId?: string;
+  holdingId?: string;
+  /** The holding whose payment schedule is listed as "Repayment schedule". */
+  holding?: Holding;
+  loanTitle: string;
+  footer?: ReactNode;
+}) {
   const t = useT();
+  const { format } = useNumberFormat();
+  const scheduleRow = holding && hasScheduleRows(holding) ? (
+    <div className="rid-document">
+      <div className="rid-document-copy">
+        <NiIcon className="me-2" name="file-text" />
+        {t("Repayment schedule")}
+        {installmentCounts(holding).total > 0 ? (
+          <div className="sub-text">{installmentCounts(holding).total === 1 ? t("1 payment") : t("{count} payments", { count: installmentCounts(holding).total })}</div>
+        ) : null}
+      </div>
+      <div className="rid-document-actions">
+        <button className="link" onClick={() => downloadSchedule(holding, format, t)} type="button">{t("Download")}</button>
+      </div>
+    </div>
+  ) : null;
   const documentsQuery = useDocumentsData();
   const download = useV1InvestorPortalDocumentsDownloadCreate();
   const [error, setError] = useState("");
@@ -64,10 +96,11 @@ export function InvestmentDocuments({ orderId, holdingId, loanTitle, footer }: {
           <p className="u33-muted">{t("We could not load your documents.")} <button className="link" onClick={() => void documentsQuery.refetch()} type="button">{t("Retry")}</button></p>
         ) : documentsQuery.data === undefined ? (
           <p className="u33-muted">{t("Loading documents...")}</p>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && !scheduleRow ? (
           <p className="u33-muted">{t("No documents for this investment yet. Your accepted terms are always in Documents.")}</p>
         ) : (
-          rows.map((document) => (
+          <>
+          {rows.map((document) => (
             <div className="rid-document" key={document.id}>
               <div className="rid-document-copy">
                 <NiIcon className="me-2" name="file-pdf" />
@@ -80,7 +113,9 @@ export function InvestmentDocuments({ orderId, holdingId, loanTitle, footer }: {
                 <button className="link" disabled={download.isPending} onClick={() => open(document)} type="button">{t("action|View")}</button>
               </div>
             </div>
-          ))
+          ))}
+          {scheduleRow}
+          </>
         )}
         {error ? <p className="u33-error" role="alert">{error}</p> : null}
         {footer}

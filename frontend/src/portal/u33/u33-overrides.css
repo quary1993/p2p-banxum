@@ -352,3 +352,9 @@ html.bxu .u33-step-help .r34-help-body {
 html.bxu .u33-step-help .r34-help-body h3 {
   margin: 0 0 8px;
 }
+
+/* Design rules keyed on prototype hooks that our markup spells another way. The design puts
+   "View project" first in the investment header with li:has([href^="#/projects/"]) (refined edition:
+   no auto margin); our link is the real path /marketplace/:loanId. */
+html.bxu .rid-actions li:has([href^="/marketplace/"]) { order: -1; margin-right: auto; }
+html.bxu[data-edition="refined"] body.bxm-app .r71-view .rid-actions li:has([href^="/marketplace/"]) { margin-right: 0; }

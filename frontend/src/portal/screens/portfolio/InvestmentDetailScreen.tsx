@@ -275,7 +275,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
               </PortalLink>
             </div>
             {!(state === "late" || state === "due" || inRecovery) ? <LoanNotes focus={focus} loanId={loan.loan_id} /> : null}
-            <InvestmentDocuments holdingId={holding.id} loanTitle={loan.loan_title} />
+            <InvestmentDocuments holding={holding} holdingId={holding.id} loanTitle={loan.loan_title} />
           </section>
         </div>
       </div>
