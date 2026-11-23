@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from importlib import import_module
 from typing import Any
 
 import pytest
 from django.apps import apps
 from django.db import connection, models
+from django.db.migrations.executor import MigrationExecutor
 from django.test import Client
+from django.utils import timezone
 
 from backend.apps.accounts_auth.models import (
     EmailLoginToken,
@@ -34,6 +37,16 @@ from backend.apps.platform_core.services.ip_privacy import (
 
 ADDRESS = "203.0.113.77"
 PASSWORD = "quiet harbour lantern 47"
+BEFORE_IP_HASH_MIGRATION = ("accounts_auth", "0015_declarations_and_roles_18_10")
+AFTER_IP_HASH_MIGRATION = ("accounts_auth", "0016_ip_hashes_only")
+LATEST_ACCOUNTS_MIGRATION = ("accounts_auth", "0017_recovery_identity_check")
+
+
+def _migrate_accounts(target: tuple[str, str]) -> Any:
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate([target])
+    return executor.loader.project_state([target]).apps
 
 
 def test_the_hash_is_keyed_stable_and_separate_per_purpose(settings: Any) -> None:
@@ -140,3 +153,38 @@ def test_migration_hashes_the_stored_addresses() -> None:
         "confirmed_ip",
     }
     assert len(migration.COLUMNS) == 9
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ip_hash_migration_converts_populated_postgres_tables() -> None:
+    """The complete migration works when old authentication rows contain raw addresses."""
+    try:
+        old_apps = _migrate_accounts(BEFORE_IP_HASH_MIGRATION)
+        old_user = old_apps.get_model("accounts_auth", "User").objects.create(
+            email="ip-migration@example.test",
+            full_name="IP migration",
+            account_type="natural_person_lender",
+            status="active",
+            password="",
+        )
+        token_id = (
+            old_apps.get_model("accounts_auth", "EmailLoginToken")
+            .objects.create(
+                user_id=old_user.pk,
+                email=old_user.email,
+                token_digest="a" * 64,
+                expires_at=timezone.now() + timedelta(hours=1),
+                requested_ip=ADDRESS,
+                consumed_ip=ADDRESS,
+            )
+            .pk
+        )
+
+        new_apps = _migrate_accounts(AFTER_IP_HASH_MIGRATION)
+        token = new_apps.get_model("accounts_auth", "EmailLoginToken").objects.get(pk=token_id)
+        assert token.requested_ip_hash == keyed_ip_hash(ADDRESS)
+        assert token.consumed_ip_hash == keyed_ip_hash(ADDRESS)
+        assert "requested_ip" not in {field.name for field in token._meta.fields}
+        assert "consumed_ip" not in {field.name for field in token._meta.fields}
+    finally:
+        _migrate_accounts(LATEST_ACCOUNTS_MIGRATION)
