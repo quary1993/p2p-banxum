@@ -252,3 +252,6 @@ def test_deploy_one_shot_containers_cannot_consume_the_remote_script() -> None:
         "run --rm --no-TTY backend .venv/bin/python backend/manage.py "
         "migrate --noinput < /dev/null"
     ) in normalized
+    assert '"$@" < /dev/null' in normalized
+    assert "seed_marketplace_demo_loans $seed_args < /dev/null" in normalized
+    assert "seed_originator_demo_loans $seed_args < /dev/null" in normalized

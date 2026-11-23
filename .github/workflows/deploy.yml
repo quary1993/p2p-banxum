@@ -273,7 +273,7 @@ jobs:
               --project-name "$project_name" \
               --env-file infra/deploy/.env \
               -f infra/deploy/docker-compose.yml \
-              "$@"
+              "$@" < /dev/null
           }
           compose build
           # Pre-deployment review P-4: the settings check and the migrations run as visible
@@ -373,7 +373,7 @@ jobs:
               --env-file infra/deploy/.env \
               -f infra/deploy/docker-compose.yml \
               exec -T backend \
-              .venv/bin/python backend/manage.py seed_marketplace_demo_loans $seed_args
+              .venv/bin/python backend/manage.py seed_marketplace_demo_loans $seed_args < /dev/null
           fi
 
           if [ "${SEED_ORIGINATOR_DEMO_LOANS:-false}" = "true" ]; then
@@ -387,7 +387,7 @@ jobs:
               --env-file infra/deploy/.env \
               -f infra/deploy/docker-compose.yml \
               exec -T backend \
-              .venv/bin/python backend/manage.py seed_originator_demo_loans $seed_args
+              .venv/bin/python backend/manage.py seed_originator_demo_loans $seed_args < /dev/null
           fi
 
           check_health
