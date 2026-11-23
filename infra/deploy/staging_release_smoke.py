@@ -394,7 +394,7 @@ def read_paths() -> tuple[Any, Any]:
     for path, name in (
         ("/api/v1/admin-ops/dashboard/", "admin-dashboard-api"),
         ("/api/v1/admin-ops/tasks/", "admin-tasks-api"),
-        ("/api/v1/marketplace/primary/opportunities/", "admin-marketplace-api"),
+        ("/api/v1/loans/admin/loans/", "admin-loans-api"),
     ):
         response = admin_client.get(path, secure=True)
         check(response.status_code == 200, name, str(response.status_code))
