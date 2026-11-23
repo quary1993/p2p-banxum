@@ -144,7 +144,7 @@ def declare_deposit(*, actor: Any, investor: Any, currency: str, amount_minor: i
     marker = uuid.uuid4().hex
     today = business_date(now_utc())
     payer_account = "CH5604835012345678009" if currency == "CHF" else "DE89370400440532013000"
-    ledger.declare_deposit_and_verify_account(
+    ledger.declare_lender_deposit(
         ledger.DeclareLenderDepositCommand(
             actor=actor,
             investor_user_id=str(investor.pk),
