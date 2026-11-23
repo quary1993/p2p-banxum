@@ -297,7 +297,7 @@ def allocate_full_loan(*, admin: Any, investor: Any, secret: str, loan: Any) -> 
         )
     )
     check(
-        str(allocated.status) in {"balance_allocated", "invested"},
+        str(allocated.status) in {"balance_allocated", "invested", "closed_invested"},
         f"{loan.pk}-balance-allocation",
         str(allocated.status),
     )
