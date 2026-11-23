@@ -1161,7 +1161,8 @@ test("Add funds keeps the opportunity and the amount when the balance is too low
   fireEvent.click(screen.getByRole("button", { name: /Review investment/ }));
   expect(screen.getByText(/^Add EUR .* to invest this amount\.$/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Add funds/ }));
-  expect(screen.getByRole("dialog", { name: "Add funds" })).toBeInTheDocument();
+  // The dialog opens on the loan's currency (EUR), not on the default CHF.
+  expect(within(screen.getByRole("dialog", { name: "Add funds" })).getByRole("button", { name: "EUR" })).toHaveAttribute("aria-pressed", "true");
   expect(window.location.pathname).toBe("/marketplace/GA-2402");
   expect(amount).toHaveValue("90000");
 });

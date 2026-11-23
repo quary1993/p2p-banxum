@@ -646,6 +646,12 @@ function InvestorShell({
   useNumberFormatScope();
   const notificationReadActions = useNotificationReadActions();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
+  // The currency Add funds opens on: the loan's currency when an opportunity or the review asks for funds.
+  const [addFundsFor, setAddFundsFor] = useState<string | undefined>(undefined);
+  const openAddFunds = useCallback((currency?: string) => {
+    setAddFundsFor(currency);
+    setAddFundsOpen(true);
+  }, []);
   const [payoutIbanOpen, setPayoutIbanOpen] = useState(false);
   // Currency of the bank account being added (the Account page knows it; the frozen-account banner does not).
   const [bankAccountCurrency, setBankAccountCurrency] = useState<string | undefined>(undefined);
@@ -858,19 +864,19 @@ function InvestorShell({
             demoState={demoState}
             fromArchive={route.params?.from === "archive"}
             loanId={route.params?.loanId ?? ""}
-            onAddFunds={() => setAddFundsOpen(true)}
+            onAddFunds={openAddFunds}
           />
         );
       case "loanSchedule":
         // The old schedule page: the opportunity page with its payment schedule open.
-        return <OpportunityScreen demoState={demoState} loanId={route.params?.loanId ?? ""} onAddFunds={() => setAddFundsOpen(true)} scheduleOpen />;
+        return <OpportunityScreen demoState={demoState} loanId={route.params?.loanId ?? ""} onAddFunds={openAddFunds} scheduleOpen />;
       case "invest":
         return (
           <InvestScreen
             demoState={demoState}
             initialAmount={route.params?.amount}
             loanId={route.params?.loanId ?? ""}
-            onAddFunds={() => setAddFundsOpen(true)}
+            onAddFunds={openAddFunds}
             sensitiveAction={investSensitiveAction}
           />
         );
@@ -1057,7 +1063,7 @@ function InvestorShell({
           dialogs={addFundsOpen || payoutIbanOpen ? (
             <>
               {addFundsOpen ? (
-                <AddFundsDialog currency={addFundsCurrency} onClose={() => setAddFundsOpen(false)} />
+                <AddFundsDialog currency={addFundsFor ?? addFundsCurrency} onClose={() => setAddFundsOpen(false)} />
               ) : null}
               {payoutIbanOpen ? (
                 <BankAccountDialog
@@ -1071,7 +1077,7 @@ function InvestorShell({
           markers={accountMarker ? { balances: accountMarker } : undefined}
           notices={notices.length > 0 ? <ShellNotices>{notices}</ShellNotices> : null}
           notifications={notifications}
-          onAddFunds={() => setAddFundsOpen(true)}
+          onAddFunds={openAddFunds}
           onMarkAllRead={() => void notificationReadActions.markAllRead().catch(() => undefined)}
           onMarkRead={(id) => void notificationReadActions.markRead(id).catch(() => undefined)}
           onSignOut={signOut}

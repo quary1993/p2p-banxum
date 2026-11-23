@@ -87,7 +87,7 @@ export function OpportunityScreen({
   demoState: DemoAccountState;
   fromArchive?: boolean;
   scheduleOpen?: boolean;
-  onAddFunds: () => void;
+  onAddFunds: (currency?: string) => void;
 }) {
   const t = useT();
   const loanQuery = useLoanDetailData(loanId);
@@ -131,7 +131,7 @@ function OpportunityPage({
   back: ReactNode;
   demoState: DemoAccountState;
   initialScheduleOpen: boolean;
-  onAddFunds: () => void;
+  onAddFunds: (currency?: string) => void;
 }) {
   const t = useT();
   useNumberFormat();
@@ -220,7 +220,7 @@ function OpportunityPage({
       return;
     }
     if (error?.shortfall) {
-      onAddFunds();
+      onAddFunds(loan.currency);
       return;
     }
     const check = checkInvestAmount(amountText, loan, funds);
