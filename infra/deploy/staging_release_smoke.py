@@ -121,6 +121,7 @@ def approve_kyc(user: Any) -> None:
         vendor_data=f"user:{user.pk}",
         status="approved",
         decision_at=now_utc(),
+        verified_full_name=user.full_name,
     )
 
 
@@ -139,12 +140,22 @@ def clean_declaration(user: Any) -> None:
     )
 
 
+def smoke_iban(investor: Any) -> str:
+    """Return a unique valid Swiss IBAN for a temporary smoke investor."""
+    account = int(str(investor.pk).replace("-", "")[-12:], 16) % 1_000_000_000_000
+    bban = f"04835{account:012d}"
+    rearranged = f"{bban}121700"
+    check_digits = 98 - (int(rearranged) % 97)
+    return f"CH{check_digits:02d}{bban}"
+
+
 def declare_deposit(*, actor: Any, investor: Any, currency: str, amount_minor: int) -> None:
     ledger = import_module("backend.apps.ledger.services")
+    return_failures = import_module("backend.apps.ledger.return_failures")
     marker = uuid.uuid4().hex
     today = business_date(now_utc())
-    payer_account = "CH5604835012345678009" if currency == "CHF" else "DE89370400440532013000"
-    ledger.declare_lender_deposit(
+    payer_account = smoke_iban(investor)
+    deposit = ledger.declare_lender_deposit(
         ledger.DeclareLenderDepositCommand(
             actor=actor,
             investor_user_id=str(investor.pk),
@@ -159,6 +170,15 @@ def declare_deposit(*, actor: Any, investor: Any, currency: str, amount_minor: i
             payment_reference=f"SMOKE-PAY-{marker}",
             evidence_reference=f"staging-smoke:{marker}",
             idempotency_key=f"staging-smoke-deposit-{marker}",
+        )
+    )
+    return_failures.verify_payout_account_from_deposit(
+        return_failures.VerifyPayoutAccountFromDepositCommand(
+            actor=actor,
+            deposit_bank_operation_id=str(deposit.bank_operation.pk),
+            holder_matches_identity=True,
+            not_intermediary_account=True,
+            evidence_reference=f"staging-smoke:{marker}",
         )
     )
 
