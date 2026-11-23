@@ -18,12 +18,13 @@ import { downloadTextFile } from "./parts/downloads";
 import { rich } from "./parts/rich";
 import { fetchTransactionsCsv, useTransactionsData } from "./transactionsData";
 import {
+  choiceToPeriod,
   metadataNumber,
   metadataText,
   periodRange,
   transactionRow,
   TRANSACTION_GROUPS,
-  type Period,
+  type PeriodChoice,
   type TransactionGroup,
   type TransactionQuery,
   type TransactionRow
@@ -37,15 +38,6 @@ const SEARCH_DELAY_MS = 250;
 
 /** A movement and the investor's available balance in its currency right after it (null: unknown). */
 type ScreenRow = TransactionRow & { availableAfter: number | null };
-
-type PeriodChoice = "all" | "30" | "90" | "custom" | `y${number}`;
-
-function choiceToPeriod(choice: PeriodChoice, custom: { from: string; to: string }): Period {
-  if (choice === "30" || choice === "90") return { kind: "days", days: Number(choice) };
-  if (choice === "custom") return custom.from && custom.to ? { kind: "custom", ...custom } : { kind: "all" };
-  if (choice.startsWith("y")) return { kind: "year", year: Number(choice.slice(1)) };
-  return { kind: "all" };
-}
 
 function AmountCell({ row }: { row: TransactionRow }) {
   const currency = row.entry.currency;

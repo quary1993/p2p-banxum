@@ -247,6 +247,16 @@ function shiftDateKey(key: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+/** The design's Period select (Transactions and Reports): All time, last 30/90 days, a year, custom dates. */
+export type PeriodChoice = "all" | "30" | "90" | "custom" | `y${number}`;
+
+export function choiceToPeriod(choice: PeriodChoice, custom: { from: string; to: string }): Period {
+  if (choice === "30" || choice === "90") return { kind: "days", days: Number(choice) };
+  if (choice === "custom") return custom.from && custom.to ? { kind: "custom", ...custom } : { kind: "all" };
+  if (choice.startsWith("y")) return { kind: "year", year: Number(choice.slice(1)) };
+  return { kind: "all" };
+}
+
 /** Inclusive date range of a period ("" = open end), on Europe/Zurich business dates. */
 export function periodRange(period: Period, todayKey: string): { from: string; to: string } {
   switch (period.kind) {

@@ -129,6 +129,7 @@ const documentsFixture: InvestorDocuments = {
         : undefined,
     category: document.category,
     holding_id: document.holdingId,
+    loan_title: document.loanTitle,
     period_start: document.periodStart,
     period_end: document.periodEnd
   }))

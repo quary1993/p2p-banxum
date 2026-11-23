@@ -585,60 +585,80 @@ def _valid_keys(model: Any, values: Iterable[str]) -> list[Any]:
     return keys
 
 
-def _acceptance_holding_ids(*, investor_user_id: Any, acceptances: list[Any]) -> dict[str, str]:
+def _acceptance_links(
+    *, investor_user_id: Any, acceptances: list[Any]
+) -> dict[str, dict[str, str]]:
     """
-    The investor's holding behind each accepted investment agreement (design: the Documents row
-    links to its investment). Primary order -> the holding of that order; Loan Originator claim
-    quote -> the holding of its purchase; resale purchase -> the buyer's holding; resale listing ->
-    the holding offered. No entry while there is no holding yet (an order before funding closes).
+    The investment behind each accepted investment agreement (design #/documents: the row shows the
+    loan and links to the investment). holding_id: the investor's holding the agreement created or
+    offered; none while there is no holding yet (an order before funding closes). loan_title: the
+    loan of the agreement. Context ids: primary order -> order id; Loan Originator claim -> quote
+    id; resale purchase -> listing id; resale listing -> the holding offered. All lookups are
+    scoped to the investor except the title of a resale offer, which the market shows anyway.
     """
     by_context: dict[str, set[str]] = defaultdict(set)
     for acceptance in acceptances:
         by_context[str(acceptance.context_type)].add(str(acceptance.context_id))
     holding_model = _model("holdings", "InvestorLoanHolding")
     holdings = holding_model.objects.filter(investor_user_id=investor_user_id)
-    found: dict[tuple[str, str], str] = {}
+    found: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
 
     orders = by_context.get("primary_order", set())
     if orders:
+        order_model = _model("marketplace_primary", "PrimaryInvestmentOrder")
+        for order_id, loan_title in order_model.objects.filter(
+            investor_user_id=investor_user_id, id__in=_valid_keys(order_model, orders)
+        ).values_list("id", "loan__title"):
+            found[("primary_order", str(order_id))]["loan_title"] = str(loan_title)
         for source_id, holding_id in holdings.filter(
             source_type="primary_market", source_id__in=orders
         ).values_list("source_id", "id"):
-            found[("primary_order", str(source_id))] = str(holding_id)
+            found[("primary_order", str(source_id))]["holding_id"] = str(holding_id)
 
     quotes = by_context.get("originator_claim_quote", set())
     if quotes:
+        quote_model = _model("originator_claims", "OriginatorClaimQuote")
+        quote_keys = _valid_keys(quote_model, quotes)
+        for quote_id, loan_title in quote_model.objects.filter(
+            investor_user_id=investor_user_id, id__in=quote_keys
+        ).values_list("id", "loan_profile__loan__title"):
+            found[("originator_claim_quote", str(quote_id))]["loan_title"] = str(loan_title)
         purchase_model = _model("originator_claims", "OriginatorClaimPurchase")
         purchases = {
             str(purchase_id): str(quote_id)
             for quote_id, purchase_id in purchase_model.objects.filter(
-                investor_user_id=investor_user_id,
-                quote_id__in=_valid_keys(
-                    _model("originator_claims", "OriginatorClaimQuote"), quotes
-                ),
+                investor_user_id=investor_user_id, quote_id__in=quote_keys
             ).values_list("quote_id", "id")
         }
         for source_id, holding_id in holdings.filter(
             source_type="originator_claim", source_id__in=list(purchases)
         ).values_list("source_id", "id"):
-            found[("originator_claim_quote", purchases[str(source_id)])] = str(holding_id)
+            key = ("originator_claim_quote", purchases[str(source_id)])
+            found[key]["holding_id"] = str(holding_id)
 
-    listing_model = _model("secondary_market", "SecondaryMarketListing")
     bought = by_context.get("secondary_market_purchase", set())
     if bought:
+        listing_model = _model("secondary_market", "SecondaryMarketListing")
+        listing_keys = _valid_keys(listing_model, bought)
+        for listing_id, loan_title in listing_model.objects.filter(id__in=listing_keys).values_list(
+            "id", "loan__title"
+        ):
+            found[("secondary_market_purchase", str(listing_id))]["loan_title"] = str(loan_title)
         purchase_model = _model("secondary_market", "SecondaryMarketPurchase")
         for listing_id, holding_id in purchase_model.objects.filter(
-            buyer_user_id=investor_user_id, listing_id__in=_valid_keys(listing_model, bought)
+            buyer_user_id=investor_user_id, listing_id__in=listing_keys
         ).values_list("listing_id", "buyer_holding_id"):
             if holding_id:
-                found[("secondary_market_purchase", str(listing_id))] = str(holding_id)
+                key = ("secondary_market_purchase", str(listing_id))
+                found[key]["holding_id"] = str(holding_id)
 
     offered = by_context.get("secondary_market_listing", set())
     if offered:
-        for listing_id, holding_id in listing_model.objects.filter(
-            seller_user_id=investor_user_id, id__in=_valid_keys(listing_model, offered)
-        ).values_list("id", "holding_id"):
-            found[("secondary_market_listing", str(listing_id))] = str(holding_id)
+        for holding_id, loan_title in holdings.filter(
+            id__in=_valid_keys(holding_model, offered)
+        ).values_list("id", "loan__title"):
+            key = ("secondary_market_listing", str(holding_id))
+            found[key].update(holding_id=str(holding_id), loan_title=str(loan_title))
 
     return {
         str(acceptance.pk): found[key]
@@ -658,13 +678,10 @@ def get_investor_documents(*, actor: Model) -> dict[str, Any]:
         .select_related("template", "template_version")
         .order_by("-accepted_at", "-id")
     )
-    holding_ids = _acceptance_holding_ids(
-        investor_user_id=investor_user_id, acceptances=acceptances
-    )
+    links = _acceptance_links(investor_user_id=investor_user_id, acceptances=acceptances)
     for acceptance in acceptances:
         item = document_services.acceptance_history_item(acceptance)
-        if str(acceptance.pk) in holding_ids:
-            item["holding_id"] = holding_ids[str(acceptance.pk)]
+        item.update(links.get(str(acceptance.pk), {}))
         documents.append(item)
 
     as_of = now_utc()

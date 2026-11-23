@@ -14715,6 +14715,9 @@ components:
           type: string
           description: The investor's investment (holding) behind an accepted investment
             agreement.
+        loan_title:
+          type: string
+          description: The loan of an accepted investment agreement.
         output_formats:
           type: array
           items:

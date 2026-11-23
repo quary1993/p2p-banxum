@@ -155,7 +155,8 @@ export const portalFixture: InvestorPortalFixture = {
       date: "2026-06-02",
       context: "Order O-58102",
       size: "198 KB",
-      category: "primary_market_investment"
+      category: "primary_market_investment",
+      loanTitle: "Helvetia Logistik AG"
     },
     {
       id: "D-9150",
@@ -165,7 +166,8 @@ export const portalFixture: InvestorPortalFixture = {
       date: "2026-02-18",
       context: "Resale purchase SM-3290",
       size: "164 KB",
-      category: "secondary_market_purchase"
+      category: "secondary_market_purchase",
+      loanTitle: "Rhône Vignobles SA"
     },
     {
       id: "D-8920",
@@ -176,7 +178,8 @@ export const portalFixture: InvestorPortalFixture = {
       context: "Order O-55210",
       size: "196 KB",
       category: "primary_market_investment",
-      holdingId: "H-2201"
+      holdingId: "H-2201",
+      loanTitle: "Savoie Logistique SAS"
     }
   ],
   notifications: [

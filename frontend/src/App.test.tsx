@@ -757,8 +757,8 @@ test("investor data tables use the shared editorial table surface", () => {
   clickNav("Documents");
   expect(screen.getByRole("table")).toHaveClass("tr-table", "dp-table");
   // The investment under an agreement links to its page; an order still in funding has no link yet.
-  expect(screen.getByRole("link", { name: "Loan Savoie Logistique SAS EUR 6,000.00 agreement" })).toHaveAttribute("href", "/portfolio/H-2201");
-  expect(screen.getByText("Loan Helvetia Logistik AG CHF 6,500.00 agreement").tagName).toBe("SPAN");
+  expect(screen.getByRole("link", { name: "Savoie Logistique SAS" })).toHaveAttribute("href", "/portfolio/H-2201");
+  expect(screen.getByText("Helvetia Logistik AG").tagName).toBe("SPAN");
 });
 
 test("read-only impersonation token survives a new tab and opens the investor portal", () => {

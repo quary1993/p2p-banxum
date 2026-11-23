@@ -4,8 +4,8 @@
  * investment documents (the investment and resale agreements accepted with the email code + PIN),
  * statements and tax information (generated on request, also under Reports) and platform documents
  * (accepted terms and risk disclosures). Search, type and year filters; "View" opens the PDF in the
- * in-app reader (18.3), "Download" saves it. The investment under an agreement links to its page
- * when the investment exists (holding_id; not for an order whose funding has not closed).
+ * in-app reader (18.3), "Download" saves it. Under an agreement: its loan (loan_title), linked to the
+ * investment when the investment exists (holding_id; not for an order whose funding has not closed).
  * U33-DEC-13: an acceptance is not a signature; there are no "Signed by Banxum" (QES) assignment
  * declarations yet (TODO, Phase 17.6).
  */
@@ -82,7 +82,7 @@ export function DocumentsScreen() {
     if (type && documentGroup(document) !== type) return false;
     if (year && !documentYears(document).includes(year)) return false;
     if (!query) return true;
-    return [documentTitle(document), document.title, document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
+    return [documentTitle(document), document.title, document.loan_title ?? "", document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
   });
   const filtering = Boolean(query || type || year);
   const onDownload = (document: InvestorDocument, format: OutputFormat) => void download(documentDownloadRequest(document, format), `${document.id}:${format}`);
@@ -189,9 +189,9 @@ export function DocumentsScreen() {
                               <>
                                 {document.holding_id ? (
                                   // Design: the investment under the document title links to its page.
-                                  <PortalLink className="dp-investment" params={{ holdingId: document.holding_id }} to="investment">{document.title}</PortalLink>
+                                  <PortalLink className="dp-investment" params={{ holdingId: document.holding_id }} to="investment">{document.loan_title || document.title}</PortalLink>
                                 ) : (
-                                  <span className="dp-investment">{document.title}</span>
+                                  <span className="dp-investment">{document.loan_title || document.title}</span>
                                 )}
                                 {document.context_label ? <small className="dp-reference">{document.context_label}</small> : null}
                               </>

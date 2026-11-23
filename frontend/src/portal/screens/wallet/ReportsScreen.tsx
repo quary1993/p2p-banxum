@@ -1,7 +1,8 @@
 // IP of Webby-Soft SRL.
 /*
- * Reports (design #/reports: main.tr-page.tr-reports-page): the year (2026, 2025, All years), the type
- * filter, the annual summary per currency, and one list with
+ * Reports (design #/reports: main.tr-page.tr-reports-page): the Period (All time, last 30/90 days, a
+ * year, custom dates; a report matches when its period overlaps), the type filter, the summary per
+ * currency (for a year or all time), and one list with
  * - the reports kept as issued (GET /investor/portal/reports/): those the investor created (Account
  *   statement, Portfolio report, Interest and repayments, Tax report) and the monthly statements the
  *   platform creates (18.3);
@@ -45,6 +46,7 @@ import {
 import { documentDownloadRequest, downloadPortalArtifact, errorMessage, useDocumentDownload } from "./parts/downloads";
 import { Toast } from "./parts/Toast";
 import { WalletDialog } from "./parts/WalletDialog";
+import { choiceToPeriod, periodRange, type PeriodChoice } from "./transactionsModel";
 import "./wallet.css";
 
 type Row =
@@ -198,13 +200,32 @@ function AnnualSummary({ year }: { year: string }) {
   );
 }
 
+/** The period a report covers (kept report: its dates; offered document: its period or its date). */
+function rowPeriod(row: Row) {
+  if (row.source === "kept") return { from: row.report.start_date, to: row.report.end_date };
+  const date = zurichDateKey(row.document.date);
+  return { from: row.document.period_start ?? date, to: row.document.period_end ?? date };
+}
+
+function overlaps(period: { from: string; to: string }, range: { from: string; to: string }) {
+  return (!range.to || period.from <= range.to) && (!range.from || period.to >= range.from);
+}
+
 export function ReportsScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const documentsQuery = useDocumentsData();
   const reportsQuery = useInvestorReportsData();
   const thisYear = platformTodayKey().slice(0, 4);
-  const [year, setYear] = useState(thisYear);
+  // Design #/reports Period: All time, last 30/90 days, a year, custom dates (as on Transactions).
+  const [choice, setChoice] = useState<PeriodChoice>(`y${Number(thisYear)}`);
+  const [custom, setCustom] = useState({ from: "", to: "" });
+  const [draft, setDraft] = useState({ from: "", to: "" });
+  const [rangeError, setRangeError] = useState(false);
+  const period = choiceToPeriod(choice, custom);
+  const range = periodRange(period, platformTodayKey());
+  // The server summary is per calendar year or all time; rolling and custom periods have none.
+  const summaryYear = period.kind === "year" ? String(period.year) : period.kind === "all" ? "all" : null;
   const [type, setType] = useState<"" | ReportFilter>("");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -228,10 +249,20 @@ export function ReportsScreen() {
       document
     }))
   ];
-  const years = [...new Set([Number(thisYear), ...rows.flatMap((row) => row.years)])].sort((a, b) => b - a).slice(0, 3).map(String);
+  const years = [...new Set([Number(thisYear), ...rows.flatMap((row) => row.years)])].sort((a, b) => b - a).slice(0, 3);
+  // "Shows reports covering any of your selected dates": a report matches when its period overlaps.
   const visible = rows
-    .filter((row) => (!type || row.filter === type) && (year === "all" || row.years.includes(Number(year))))
+    .filter((row) => (!type || row.filter === type) && overlaps(rowPeriod(row), range))
     .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+  const applyRange = (event: FormEvent) => {
+    event.preventDefault();
+    if (!draft.from || !draft.to || draft.from > draft.to) {
+      setRangeError(true);
+      return;
+    }
+    setRangeError(false);
+    setCustom(draft);
+  };
 
   const openKept = (report: InvestorReport) => {
     if (report.output_format !== "pdf") {
@@ -287,23 +318,54 @@ export function ReportsScreen() {
       ) : (
         <>
           <div className="tr-toolbar tr-reports-toolbar">
-            <div aria-label={t("Report year")} className="bxm-seg" role="group">
-              {[...years, "all"].map((value) => (
-                <button aria-pressed={year === value} className={year === value ? "active" : ""} key={value} onClick={() => setYear(value)} type="button">
-                  {value === "all" ? t("All years") : value}
-                </button>
-              ))}
+            <div className="r30-period-control">
+              <label htmlFor="rr-period">{t("Period")}</label>
+              <details className="r31m-period-help">
+                <summary aria-label={t("How the period filter works")}><NiIcon name="info" /></summary>
+                <div>{t("Shows reports covering any of your selected dates. Each statement keeps its full original period.")}</div>
+              </details>
+              <select
+                className="form-select tr-period"
+                id="rr-period"
+                onChange={(event) => {
+                  setChoice(event.target.value as PeriodChoice);
+                  setRangeError(false);
+                }}
+                value={choice}
+              >
+                <option value="all">{t("All time")}</option>
+                <option value="30">{t("Last 30 days")}</option>
+                <option value="90">{t("Last 90 days")}</option>
+                {years.map((value) => <option key={value} value={`y${value}`}>{value}</option>)}
+                <option value="custom">{t("Custom dates")}</option>
+              </select>
             </div>
             <select aria-label={t("Report type")} className="form-select tr-type" id="tr-report-type" onChange={(event) => setType(event.target.value as typeof type)} value={type}>
               <option value="">{t("All report types")}</option>
               {REPORT_TYPES.map((item) => <option key={item.value} value={item.value}>{t(item.label)}</option>)}
             </select>
-            <button aria-controls="tr-annual-summary" aria-expanded={summaryOpen} className="tr-link" onClick={() => setSummaryOpen((open) => !open)} type="button">
-              {year === "all" ? t("All-time summary") : t("Annual summary")} <NiIcon name="chevron-down" />
-            </button>
+            {summaryYear ? (
+              <button aria-controls="tr-annual-summary" aria-expanded={summaryOpen} className="tr-link" onClick={() => setSummaryOpen((open) => !open)} type="button">
+                {t("Summary")} <NiIcon name="chevron-down" />
+              </button>
+            ) : null}
           </div>
-          <div className="tr-summary" hidden={!summaryOpen} id="tr-annual-summary">
-            {summaryOpen ? <AnnualSummary year={year} /> : null}
+          {choice === "custom" ? (
+            <form className="r30-date-range" noValidate onSubmit={applyRange}>
+              <div className="r30-date-field">
+                <label htmlFor="rr-from">{t("From")}</label>
+                <input aria-describedby="rr-date-error" aria-invalid={rangeError} className="form-control" id="rr-from" onChange={(event) => setDraft({ ...draft, from: event.target.value })} required type="date" value={draft.from} />
+              </div>
+              <div className="r30-date-field">
+                <label htmlFor="rr-to">{t("date|To")}</label>
+                <input aria-describedby="rr-date-error" aria-invalid={rangeError} className="form-control" id="rr-to" onChange={(event) => setDraft({ ...draft, to: event.target.value })} required type="date" value={draft.to} />
+              </div>
+              <button className="btn btn-outline-light" type="submit">{t("Apply")}</button>
+              <p className="r30-range-error" hidden={!rangeError} id="rr-date-error" role="alert">{t("Choose a start and end date. From must be on or before To.")}</p>
+            </form>
+          ) : null}
+          <div className="tr-summary" hidden={!summaryOpen || !summaryYear} id="tr-annual-summary">
+            {summaryOpen && summaryYear ? <AnnualSummary year={summaryYear} /> : null}
           </div>
           {message ? (
             <div className="alert alert-danger alert-icon wl-alert" role="alert">
@@ -312,7 +374,7 @@ export function ReportsScreen() {
             </div>
           ) : null}
           <div className="tr-meta">
-            <span><strong>{visible.length === 1 ? t("1 report") : t("{count} reports", { count: visible.length })}</strong> · {year === "all" ? t("All years") : t("Covering {year}", { year })}</span>
+            <span><strong>{visible.length === 1 ? t("1 report") : t("{count} reports", { count: visible.length })}</strong></span>
           </div>
           {visible.length === 0 ? (
             <div className="bxm-empty"><NiIcon name="file-text" /><p>{rows.length === 0 ? t("No reports yet.") : t("No reports for these filters.")}</p></div>
@@ -395,7 +457,6 @@ export function ReportsScreen() {
               </tbody>
             </table>
           )}
-          <div className="tr-reports-foot"><NiIcon name="calendar" /><span>{t("Looking for an earlier report? Choose another year.")}</span></div>
           {documents?.disclaimer ? <p className="wl-list-note">{documents.disclaimer}</p> : null}
         </>
       )}

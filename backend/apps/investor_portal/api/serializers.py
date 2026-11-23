@@ -225,6 +225,9 @@ class InvestorDocumentSerializer(serializers.Serializer[Any]):
         required=False,
         help_text="The investor's investment (holding) behind an accepted investment agreement.",
     )
+    loan_title = serializers.CharField(
+        required=False, help_text="The loan of an accepted investment agreement."
+    )
     output_formats = serializers.ListField(child=serializers.CharField())
     generated_on_request = serializers.BooleanField()
     content_hash = serializers.CharField(required=False)

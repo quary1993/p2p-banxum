@@ -1143,7 +1143,17 @@ def test_investment_documents_link_to_their_investment(
 
     documents = {item["id"]: item for item in get_investor_documents(actor=investor)["documents"]}
     assert documents[str(linked.pk)]["holding_id"] == str(holding.pk)
+    assert documents[str(linked.pk)]["loan_title"] == "Doc loan"
+    # Still in funding: the loan is known, the investment does not exist yet.
+    assert documents[str(waiting.pk)]["loan_title"] == "Doc loan"
     assert "holding_id" not in documents[str(waiting.pk)]
+    # A resale listing acceptance stores the holding offered.
+    offered = _create_acceptance(
+        investor, category="secondary_market_listing", context_type="secondary_market_listing",
+        context_id=str(holding.pk), key="doc-accept-offered",
+    )
+    documents = {item["id"]: item for item in get_investor_documents(actor=investor)["documents"]}
+    assert documents[str(offered.pk)]["holding_id"] == str(holding.pk)
     assert "holding_id" not in documents[str(odd.pk)]
     assert all("holding_id" not in documents[str(item.pk)] for item in unknown)
     other = {item["id"]: item for item in get_investor_documents(actor=other_investor)["documents"]}
