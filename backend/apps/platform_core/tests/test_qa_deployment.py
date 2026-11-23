@@ -40,6 +40,15 @@ def test_reset_wrapper_verifies_the_shared_seed_before_restart() -> None:
     assert "/qa-reset-backups" not in wrapper
 
 
+def test_generic_reset_does_not_require_a_qa_time_travel_seed() -> None:
+    wrapper = (REPO_ROOT / "infra/deploy/reset_qa_environment.py").read_text()
+
+    conditional = wrapper.index("if args.regression_accounts:", wrapper.index("restore_check ="))
+    require_seed = wrapper.index('restore_check.append("--require-seed")')
+
+    assert conditional < require_seed
+
+
 def test_staging_seed_workflow_uses_private_inputs_and_guard_phrase() -> None:
     workflow = (REPO_ROOT / ".github/workflows/rebuild-staging-qa-seed.yml").read_text()
 
