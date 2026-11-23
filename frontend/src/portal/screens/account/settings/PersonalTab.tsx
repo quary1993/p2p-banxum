@@ -1,11 +1,11 @@
 // IP of Webby-Soft SRL.
 // Profile & Settings -> Personal details (design: .ps-personal-grid with Contact details and
-// Identity, the "Verification details" disclosure and "Accepted agreements"). Verified data is
-// read-only with "Contact support to change" (U33-DEC-26); the address, date of birth and
-// nationality are shown when Didit verified them (18.3, Vlad E-08), never asked for or invented.
-// No self-declarations or periodic review yet (U33-DEC-27, Phase 17.7).
+// Identity, the "Verification details" disclosure with "Next review by" (the 18.10 re-verification
+// date) and the "Accepted agreements" row to Documents). Verified data is read-only with "Contact
+// support to change" (U33-DEC-26); the address, date of birth and nationality are shown when Didit
+// verified them (18.3, Vlad E-08), never asked for or invented. Declarations have their own tab (18.10).
 import { t, useT } from "../../../../i18n";
-import { useDocumentsData } from "../../../../investorPortal/data";
+import { useReverificationDate } from "../../../../investorPortal/complianceBlock";
 import { formatDate } from "../../../../investorPortal/format";
 import { NiIcon, PortalLink } from "../../../components";
 import { supportMailto } from "../accountLinks";
@@ -43,8 +43,7 @@ function HistoryItem({ tone, title, status, description }: { tone: keyof typeof 
 
 export function PersonalTab({ account, section }: { account: AccountData; section: SettingsSection | null }) {
   const t = useT();
-  const documents = useDocumentsData(!account.readonly).data?.documents ?? [];
-  const agreements = documents.filter((document) => document.document_kind === "acceptance_evidence");
+  const reviewDate = useReverificationDate();
   const kyc = kycStatusView(account.kycStatus);
   const verified = account.kycStatus === "approved";
   const changeHref = supportMailto({
@@ -118,7 +117,12 @@ export function PersonalTab({ account, section }: { account: AccountData; sectio
         <summary>
           <span>
             <strong>{t("Verification details")}</strong>
-            {kyc.label ? <small>{t("Identity check: {status}", { status: t(kyc.label) })}</small> : null}
+            {/* Design: "Next review by {date}" (18.10 re-verification date); else the identity check status. */}
+            {reviewDate ? (
+              <small>{t("Next review by {date}", { date: formatDate(reviewDate) })}</small>
+            ) : kyc.label ? (
+              <small>{t("Identity check: {status}", { status: t(kyc.label) })}</small>
+            ) : null}
           </span>
           <NiIcon name="chevron-down" />
         </summary>
@@ -163,35 +167,13 @@ export function PersonalTab({ account, section }: { account: AccountData; sectio
         </div>
       </details>
 
-      <details className="ps-disclosure rss-agreements" id="settings-agreements" open={section === "agreements" || undefined}>
-        <summary>
-          <span>
-            <strong>{t("Accepted agreements")}</strong>
-            <small>{agreements.length === 1 ? t("1 document") : t("{count} documents", { count: agreements.length })}</small>
-          </span>
-          <NiIcon name="chevron-down" />
-        </summary>
-        <div className="ps-disclosure-body">
-          {agreements.length > 0 ? (
-            <ul className="acc-agreement-list">
-              {agreements.map((document) => (
-                <li key={document.id}>
-                  <span>
-                    <strong>{document.title}</strong>
-                    <small>{t("Version {version} · accepted {date}", { version: document.version, date: formatDate(document.date) })}</small>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="ps-panel-note">{t("Your accepted agreements appear here once they are recorded.")}</p>
-          )}
-          <PortalLink className="ps-text-link" to="documents">
-            {t("View in Documents")}
-            <NiIcon name="arrow-right" />
-          </PortalLink>
-        </div>
-      </details>
+      {/* Design: one row to the accepted agreements in Documents (#/documents/legal). */}
+      <PortalLink className="ps-disclosure rss-agreements-link" id="settings-agreements" params={{ tab: "platform" }} to="documents">
+        <strong>{t("Accepted agreements")}</strong>
+        <span>
+          {t("View in Documents")} <NiIcon name="arrow-right" />
+        </span>
+      </PortalLink>
     </>
   );
 }

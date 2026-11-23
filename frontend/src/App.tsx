@@ -227,6 +227,8 @@ function routeFromPathname(pathname: string, search = ""): AppRoute {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
+  // Design #/documents/legal: Documents opened on the platform documents (accepted agreements).
+  if (normalized === "/documents/legal") return { name: "documents", params: { tab: "platform" } };
   if (normalized === "/account-recovery/not-me") return { name: "accountRecovery", params: { view: "not-me" } };
   // Profile & Settings tabs (/settings/security...).
   const settingsMatch = normalized.match(/^\/settings\/([a-z-]+)$/);
@@ -295,7 +297,7 @@ function routePath(route: AppRoute) {
     transactions: "/transactions",
     reports: "/reports",
     fx: "/fx",
-    documents: "/documents",
+    documents: route.params?.tab === "platform" ? "/documents/legal" : "/documents",
     notifications: "/notifications",
     settings: route.params?.tab && isSettingsPathSegment(route.params.tab) ? `/settings/${route.params.tab}` : "/settings",
     faq: "/portal/help"
@@ -896,7 +898,7 @@ function InvestorShell({
       case "fx":
         return <OverviewScreen demoState={demoState} investorName={profile.name} />;
       case "documents":
-        return <DocumentsScreen />;
+        return <DocumentsScreen initialTab={route.params?.tab === "platform" ? "platform" : "investment"} key={route.params?.tab ?? "investment"} />;
       case "notifications":
         return <NotificationsScreen />;
       case "settings":

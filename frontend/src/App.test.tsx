@@ -2404,6 +2404,8 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(screen.queryByRole("button", { name: /^Edit/ })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Contact support to change" }).getAttribute("href")).toMatch(/^mailto:support@banxum\.com\?subject=/);
   expect(screen.getByText("Verification details")).toBeInTheDocument();
+  // Design: "Accepted agreements" is one row to the platform documents (#/documents/legal).
+  expect(screen.getByRole("link", { name: /Accepted agreements/ })).toHaveAttribute("href", "/documents/legal");
 
   fireEvent.click(within(tabs).getByRole("link", { name: "Security" }));
   expect(window.location.pathname).toBe("/settings/security");

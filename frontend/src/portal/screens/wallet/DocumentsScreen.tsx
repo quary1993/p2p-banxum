@@ -62,10 +62,10 @@ function DownloadButtons({
   );
 }
 
-export function DocumentsScreen() {
+export function DocumentsScreen({ initialTab = "investment" }: { initialTab?: DocumentTab }) {
   const t = useT();
   const documentsQuery = useDocumentsData();
-  const [tab, setTab] = useState<DocumentTab>("investment");
+  const [tab, setTab] = useState<DocumentTab>(initialTab);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [year, setYear] = useState(0);
