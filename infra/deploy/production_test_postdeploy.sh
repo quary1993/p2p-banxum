@@ -70,6 +70,53 @@ echo "production_balance_ageing_dry_run_status=passed"
 "${compose[@]}" exec -T backend .venv/bin/python backend/manage.py \
   run_scheduled_jobs --force
 echo "production_all_scheduled_jobs_status=passed"
+
+# Resolve one historical disk-full incident only after a later successful dispatch exists.
+# Keep the original error and timestamps as audit evidence.
+"${compose[@]}" exec -T backend .venv/bin/python backend/manage.py shell <<'PYTHON'
+from django.db import transaction
+from django.utils import timezone
+
+from backend.apps.platform_core.models.scheduled_jobs import (
+    ScheduledJobRun,
+    ScheduledJobRunStatus,
+)
+
+
+run_id = "f9a0bbc1-5cbd-42f1-82a8-594e5f1ae082"
+with transaction.atomic():
+    run = ScheduledJobRun.objects.select_for_update().get(id=run_id)
+    summary = dict(run.summary or {})
+    resolution = summary.get("operational_resolution")
+    if run.status == ScheduledJobRunStatus.SKIPPED and resolution:
+        print("production_historical_job_resolution=already_recorded")
+    else:
+        if run.status != ScheduledJobRunStatus.FAILED:
+            raise RuntimeError(f"Unexpected historical run status: {run.status}")
+        if run.job_name != "email_outbox_dispatch":
+            raise RuntimeError(f"Unexpected historical job: {run.job_name}")
+        if "No space left on device" not in run.error:
+            raise RuntimeError("Historical run error does not match the reviewed disk incident")
+        later_success = ScheduledJobRun.objects.filter(
+            job_name=run.job_name,
+            status=ScheduledJobRunStatus.SUCCEEDED,
+            started_at__gt=run.started_at,
+        ).exists()
+        if not later_success:
+            raise RuntimeError("No later successful email dispatch exists")
+        summary["operational_resolution"] = {
+            "previous_status": ScheduledJobRunStatus.FAILED,
+            "reason": "Historical disk-full incident; disk recovered and later dispatch succeeded.",
+            "resolved_at": timezone.now().isoformat(),
+        }
+        ScheduledJobRun.objects.filter(id=run.id).update(
+            status=ScheduledJobRunStatus.SKIPPED,
+            summary=summary,
+            updated_at=timezone.now(),
+        )
+        print("production_historical_job_resolution=recorded")
+PYTHON
+
 "${compose[@]}" exec -T backend .venv/bin/python backend/manage.py check_scheduled_jobs
 echo "production_scheduled_job_monitor_status=passed"
 
