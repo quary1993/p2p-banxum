@@ -246,4 +246,66 @@ jobs:
             echo "backup_environment_file_status=unreadable"
             exit 2
           fi
+
+          case "$target" in
+            staging)
+              project_name="banxum_staging"
+              job_log="/var/log/banxum-staging-jobs.log"
+              ;;
+            production)
+              project_name="banxum_prod"
+              job_log="/var/log/banxum-production-jobs.log"
+              ;;
+          esac
+
+          cron_before="$(mktemp)"
+          cron_after="$(mktemp)"
+          trap 'rm -f "$cron_before" "$cron_after"' EXIT
+          crontab -l > "$cron_before" 2>/dev/null || true
+          new_cron_line="*/5 * * * * cd $app_dir && docker compose --project-name $project_name --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job email_outbox_dispatch --job assisted_recovery_links >> $job_log 2>&1"
+          python3 - "$cron_before" "$cron_after" "$app_dir" "$new_cron_line" <<'PYTHON_CRON'
+          from pathlib import Path
+          import sys
+
+
+          source = Path(sys.argv[1])
+          destination = Path(sys.argv[2])
+          app_dir = sys.argv[3]
+          replacement = sys.argv[4]
+          lines = source.read_text(encoding="utf-8").splitlines()
+          matches = [
+              index
+              for index, line in enumerate(lines)
+              if app_dir in line
+              and "run_scheduled_jobs --job email_outbox_dispatch" in line
+          ]
+          if len(matches) > 1:
+              raise SystemExit("More than one BANXUM email-dispatch cron line was found.")
+          if matches:
+              lines[matches[0]] = replacement
+          else:
+              lines.append(replacement)
+          destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PYTHON_CRON
+          old_cron_line="$(grep -F "$app_dir" "$cron_before" | grep -F 'run_scheduled_jobs --job email_outbox_dispatch' || true)"
+          echo "cron_old_line=${old_cron_line:-not_configured}"
+          echo "cron_new_line=$new_cron_line"
+          crontab "$cron_after"
+
+          cd "$app_dir"
+          compose() {
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              "$@" < /dev/null
+          }
+          echo "scheduled_jobs_dry_run=starting"
+          compose exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs \
+            --job balance_ageing_scan --dry-run
+          echo "scheduled_jobs_all_once=starting"
+          compose exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --force
+          echo "scheduled_jobs_monitor=starting"
+          compose exec -T backend .venv/bin/python backend/manage.py check_scheduled_jobs
+          echo "post_deploy_operations_status=passed"
           REMOTE
