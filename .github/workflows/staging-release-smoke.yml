@@ -1,0 +1,72 @@
+name: Staging release smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: banxum-staging-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Live staging release smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate SSH configuration
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PRIVATE_KEY"
+
+      - name: Prepare SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
+
+      - name: Trust host key
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Run transaction-safe staging smoke
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          remote_script="/tmp/banxum-staging-release-smoke-${GITHUB_RUN_ID}.py"
+          scp -i "$HOME/.ssh/banxum_deploy_key" -P "$SSH_PORT" -o BatchMode=yes \
+            infra/deploy/staging_release_smoke.py \
+            "$SSH_USER@$SSH_HOST:$remote_script"
+          ssh -i "$HOME/.ssh/banxum_deploy_key" -p "$SSH_PORT" -o BatchMode=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            REMOTE_SCRIPT="$remote_script" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          trap 'rm -f "$REMOTE_SCRIPT"' EXIT
+          chmod 600 "$REMOTE_SCRIPT"
+          cd /opt/banxum/staging/app
+          docker compose --project-name banxum_staging --env-file infra/deploy/.env \
+            -f infra/deploy/docker-compose.yml exec -T backend \
+            .venv/bin/python backend/manage.py shell < "$REMOTE_SCRIPT"
+          curl -fsS https://staging.nxnarena.com/api/v1/health/ >/dev/null
+          echo "external_staging_health=passed"
+          REMOTE
