@@ -77,19 +77,17 @@ export function NotificationsTab({ account }: { account: AccountData }) {
             {INVESTMENT_EMAILS.map((item) => (
               <SettingsRow actions={<span className="ps-always-on">{t("Always on")}</span>} description={t(item.description, { brand: brandDisplayName() })} key={item.title} title={t(item.title)} />
             ))}
-          </div>
-        </PsPanel>
-        {smart.data ? (
-          <PsPanel title={t("Smart Invest")}>
-            <div className="ps-settings-rows">
+            {/* Design: the "Smart Invest matches" row closes the Investments panel; its own in-app and
+                email switches open with "Manage" (U33-DEC-30). */}
+            {smart.data ? (
               <SettingsRow
                 actions={<button className="btn btn-outline-light btn-sm" disabled={account.readonly} onClick={() => setChannelsOpen(true)} type="button">{t("Manage")}</button>}
                 description={smartChannelsSummary(smart.data, t)}
-                title={t("Investment opportunities matching your preferences")}
+                title={t("Smart Invest matches")}
               />
-            </div>
-          </PsPanel>
-        ) : null}
+            ) : null}
+          </div>
+        </PsPanel>
         <PsPanel title={t("Account")}>
           <div className="ps-settings-rows">
             {ACCOUNT_EMAILS.map((item) => (

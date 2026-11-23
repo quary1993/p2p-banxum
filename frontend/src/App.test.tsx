@@ -2445,7 +2445,7 @@ test("profile and settings keep every section reachable from its tabs and the ac
   expect(screen.getByRole("checkbox", { name: "News from Banxum" })).not.toBeChecked();
   expect(screen.getAllByText("Always on").length).toBeGreaterThan(0);
   // U33-DEC-30: Smart Invest has its own in-app / email channels.
-  expect(screen.getByText("Investment opportunities matching your preferences")).toBeInTheDocument();
+  expect(screen.getByText("Smart Invest matches")).toBeInTheDocument();
   expect(screen.getByText(/In-app notifications on · Email notifications on/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Manage" }));
   expect(screen.getByRole("dialog", { name: "Notify me about matching investment opportunities" })).toBeInTheDocument();
