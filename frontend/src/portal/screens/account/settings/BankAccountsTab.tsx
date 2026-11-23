@@ -19,7 +19,8 @@ import { formatIban } from "../parts/format";
 import { Notice, PsPanel, PsStatus } from "../parts/ui";
 import type { AccountData } from "./useAccountData";
 
-const CURRENCIES = ["CHF", "EUR"];
+/** The design's order: EUR, then CHF (as everywhere in the investor area). */
+const CURRENCIES = ["EUR", "CHF"];
 
 function BankPanel({ instruction, readonly, onChange, onUseForReturns }: { instruction: PayoutInstruction; readonly: boolean; onChange: () => void; onUseForReturns: () => void }) {
   const t = useT();
@@ -27,15 +28,15 @@ function BankPanel({ instruction, readonly, onChange, onUseForReturns }: { instr
   return (
     <PsPanel className="ps-bank" title={t("{currency} account", { currency: instruction.currency })}>
       <div className="ps-panel-body">
-        {/* Design: bank name, IBAN and account holder. 18.3: the bank name comes from the SIX bank
-            master for CH and LI IBANs, else the investor typed it; it is left out when unknown. */}
+        {/* Design: bank name (ps-bank-title), IBAN and account holder. 18.3: the bank name comes from
+            the SIX bank master for CH and LI IBANs, else the investor typed it; left out when unknown. */}
+        {instruction.bank_name ? (
+          <div className="ps-bank-title">
+            <span className="ps-bank-icon"><NiIcon name="building" /></span>
+            <strong>{instruction.bank_name}</strong>
+          </div>
+        ) : null}
         <dl className="ps-bank-facts">
-          {instruction.bank_name ? (
-            <div>
-              <dt>{t("Bank")}</dt>
-              <dd>{instruction.bank_name}</dd>
-            </div>
-          ) : null}
           <div>
             <dt>{t("IBAN")}</dt>
             <dd><span className="bxm-iban">{formatIban(instruction.destination_iban)}</span></dd>
@@ -58,7 +59,7 @@ function BankPanel({ instruction, readonly, onChange, onUseForReturns }: { instr
             {verified && !instruction.is_default_return ? (
               <Button disabled={readonly} onClick={onUseForReturns} size="sm">{t("Use for returns")}</Button>
             ) : null}
-            <Button disabled={readonly} onClick={onChange} size="sm">{t("Change")}</Button>
+            <Button aria-label={t("Change {currency} bank account", { currency: instruction.currency })} disabled={readonly} onClick={onChange} size="sm">{t("Change")}</Button>
           </span>
         </div>
       </div>
@@ -109,7 +110,21 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
         <p className="ps-intro" role="status">{t("Loading your bank accounts...")}</p>
       ) : (
         <div className="ps-bank-grid">
-          {instructions.map((instruction) => (
+          {/* Currency by currency: its accounts, or the empty panel when it has none. */}
+          {CURRENCIES.flatMap((currency) =>
+            missing.includes(currency)
+              ? [<EmptyBankPanel currency={currency} disabled={account.readonly} key={currency} onAdd={() => setDialog({ currency })} />]
+              : instructions.filter((instruction) => instruction.currency === currency).map((instruction) => (
+                  <BankPanel
+                    instruction={instruction}
+                    key={instruction.id}
+                    onChange={() => setDialog({ currency: instruction.currency })}
+                    onUseForReturns={() => setReturnAccount(instruction)}
+                    readonly={account.readonly}
+                  />
+                ))
+          )}
+          {instructions.filter((instruction) => !CURRENCIES.includes(instruction.currency)).map((instruction) => (
             <BankPanel
               instruction={instruction}
               key={instruction.id}
@@ -117,9 +132,6 @@ export function BankAccountsTab({ account }: { account: AccountData }) {
               onUseForReturns={() => setReturnAccount(instruction)}
               readonly={account.readonly}
             />
-          ))}
-          {missing.map((currency) => (
-            <EmptyBankPanel currency={currency} disabled={account.readonly} key={currency} onAdd={() => setDialog({ currency })} />
           ))}
         </div>
       )}
