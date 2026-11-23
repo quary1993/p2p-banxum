@@ -41,6 +41,7 @@ trap cleanup EXIT
 compose=(docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" exec -T postgres sh -c \
   'pg_dump --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --format=custom --compress=9' \
+  < /dev/null \
   > "$temporary_path"
 
 if [[ ! -s "$temporary_path" ]]; then
