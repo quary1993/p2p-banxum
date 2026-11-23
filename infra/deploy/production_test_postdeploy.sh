@@ -7,10 +7,13 @@ app_dir=/opt/banxum/production/app
 project=banxum_prod
 env_file=infra/deploy/.env
 compose_file=infra/deploy/docker-compose.yml
-deploy_backup=/opt/banxum/production/backups/banxum_prod-postgres-20261123T112357Z.dump
+backup_dir=/opt/banxum/production/backups
 
 cd "$app_dir"
 
+deploy_backup=$(find "$backup_dir" -maxdepth 1 -type f \
+  -name 'banxum_prod-postgres-*.dump' -print | sort | tail -1)
+test -n "$deploy_backup"
 test -s "$deploy_backup"
 test -s "${deploy_backup}.sha256"
 echo "deploy_backup_status=present_and_checksummed"
@@ -55,38 +58,7 @@ new_line=$(
 echo "production_cron_new=$new_line"
 printf '%s\n' "$new_line" | grep -q -- '--job assisted_recovery_links'
 
-preview=$(python3 infra/deploy/reset_qa_environment.py \
-  --environment production --allow-production)
-echo "production_reset_preview=$preview"
-confirmation=$(printf '%s' "$preview" | python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["confirmation"])')
-actor_email=$(python3 - "$app_dir/infra/deploy/.env" <<'PYTHON'
-from pathlib import Path
-import sys
-
-for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-    line = raw_line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    name, value = line.split("=", 1)
-    if name.strip() != "GARANTA_SUPERADMIN_EMAIL":
-        continue
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        value = value[1:-1]
-    if not value:
-        raise SystemExit("GARANTA_SUPERADMIN_EMAIL is empty")
-    print(value)
-    break
-else:
-    raise SystemExit("GARANTA_SUPERADMIN_EMAIL is missing")
-PYTHON
-)
-reset_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
-python3 infra/deploy/reset_qa_environment.py \
-  --environment production --allow-production --execute \
-  --actor-email "$actor_email" --run-id "$reset_id" --confirm "$confirmation"
-echo "production_reset_status=passed"
+echo "production_reset_status=already_completed_not_repeated"
 
 compose=(
   docker compose --project-name "$project" --env-file "$env_file"
