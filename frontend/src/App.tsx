@@ -572,8 +572,7 @@ export function App() {
     return <PortalNavProvider value={authNavFor(route, setRoute)}><KycReturnScreen /></PortalNavProvider>;
   }
 
-  // The public site (logged-out pages): its own router, which picks the skin and shell per page
-  // (U33 pages html.bxp, the October pages html.bxs).
+  // The public site (logged-out pages): its own router, in the U33 public shell and skin (html.bxp).
   if (route.name === "public" || route.name === "site") {
     return (
       <SitePages

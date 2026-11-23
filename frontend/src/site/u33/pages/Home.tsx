@@ -35,6 +35,7 @@ import {
   securityGlyph,
   securityTitle,
   splitCents,
+  statusBadge,
   wholeAmount
 } from "../loans";
 import { Flag, HomeSectionLink, MobileLtv, Ni, PublicLink } from "../ui";
@@ -518,8 +519,11 @@ function Opportunities({
   );
 }
 
-/** A loan card (design public-loan). */
-function LoanCard({ view }: { view: ProjectView }) {
+/**
+ * A loan card (design public-loan). Home shows open and coming-soon projects; All projects also
+ * shows funded ones, with the project page's status badge in place of the minimum (Q24, Q23).
+ */
+export function LoanCard({ view }: { view: ProjectView }) {
   const t = useT();
   const p = view.p;
   const payment = paymentSummary(p);
@@ -572,8 +576,12 @@ function LoanCard({ view }: { view: ProjectView }) {
           <span>
             {t("From")} <strong>{`${p.currency} ${wholeAmount(minimum)}`}</strong>
           </span>
+        ) : view.isSoon ? (
+          <span>{t("Coming soon")}</span>
+        ) : view.isOpen ? (
+          <span />
         ) : (
-          <span>{view.isSoon ? t("Coming soon") : null}</span>
+          <span className={`bxp-loan-status ${statusBadge(view, t).cls}`.trim()}>{statusBadge(view, t).label}</span>
         )}
         <PublicLink aria-label={t("View details: {title}", { title: p.title })} href={`/projects/${encodeURIComponent(p.loan_id)}`}>
           {t("View details")} <Ni glyph="arrow" />
@@ -651,7 +659,7 @@ const TYPE_MS = 85;
 const DEMO_HOLD_MS = 6600;
 const DEFAULT_AMOUNT = 10000;
 
-function Calculator({ views }: { views: ProjectView[] }) {
+export function Calculator({ views }: { views: ProjectView[] }) {
   const t = useT();
   const narrow = useNarrow();
   const reduced = useReducedMotion();
@@ -1311,7 +1319,7 @@ function questions() {
     {
       q: t("When will I receive interest and repayments?"),
       a: t(
-        "Payments go to your Banxum account, monthly or at the end of the loan, depending on the opportunity. The schedule distinguishes interest from repayment of the money you invested."
+        "Payments go to your Banxum account on the loan’s schedule: monthly, quarterly, half-yearly, yearly or at the end of the loan, depending on the opportunity. The schedule distinguishes interest from repayment of the money you invested."
       )
     },
     {

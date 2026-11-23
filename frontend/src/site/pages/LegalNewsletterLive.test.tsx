@@ -211,7 +211,7 @@ test("an unsubscribe link answers once, idempotent for the visitor", async () =>
 test("an invalid or expired newsletter link offers to subscribe again", async () => {
   const confirm = renderSite("/newsletter/confirm?token=bad");
   expect(await screen.findByRole("heading", { name: "This link is not valid or has expired." })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Subscribe again" })).toHaveAttribute("href", "/projects#site-sub-projects");
+  expect(screen.getByRole("link", { name: "Subscribe again" })).toHaveAttribute("href", "/projects#newsletter");
   confirm.unmount();
 
   renderSite("/newsletter/unsubscribe");

@@ -18,7 +18,7 @@ function renderSite(path: string) {
 
 function group(title: string) {
   // hidden: true finds the topics the search hides too.
-  return screen.getByRole("heading", { level: 2, name: title, hidden: true }).parentElement as HTMLElement;
+  return screen.getByRole("heading", { level: 2, name: title, hidden: true }).closest("[data-faq-group]") as HTMLElement;
 }
 
 function question(text: string) {
@@ -72,38 +72,49 @@ test("help ?q= searches on arrival and ?topic= marks and scrolls to the topic", 
   };
   try {
     renderSite("/help?topic=risks");
-    const topics = screen.getByRole("list", { name: "Topics" });
-    expect(within(topics).getByRole("link", { name: "Risks and defaults" })).toHaveClass("active");
-    expect(within(topics).getByRole("link", { name: "Investing" })).not.toHaveClass("active");
-    expect(within(topics).getByRole("link", { name: "For companies" })).toHaveAttribute("href", "/companies");
+    // U33 (Q24, D-10): the topics are the legal layout's "On this page" index; ?topic= marks the
+    // topic and scrolls to it, a click scrolls to the topic in the page.
+    const topics = screen.getByRole("navigation", { name: "Topics" });
+    expect(within(topics).getByRole("link", { name: /Risks and defaults/ })).toHaveAttribute("aria-current", "location");
+    expect(within(topics).getByRole("link", { name: /Investing/ })).not.toHaveAttribute("aria-current");
+    expect(within(topics).getByRole("link", { name: /How it works/ })).toHaveAttribute("href", "/help#how-it-works");
     expect(scrolled).toContain(document.querySelector('[data-faq-group="risks"]'));
 
-    // A topic link is a new address: the page shows afresh (search emptied) at that topic.
-    const search = screen.getByRole("searchbox", { name: "Search the questions" });
-    fireEvent.change(search, { target: { value: "tax" } });
-    fireEvent.click(within(topics).getByRole("link", { name: "Selling early" }));
-    expect(window.location.pathname + window.location.search).toBe("/help?topic=selling");
-    expect(screen.getByRole("searchbox", { name: "Search the questions" })).toHaveValue("");
-    expect(group("Getting started")).not.toHaveAttribute("hidden");
-    expect(within(screen.getByRole("list", { name: "Topics" })).getByRole("link", { name: "Selling early" })).toHaveClass("active");
+    fireEvent.click(within(topics).getByRole("link", { name: /Selling early/ }));
     expect(scrolled).toContain(document.querySelector('[data-faq-group="selling"]'));
+    expect(window.location.pathname + window.location.search).toBe("/help?topic=risks");
   } finally {
     Element.prototype.scrollIntoView = original;
   }
 
-  expect(screen.getByRole("heading", { name: "Still have a question?" }).parentElement).toHaveTextContent(
-    "Write to support@banxum.com or call +41 31 000 00 00 (sample), Monday to Friday, 9:00 to 17:00 (Swiss time)."
-  );
+  // No phone number or support hours (U33-DEC-35); the email and the contact form.
+  const contact = screen.getByRole("heading", { name: "Write to us." }).closest("section") as HTMLElement;
+  expect(contact).toHaveTextContent("support@banxum.com");
+  expect(contact).not.toHaveTextContent("+41");
+  expect(contact).not.toHaveTextContent("Monday");
+  expect(within(contact).getByRole("link", { name: "Contact form" })).toHaveAttribute("href", "/contact");
+});
+
+test("help: How it works follows the current rules (Q24, D-1, D-12, U33-DEC-06/07)", () => {
+  renderSite("/help");
+  const how = document.getElementById("how-it-works") as HTMLElement;
+  expect(how).toHaveTextContent("confirm with the code we email you and your PIN (or your authenticator code)");
+  expect(how).toHaveTextContent("from 0% to 102% of the outstanding principal");
+  expect(how).not.toHaveTextContent(/qualified electronic signature/);
+  const answers = document.querySelector(".bxp-help-document") as HTMLElement;
+  expect(answers).not.toHaveTextContent(/magic link/);
+  expect(answers).not.toHaveTextContent(/never above/);
+  expect(answers).toHaveTextContent("From day 60 Banxum can declare the loan in default");
 });
 
 test("guides list every guide and article, an article links to the others", () => {
   const list = renderSite("/guides");
-  const cards = document.querySelectorAll("a.site-article-card");
+  const rows = document.querySelectorAll(".bxp-guide-row");
   // Q24.2: "Our first year in figures" is removed from the launch version.
-  expect(cards).toHaveLength(4);
+  expect(rows).toHaveLength(4);
   expect(screen.queryByRole("link", { name: /Our first year in figures/ })).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "New projects and guides by email" })).toBeInTheDocument();
-  expect(screen.getByLabelText("Email address")).toHaveAttribute("id", "site-sub-guides");
+  expect(screen.getByLabelText("Email address")).toHaveAttribute("id", "bxp-subscribe-guides");
   list.unmount();
 
   const firstYear = renderSite("/guides/first-year");
@@ -111,11 +122,12 @@ test("guides list every guide and article, an article links to the others", () =
   firstYear.unmount();
 
   renderSite("/guides/late-payments");
-  const ready = screen.getByRole("heading", { name: "Ready to look at the projects?" }).parentElement as HTMLElement;
-  expect(within(ready).getByRole("link", { name: "See open projects" })).toHaveAttribute("href", "/projects");
-  expect(within(ready).getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
-  const others = screen.getByRole("heading", { name: "Other guides" }).closest("section") as HTMLElement;
-  expect(others.querySelectorAll("a.site-article-card")).toHaveLength(3);
+  expect(screen.getByRole("heading", { level: 1, name: "What happens when a borrower pays late" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See open projects" })).toHaveAttribute("href", "/projects");
+  expect(screen.getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
+  const others = screen.getByRole("list", { name: "Other guides" });
+  expect(within(others).getAllByRole("link")).toHaveLength(3);
+  expect(screen.getByRole("heading", { level: 2, name: "From day 60" }).parentElement).toHaveTextContent("Banxum can declare the loan in default");
 });
 
 test("an unknown guide or legal page shows the 404", () => {
@@ -220,7 +232,7 @@ test("newsletter links: confirm, unsubscribe and a link without a token", async 
   expect(document.activeElement).toBe(screen.getByLabelText("Email address"));
 });
 
-test("E-06 (audit S1-5): the pages in the older public shell show no language control", () => {
+test("E-06 (audit S1-5): the kept public pages show no language control", () => {
   for (const path of ["/help", "/projects", "/statistics", "/guides"]) {
     const view = renderSite(path);
     expect(screen.queryByRole("button", { name: /^Language:/ })).not.toBeInTheDocument();

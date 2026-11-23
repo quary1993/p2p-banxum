@@ -15,8 +15,8 @@ import { useMemo, type ReactNode } from "react";
 import { useT } from "../../../i18n";
 import { useSiteTitle } from "../../context";
 import { isNotFound, usePublicProject, usePublicProjects, type PublicProject } from "../../data";
-import { date, dateKey, dateShort, num, siteToday } from "../../format";
-import { openingDate, projectView, type ProjectView } from "../../projects";
+import { date, dateKey, num, siteToday } from "../../format";
+import { projectView, type ProjectView } from "../../projects";
 import type { SitePageProps } from "../../SitePages";
 import { useNarrow } from "../hooks";
 import {
@@ -29,6 +29,7 @@ import {
   securityFigure,
   securityTitle,
   splitCents,
+  statusBadge,
   wholeAmount,
   type SecurityFigure
 } from "../loans";
@@ -98,31 +99,6 @@ function Breadcrumb({ open }: { open: boolean }) {
       <Ni glyph="arrow" /> {t("All projects")}
     </PublicLink>
   );
-}
-
-/** The badge of the heading: open with the days left, coming soon, or the loan's status. */
-function statusBadge(view: ProjectView, t: (text: string, vars?: Record<string, string | number>) => string) {
-  const p = view.p;
-  if (view.isSoon) return { label: t("Opens {date}", { date: dateShort(openingDate(p)) }), cls: "" };
-  if (view.isOpen) {
-    if (view.daysLeft === null) return { label: t("Open"), cls: "is-open" };
-    return {
-      label: view.daysLeft <= 0 ? t("Open · closes today") : t("Open · {days} days left", { days: view.daysLeft }),
-      cls: "is-open"
-    };
-  }
-  switch (p.public_status) {
-    case "repaying":
-      return { label: t("Repaying"), cls: "" };
-    case "late":
-      return { label: t("Late {days} days", { days: p.record?.days_past_due ?? 0 }), cls: "is-late" };
-    case "repaid":
-      return { label: t("Repaid"), cls: "" };
-    case "default":
-      return { label: t("Default"), cls: "is-default" };
-    default:
-      return { label: t("Fully funded"), cls: "" };
-  }
 }
 
 function ProjectBody({ view, list, index }: { view: ProjectView; list: ProjectView[]; index: number }) {
