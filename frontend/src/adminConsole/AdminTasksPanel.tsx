@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   AdminTask,
   AdminTaskCreateRequest,
@@ -533,6 +533,7 @@ export function AdminTasksPanel() {
 
       {selectedTask ? (
         <TaskDetailDrawer
+          key={selectedTask.id}
           events={selectedEvents}
           eventsLoading={eventsQuery.isLoading}
           onClose={() => setSelectedTaskId(null)}
@@ -715,15 +716,12 @@ export function TaskDetailDrawer({
   const updateTask = useV1AdminOpsTasksPartialUpdate();
   // Resolving only closes the task; it never performs the underlying action.
   const [pendingResolve, setPendingResolve] = useState<Partial<TaskDraft> | null>(null);
-  const [draft, setDraft] = useState<TaskDraft>(() => taskDraft(task));
+  const [edits, setDraft] = useState<Partial<TaskDraft>>({});
+  const draft = { ...taskDraft(task), ...edits };
   const isPayoutIbanTask =
     task.task_type === "payout_instruction_verification" &&
     task.related_object_type === "InvestorPayoutInstruction" &&
     Boolean(task.related_object_id);
-
-  useEffect(() => {
-    setDraft(taskDraft(task));
-  }, [task]);
 
   function submitUpdate(event?: FormEvent, override?: Partial<TaskDraft>, resolveConfirmed = false) {
     event?.preventDefault();
@@ -736,6 +734,7 @@ export function TaskDetailDrawer({
 
     if (isFixturePreview) {
       onPreviewUpdate(task.id, payload);
+      setDraft({});
       return;
     }
 
@@ -743,6 +742,10 @@ export function TaskDetailDrawer({
       { taskId: task.id, data: payload },
       {
         onSuccess: () => {
+          // Keep changes typed after this request was sent.
+          setDraft((current) => Object.fromEntries(Object.entries(current).filter(
+            ([key, value]) => next[key as keyof TaskDraft] !== value
+          )));
           refetchTasks();
           refetchEvents();
         }

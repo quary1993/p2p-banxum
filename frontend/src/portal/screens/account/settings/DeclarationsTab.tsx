@@ -4,8 +4,9 @@
 // state and the re-verification date. Each submission is a new version; some answers open a
 // compliance review, which pauses new investments until it is closed (not a refusal).
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
+import { ApiClientError } from "../../../../api/client/httpClient";
 import {
   getV1KycDeclarationsRetrieveQueryKey,
   useV1KycDeclarationsCreate,
@@ -95,20 +96,21 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
   const mutation = useV1KycDeclarationsCreate();
   const current = status.data?.declaration ?? null;
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<FormState>(() => initialForm(null));
+  const [draft, setDraft] = useState<Partial<FormState>>({});
+  const form = { ...initialForm(current, status.data?.declaration_subject), ...draft };
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    if (status.data) setForm(initialForm(status.data.declaration, status.data.declaration_subject));
-  }, [status.data]);
-
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((previous) => ({ ...previous, [key]: value }));
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setEditing(true);
+    setDraft((previous) => ({ ...previous, [key]: value }));
+  };
   const toggleSource = (key: string) =>
     set("sources_of_funds", form.sources_of_funds.includes(key) ? form.sources_of_funds.filter((item) => item !== key) : [...form.sources_of_funds, key]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!status.data || status.isError || mutation.isPending) return;
     setError("");
     setSaved(false);
     mutation.mutate(
@@ -140,6 +142,7 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
       {
         onSuccess: (response) => {
           queryClient.setQueryData(getV1KycDeclarationsRetrieveQueryKey(), response);
+          setDraft({});
           setEditing(false);
           setSaved(true);
         },
@@ -153,21 +156,21 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
   }
   if (status.isLoading) return <p className="bxm-muted">{t("Loading...")}</p>;
   // Audit S7-7: without the status the form would guess the account type and the state.
-  if (status.isError || !status.data) {
-    return (
+  const loadError = (
       <Notice title={t("Could not load your declarations")} tone="danger">
         <p className="mb-2">{t("Please try again in a moment. New investments stay paused until your declarations are loaded.")}</p>
         <button className="btn btn-outline-primary" onClick={() => void status.refetch()} type="button">
           {t("Try again")}
         </button>
       </Notice>
-    );
-  }
+  );
+  if (!status.data || (status.error instanceof ApiClientError && [401, 403].includes(status.error.status))) return loadError;
   const data = status.data;
   const showForm = editing || !current;
 
   return (
     <div className="ps-stack">
+      {status.isError ? loadError : null}
       {data?.review_open ? (
         <Notice title={t("Compliance review in progress")} tone="warning">
           {data.review_message || t("Our compliance team is reviewing your declarations. New investments are paused until the review is closed. Your account, documents and investments stay available.")}
@@ -202,6 +205,7 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
       {showForm ? (
         <PsPanel title={current ? t("Update your declarations") : t("Your declarations")}>
           <form aria-label={t("Declarations")} className="card-inner u33-declarations-form" id={formId} onSubmit={submit}>
+            <fieldset className="border-0 p-0 m-0" disabled={mutation.isPending}>
             <fieldset className="mb-3">
               <legend className="form-label">{t("Who invests?")}</legend>
               <p className="u33-muted mb-0">{form.subject_type === "company" ? t("A company invests (company account).") : t("I invest as a private person (private account).")}</p>
@@ -302,15 +306,16 @@ export function DeclarationsTab({ account }: { account: AccountData }) {
               </p>
             ) : null}
             <div className="d-flex gap-2">
-              <button className="btn btn-primary" disabled={mutation.isPending} type="submit">
+              <button className="btn btn-primary" disabled={mutation.isPending || status.isError} type="submit">
                 {t("Save declarations")}
               </button>
               {current ? (
-                <button className="btn btn-outline-light" onClick={() => setEditing(false)} type="button">
+                <button className="btn btn-outline-light" onClick={() => { setDraft({}); setEditing(false); }} type="button">
                   {t("Cancel")}
                 </button>
               ) : null}
             </div>
+            </fieldset>
           </form>
         </PsPanel>
       ) : null}

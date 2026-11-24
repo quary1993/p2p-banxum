@@ -1,14 +1,14 @@
 // IP of Webby-Soft SRL.
 // Real-API admin follow-ups of the U33 loan features: the loan history (events and audit entries,
 // newest first, with who acted and the reason).
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
 
 import { server } from "../api/mocks/server";
-import { getV1AuthMeRetrieveResponseMock, getV1EntitiesAdminBorrowersListResponseMock, getV1LoansAdminLoansListResponseMock } from "../api/generated/banxumApi";
+import { getV1AdminLoanStatusDaysRetrieveQueryKey, getV1AuthMeRetrieveResponseMock, getV1EntitiesAdminBorrowersListResponseMock, getV1LoansAdminLoansListResponseMock } from "../api/generated/banxumApi";
 
 vi.stubEnv("MODE", "development");
 vi.stubEnv("VITE_PREVIEW", "false");
@@ -79,11 +79,13 @@ export function adminHandlers() {
 
 export function renderAdmin(path: string) {
   window.history.pushState({}, "", path);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>
   );
+  return client;
 }
 
 test("the loan history lists events and changes with the reason and who acted", async () => {
@@ -196,11 +198,14 @@ test("a superadmin changes the platform's late and default days with a reason", 
     }),
     ...adminHandlers()
   );
-  renderAdmin("/admin/settings");
+  const client = renderAdmin("/admin/settings");
 
   const late = await screen.findByLabelText(/Late from day/, {}, { timeout: 10_000 });
   expect(screen.getByText("Never changed")).toBeInTheDocument();
   fireEvent.change(late, { target: { value: "20" } });
+  act(() => { client.setQueryData(getV1AdminLoanStatusDaysRetrieveQueryKey(), days(15, 75, "Updated elsewhere")); });
+  await waitFor(() => expect(screen.getByLabelText(/Default from day/)).toHaveValue("75"));
+  expect(late).toHaveValue("20");
   fireEvent.change(screen.getByLabelText(/Default from day/), { target: { value: "90" } });
   fireEvent.change(screen.getByLabelText(/Reason for the new days/), { target: { value: "Owner decision" } });
   fireEvent.click(screen.getByRole("button", { name: "Save the days" }));

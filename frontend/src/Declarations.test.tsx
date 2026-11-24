@@ -1,12 +1,13 @@
 // IP of Webby-Soft SRL.
 // 18.10 (Q12): Profile & Settings -> Declarations. Without a declaration the investor sees why and
 // fills the form; the answers are sent as one new version, and a review in progress is explained.
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ComponentType } from "react";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 
 import { server } from "./api/mocks/server";
+import { getV1KycDeclarationsRetrieveQueryKey } from "./api/generated/banxumApi";
 import { emptyCalls, investorShellHandlers, renderLiveApp, type RecordedCalls } from "./test/liveInvestor";
 
 vi.stubEnv("MODE", "development");
@@ -70,7 +71,7 @@ test("an investor without declarations fills the form and the answers are sent a
       return HttpResponse.json(state, { status: 201 });
     })
   );
-  renderLiveApp(App, "/settings/declarations");
+  const { queryClient } = renderLiveApp(App, "/settings/declarations");
   expect(await screen.findByText("Complete your declarations", {}, { timeout: 5000 })).toBeInTheDocument();
   const form = screen.getByRole("form", { name: "Declarations" });
   fireEvent.click(within(form).getByRole("checkbox", { name: "Salary" }));
@@ -78,6 +79,9 @@ test("an investor without declarations fills the form and the answers are sent a
   fireEvent.change(within(form).getByRole("textbox", { name: "Where do the savings come from?" }), { target: { value: "Salary saved since 2015" } });
   fireEvent.click(within(form).getByRole("radio", { name: "Not sure" }));
   fireEvent.change(within(form).getByRole("combobox", { name: "Expected yearly investment volume" }), { target: { value: "10k_50k" } });
+  state = { ...EMPTY, reverification_due_date: "2026-12-15" };
+  await act(async () => { await queryClient.refetchQueries({ queryKey: getV1KycDeclarationsRetrieveQueryKey() }); });
+  expect(within(form).getByRole("textbox", { name: "Where do the savings come from?" })).toHaveValue("Salary saved since 2015");
   fireEvent.click(within(form).getByRole("button", { name: "Save declarations" }));
 
   await waitFor(() => expect(calls.declarations).toHaveLength(1));
