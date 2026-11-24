@@ -660,11 +660,24 @@ def _acceptance_links(
             key = ("secondary_market_listing", str(holding_id))
             found[key].update(holding_id=str(holding_id), loan_title=str(loan_title))
 
-    return {
+    links = {
         str(acceptance.pk): found[key]
         for acceptance in acceptances
         if (key := (str(acceptance.context_type), str(acceptance.context_id))) in found
     }
+    if orders:
+        # An activated LO subscription creates the holding through its purchase, not the order.
+        purchases = _model("originator_claims", "OriginatorClaimPurchase").objects.filter(
+            investor_user_id=investor_user_id,
+            holding__investor_user_id=investor_user_id,
+            document_acceptance_id__in=[
+                item.pk for item in acceptances if item.context_type == "primary_order"
+            ],
+        )
+        for agreement, holding_id in purchases.values_list("document_acceptance_id", "holding_id"):
+            key_id = str(agreement)
+            links[key_id] = {**links.get(key_id, {}), "holding_id": str(holding_id)}
+    return links
 
 
 def get_investor_documents(*, actor: Model) -> dict[str, Any]:

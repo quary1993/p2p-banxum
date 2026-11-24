@@ -6,6 +6,8 @@
  * label: the country name for an image with a name; null for a decorative flag (hidden from screen
  * readers, next to a country name).
  */
+import { countryKey } from "../../investorPortal/countries";
+
 type Stripe = [fill: string, x: number, y: number, width: number, height: number];
 
 /** Flag shapes in the design's 19x14 box: [fill, x, y, width, height]. */
@@ -66,7 +68,7 @@ const FLAG_STRIPES: Record<string, Stripe[]> = {
 };
 
 export function CountryFlag({ code, label = null, className = "r35-flag" }: { code: string; label?: string | null; className?: string }) {
-  const iso = (code || "").trim().toUpperCase();
+  const iso = countryKey(code);
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   return (
     <svg className={className} focusable="false" viewBox="0 0 19 14" {...a11y}>

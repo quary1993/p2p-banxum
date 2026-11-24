@@ -14,6 +14,7 @@ import type {
 } from "../../../api/generated/banxumApi";
 import { readReadonlyImpersonationToken } from "../../../api/client/impersonation";
 import { t } from "../../../i18n";
+import { countryLabel } from "../../../investorPortal/countries";
 import { formatPercent } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { loanLtvBps } from "../../../investorPortal/portfolioCollateral";
@@ -162,26 +163,9 @@ export function borrowerName(loan: MarketplaceLoanPreview | MarketplaceLoanDetai
   return disclosed || loan.borrower_display_name || "";
 }
 
-const countryNames: Record<string, string> = {
-  AT: "Austria",
-  BE: "Belgium",
-  CH: "Switzerland",
-  DE: "Germany",
-  ES: "Spain",
-  FR: "France",
-  IT: "Italy",
-  LI: "Liechtenstein",
-  LU: "Luxembourg",
-  NL: "Netherlands",
-  PL: "Poland",
-  PT: "Portugal",
-  RO: "Romania"
-};
-
 /** "Switzerland" for "CH"; other values are shown as they are. */
 export function countryName(code: string | null | undefined) {
-  if (!code) return "";
-  return t(countryNames[code.toUpperCase()] ?? code);
+  return t(countryLabel(code));
 }
 
 /** Design "Münsingen, Switzerland": the city when known (U33-DEC-23), then the country name. */

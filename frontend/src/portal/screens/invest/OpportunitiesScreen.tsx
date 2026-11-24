@@ -21,6 +21,7 @@ import { useSavedOpportunityActions } from "../../../investorPortal/savedOpportu
 import { formatDate, formatDateShort, formatDecimal, formatMoneyLabel, formatMoneyMinor, formatPercent, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
 import { Button, EmptyState, InfoTip, NiIcon, PageHead, PortalLink, usePortalNav } from "../../components";
 import { CountryFlag } from "../../components/CountryFlag";
+import { countryKey } from "../../../investorPortal/countries";
 import {
   collateralGroup,
   collateralIcon,
@@ -99,7 +100,7 @@ function matchesFilters(loan: MarketplaceLoanPreview, filters: Filters) {
     const ltv = loanLtv(loan);
     if (ltv === null || ltv > filters.maxLtv * 100) return false;
   }
-  if (filters.country && (loan.borrower_country ?? "").toUpperCase() !== filters.country) return false;
+  if (filters.country && countryKey(loan.borrower_country) !== filters.country) return false;
   if (filters.repayment.length > 0) {
     const group = repaymentOption({ term_months: loan.term_months, repayment_type: loan.repayment_type });
     if (!group || !filters.repayment.includes(group)) return false;
@@ -230,7 +231,7 @@ export function OpportunitiesScreen({ initialMatchesOnly = false }: { initialMat
   const originators = Array.from(
     new Map(listedLoans.filter((loan) => isOriginatorClaimLoan(loan) && loan.originator_id).map((loan) => [loan.originator_id as string, loan.originator_name ?? ""])).entries()
   ).sort((a, b) => a[1].localeCompare(b[1]));
-  const countries = Array.from(new Set(listedLoans.map((loan) => (loan.borrower_country ?? "").toUpperCase()).filter(Boolean)))
+  const countries = Array.from(new Set(listedLoans.map((loan) => countryKey(loan.borrower_country)).filter(Boolean)))
     .map((code) => [code, countryName(code)] as const)
     .sort((a, b) => a[1].localeCompare(b[1]));
   const panelCount = [
@@ -646,7 +647,7 @@ export function OpportunityList({ loans, asOf, matchIds }: { loans: MarketplaceL
           {loans.map((loan) => {
             const name = loan.borrower_display_name && loan.borrower_display_name !== loan.title ? loan.borrower_display_name : loan.originator_name;
             // Design: "Company · CC".
-            const company = [name, loan.borrower_country ? loan.borrower_country.toUpperCase() : ""].filter(Boolean).join(" · ");
+            const company = [name, countryKey(loan.borrower_country)].filter(Boolean).join(" · ");
             const securityName = collateralLabel(loan.collateral_type);
             const securityDetail = loan.collateral_description && loan.collateral_description !== loan.collateral_type && loan.collateral_description !== securityName ? loan.collateral_description : "";
             const payments = paymentFrequencyLabel(loan.repayment_type, loan.loan_status, loan.payment_frequency);

@@ -12,30 +12,8 @@
 import type { PublicProject } from "./data";
 import { dateKey, dateShort, daysBetween, siteToday } from "./format";
 
-const COUNTRY_NAMES: Record<string, string> = {
-  CH: "Switzerland",
-  DE: "Germany",
-  AT: "Austria",
-  RO: "Romania",
-  IT: "Italy",
-  FR: "France",
-  LI: "Liechtenstein"
-};
-
-/** "CH" -> "Switzerland" (the design's names, then the browser's English names). */
-export function countryName(code: string) {
-  const value = (code || "").trim().toUpperCase();
-  if (!value) return "";
-  if (COUNTRY_NAMES[value]) return COUNTRY_NAMES[value];
-  if (/^[A-Z]{2}$/.test(value) && typeof Intl.DisplayNames === "function") {
-    try {
-      return new Intl.DisplayNames(["en"], { type: "region" }).of(value) ?? value;
-    } catch {
-      return value;
-    }
-  }
-  return value;
-}
+import { countryLabel as countryName } from "../investorPortal/countries";
+export { countryName };
 
 export type ProjectView = {
   p: PublicProject;
