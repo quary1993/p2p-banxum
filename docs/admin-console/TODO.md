@@ -1,5 +1,10 @@
 # Admin Console UI/UX TODO
 
+## 2026-11-24: Forms during session and data checks
+
+- Admin sign-in, open tasks, and loan status settings keep unsaved input during background checks.
+- Regression check: leave the sign-in form open for more than one minute. In a task, type a note and refresh the task data. The note must stay; fields you did not edit must show the latest server values. Priority: important.
+
 This file captures admin console UI/UX work owned by the Codex implementation agent. Claude Design is not responsible for admin console design or redesign; Claude Design should focus on user-facing/public/investor UX.
 
 Entries are a dated implementation history. Earlier “no UI” entries describe the state of their original backend slice and are superseded by later completion entries; they must not be read as the current product state.

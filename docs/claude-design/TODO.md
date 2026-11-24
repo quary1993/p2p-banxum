@@ -1,5 +1,10 @@
 # Claude Design TODO
 
+## 2026-11-24: Unsaved form input
+
+- Public forms and investor declarations now keep typed values during background updates.
+- Design follow-up: check that keyboard focus stays in the same field during a slow reconnect on mobile. Priority: important.
+
 ## 2026-11-23: Design 1:1 Pass (Branch u33-design-1to1)
 
 - Screen or component: all investor screens, the sign-in screens and the public site.

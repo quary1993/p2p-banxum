@@ -9178,25 +9178,24 @@ function LoanStatusDaysCard() {
   const queryClient = useQueryClient();
   const daysQuery = useV1AdminLoanStatusDaysRetrieve({ query: { enabled: !isFixturePreview, retry: false, staleTime: 0 } });
   const days = daysQuery.data;
-  const [late, setLate] = useState("");
-  const [defaulted, setDefaulted] = useState("");
+  const [lateEdit, setLate] = useState<string | null>(null);
+  const [defaultEdit, setDefaulted] = useState<string | null>(null);
+  const late = lateEdit ?? String(days?.late_days ?? "");
+  const defaulted = defaultEdit ?? String(days?.default_days ?? "");
   const [reason, setReason] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1AdminLoanStatusDaysUpdate({
     mutation: {
-      onSuccess: (result) => {
+      onSuccess: (result, submitted) => {
         queryClient.setQueryData(getV1AdminLoanStatusDaysRetrieveQueryKey(), result);
+        setLate((current) => current === String(submitted.data.late_days) ? null : current);
+        setDefaulted((current) => current === String(submitted.data.default_days) ? null : current);
         setSuccess(`Loans without contract days are Late from day ${result.late_days} and in Default from day ${result.default_days}. The change was audit-logged.`);
-        setReason("");
+        setReason((current) => current.trim() === submitted.data.reason ? "" : current);
       }
     }
   });
-  useEffect(() => {
-    if (!days) return;
-    setLate(String(days.late_days));
-    setDefaulted(String(days.default_days));
-  }, [days]);
   const lateDays = Number(late);
   const defaultDays = Number(defaulted);
   const maximum = days?.maximum_days ?? 365;

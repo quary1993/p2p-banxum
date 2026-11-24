@@ -317,7 +317,11 @@ function AdminConsoleApp() {
       retry: false,
       refetchOnWindowFocus: false,
       // Notices an expired session within a minute, even on an idle screen.
-      refetchInterval: 60_000,
+      refetchInterval: (query) =>
+        isAdminPortalUser(query.state.data?.user) &&
+        !(query.state.error instanceof ApiClientError && [401, 403].includes(query.state.error.status))
+          ? 60_000
+          : false,
       staleTime: 30_000
     }
   });
@@ -330,7 +334,7 @@ function AdminConsoleApp() {
   const platformBusinessDate = qaBusinessDate || sessionQuery.data?.platform_business_date ||
     (isFixturePreview ? fallbackAdminBusinessDate : "");
 
-  if (!authenticated && sessionQuery.isLoading && localAuthState === "unknown") {
+  if (!authenticated && sessionQuery.isLoading && sessionQuery.errorUpdatedAt === 0 && localAuthState === "unknown") {
     return (
       <main className="admin-login">
         <section className="admin-login-card">
