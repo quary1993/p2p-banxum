@@ -331,6 +331,12 @@ def test_orders_reserve_the_price_and_the_close_pays_it_to_the_originator(
     assert first.expected_interest_minor == round(10_000 * principal / 1_000_000 * 0.7)
     holding = cast(Any, purchase.holding)
     assert holding.original_principal_minor == principal
+    documents = import_module("backend.apps.investor_portal.services").get_investor_documents(
+        actor=investor
+    )["documents"]
+    agreement = next(doc for doc in documents if doc["id"] == str(purchase.document_acceptance_id))
+    assert agreement["holding_id"] == str(holding.pk)
+    assert agreement["loan_title"] == result.loan.title
 
 
 @pytest.mark.django_db

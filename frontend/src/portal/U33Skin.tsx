@@ -8,7 +8,7 @@
  * and <body> gets the design's body classes (nk-body bg-white has-sidebar bxm-app).
  * layout="auth" (sign-in, registration, PIN gate, Didit return; slice S5) gives the body the design's
  * classes for the screens outside the app layout (nk-body bg-white bxm-app, no has-sidebar).
- * Everything is removed on unmount, so the public site (html.bxs) and the admin console keep their
+ * Everything is removed on unmount, so the public site (html.bxp) and the admin console keep their
  * look. The old skin (html.bxm) and its <LegacyBody> wrapper were removed in the S7 clean-up (18.5).
  * A mount counter keeps this correct under StrictMode double effects, like SiteSkin.
  */

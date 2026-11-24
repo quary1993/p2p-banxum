@@ -155,7 +155,8 @@ export const portalFixture: InvestorPortalFixture = {
       date: "2026-06-02",
       context: "Order O-58102",
       size: "198 KB",
-      category: "primary_market_investment"
+      category: "primary_market_investment",
+      loanTitle: "Helvetia Logistik AG"
     },
     {
       id: "D-9150",
@@ -165,7 +166,20 @@ export const portalFixture: InvestorPortalFixture = {
       date: "2026-02-18",
       context: "Resale purchase SM-3290",
       size: "164 KB",
-      category: "secondary_market_purchase"
+      category: "secondary_market_purchase",
+      loanTitle: "Rhône Vignobles SA"
+    },
+    {
+      id: "D-8920",
+      title: "Loan Savoie Logistique SAS EUR 6,000.00 agreement",
+      type: "Investment agreement",
+      version: "v3",
+      date: "2025-08-28",
+      context: "Order O-55210",
+      size: "196 KB",
+      category: "primary_market_investment",
+      holdingId: "H-2201",
+      loanTitle: "Savoie Logistique SAS"
     }
   ],
   notifications: [
@@ -651,7 +665,7 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
     // The same values as the loan details below.
     borrower_country: loan.currency === "CHF" ? "CH" : "DE",
     borrower_city: directBorrowerCities[loan.loan_id] ?? "",
-    repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
+    repayment_type: loan.term_months >= 24 ? "full_at_maturity" : "equal_installments",
     collateral_description: loan.collateral_type,
     security_types: loan.loan_id === "GA-2401" ? [loan.collateral_type, "personal_guarantee"] : [loan.collateral_type],
     published_at: loan.funding_deadline ? `${fixtureIsoDate(-1, 1)}T08:00:00Z` : null,
@@ -763,6 +777,9 @@ export const smartInvestFixture: SmartInvestResponse = {
       borrower_display_name: loan.borrower_display_name,
       borrower_country: loan.borrower_country,
       borrower_city: loan.borrower_city,
+      repayment_type: loan.repayment_type,
+      payment_frequency: loan.payment_frequency,
+      collateral_description: loan.collateral_description,
       skin_in_the_game_bps: loan.skin_in_the_game_bps,
       minimum_subscription_bps: loan.minimum_subscription_bps
     })),
@@ -1074,7 +1091,7 @@ const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanP
   original_interest_only_months: loan.is_refinancing ? 0 : null,
   original_loan_start_date: loan.is_refinancing ? refinancedOriginalLoanStartDate : null,
   original_loan_schedule: loan.is_refinancing ? refinancedOriginalScheduleFixture : [],
-  repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
+  repayment_type: loan.term_months >= 24 ? "full_at_maturity" : "equal_installments",
   loan_start_date: "2026-06-30",
   first_payment_date: "2026-07-31",
   schedule_version: 1
@@ -2153,7 +2170,7 @@ export const portfolioFixture: InvestorPortfolio = {
         interest_rate_bps: 800,
         default_penalty_interest_bps: 1200,
         term_months: 36,
-        repayment_type: "bullet",
+        repayment_type: "full_at_maturity",
         currency: "EUR",
         is_refinancing: false,
         original_principal_minor: amount(800000),
@@ -2220,7 +2237,7 @@ export const portfolioFixture: InvestorPortfolio = {
         interest_rate_bps: 910,
         default_penalty_interest_bps: 1800,
         term_months: 24,
-        repayment_type: "bullet",
+        repayment_type: "full_at_maturity",
         currency: "EUR",
         is_refinancing: false,
         original_principal_minor: amount(400000),

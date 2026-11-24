@@ -8,6 +8,8 @@
 // C06 / F16: the admin chooses the main security (the summary); the loan-to-value uses the sum of the
 // values that count (distinct assets with a documented valuation), and the investor sees which assets,
 // with their values and valuation dates. A valuation in another currency shows its amount and rate.
+import type { ReactNode } from "react";
+
 import type { MarketplaceSecurity } from "../../../../api/generated/banxumApi";
 import { useT } from "../../../../i18n";
 import { formatDate, formatDecimal, formatMoneyLabel, formatPercent } from "../../../../investorPortal/format";
@@ -118,13 +120,26 @@ export function SecurityFacts({ security, currency, loanMinor, withValue = true 
   );
 }
 
-/** Scope, insurance and records of one security, when recorded. */
+/** One of the design's security disclosures (credit-file-details.js: details.r100-detail). */
+function SecurityDetail({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <details className="r100-detail">
+      <summary>
+        <span>{title}</span>
+        <NiIcon name="chevron-down" />
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+/** Scope, insurance and records of one security, when recorded (design: "Scope & duration", insurance). */
 export function SecurityNotes({ security }: { security: MarketplaceSecurity }) {
   const t = useT();
   return (
     <>
-      {security.undertaking_scope ? <><h4>{t("Scope")}</h4><p>{security.undertaking_scope}</p></> : null}
-      {security.insurance ? <><h4>{t("Insurance")}</h4><p>{security.insurance}</p></> : null}
+      {security.undertaking_scope ? <SecurityDetail title={t("Scope & duration")}><p>{security.undertaking_scope}</p></SecurityDetail> : null}
+      {security.insurance ? <SecurityDetail title={t("Insurance")}><p>{security.insurance}</p></SecurityDetail> : null}
       {security.documents.length > 0 ? <p className="bxm-muted small">{t("Records: {names}", { names: security.documents.map((document) => document.display_name).join(", ") })}</p> : null}
     </>
   );

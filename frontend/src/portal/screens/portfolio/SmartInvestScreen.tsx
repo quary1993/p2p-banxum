@@ -17,9 +17,11 @@ import {
   type SmartInvestResponse
 } from "../../../api/generated/banxumApi";
 import { useT } from "../../../i18n";
-import { isFixturePreview, useComingSoonLoansData, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
+import { isFixturePreview, useBalancesData, useComingSoonLoansData, useMarketplaceLoansData, useSmartInvestData } from "../../../investorPortal/data";
 import { formatDecimal, formatMoneyLabel, useNumberFormat } from "../../../investorPortal/format";
 import { Button, Dialog, EmptyState, NiIcon, PageHead } from "../../components";
+import { OpportunityList } from "../invest/OpportunitiesScreen";
+import { readStored, writeStored } from "../invest/storage";
 import { SmartInvestWizard } from "./SmartInvestWizard";
 import { errorMessage, isReadonlyView } from "./parts/errors";
 import { OpportunityCard } from "./parts/OpportunityCard";
@@ -39,7 +41,9 @@ import { usePreviewVariant } from "./parts/urlState";
 import { PageError, PageLoading, SelectFilter } from "./parts/ui";
 import "./portfolio.css";
 
-type SortKey = "closing" | "rate" | "term" | "funded";
+type SortKey = "closing" | "newest" | "rate" | "term" | "funded";
+type Layout = "cards" | "list";
+const LAYOUT_KEY = "banxum.smartInvest.layout";
 
 function sortMatches(matches: SmartInvestOpportunity[], key: SortKey) {
   const funded = (match: SmartInvestOpportunity) => (match.principal_minor > 0 ? match.committed_principal_minor / match.principal_minor : 0);
@@ -47,6 +51,7 @@ function sortMatches(matches: SmartInvestOpportunity[], key: SortKey) {
     if (key === "rate") return (right.yield_bps || right.interest_rate_bps) - (left.yield_bps || left.interest_rate_bps);
     if (key === "term") return left.term_months - right.term_months;
     if (key === "funded") return funded(right) - funded(left);
+    if (key === "newest") return (right.published_at ?? "").localeCompare(left.published_at ?? "");
     return (left.funding_deadline ?? "9999-12-31").localeCompare(right.funding_deadline ?? "9999-12-31");
   });
 }
@@ -58,6 +63,7 @@ export function SmartInvestScreen() {
   const smartQuery = useSmartInvestData();
   const loansQuery = useMarketplaceLoansData();
   const soonQuery = useComingSoonLoansData();
+  const asOf = useBalancesData().data?.as_of;
   const updateMutation = useV1InvestorSmartInvestUpdate();
   const pauseMutation = useV1InvestorSmartInvestPauseCreate();
   const resumeMutation = useV1InvestorSmartInvestResumeCreate();
@@ -66,6 +72,12 @@ export function SmartInvestScreen() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [sort, setSort] = useState<SortKey>("closing");
+  // Design si-results-view: Cards or List, remembered on this device.
+  const [layout, setLayoutState] = useState<Layout>(() => (readStored(LAYOUT_KEY) === "list" ? "list" : "cards"));
+  const setLayout = (next: Layout) => {
+    setLayoutState(next);
+    writeStored(LAYOUT_KEY, next);
+  };
   const [error, setError] = useState("");
 
   if (smartQuery.isError && !smartQuery.data) {
@@ -195,6 +207,12 @@ export function SmartInvestScreen() {
 
   const summary = preferenceSummary(preferences, originators);
   const sorted = sortMatches(matches, sort);
+  // The List view uses the opportunity list of Investment opportunities, with the same loans.
+  const loanById = new Map(previewLoans.map((loan) => [loan.loan_id, loan]));
+  const listLoans = [...sorted, ...soonMatches].flatMap((match) => {
+    const loan = loanById.get(match.loan_id);
+    return loan ? [loan] : [];
+  });
   return (
     <main className="si-page si-results-page r65-smart-results">
       <PageHead subtitle={t("Opportunities that match your preferences. You review and confirm each investment.")} title={t("Smart Invest")} />
@@ -218,24 +236,35 @@ export function SmartInvestScreen() {
           <span> · {t("{count} open", { count: matches.length })} · {t("{count} coming soon", { count: soonMatches.length })}</span>
         </div>
         <div className="si-results-tools">
-          <button className="si-link" onClick={() => setWhyOpen(true)} type="button">
+          <button className="si-link" data-action="si-why" onClick={() => setWhyOpen(true)} type="button">
             {t("Why these matches?")} <NiIcon name="info" />
           </button>
-          {matches.length > 1 ? (
-            <SelectFilter
-              ariaLabel={t("Sort opportunities")}
-              className="bxm-op-sort"
-              label=""
-              onChange={setSort}
-              options={[
-                { value: "closing", label: t("Closing soonest") },
-                { value: "rate", label: t("Highest interest") },
-                { value: "term", label: t("Shortest term") },
-                { value: "funded", label: t("Most funded") }
-              ]}
-              selectClassName="bxm-op-select"
-              value={sort}
-            />
+          {matches.length + soonMatches.length > 0 ? (
+            <>
+              <SelectFilter
+                ariaLabel={t("Sort opportunities")}
+                className="bxm-op-sort"
+                label=""
+                onChange={setSort}
+                options={[
+                  { value: "closing", label: t("Closing soonest") },
+                  { value: "newest", label: t("Newest") },
+                  { value: "rate", label: t("Highest interest") },
+                  { value: "term", label: t("Shortest term") },
+                  { value: "funded", label: t("Most funded") }
+                ]}
+                selectClassName="bxm-op-select"
+                value={sort}
+              />
+              <div aria-label={t("Opportunity view")} className="si-results-view" role="group">
+                <button aria-pressed={layout === "cards"} data-action="si-results-view" onClick={() => setLayout("cards")} type="button">
+                  <NiIcon name="view-grid-fill" /> {t("Cards")}
+                </button>
+                <button aria-pressed={layout === "list"} data-action="si-results-view" onClick={() => setLayout("list")} type="button">
+                  <NiIcon name="list" /> {t("List")}
+                </button>
+              </div>
+            </>
           ) : null}
         </div>
       </div>
@@ -247,9 +276,13 @@ export function SmartInvestScreen() {
             </EmptyState>
           </div>
         ) : (
-          <div className="si-results-grid">
-            {[...sorted, ...soonMatches].map((match) => <OpportunityCard key={match.loan_id} match={match} preferredAmount={preferences.preferredAmount} />)}
-          </div>
+          layout === "list" ? (
+            <OpportunityList asOf={asOf} loans={listLoans} matchIds={new Set()} />
+          ) : (
+            <div className="si-results-grid">
+              {[...sorted, ...soonMatches].map((match) => <OpportunityCard key={match.loan_id} match={match} preferredAmount={preferences.preferredAmount} />)}
+            </div>
+          )
         )}
       </div>
       {/* U33-DEC-30: the in-app and email match alerts have their own switches. */}
@@ -258,7 +291,7 @@ export function SmartInvestScreen() {
           <NiIcon name="bell" />
           <span>{channelsLine(data.notification_channels)}</span>
         </div>
-        <button className="si-link" onClick={() => setChannelsOpen(true)} type="button">
+        <button className="si-link" data-action="si-notifications" onClick={() => setChannelsOpen(true)} type="button">
           {t("Notification settings")} <NiIcon name="chevron-right" />
         </button>
       </div>

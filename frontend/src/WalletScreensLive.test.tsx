@@ -396,10 +396,18 @@ test("Reports list kept and offered reports by year and type, open PDFs in the r
   expect(within(main).getByText("2 reports")).toBeInTheDocument();
   expect(within(table).getByText("Account statement November 2026")).toBeInTheDocument();
   expect(within(table).getByText("Nov 2026")).toBeInTheDocument();
-  const years = within(main).getByRole("group", { name: "Report year" });
-  fireEvent.click(within(years).getByRole("button", { name: "2025" }));
+  // Design Period select: a report matches when its period overlaps the chosen dates.
+  const period = within(main).getByLabelText("Period");
+  fireEvent.change(period, { target: { value: "y2025" } });
   expect(within(main).getByText("2 reports")).toBeInTheDocument();
-  fireEvent.click(within(years).getByRole("button", { name: "All years" }));
+  fireEvent.change(period, { target: { value: "custom" } });
+  fireEvent.change(within(main).getByLabelText("From"), { target: { value: "2026-11-01" } });
+  fireEvent.change(within(main).getByLabelText("To"), { target: { value: "2026-11-30" } });
+  fireEvent.click(within(main).getByRole("button", { name: "Apply" }));
+  expect(within(main).getByText("2 reports")).toBeInTheDocument();
+  // No server summary for custom dates.
+  expect(within(main).queryByRole("button", { name: /^Summary/ })).not.toBeInTheDocument();
+  fireEvent.change(period, { target: { value: "all" } });
   expect(within(main).getByText("4 reports")).toBeInTheDocument();
 
   fireEvent.change(within(main).getByLabelText("Report type"), { target: { value: "tax" } });
@@ -423,7 +431,7 @@ test("Reports list kept and offered reports by year and type, open PDFs in the r
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
   // The annual summary per currency, from the server.
-  fireEvent.click(within(main).getByRole("button", { name: /All-time summary/ }));
+  fireEvent.click(within(main).getByRole("button", { name: /^Summary/ }));
   const summary = document.getElementById("tr-annual-summary") as HTMLElement;
   const chf = (await within(summary).findByRole("heading", { name: /^CHF/ })).closest("section") as HTMLElement;
   expect(within(chf).getByText("Interest received").nextSibling).toHaveTextContent("58,25");

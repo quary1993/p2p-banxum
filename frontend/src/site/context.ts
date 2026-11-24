@@ -2,7 +2,7 @@
 /*
  * Shared state of the public site: navigation (the current path and query, and navigate()),
  * toasts, the document title and the newsletter sign-up shown by every subscribe block.
- * SitePages provides the navigation, SiteShell the toasts.
+ * SitePages provides the navigation, PublicShell the toasts.
  */
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 

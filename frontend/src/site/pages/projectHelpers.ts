@@ -6,7 +6,7 @@
  */
 import { humanizeEnum } from "../../investorPortal/format";
 import type { PublicProject } from "../data";
-import { dateKey, parseAmount, plan, round2, siteToday, type PlanRepayment, type PlanTerms } from "../format";
+import { dateKey, plan, round2, siteToday, type PlanRepayment, type PlanTerms } from "../format";
 import type { ProjectView } from "../projects";
 
 // ---------------------------------------------------------------------------------------------
@@ -92,15 +92,6 @@ export function saveProjectFilters(filters: ProjectFilters) {
 // Interest calculators (display only, major units like the design): the loans' own schedule
 // (format.ts plan: daily interest, actual/365), every payment on time.
 
-/** Largest amount the calculator reads (design calcRead). */
-export const CALC_MAX_AMOUNT = 10000000;
-
-/** The calculator's amount field -> a positive amount, or 0 (design calcRead). */
-export function calcAmount(text: string) {
-  const amount = parseAmount(text);
-  return Number.isNaN(amount) || amount <= 0 ? 0 : Math.min(amount, CALC_MAX_AMOUNT);
-}
-
 /**
  * The plan() repayment of a RepaymentType, the engine's grouping (interest_engine.py
  * REPAYMENT_TYPE_KINDS): equal total installments (annuity), interest every period with the
@@ -136,19 +127,6 @@ export function planTermsOf(p: Pick<PublicProject, "interest_rate_bps" | "term_m
     frequencyMonths,
     interestOnlyPeriods: p.repayment_type === "interest_only_then_amortizing" ? Math.floor((p.interest_only_months ?? 0) / frequencyMonths) : 0
   };
-}
-
-export type CalcRow = { principal: number; interest: number };
-
-/** Design simulate(): the plan from today, one bar per month (also for loans paid at the end). */
-export function simulate(amount: number, rate: number, term: number, repayment: PlanRepayment, start = siteToday()) {
-  const planned = plan({ rate, term, repayment }, amount, start);
-  const rows: CalcRow[] =
-    repayment === "bullet"
-      ? Array.from({ length: term - 1 }, () => ({ principal: 0, interest: 0 })).concat(planned)
-      : planned;
-  const interest = round2(planned.reduce((sum, row) => sum + row.interest, 0));
-  return { rows, interest, total: round2(amount + interest), first: planned[0]?.total ?? 0 };
 }
 
 /**

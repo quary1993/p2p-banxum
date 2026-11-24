@@ -221,7 +221,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
                 <div className="p99v2-facts">
                   <div className="p99v2-repayment">
                     <span>{t("Repayments")}</span>
-                    <strong>{repaymentText(loan.repayment_type)}</strong>
+                    <strong>{repaymentText(loan.repayment_type, loan.payment_frequency)}</strong>
                     <small>{t("Credited to your Banxum balance")}</small>
                   </div>
                   {lifetime !== null ? (
@@ -275,7 +275,7 @@ function HoldingView({ holding, focus }: { holding: Holding; focus: boolean }) {
               </PortalLink>
             </div>
             {!(state === "late" || state === "due" || inRecovery) ? <LoanNotes focus={focus} loanId={loan.loan_id} /> : null}
-            <InvestmentDocuments holdingId={holding.id} loanTitle={loan.loan_title} />
+            <InvestmentDocuments holding={holding} holdingId={holding.id} loanTitle={loan.loan_title} />
           </section>
         </div>
       </div>
@@ -329,7 +329,7 @@ function ReservedView({ order }: { order: PrimaryOrderPortal }) {
                   <div className="p99v2-facts">
                     <div className="p99v2-repayment">
                       <span>{t("Repayments")}</span>
-                      <strong>{repaymentText(loan.repayment_type)}</strong>
+                      <strong>{repaymentText(loan.repayment_type, loan.payment_frequency)}</strong>
                       <small>{t("Payments start after closing")}</small>
                     </div>
                   </div>

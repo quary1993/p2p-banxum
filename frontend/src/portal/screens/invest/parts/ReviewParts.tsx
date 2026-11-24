@@ -83,6 +83,7 @@ export function ReviewFrame({
         <div className="rl29-help">
           {/* 18.3: help for this step with its live values (design r34-invest-help, "Reviewing and signing"). */}
           <HelpWithThisStep
+            buttonClassName="ip-help r34-context-help"
             context={loan.title}
             items={[
               {
@@ -432,7 +433,7 @@ export function ResultPage({
               ) : null}
               <div>
                 <span className="l8-next-label">{t("Repayments")}</span>
-                <h3>{repaymentText(loan.repayment_type) || t("As the loan schedule says")}</h3>
+                <h3>{repaymentText(loan.repayment_type, loan.payment_frequency) || t("As the loan schedule says")}</h3>
                 <p>{t("Payments follow your loan schedule and are credited to your Banxum balance.")}</p>
               </div>
             </div>

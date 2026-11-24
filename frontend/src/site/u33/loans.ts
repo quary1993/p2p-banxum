@@ -9,9 +9,9 @@
  */
 import { t } from "../../i18n";
 import type { PublicProject } from "../data";
-import { dateKey, num, plan, round2, siteToday } from "../format";
+import { dateKey, dateShort, num, plan, round2, siteToday } from "../format";
 import { collateralLabel, planRepaymentOf, planTermsOf, securityText } from "../pages/projectHelpers";
-import { soonProjects, type ProjectView } from "../projects";
+import { openingDate, soonProjects, type ProjectView } from "../projects";
 import type { GlyphName } from "./glyphs";
 
 /** U33 public shows three opportunities (U33-DEC-39). */
@@ -240,4 +240,29 @@ export function calculatorAmountText(amount: number) {
 export function splitCents(amount: number): [string, string] {
   const [whole, cents] = num(amount, 2).split(".");
   return [whole, `.${cents}`];
+}
+
+/** A project's badge (project page heading, All projects cards): open with the days left, coming soon, or the loan's status. */
+export function statusBadge(view: ProjectView, t: (text: string, vars?: Record<string, string | number>) => string) {
+  const p = view.p;
+  if (view.isSoon) return { label: t("Opens {date}", { date: dateShort(openingDate(p)) }), cls: "" };
+  if (view.isOpen) {
+    if (view.daysLeft === null) return { label: t("Open"), cls: "is-open" };
+    return {
+      label: view.daysLeft <= 0 ? t("Open · closes today") : t("Open · {days} days left", { days: view.daysLeft }),
+      cls: "is-open"
+    };
+  }
+  switch (p.public_status) {
+    case "repaying":
+      return { label: t("Repaying"), cls: "" };
+    case "late":
+      return { label: t("Late {days} days", { days: p.record?.days_past_due ?? 0 }), cls: "is-late" };
+    case "repaid":
+      return { label: t("Repaid"), cls: "" };
+    case "default":
+      return { label: t("Default"), cls: "is-default" };
+    default:
+      return { label: t("Fully funded"), cls: "" };
+  }
 }

@@ -1,5 +1,13 @@
 # Claude Design TODO
 
+## 2026-11-23: Design 1:1 Pass (Branch u33-design-1to1)
+
+- Screen or component: all investor screens, the sign-in screens and the public site.
+- Current behavior: compared with the design captures (1600 px and 390 px) and changed to match where no flow or rule disagrees. Public: the kept pages (All projects, Statistics, Help, Guides, newsletter pages, "Stop these alerts", 404) are U33 public pages; the October shell and skin are deleted (G17 closed). Investor: opportunity filters (maximum loan-to-value, borrower country, repayment structure, "Custom..."), Add funds on the loan's currency, Documents with the loan name and the investment link, the investment page header order, "Download schedule" and "Repayment schedule", resale flags and "Ends", Smart Invest cards and Cards/List, "Borrower · Loan" in Transactions, the Reports Period select, Bank accounts order and bank name, the agreements row and "Next review by" in Personal details, the notification settings layout, the Review & sign help button, the credit file cover label and security disclosures, the sign-in texts ("Welcome back", "Email", "Log in").
+- Differences that stay: the approved deviations D-1 to D-12 and the decisions of `IMPLEMENTATION_PLAN.md` 18.1 and `plan/22`. Also: the credit file's "Meet the borrower" shows the borrower story written by the team (rich text and photos), not the design's fixed photo, quote and person card; the QR-bill is a PNG, not the design's PDF; "Reserved on" / "Closing" on an active investment are one "Invested on" date; the design's prototype bar and "Reset prototype" are not product functions.
+- Suggested improvement: ask the designer for the borrower story layout and for the states that the design does not show.
+- Priority: important.
+
 ## 2026-11-09: U33 Fidelity Pass: Differences From The Design That Stay
 
 - Screen or component: all U33 investor screens, the sign-in screens and the public site.
@@ -80,6 +88,7 @@
 - Screen or component: `/projects`, `/how-it-works`, `/statistics`, `/help`, `/guides`, `/guides/{id}`, `/newsletter/confirm`, `/newsletter/unsubscribe`, 404 (`frontend/src/site/pages/`, October shell and `html.bxs` skin).
 - Current behavior: unchanged October look and texts, reachable from the U33 footer (All projects, Statistics, Help), from "All projects, including funded and repaid loans" under the home opportunities and from the project page breadcrumb of a funded loan. The risk ratings were removed from the project cards, the statistics list, the Help questions and the guides (U33-DEC-16). The newsletter sign-up lives on `/projects` and `/guides` only (the U33 home has none); "Subscribe again" on an expired newsletter link opens `/projects`. Texts still to align with the decisions: Help "0% fees for investors" (U33-DEC-12), magic-link login (U33-DEC-01, Phase 17.3), the 58-day return (U33-DEC-03, Phase 17.2), the "first year" article saying repayments were paid to bank accounts (U33-DEC-02; kept verbatim by the 2026-10-15 owner decision), the terms outline's "50-day return". (Updated 2026-11-20: done in 18.2 and 18.4-18.5: "0% fees for investors" kept word for word (Q24.2), How it works moved into Help, the first-year article removed and archived, the Terms outline without "50-day return", password sign-in, the 56-day return; the language controls of this older shell are hidden (E-06).)
 - Suggested improvement: the owner's decision per page (keep, integrate in U33, retire); then a U33 design for the kept ones and the text alignment above.
+- Status 2026-11-23: done. The pages are U33 public pages (`site/u33/pages/`); the October shell, skin and pages are deleted (design 1:1 pass).
 - Priority: important.
 
 ## 2026-11-09: U33 Investing Screens (Phase 17.1 S2): Overview, Investment Opportunities, Past Opportunities, Opportunity Page, Credit File, Review & Sign

@@ -102,6 +102,13 @@ function withdrawalStatus(status: string) {
   return humanize(status);
 }
 
+/** Design repayment line "Borrower · Loan" (the borrower name comes with the Transactions page). */
+function borrowerAndLoan(entry: ActivityEntry | TransactionEntry): Description {
+  const borrower = "borrower_name" in entry && typeof entry.borrower_name === "string" ? entry.borrower_name : "";
+  const loan = entry.loan_title || "";
+  return borrower && loan && borrower !== loan ? { text: "{borrower} · {loan}", vars: { borrower, loan } } : plain(loan || borrower);
+}
+
 /** How the page shows one activity entry. */
 export function transactionRow(entry: ActivityEntry): TransactionRow {
   const type = entry.activity_type;
@@ -173,9 +180,9 @@ export function transactionRow(entry: ActivityEntry): TransactionRow {
     case "interest_distribution":
     case "originator_repayment_distribution":
       // U33-DEC-02: repayments are credited to the Banxum balance.
-      return { ...base, group: "repayment", label: "Repayment", status: "Credited to your balance", icon: "arrow-up-right" };
+      return { ...base, group: "repayment", label: "Repayment", status: "Credited to your balance", icon: "arrow-up-right", description: borrowerAndLoan(entry) };
     case "recovery_distribution":
-      return { ...base, group: "recovery", label: "Recovery payment", status: "Credited to your balance", icon: "arrow-up-right" };
+      return { ...base, group: "recovery", label: "Recovery payment", status: "Credited to your balance", icon: "arrow-up-right", description: borrowerAndLoan(entry) };
     case "withdrawal_request":
       return {
         ...base,
@@ -238,6 +245,16 @@ function shiftDateKey(key: string, days: number) {
   const date = new Date(`${key}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+/** The design's Period select (Transactions and Reports): All time, last 30/90 days, a year, custom dates. */
+export type PeriodChoice = "all" | "30" | "90" | "custom" | `y${number}`;
+
+export function choiceToPeriod(choice: PeriodChoice, custom: { from: string; to: string }): Period {
+  if (choice === "30" || choice === "90") return { kind: "days", days: Number(choice) };
+  if (choice === "custom") return custom.from && custom.to ? { kind: "custom", ...custom } : { kind: "all" };
+  if (choice.startsWith("y")) return { kind: "year", year: Number(choice.slice(1)) };
+  return { kind: "all" };
 }
 
 /** Inclusive date range of a period ("" = open end), on Europe/Zurich business dates. */

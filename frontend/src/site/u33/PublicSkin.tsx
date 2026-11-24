@@ -5,15 +5,29 @@
  * <body> the design's body classes of that page type. "motion-reduced" mirrors the visitor's
  * reduced-motion preference on <html>, like the design's persuasion.js.
  *
- * The other skins (html.bxs: October site pages, html.bxu: investor area) are taken
- * off while this one is mounted and put back afterwards. A mount counter keeps it right under
- * StrictMode double effects (as SiteSkin).
+ * The investor area's skin (html.bxu) is taken off while this one is mounted and put back
+ * afterwards. A mount counter keeps it right under StrictMode double effects.
  */
 import { useLayoutEffect, type ReactNode } from "react";
 
 import { useReducedMotion } from "./hooks";
 
-export type PublicBundle = "home" | "about" | "business" | "contact" | "legal" | "project";
+export type PublicBundle = "home" | "about" | "business" | "contact" | "legal" | "project" | "projects";
+
+/**
+ * The CSS bundle of each page type. "projects" (All projects, Q24) uses the home page's rules and
+ * body classes (loan cards, calculator); public-overrides.css turns its phone carousel back into a
+ * list (section 7).
+ */
+const CSS_BUNDLE: Record<PublicBundle, string> = {
+  home: "home",
+  about: "about",
+  business: "business",
+  contact: "contact",
+  legal: "legal",
+  project: "project",
+  projects: "home"
+};
 
 /** The design's <body> classes per page type. */
 const BODY_CLASSES: Record<PublicBundle, string[]> = {
@@ -22,10 +36,11 @@ const BODY_CLASSES: Record<PublicBundle, string[]> = {
   business: ["complete-preview", "business-v01"],
   contact: ["complete-preview", "contact-refined"],
   legal: ["complete-preview"],
-  project: ["complete-preview", "compact-detail"]
+  project: ["complete-preview", "compact-detail"],
+  projects: ["complete-preview", "home-preview", "persuasion-preview"]
 };
 
-const OTHER_SKINS = ["bxs", "bxu"];
+const OTHER_SKINS = ["bxu"];
 let publicSkinMounts = 0;
 
 export function PublicSkin({ bundle, children }: { bundle: PublicBundle; children: ReactNode }) {
@@ -51,10 +66,11 @@ export function PublicSkin({ bundle, children }: { bundle: PublicBundle; childre
   useLayoutEffect(() => {
     const html = document.documentElement;
     const bodyClasses = BODY_CLASSES[bundle];
-    html.classList.add(`bxp-${bundle}`);
+    const cssClass = `bxp-${CSS_BUNDLE[bundle]}`;
+    html.classList.add(cssClass);
     document.body.classList.add(...bodyClasses);
     return () => {
-      html.classList.remove(`bxp-${bundle}`);
+      html.classList.remove(cssClass);
       document.body.classList.remove(...bodyClasses);
     };
   }, [bundle]);

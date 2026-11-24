@@ -14,6 +14,7 @@ import type {
 } from "../../../api/generated/banxumApi";
 import { readReadonlyImpersonationToken } from "../../../api/client/impersonation";
 import { t } from "../../../i18n";
+import { countryLabel } from "../../../investorPortal/countries";
 import { formatPercent } from "../../../investorPortal/format";
 import { platformTodayKey } from "../../../investorPortal/platformClock";
 import { loanLtvBps } from "../../../investorPortal/portfolioCollateral";
@@ -162,26 +163,9 @@ export function borrowerName(loan: MarketplaceLoanPreview | MarketplaceLoanDetai
   return disclosed || loan.borrower_display_name || "";
 }
 
-const countryNames: Record<string, string> = {
-  AT: "Austria",
-  BE: "Belgium",
-  CH: "Switzerland",
-  DE: "Germany",
-  ES: "Spain",
-  FR: "France",
-  IT: "Italy",
-  LI: "Liechtenstein",
-  LU: "Luxembourg",
-  NL: "Netherlands",
-  PL: "Poland",
-  PT: "Portugal",
-  RO: "Romania"
-};
-
 /** "Switzerland" for "CH"; other values are shown as they are. */
 export function countryName(code: string | null | undefined) {
-  if (!code) return "";
-  return t(countryNames[code.toUpperCase()] ?? code);
+  return t(countryLabel(code));
 }
 
 /** Design "Münsingen, Switzerland": the city when known (U33-DEC-23), then the country name. */
@@ -262,23 +246,47 @@ export function existingClaimHelp() {
  * The payment line under the term (design paymentLabel): every repayment type of the platform pays
  * monthly except a full bullet; none for a loan in default.
  */
-export function paymentFrequencyLabel(repaymentType: string | null | undefined, loanStatus?: string) {
+export function paymentFrequencyLabel(repaymentType: string | null | undefined, loanStatus?: string, frequency?: string | null) {
   if (!repaymentType || loanStatus === "defaulted" || loanStatus === "written_off") return "";
-  if (repaymentType === "bullet") return t("Payment at maturity");
-  return ["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"].includes(repaymentType)
-    ? t("Monthly payments")
-    : "";
+  if (AT_MATURITY_REPAYMENTS.has(repaymentType)) return t("Payment at maturity");
+  if (repaymentType === "custom_schedule") return t("Custom schedule");
+  return PERIODIC_REPAYMENTS.has(repaymentType) ? t("{frequency} payments", { frequency: frequencyWords(frequency).adjective }) : "";
+}
+
+/** One payment at maturity: the 18.6 type full_at_maturity ("bullet" in older records and previews). */
+const AT_MATURITY_REPAYMENTS = new Set(["full_at_maturity", "bullet"]);
+
+/** Repayment types with periodic payments (interest, or principal and interest). */
+const PERIODIC_REPAYMENTS = new Set(["equal_installments", "amortizing_principal_interest", "bullet_periodic_interest", "interest_only_then_bullet", "interest_only_then_amortizing"]);
+
+/**
+ * 18.6 (Q08): the words of a loan's payment frequency (monthly, quarterly, half-yearly, yearly;
+ * monthly when the API sends none, as every older loan).
+ */
+export function frequencyWords(frequency?: string | null) {
+  switch (frequency) {
+    case "quarterly":
+      return { adjective: t("Quarterly"), adverb: t("quarterly") };
+    case "half_yearly":
+      return { adjective: t("Half-yearly"), adverb: t("half-yearly") };
+    case "annual":
+      return { adjective: t("Yearly"), adverb: t("yearly") };
+    default:
+      return { adjective: t("Monthly"), adverb: t("monthly") };
+  }
 }
 
 /** The payment line of Review & sign (design repaymentCopy). */
-export function reviewRepaymentCopy(repaymentType: string | null | undefined) {
+export function reviewRepaymentCopy(repaymentType: string | null | undefined, frequency?: string | null) {
+  const words = frequencyWords(frequency);
   switch (repaymentType) {
     case "equal_installments":
     case "amortizing_principal_interest":
-      return t("Monthly principal and interest payments.");
+      return t("{frequency} principal and interest payments.", { frequency: words.adjective });
     case "bullet_periodic_interest":
     case "interest_only_then_bullet":
-      return t("Monthly interest payments; principal at maturity.");
+      return t("{frequency} interest payments; principal at maturity.", { frequency: words.adjective });
+    case "full_at_maturity":
     case "bullet":
       return t("Principal and interest at maturity.");
     default:
@@ -307,36 +315,32 @@ export function projectIcon(loan: Pick<MarketplaceLoanPreview, "product_type" | 
   return icon === "alert-circle" || icon === "user" ? "briefcase" : icon;
 }
 
-/** Design line under the terms ("Principal and interest paid monthly"); every launch type pays monthly. */
-export function repaymentText(repaymentType: string | null | undefined) {
+/** Design line under the terms ("Principal and interest paid monthly"), with the loan's frequency (18.6). */
+export function repaymentText(repaymentType: string | null | undefined, frequency?: string | null) {
+  const words = frequencyWords(frequency);
   switch (repaymentType) {
     case "equal_installments":
     case "amortizing_principal_interest":
-      return t("Principal and interest paid monthly");
+      return t("Principal and interest paid {frequency}", { frequency: words.adverb });
     case "bullet_periodic_interest":
     case "interest_only_then_bullet":
-      return t("Interest paid monthly; principal at the end");
+      return t("Interest paid {frequency}; principal at the end", { frequency: words.adverb });
     case "interest_only_then_amortizing":
-      return t("Interest only at first, then principal and interest monthly");
+      return t("Interest only at first, then principal and interest {frequency}", { frequency: words.adverb });
+    case "full_at_maturity":
     case "bullet":
       return t("Principal and interest at maturity");
+    case "custom_schedule":
+      return t("Payments on the loan's own schedule");
     default:
       return repaymentType ? humanize(repaymentType) : "";
   }
 }
 
-/** Short cadence for cards and toggles ("Monthly payments"). */
-export function repaymentCadence(repaymentType: string | null | undefined) {
-  return repaymentType && repaymentType in repaymentKnown ? t("Monthly payments") : "";
+/** Short cadence for cards and toggles ("Monthly payments"), with the loan's frequency (18.6). */
+export function repaymentCadence(repaymentType: string | null | undefined, frequency?: string | null) {
+  return repaymentType && PERIODIC_REPAYMENTS.has(repaymentType) ? t("{frequency} payments", { frequency: frequencyWords(frequency).adjective }) : "";
 }
-
-const repaymentKnown: Record<string, true> = {
-  equal_installments: true,
-  amortizing_principal_interest: true,
-  bullet_periodic_interest: true,
-  interest_only_then_bullet: true,
-  interest_only_then_amortizing: true
-};
 
 /** "New loan" / "Existing claim" (design type tag); refinancing loans are named as such. */
 export function loanTypeLabel(loan: Pick<MarketplaceLoanPreview, "product_type" | "is_refinancing">) {

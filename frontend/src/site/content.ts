@@ -87,7 +87,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "How long does it take to open an account?",
-        a: "<p>About 2 minutes: your details, the agreements, a few declarations (beneficial owner, source of funds) and an online identity check with your ID document and a selfie. Our compliance team usually confirms the account within one business day.</p>"
+        a: "<p>A few minutes: your details and the agreements, a password and a second factor (an SMS code or an authenticator app), then an online identity check with your ID document and a selfie. Before your first investment you give a few declarations (beneficial owner, source of funds) and add a verified bank account in your name.</p>"
       },
       {
         top: true,
@@ -97,7 +97,7 @@ export const siteFaq: FaqGroup[] = [
       {
         top: true,
         q: "Does Banxum charge investors fees?",
-        a: "<p>No: <strong>0% fees for investors</strong>. Nothing to open or keep your wallet, to add or withdraw money, to invest, or on the interest and repayments you receive. Only if you sell early on the secondary market, the seller pays 2% of the price. Your bank may charge for its transfers.</p>"
+        a: "<p>No: <strong>0% fees for investors</strong>. Nothing to open or keep your wallet, to add or withdraw money, to invest, or on the interest and repayments you receive. Only if you sell early on the secondary market, the seller pays 2% of the price, at most 2% of the outstanding principal. Your bank may charge for its transfers.</p>"
       }
     ]
   },
@@ -108,12 +108,12 @@ export const siteFaq: FaqGroup[] = [
       {
         top: true,
         q: "How is interest calculated?",
-        a: "<p>Every day, on the principal still outstanding: principal × rate ÷ 365 for each day, from the day the loan is paid out. It is paid on the dates of the repayment schedule, monthly or at the end. If you sell early on the secondary market, the buyer pays you the interest up to the day of the sale.</p>"
+        a: "<p>Every day, on the principal still outstanding: principal × rate ÷ 365 for each day, from the day the loan is paid out. It is paid on the dates of the repayment schedule (monthly, quarterly, half-yearly, yearly or at the end). If you sell early on the secondary market, the buyer pays you the interest accrued up to the sale.</p>"
       },
       {
         top: true,
         q: "What do I buy when I invest?",
-        a: "<p>A share of a claim against a company: the company's obligation to repay a loan with interest. For a <strong>new loan</strong>, Garanta lends to the company and assigns part of the claim to you. For an <strong>existing claim</strong>, a loan originator (a leasing, factoring or lending company) first assigns the claim to Garanta, which then assigns part of it to you.</p><p>Your assignment declaration names the borrower, the loan agreement, the principal, the interest and your share.</p>"
+        a: "<p>A share of a claim against a company: the company's obligation to repay a loan with interest. For a <strong>new loan</strong>, Garanta lends to the company and assigns part of the claim to you. For an <strong>existing claim</strong>, a loan originator (a leasing, factoring or lending company) has already lent the money, and you buy a share of its claim.</p><p>Before you confirm, you accept the investment and assignment terms of that loan; they name the loan, the amount and your share, and they stay in your Documents.</p>"
       },
       {
         q: "How are projects selected?",
@@ -121,11 +121,11 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "When is my investment final?",
-        a: "<p>When you confirm, the amount is reserved from your available balance. When the funding period ends and the loan is fully funded, Garanta signs the assignment with a qualified electronic signature and you receive the assignment declaration and your repayment schedule. If a loan is not fully funded, the reservation is released and the money is available again.</p>"
+        a: "<p>When you confirm, the amount is reserved from your available balance. When the funding period ends and the loan has reached its minimum funding, the funding closes: you hold your share of the claim and you get your repayment schedule. If the loan does not reach its minimum funding, the reservation is released and the money is available again. An offer of a loan originator closes as soon as it is fully subscribed, or at its funding deadline.</p>"
       },
       {
         q: "Can Banxum choose loans for me?",
-        a: "<p>You choose every loan yourself. Smart-Invest is being prepared.</p>"
+        a: "<p>You choose every loan yourself. Smart Invest shows the open loans that match your preferences and tells you when a new one is published. It never invests for you: you review and confirm each investment.</p>"
       }
     ]
   },
@@ -166,7 +166,7 @@ export const siteFaq: FaqGroup[] = [
       },
       {
         q: "What happens if a borrower pays late?",
-        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. During the first 14 days after the due date the payment is shown as due, with the number of days. From day 15 the investment is marked as late and you are informed. From day 60 the loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself: the end of the contract, the enforcement of the security and the recovery are separate steps, shown with their dates on the investment page. Garanta shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
+        a: "<p>Garanta, as collection agent for all investors, reminds the borrower. For two business days after the due date the payment is shown as pending; then it is shown as due, with the number of days. From day 15 the investment is marked as late and you are informed. From day 60 Banxum can declare the loan in default (calendar days, Swiss time); a loan contract can set other days. Default does not end the contract by itself: the end of the contract, the enforcement of the security and the recovery are separate steps, shown on the investment page. Garanta shares what it recovers in proportion to each share. Recovery can take months or years.</p>"
       },
       {
         q: "What if Garanta stops operating?",
@@ -180,7 +180,7 @@ export const siteFaq: FaqGroup[] = [
     items: [
       {
         q: "Can I sell an investment before it ends?",
-        a: "<p>Yes, on the secondary market, if the loan is paid on time. You set the price at the principal (par) or at a discount, never above it; the buyer also pays the interest accrued since the last payment. Every share is sold whole. The seller pays 2% of the price. A sale is not guaranteed: someone has to buy.</p>"
+        a: "<p>Yes, on the secondary market, if the loan is paid on time and no instalment is due. You sell your whole share at a price from 0% to 102% of the outstanding principal (a discount, or at most a 2% premium); the buyer also pays the interest accrued since the last payment. The seller pays 2% of the price, at most 2% of the outstanding principal; the buyer pays no fee. A sale is not guaranteed: someone has to buy.</p>"
       }
     ]
   },
@@ -190,11 +190,11 @@ export const siteFaq: FaqGroup[] = [
     items: [
       {
         q: "How is interest taxed?",
-        a: "<p>Interest is income. You declare it where you are tax resident. The annual tax statement of interest and holdings is in your account, as PDF or CSV, when you need it for your tax return.</p>"
+        a: "<p>Interest is income. You declare it where you are tax resident. In Reports you can create a tax report for a year that has ended, as PDF or CSV. It is information for your tax return, not an official tax certificate.</p>"
       },
       {
         q: "Which documents do I receive?",
-        a: "<p>For each investment: the assignment declaration and the repayment schedule. For your account: an account statement for a period you choose and the annual tax statement, when you need them, as PDF or CSV.</p>"
+        a: "<p>For each investment: the terms you accepted and the repayment schedule, in Documents and on the investment page. In Reports: account statements, portfolio reports, interest and repayment reports and tax reports for a period you choose, as PDF or CSV, and a monthly statement.</p>"
       }
     ]
   },
@@ -204,7 +204,7 @@ export const siteFaq: FaqGroup[] = [
     items: [
       {
         q: "How is my account protected?",
-        a: "<p>You access your account with a magic link sent to your email. Investments, withdrawals and changes of bank account ask for an extra code and your PIN code.</p>"
+        a: "<p>You sign in with your password and a second factor: an SMS code or an authenticator app. Investments, withdrawals and changes of bank account ask for a code we email you and your PIN, or your authenticator code if you use the app.</p>"
       },
       {
         q: "How do you use my personal data?",
@@ -250,7 +250,7 @@ export const siteGuides: SiteGuide[] = [
         <h2>3. The rate</h2>
         <p>The rate is what the borrower owes you each year on the principal. A higher rate is payment for a higher risk, not a better deal.</p>
         <h2>4. The term and the repayment</h2>
-        <p>Monthly instalments give your money back step by step. With monthly interest and the principal at the end, or everything at the end, more of your money depends on the last payment.</p>
+        <p>Regular instalments (monthly, quarterly, half-yearly or yearly) give your money back step by step. With interest only and the principal at the end, or everything at the end, more of your money depends on the last payment.</p>
         <h2>5. The minimum</h2>
         <p>CHF 1,000.00 or EUR 1,000.00. For some loans it is higher, and loans from loan originators can have their own minimum; the project page shows the current minimum.</p>
         <div class="site-callout">Spread your money: several smaller amounts in different companies, sectors and terms are safer than one large amount.</div>`
@@ -261,14 +261,14 @@ export const siteGuides: SiteGuide[] = [
     date: "2026-09-02",
     icon: "ni-swap",
     title: "What claim assignment means for you",
-    summary: "You do not lend through a pool: you receive your own share of a claim against a named company, with a signed assignment declaration.",
+    summary: "You do not lend through a pool: you receive your own share of a claim against a named company, under terms you accept for each investment.",
     body: `<p>On Banxum you invest by buying a share of a claim. A claim is the right to be repaid: the company owes the principal and the interest in the loan agreement.</p>
         <h2>New loans</h2>
         <p>Garanta Finanzgruppe AG lends to the company. When investors have funded the loan, Garanta assigns to each of them a share of the claim, in proportion to the amount they invested.</p>
         <h2>Existing claims</h2>
-        <p>A loan originator, such as a leasing or factoring company, has already lent the money. It assigns the claim to Garanta, which then assigns shares to investors in the same way.</p>
+        <p>A loan originator, such as a leasing or factoring company, has already lent the money. Investors buy shares of its claim, at the outstanding principal plus the interest accrued so far.</p>
         <h2>What you receive</h2>
-        <p>An assignment declaration signed by Garanta with a qualified electronic signature. It names the borrower, the loan agreement, the principal, the interest and your share. The repayments for your share are credited to your Banxum balance.</p>
+        <p>Before you confirm, you accept the investment and assignment terms of the loan. They name the loan, the amount and your share, and they stay in your Documents with your repayment schedule. The repayments for your share are credited to your Banxum balance.</p>
         <h2>How interest is calculated</h2>
         <p>Every day, on the principal still outstanding: principal × rate ÷ 365 for each day, from the day the loan is paid out. It is paid on the dates of your schedule.</p>
         <h2>Who collects</h2>
@@ -299,11 +299,11 @@ export const siteGuides: SiteGuide[] = [
     summary: "From the first reminder to the enforcement of the security: the steps, who takes them and how you are kept informed.",
     body: `<p>Most late payments are a few days late and are paid after a reminder. Some are the start of real difficulties. Here is what happens in each case.</p>
         <h2>Day 1 to 14</h2>
-        <p>The payment is shown as due in your account, with the number of days. Garanta reminds the borrower. Many payments arrive in these days.</p>
+        <p>For two business days the payment is shown as pending; then it is shown as due in your account, with the number of days. Garanta reminds the borrower. Many payments arrive in these days.</p>
         <h2>Day 15 to 59</h2>
         <p>The payment is marked as late in your account, in red, with the number of days. Garanta talks to the company and its owners. Investors are informed of every step on the investment page.</p>
         <h2>From day 60</h2>
-        <p>The loan is in default (calendar days, Swiss time). A loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
+        <p>Banxum can declare the loan in default (calendar days, Swiss time); a loan contract can set other days. Default does not end the contract by itself. The end of the contract and the enforcement of the security (sale of the pledged asset, call of the guarantee) on behalf of all investors are separate steps, each shown with its date.</p>
         <h2>Recovery</h2>
         <p>What is recovered, after real external costs (lawyers, courts, enforcement), is shared in proportion to each share and credited to your Banxum balance. Banxum takes no recovery fee, and the investment page shows the gross amount, the costs and the net. Recovery can take months or years and may not cover the full amount.</p>`
   }

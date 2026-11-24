@@ -76,11 +76,11 @@ test("sign-in: the password, then the SMS code; the browser can be remembered fo
 
   fireEvent.change(await screen.findByPlaceholderText("you@example.com", {}, { timeout: 5000 }), { target: { value: "una@example.com" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong-password-1" } });
-  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   expect(await screen.findByText(/The email address or the password is wrong/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
-  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   expect(await screen.findByText("Enter the 6-digit code we sent by SMS to your phone number ending in 42.")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("SMS code"), { target: { value: "482913" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /Remember this browser for 30 days/ }));

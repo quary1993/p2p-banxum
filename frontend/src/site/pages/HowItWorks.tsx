@@ -1,14 +1,13 @@
 // IP of Webby-Soft SRL.
 /*
- * How it works: from your first transfer to the last repayment (design: pages_more.js
- * howItWorks()), with the marketplace diagram (diagram, diagramWide, diagramTall, icon, arrows,
- * node, legend). The SVG keeps the design's coordinates, icons, colours and texts; the only
- * change is the logo in the disc, which is the white lockup file instead of an inline data URI.
- * The wide diagram shows on desktop and tablet, the tall one on phones (site.css).
+ * The marketplace diagram of the retired How it works page (October design: pages_more.js
+ * diagram, diagramWide, diagramTall, icon, arrows, node, legend), shown in Help under How it works
+ * (Q24), and the redirect of the retired /how-it-works address. The SVG keeps the October
+ * coordinates, icons, colours and texts; the logo in the disc is the white lockup file. The wide
+ * diagram shows on desktop and tablet, the tall one on phones (u33/public-overrides.css).
  */
 import { Fragment, useEffect, type ReactNode } from "react";
 
-import { Eyebrow, RiskLine } from "../components";
 import { useSiteNav } from "../context";
 
 // ---------------------------------------------------------------------------------------------
@@ -327,7 +326,7 @@ function Marker({ id, color }: { id: string; color: string }) {
   );
 }
 
-function MarketplaceDiagram() {
+export function MarketplaceDiagram() {
   return (
     <figure className="site-diagram">
       <svg aria-hidden="true" className="site-diagram-defs" focusable="false">
@@ -339,156 +338,6 @@ function MarketplaceDiagram() {
       <DiagramWide />
       <DiagramTall />
     </figure>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------
-// Page
-
-function Cell({ index, title, children }: { index: string; title: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="site-cell-top">
-        <span>{index}</span>
-      </div>
-      <h3 className="site-h4">{title}</h3>
-      <p className="site-text">{children}</p>
-    </div>
-  );
-}
-
-function MoneyStep({ index, title, children }: { index: string; title: string; children: ReactNode }) {
-  return (
-    <li>
-      <span className="site-numbered-index">{index}</span>
-      <div>
-        <h3 className="site-h4">{title}</h3>
-        <p>{children}</p>
-      </div>
-    </li>
-  );
-}
-
-/**
- * Q24 (2026-11-13): the How it works page is retired; its unique content (the four steps, what you
- * own, the marketplace diagram and the rest) now shows in Help under "How it works", and the home
- * page keeps the short version. /how-it-works leads to that part of Help.
- */
-export function HowItWorksSections() {
-  return (
-    <>
-      <section className="site-section">
-        <div className="site-wrap">
-          <div className="site-section-head is-single">
-            <div>
-              <Eyebrow>Four steps</Eyebrow>
-              <h2 className="site-h2">How you invest</h2>
-            </div>
-          </div>
-          <div className="site-cells is-4">
-            <Cell index="01" title="Open your account">
-              About 2 minutes: your details, a few declarations and an online identity check with your ID and a selfie.
-            </Cell>
-            <Cell index="02" title="Add funds">
-              A bank transfer in CHF or EUR from an account in your name, with your personal reference. It arrives in your
-              own segregated wallet. No Banxum fee; your bank may charge for the transfer.
-            </Cell>
-            <Cell index="03" title="Invest">
-              Choose a project and an amount from your available balance, and confirm with a code and your PIN. The amount
-              is reserved until the loan is funded.
-            </Cell>
-            <Cell index="04" title="Get repaid">
-              Interest counts every day from the pay-out. You receive the assignment declaration and your schedule; each
-              repayment is credited to your balance, to invest again or withdraw.
-            </Cell>
-          </div>
-        </div>
-      </section>
-
-      <section className="site-section">
-        <div className="site-wrap">
-          <div className="site-section-head">
-            <div>
-              <Eyebrow>What you own</Eyebrow>
-              <h2 className="site-h2">A share of a claim, in your name</h2>
-            </div>
-            <p className="site-text mb-0">
-              Investors fund loans through Banxum: new loans granted by Garanta and existing claims from loan originators.
-              You receive a share of the claim against the company, assigned to you with a qualified electronic signature.
-              Garanta collects the repayments and credits them to your balance with interest.
-            </p>
-          </div>
-          <MarketplaceDiagram />
-        </div>
-      </section>
-
-      <section className="site-section">
-        <div className="site-wrap site-split">
-          <div>
-            <Eyebrow>Your money</Eyebrow>
-            <h2 className="site-h2">Where your money is at each step</h2>
-            <p className="site-lead mt-4">
-              Every investor has a segregated wallet with a CHF and a EUR balance. Garanta is not a bank: money waiting in
-              the wallet earns no interest and stays at most until day 56.
-            </p>
-          </div>
-          <ol className="site-numbered">
-            <MoneyStep index="01" title="Available">
-              Your transfer arrives in your wallet, kept apart from Garanta&apos;s own money and recorded in your name, as
-              available balance.
-            </MoneyStep>
-            <MoneyStep index="02" title="Reserved">
-              When you invest, the amount is reserved for that loan. If the loan is not fully funded, it becomes available
-              again.
-            </MoneyStep>
-            <MoneyStep index="03" title="Invested">
-              When the loan is funded, Garanta signs the assignment and pays the loan out. You hold your share of the
-              claim, and interest counts every day from then on.
-            </MoneyStep>
-            <MoneyStep index="04" title="Repaid">
-              Each repayment is credited to your balance when the company pays. You invest it again or withdraw it to your
-              verified bank account.
-            </MoneyStep>
-            <MoneyStep index="05" title="Returned">
-              Money you do not invest by day 56 goes back to your bank account automatically (the return starts on day 57).
-            </MoneyStep>
-          </ol>
-        </div>
-      </section>
-
-      <section className="site-section">
-        <div className="site-wrap">
-          <div className="site-cells is-2">
-            <div>
-              <div className="site-cell-top">
-                <span>01</span>
-              </div>
-              <Eyebrow>Selling early</Eyebrow>
-              <h3 className="site-h3">The secondary market</h3>
-              <p className="site-text">
-                You can offer a share of a loan that is paid on time to other investors, at the principal (par) or at a
-                discount; the buyer also pays the interest accrued since the last payment. Every share is sold whole. A
-                sale is not guaranteed.
-              </p>
-            </div>
-            <div>
-              <div className="site-cell-top">
-                <span>02</span>
-              </div>
-              <Eyebrow>Fees</Eyebrow>
-              <h3 className="site-h3">Fees for investors</h3>
-              <p className="site-text">
-                No Banxum fee for your wallet, for adding or withdrawing money, for investing or on interest and repayments.
-                When you sell on the resale market, you pay 2% of the price, at most 2% of the outstanding principal. If a
-                loan is in recovery, real external costs (lawyer, court, enforcement) can be deducted from what is recovered;
-                Banxum takes no recovery fee. Your bank may charge for transfers.
-              </p>
-            </div>
-          </div>
-          <RiskLine />
-        </div>
-      </section>
-    </>
   );
 }
 

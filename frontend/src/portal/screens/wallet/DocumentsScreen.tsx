@@ -4,7 +4,8 @@
  * investment documents (the investment and resale agreements accepted with the email code + PIN),
  * statements and tax information (generated on request, also under Reports) and platform documents
  * (accepted terms and risk disclosures). Search, type and year filters; "View" opens the PDF in the
- * in-app reader (18.3), "Download" saves it.
+ * in-app reader (18.3), "Download" saves it. Under an agreement: its loan (loan_title), linked to the
+ * investment when the investment exists (holding_id; not for an order whose funding has not closed).
  * U33-DEC-13: an acceptance is not a signature; there are no "Signed by Banxum" (QES) assignment
  * declarations yet (TODO, Phase 17.6).
  */
@@ -14,7 +15,7 @@ import { v1InvestorPortalDocumentsDownloadCreate, type InvestorDocument } from "
 import { useT } from "../../../i18n";
 import { useDocumentsData } from "../../../investorPortal/data";
 import { formatDate } from "../../../investorPortal/format";
-import { ButtonLink, EmptyState, NiIcon, PageHead, PdfReader, Tabs, bytesOfArtifact, type PdfFile } from "../../components";
+import { ButtonLink, EmptyState, NiIcon, PageHead, PdfReader, PortalLink, Tabs, bytesOfArtifact, type PdfFile } from "../../components";
 import { DESIGN_TYPES, documentGroup, documentTab, documentTitle, documentYears, newestFirst, type DocumentTab } from "./documentsModel";
 import { documentDownloadRequest, useDocumentDownload, type OutputFormat } from "./parts/downloads";
 import "./wallet.css";
@@ -61,10 +62,10 @@ function DownloadButtons({
   );
 }
 
-export function DocumentsScreen() {
+export function DocumentsScreen({ initialTab = "investment" }: { initialTab?: DocumentTab }) {
   const t = useT();
   const documentsQuery = useDocumentsData();
-  const [tab, setTab] = useState<DocumentTab>("investment");
+  const [tab, setTab] = useState<DocumentTab>(initialTab);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [year, setYear] = useState(0);
@@ -81,7 +82,7 @@ export function DocumentsScreen() {
     if (type && documentGroup(document) !== type) return false;
     if (year && !documentYears(document).includes(year)) return false;
     if (!query) return true;
-    return [documentTitle(document), document.title, document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
+    return [documentTitle(document), document.title, document.loan_title ?? "", document.template_title ?? "", document.context_label, document.document_type, document.id].join(" ").toLowerCase().includes(query);
   });
   const filtering = Boolean(query || type || year);
   const onDownload = (document: InvestorDocument, format: OutputFormat) => void download(documentDownloadRequest(document, format), `${document.id}:${format}`);
@@ -186,7 +187,12 @@ export function DocumentsScreen() {
                             <button className="rss-document-title" disabled={Boolean(busyKey)} onClick={() => onDownload(document, "pdf")} type="button">{tab === "investment" ? t(documentTitle(document)) : document.title}</button>
                             {tab === "investment" ? (
                               <>
-                                <span className="dp-investment">{document.title}</span>
+                                {document.holding_id ? (
+                                  // Design: the investment under the document title links to its page.
+                                  <PortalLink className="dp-investment" params={{ holdingId: document.holding_id }} to="investment">{document.loan_title || document.title}</PortalLink>
+                                ) : (
+                                  <span className="dp-investment">{document.loan_title || document.title}</span>
+                                )}
                                 {document.context_label ? <small className="dp-reference">{document.context_label}</small> : null}
                               </>
                             ) : (

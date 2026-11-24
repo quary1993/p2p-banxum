@@ -22,6 +22,7 @@ import { Button, Dialog, EmptyState, NiIcon, PageHead, PdfReader, PortalLink } f
 import { MOBILE_SHELL_QUERY, useMediaQuery } from "../../shell/useMediaQuery";
 import { legalDocumentPath } from "./investRules";
 import {
+  frequencyWords,
   borrowerDisclosure,
   borrowerName,
   collateralIcon,
@@ -108,7 +109,8 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
     { id: "financials", label: t("Financials"), short: t("Financials") },
     { id: "security", label: t("Security"), short: t("Security") },
     { id: "terms", label: t("Loan terms"), short: t("Terms") },
-    { id: "checks", label: t("Checks & updates"), short: t("Checks") },
+    // Design cover tab: "06 Review" (the chapter itself is "Checks & updates").
+    { id: "checks", label: t("Checks & updates"), short: t("Review") },
     { id: "documents", label: t("Documents"), short: t("Documents") }
   ];
   const financialYears = loan.financial_years ?? [];
@@ -350,7 +352,7 @@ function CreditFile({ loan, back, initialChapter }: { loan: MarketplaceLoanDetai
               <section className="r100-repayment">
                 <div>
                   <h3>{t("Repayments")}</h3>
-                  <p>{repaymentText(loan.repayment_type) || t("As the loan schedule says")}</p>
+                  <p>{repaymentText(loan.repayment_type, loan.payment_frequency) || t("As the loan schedule says")}</p>
                 </div>
                 {fullLoanSchedule(loan).length > 0 ? (
                   <button aria-haspopup="dialog" className="r100-compact-schedule" onClick={() => setScheduleOpen(true)} type="button">
@@ -416,7 +418,7 @@ function SummaryTerms({ loan }: { loan: MarketplaceLoanDetail }) {
         <span>{usesOriginatorSubscription(loan) ? t("Investor interest rate") : t("Annual interest rate")}</span>
         <strong>{formatRateBps(loanYieldBps(loan))}</strong>
         {/* Design credit file: "Principal and interest monthly". */}
-        {repaymentText(loan.repayment_type) ? <small>{["equal_installments", "amortizing_principal_interest"].includes(loan.repayment_type) ? t("Principal and interest monthly") : repaymentText(loan.repayment_type)}</small> : null}
+        {repaymentText(loan.repayment_type, loan.payment_frequency) ? <small>{["equal_installments", "amortizing_principal_interest"].includes(loan.repayment_type) ? t("Principal and interest {frequency}", { frequency: frequencyWords(loan.payment_frequency).adverb }) : repaymentText(loan.repayment_type, loan.payment_frequency)}</small> : null}
       </div>
       <div>
         <span>{t("Investment term")}</span>

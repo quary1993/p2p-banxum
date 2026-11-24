@@ -1040,13 +1040,31 @@ def _normalize_pre_publication_paid_installments(
     return cleaned
 
 
+def _expected_installment_count(loan: Loan) -> int | None:
+    """18.6 (Q08): the installments of a complete schedule.
+
+    One per payment period of the engine (term / frequency in months), one for a payment at
+    maturity, the imported rows of a custom schedule (None: any number, at least one). A type
+    outside the engine (loans before 18.6) has one installment per month.
+    """
+    kind = interest_engine.REPAYMENT_TYPE_KINDS.get(str(loan.repayment_type))
+    if kind is None:
+        return int(loan.term_months)
+    if kind == interest_engine.KIND_CUSTOM:
+        return None
+    if kind == interest_engine.KIND_FULL_AT_MATURITY:
+        return 1
+    return int(loan.term_months) // interest_engine.frequency_months(str(loan.payment_frequency))
+
+
 def _assert_current_schedule_complete(loan: Loan) -> None:
     installments = list(
         loan.installments.filter(schedule_version=loan.schedule_version).order_by(
             "installment_number"
         )
     )
-    if len(installments) != loan.term_months:
+    expected = _expected_installment_count(loan)
+    if not installments or (expected is not None and len(installments) != expected):
         raise LoanValidationError("Loan repayment schedule is incomplete.")
     principal_sum = sum(installment.principal_minor for installment in installments)
     if principal_sum != loan.principal_minor:

@@ -153,8 +153,7 @@ class PendingWithdrawalSerializer(serializers.Serializer[Any]):
     requested_at = serializers.DateTimeField()
     is_forced = serializers.BooleanField(
         help_text=(
-            "Automatic return of money not invested in time (day 57), not asked by the "
-            "investor."
+            "Automatic return of money not invested in time (day 57), not asked by the investor."
         )
     )
 
@@ -222,6 +221,13 @@ class InvestorDocumentSerializer(serializers.Serializer[Any]):
     context_label = serializers.CharField()
     context_type = serializers.CharField(required=False)
     context_id = serializers.CharField(required=False)
+    holding_id = serializers.CharField(
+        required=False,
+        help_text="The investor's investment (holding) behind an accepted investment agreement.",
+    )
+    loan_title = serializers.CharField(
+        required=False, help_text="The loan of an accepted investment agreement."
+    )
     output_formats = serializers.ListField(child=serializers.CharField())
     generated_on_request = serializers.BooleanField()
     content_hash = serializers.CharField(required=False)
@@ -472,6 +478,11 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     remaining_term_days = serializers.IntegerField(required=False)
     maturity_date = serializers.DateField(required=False)
     repayment_type = serializers.CharField()
+    payment_frequency = serializers.CharField(
+        required=False,
+        default="monthly",
+        help_text="18.6: monthly, quarterly, half_yearly or annual (the loan's PaymentFrequency).",
+    )
     currency = serializers.CharField()
     is_refinancing = serializers.BooleanField()
     original_principal_minor = serializers.IntegerField()
@@ -644,6 +655,8 @@ class TransactionEntrySerializer(ActivityEntrySerializer):
     group = serializers.CharField()
     # The investor's available balance in this currency right after the movement.
     available_after_minor = serializers.IntegerField(allow_null=True)
+    # The borrower of the movement's loan as the investor sees it (design repayment line).
+    borrower_name = serializers.CharField(required=False, allow_blank=True)
 
 
 class TransactionSummarySerializer(serializers.Serializer[Any]):

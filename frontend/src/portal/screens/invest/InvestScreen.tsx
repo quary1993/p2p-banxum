@@ -75,7 +75,7 @@ type Props = {
   initialAmount?: string;
   demoState: DemoAccountState;
   sensitiveAction: SensitiveActionKit;
-  onAddFunds: () => void;
+  onAddFunds: (currency?: string) => void;
 };
 
 export function InvestScreen({ loanId, initialAmount, demoState, sensitiveAction, onAddFunds }: Props) {
@@ -142,7 +142,7 @@ function Unavailable({ loan, title, detail }: { loan: MarketplaceLoanDetail; tit
   );
 }
 
-function ReviewEntry({ loan, initialAmount, sensitiveAction, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; sensitiveAction: SensitiveActionKit; onAddFunds: () => void }) {
+function ReviewEntry({ loan, initialAmount, sensitiveAction, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; sensitiveAction: SensitiveActionKit; onAddFunds: (currency?: string) => void }) {
   const t = useT();
   const [unavailable] = useState(() => {
     if (isReadonlyView()) return { title: t("Read-only view"), detail: t("This is a read-only investor view. You can see the loan, but you cannot invest.") };
@@ -206,7 +206,7 @@ function useReviewAmount(loan: MarketplaceLoanDetail, initialAmount: string | un
   };
 }
 
-function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: () => void }) {
+function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: (currency?: string) => void }) {
   const complianceBlock = useComplianceBlock();
   const t = useT();
   useNumberFormat();
@@ -382,7 +382,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
         summary={
           <>
             <ReviewAmount
-              action={amount.error?.shortfall ? <button className="btn btn-sm btn-outline-light" onClick={onAddFunds} type="button">{t("Add funds")}</button> : null}
+              action={amount.error?.shortfall ? <button className="btn btn-sm btn-outline-light" onClick={() => onAddFunds(loan.currency)} type="button">{t("Add funds")}</button> : null}
               appliedMinor={amount.appliedMinor}
               currency={loan.currency}
               error={amount.error?.message ?? ""}
@@ -461,7 +461,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
                   <NiIcon name="calendar" />
                   <span className="r36-toggle-copy">
                     <strong>{t("Payment schedule")}</strong>
-                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : reviewRepaymentCopy(loan.repayment_type)}</small>
+                    <small>{subscription ? t("Your share of the installments after the funding deadline.") : reviewRepaymentCopy(loan.repayment_type, loan.payment_frequency)}</small>
                   </span>
                   <span className="r36-chevron"><NiIcon name="arrow-up-right" /></span>
                 </button>
@@ -521,7 +521,7 @@ function OrderReview({ loan, initialAmount, kit, onAddFunds }: { loan: Marketpla
   );
 }
 
-function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: () => void }) {
+function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: MarketplaceLoanDetail; initialAmount?: string; kit: SensitiveActionKit; onAddFunds: (currency?: string) => void }) {
   const complianceBlock = useComplianceBlock();
   const t = useT();
   useNumberFormat();
@@ -757,7 +757,7 @@ function ClaimPurchaseReview({ loan, initialAmount, kit, onAddFunds }: { loan: M
         summary={
           <>
             <ReviewAmount
-              action={amount.error?.shortfall ? <button className="btn btn-sm btn-outline-light" onClick={onAddFunds} type="button">{t("Add funds")}</button> : null}
+              action={amount.error?.shortfall ? <button className="btn btn-sm btn-outline-light" onClick={() => onAddFunds(loan.currency)} type="button">{t("Add funds")}</button> : null}
               appliedMinor={amount.appliedMinor}
               currency={loan.currency}
               error={amount.error?.message ?? ""}

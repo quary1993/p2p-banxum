@@ -14711,6 +14711,13 @@ components:
           type: string
         context_id:
           type: string
+        holding_id:
+          type: string
+          description: The investor's investment (holding) behind an accepted investment
+            agreement.
+        loan_title:
+          type: string
+          description: The loan of an accepted investment agreement.
         output_formats:
           type: array
           items:
@@ -18590,6 +18597,11 @@ components:
           type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         collateral_description:
           type: string
         published_at:
@@ -18885,6 +18897,11 @@ components:
           type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         collateral_description:
           type: string
         published_at:
@@ -21744,6 +21761,11 @@ components:
           format: date
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         currency:
           type: string
         is_refinancing:
@@ -23984,6 +24006,11 @@ components:
           type: integer
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         ltv_bps:
           type: integer
           nullable: true
@@ -25272,6 +25299,11 @@ components:
             type: string
         repayment_type:
           type: string
+        payment_frequency:
+          type: string
+          default: monthly
+          description: '18.6: monthly, quarterly, half_yearly or annual (the loan''s
+            PaymentFrequency).'
         interest_rate_bps:
           type: integer
         yield_bps:
@@ -25328,6 +25360,13 @@ components:
           type: string
         borrower_city:
           type: string
+        collateral_description:
+          type: string
+          default: ''
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
         skin_in_the_game_bps:
           type: integer
           default: 0
@@ -25876,6 +25915,8 @@ components:
         available_after_minor:
           type: integer
           nullable: true
+        borrower_name:
+          type: string
       required:
       - activity_type
       - amount_minor

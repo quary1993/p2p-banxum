@@ -1,9 +1,10 @@
 // IP of Webby-Soft SRL.
-// Public site: Projects (filters, list, calculator; October page), the U33 project page and
-// Statistics (October page), with the preview fixtures (the design's sample data, TODAY 2026-09-23).
+// Public site: All projects (filters, list, calculator), the project page and Statistics, all in
+// the U33 public design (Q24, D-10), with the preview fixtures (the design's sample data, TODAY
+// 2026-09-23).
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { App } from "../../App";
 import { siteQueryKeys, type PublicProject } from "../data";
@@ -11,15 +12,13 @@ import { siteDesignProjectIds, siteProjectsFixture } from "../siteFixtures";
 import { projectView, statusOf, timeText } from "../projects";
 import { plan, round2 } from "../format";
 import {
-  calcAmount,
   expectedInterest,
   filterProjects,
   filtersFromQuery,
   ltvText,
   planRepaymentOf,
   purposeItems,
-  securityText,
-  simulate
+  securityText
 } from "./projectHelpers";
 
 const ID = (designId: string) => siteDesignProjectIds[designId];
@@ -36,20 +35,23 @@ function renderSite(path: string, seed?: (client: QueryClient) => void) {
   );
 }
 
-const projectList = () => document.getElementById("site-project-list") as HTMLElement;
-const cardTitles = () => Array.from(projectList().querySelectorAll(".site-project-title")).map((el) => el.textContent);
+const projectList = () => document.getElementById("projects") as HTMLElement;
+const cards = () => Array.from(projectList().querySelectorAll(".bxp-projects-grid .public-loan")) as HTMLElement[];
+const cardTitles = () => cards().map((el) => el.querySelector("h3")?.textContent);
+const card = (title: string) => cards().find((el) => el.querySelector("h3")?.textContent === title) as HTMLElement;
 const chip = (name: RegExp) => within(screen.getByRole("group", { name: "Status" })).getByRole("button", { name });
 
-describe("Projects page", () => {
-  test("filters by status and currency, with the design's counts and order", () => {
+describe("All projects page (U33)", () => {
+  test("filters by status and currency, with the counts and order", () => {
     renderSite("/projects");
-    expect(screen.getByRole("heading", { level: 1, name: "Companies looking for a loan" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+    expect(document.title).toBe("All projects · Banxum");
     expect(chip(/^Open/)).toHaveTextContent("Open7");
     expect(chip(/^Open/)).toHaveAttribute("aria-pressed", "true");
     expect(chip(/^Coming soon/)).toHaveTextContent("Coming soon2");
     expect(chip(/^Funded/)).toHaveTextContent("Funded7");
     expect(chip(/^All/)).toHaveTextContent("All16");
-    // Open projects, newest published first.
+    // Open projects, newest published first, on the design's loan cards.
     expect(cardTitles()).toEqual([
       "Residential building completion",
       "Invoice financing, automotive supplier",
@@ -59,14 +61,16 @@ describe("Projects page", () => {
       "Packaging factory extension",
       "Wine cellar expansion"
     ]);
+    expect(card("Residential building completion")).toHaveTextContent("From CHF 32,308");
 
     // No risk rating on the public site (U33-DEC-16).
     expect(projectList()).not.toHaveTextContent(/Risk [A-D]/);
 
     fireEvent.click(chip(/^Coming soon/));
-    expect(chip(/^Coming soon/)).toHaveClass("active");
-    expect(chip(/^Open/)).not.toHaveClass("active");
+    expect(chip(/^Coming soon/)).toHaveClass("is-active");
+    expect(chip(/^Open/)).not.toHaveClass("is-active");
     expect(cardTitles()).toEqual(["Co-working space fit-out", "Truck fleet renewal"]);
+    expect(card("Truck fleet renewal")).toHaveTextContent("Coming soon");
 
     fireEvent.click(chip(/^All/));
     fireEvent.change(screen.getByRole("combobox", { name: "Currency" }), { target: { value: "EUR" } });
@@ -82,10 +86,16 @@ describe("Projects page", () => {
       "Agricultural machinery",
       "Trade receivables financing"
     ]);
-    expect(within(projectList()).getByText("Truck fleet renewal").closest("a")).toHaveAttribute(
+    expect(within(card("Truck fleet renewal")).getByRole("link", { name: "View details: Truck fleet renewal" })).toHaveAttribute(
       "href",
       `/projects/${ID("bx-1052")}`
     );
+    // Funded loans: the project page's status badge in place of the minimum (Q23).
+    expect(card("Hotel renovation Brașov").querySelector(".bxp-loan-status")).toHaveTextContent("Late 12 days");
+    expect(card("Hotel renovation Brașov").querySelector(".bxp-loan-status")).toHaveClass("is-late");
+    expect(card("Furniture production line").querySelector(".bxp-loan-status")).toHaveTextContent("Default");
+    expect(card("Trade receivables financing").querySelector(".bxp-loan-status")).toHaveTextContent("Repaid");
+    expect(card("Agricultural machinery")).not.toHaveTextContent(/From EUR/);
   });
 
   test("the address query sets the filters once and leaves the address; the choice is kept", () => {
@@ -97,7 +107,7 @@ describe("Projects page", () => {
     expect(cardTitles()).toEqual(["Bakery chain working capital", "Cold storage warehouse"]);
 
     // Back from a project page: the same list.
-    fireEvent.click(within(projectList()).getByText("Bakery chain working capital"));
+    fireEvent.click(screen.getByRole("link", { name: "View details: Bakery chain working capital" }));
     expect(window.location.pathname).toBe(`/projects/${ID("bx-1027")}`);
     first.unmount();
     const second = renderSite("/projects");
@@ -113,83 +123,31 @@ describe("Projects page", () => {
     expect(screen.getByRole("combobox", { name: "Currency" })).toHaveValue("CHF");
   });
 
-  test("no match shows the design's empty box, and 'Show all projects' resets the filters", () => {
+  test("no match shows the empty box, and 'Show all projects' resets the filters", () => {
     const funded = siteProjectsFixture.filter((p) => p.public_status !== "open");
     renderSite("/projects", (client) => client.setQueryData(siteQueryKeys.projects(250), funded));
     expect(chip(/^Open/)).toHaveTextContent("Open0");
     expect(chip(/^Coming soon/)).toHaveTextContent("Coming soon0");
-    expect(within(projectList()).getByText(/No projects match\./)).toBeInTheDocument();
-    fireEvent.click(within(projectList()).getByRole("link", { name: "Show all projects" }));
+    expect(within(projectList()).getByText(/No project matches these filters\./)).toBeInTheDocument();
+    // Nothing open: no calculator.
+    expect(screen.queryByRole("heading", { name: "What could your capital earn?" })).not.toBeInTheDocument();
+    fireEvent.click(within(projectList()).getByRole("button", { name: "Show all projects" }));
     expect(chip(/^All/)).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("combobox", { name: "Currency" })).toHaveValue("all");
     expect(cardTitles()).toHaveLength(7);
   });
 
-  test("the locked block, the newsletter and the risk line", () => {
+  test("the sign-in invitation, the newsletter and the design's calculator", () => {
     renderSite("/projects");
-    expect(screen.getByRole("heading", { name: "See the full project pages" })).toBeInTheDocument();
     const locked = screen.getByRole("heading", { name: "See the full project pages" }).parentElement as HTMLElement;
     expect(within(locked).getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/register");
     expect(within(locked).getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("heading", { name: "Get new projects by email" })).toBeInTheDocument();
-    expect(document.getElementById("site-sub-projects")).toBeInTheDocument();
-    expect(screen.getAllByText(/Lending to companies puts your capital at risk\. Read the/).length).toBeGreaterThan(0);
-  });
-
-  test("the calculator follows the amount, currency, rate, term and repayment", () => {
-    renderSite("/projects");
-    const calc = document.getElementById("site-calc") as HTMLElement;
-    const figure = (label: string) => within(calc).getByText(label).nextElementSibling;
-    expect(within(calc).getByLabelText("Amount")).toHaveValue("5,000.00");
-    expect(figure("Interest before tax")).toHaveTextContent("EUR 399.76");
-    // 18.6 engine (equal total installments, Act/365): the same figures as interest_engine.py.
-    expect(figure("First month")).toHaveTextContent("EUR 224.99");
-    expect(figure("Total repaid")).toHaveTextContent("EUR 5,399.76");
-    expect(within(calc).getByText("7.5%")).toBeInTheDocument();
-    expect(within(calc).getByText("24 months")).toBeInTheDocument();
-    expect(within(calc).getByText("Month 1 to 24")).toBeInTheDocument();
-    expect(calc.querySelectorAll(".site-calc-bars > span")).toHaveLength(24);
-
-    fireEvent.click(within(calc).getByRole("radio", { name: /CHF$/ }));
-    fireEvent.click(within(calc).getByRole("radio", { name: "At the end" }));
-    fireEvent.change(within(calc).getByLabelText("Term"), { target: { value: "6" } });
-    fireEvent.change(within(calc).getByLabelText("Interest rate a year"), { target: { value: "10.2" } });
-    expect(within(calc).getByText("10.2%")).toBeInTheDocument();
-    expect(within(calc).getByText("6 months")).toBeInTheDocument();
-    // Paid at the end: one bar per month, the last one carries everything.
-    expect(calc.querySelectorAll(".site-calc-bars > span")).toHaveLength(6);
-    const sim = simulate(5000, 10.2, 6, "bullet");
-    expect(figure("Paid at the end")).toHaveTextContent(`CHF ${sim.total.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
-
-    fireEvent.change(within(calc).getByLabelText("Amount"), { target: { value: "100" } });
-    expect(within(calc).getByText("The minimum is CHF 1,000.00.")).toBeInTheDocument();
-    fireEvent.change(within(calc).getByLabelText("Amount"), { target: { value: "12x000" } });
-    expect(within(calc).getByLabelText("Amount")).toHaveValue("12000");
-    fireEvent.blur(within(calc).getByLabelText("Amount"));
-    expect(within(calc).getByLabelText("Amount")).toHaveValue("12,000.00");
-    fireEvent.change(within(calc).getByLabelText("Amount"), { target: { value: "" } });
-    expect(within(calc).getByText("Enter an amount.")).toBeInTheDocument();
-  });
-
-  test("'See open projects in <currency>' sets the filters and scrolls to them", () => {
-    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
-    renderSite("/projects");
-    fireEvent.click(chip(/^Funded/));
-    const calc = document.getElementById("site-calc") as HTMLElement;
-    fireEvent.click(within(calc).getByRole("radio", { name: /CHF$/ }));
-    const link = within(calc).getByRole("link", { name: "See open projects in CHF" });
-    fireEvent.click(link);
-    expect(chip(/^Open/)).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("combobox", { name: "Currency" })).toHaveValue("CHF");
-    expect(cardTitles()).toEqual([
-      "Residential building completion",
-      "Solar roof for a logistics centre",
-      "Dental practice equipment",
-      "Packaging factory extension"
-    ]);
-    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(window.location.pathname).toBe("/projects");
-    scroll.mockRestore();
+    expect(document.getElementById("bxp-subscribe-projects")).toBeInTheDocument();
+    expect(screen.getByText("Projections are before tax and assume repayment as agreed.")).toBeInTheDocument();
+    // The home page's calculator on the open projects (closing soonest first, three at most).
+    expect(screen.getByRole("heading", { name: "What could your capital earn?" })).toBeInTheDocument();
+    expect(within(screen.getByRole("radiogroup", { name: "Choose an opportunity" })).getAllByRole("radio")).toHaveLength(3);
   });
 });
 
@@ -306,14 +264,14 @@ describe("Statistics page", () => {
     renderSite("/statistics");
     expect(screen.getByRole("heading", { level: 1, name: "Every loan, including the ones that went wrong" })).toBeInTheDocument();
     expect(screen.queryByText(/This prototype shows its sample data/)).not.toBeInTheDocument();
-    const figures = document.querySelector(".site-figures") as HTMLElement;
+    const figures = document.querySelector(".bxp-figures") as HTMLElement;
     expect(figures).toHaveTextContent("7loans funded1repaid in full1with a late payment now1in default");
 
     const amounts = screen.getByRole("heading", { name: "Amounts" }).closest("section") as HTMLElement;
     const rows = within(amounts).getAllByRole("row");
     expect(rows[1]).toHaveTextContent("CHF2300,000.0032,470.098,382.45267,529.910.00");
     expect(rows[2]).toHaveTextContent("EUR5735,000.00170,572.4423,118.19416,761.03147,666.53");
-    expect(within(rows[2]).getByText("147,666.53")).toHaveClass("bxm-signal-text");
+    expect(within(rows[2]).getByText("147,666.53")).toHaveClass("is-default");
     expect(amounts).toHaveTextContent("Average interest rate, weighted by amount: 8.1%.");
 
     const record = screen.getByRole("heading", { name: "All funded loans" }).closest("section") as HTMLElement;
@@ -324,6 +282,8 @@ describe("Statistics page", () => {
     expect(record).not.toHaveTextContent(/risk [A-D]/i);
     expect(loanRows[2]).toHaveTextContent("Late 12 days");
     expect(loanRows[6]).toHaveTextContent("Trade receivables financing");
+    // Late from day 15; Default is declared from day 60 (18.6), not automatic.
+    expect(screen.getByRole("heading", { name: "How we count" }).parentElement).toHaveTextContent("From day 60 Banxum can declare the loan in default");
     fireEvent.click(within(loanRows[4]).getByRole("link", { name: "Furniture production line" }));
     expect(window.location.pathname).toBe(`/projects/${ID("bx-1024")}`);
   });
@@ -341,9 +301,6 @@ describe("project page helpers", () => {
     expect(purposeItems({ purpose_description: "", purpose: "capex" })).toEqual(["Capex / business expansion"]);
     expect(ltvText(6250)).toBe("62.5%");
     expect(ltvText(null)).toBe("Not applicable");
-    expect(calcAmount("1'234.5")).toBe(1234.5);
-    expect(calcAmount("-")).toBe(0);
-    expect(calcAmount("99999999")).toBe(10000000);
   });
 
   test("filters and the expected interest", () => {

@@ -17,14 +17,15 @@ import type {
 import { useT } from "../../../i18n";
 import { frozenActionReason, useFrozenAccount } from "../../../investorPortal/accountState";
 import { usePortfolioData, useSecondaryActivityData, useSecondaryListingsData } from "../../../investorPortal/data";
-import { formatDate, formatRateBps, useNumberFormat } from "../../../investorPortal/format";
+import { formatDate, useNumberFormat } from "../../../investorPortal/format";
 import { Button, ButtonLink, CurrencySwitch, EmptyState, NiIcon, PageHead, StatusTag, Tabs } from "../../components";
+import { CountryFlag } from "../../components/CountryFlag";
 import { ResaleOfferView } from "./ResaleOfferView";
 import { CancelListingDialog, SellInvestmentDialog } from "./SellInvestmentDialog";
 import { isReadonlyView } from "./parts/errors";
 import { sortedCurrencies } from "./parts/investmentModel";
 import { countryName } from "../invest/loanFacts";
-import { monthsText, priceAdjustmentText, securityLabel, tileIcon } from "./parts/labels";
+import { monthsText, priceAdjustmentText, projectedReturnText, securityLabel, tileIcon } from "./parts/labels";
 import { useMoneyText } from "./parts/money";
 import { ResaleHelpDialog } from "./parts/ResaleHelpDialog";
 import { usePreviewVariant, useQueryParams } from "./parts/urlState";
@@ -205,6 +206,7 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
                       <strong>{listing.loan_title}</strong>
                     </a>
                     <small className="r67-country">
+                      {listing.borrower_country ? <CountryFlag className="r67-flag" code={listing.borrower_country} /> : null}
                       <span>{[listing.borrower_name, countryName(listing.borrower_country)].filter(Boolean).join(" · ")}</span>
                     </small>
                     <span className="r67-security">
@@ -220,10 +222,10 @@ function OffersTable({ rows, onOffer, t }: { rows: SecondaryMarketBuyerListing[]
                 <strong className="rs-total">{money(listing.currency, listing.buyer_total_cost_minor)}</strong>
                 <small className={`r31m-price-adjustment${listing.discount_premium_bps < 0 ? " is-discount" : ""}`}>{priceAdjustmentText(listing.discount_premium_bps)}</small>
               </td>
-              <td data-mobile-label={t("Projected annual return")}><span className="rs-return">{listing.projected_yield_bps === null ? "—" : formatRateBps(listing.projected_yield_bps)}</span></td>
+              <td data-mobile-label={t("Projected annual return")}><span className="rs-return">{listing.projected_yield_bps === null ? "—" : projectedReturnText(listing.projected_yield_bps)}</span></td>
               <td data-mobile-label={t("Remaining term")}>
                 <span className="rs-time">{monthsText(listing.remaining_term_months)}</span>
-                {listing.maturity_date ? <small className="rs-maturity">{t("Until {date}", { date: formatDate(listing.maturity_date) })}</small> : null}
+                {listing.maturity_date ? <small className="rs-maturity">{t("Ends {date}", { date: formatDate(listing.maturity_date) })}</small> : null}
               </td>
               <td data-mobile-label={t("Offer")}>
                 <button className="btn btn-sm btn-primary r67-view" onClick={() => onOffer(listing.id)} type="button">

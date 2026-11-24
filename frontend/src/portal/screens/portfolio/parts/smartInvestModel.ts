@@ -45,7 +45,8 @@ export type SmartPreferences = {
 /** Every repayment option: ticking all of them is the same as no preference. */
 export const REPAYMENT_OPTIONS = Object.values(SmartInvestRepaymentEnum) as string[];
 const INTEREST_ONLY_TYPES = new Set(["bullet_periodic_interest", "interest_only_then_bullet"]);
-const PRINCIPAL_AND_INTEREST_TYPES = new Set(["equal_installments", "amortizing_principal_interest", "interest_only_then_amortizing"]);
+const PRINCIPAL_AND_INTEREST_TYPES = new Set(["equal_installments", "amortizing_principal_interest", "interest_only_then_amortizing", "custom_schedule"]);
+const AT_MATURITY_TYPES = new Set(["full_at_maturity", "bullet", "bullet_at_maturity"]);
 
 /** The Repayments group of an opportunity, as the backend (smart_invest opportunity_repayment_option). */
 export function repaymentOption(opportunity: { term_months: number; repayment_type?: string }) {
@@ -53,7 +54,7 @@ export function repaymentOption(opportunity: { term_months: number; repayment_ty
   const type = opportunity.repayment_type ?? "";
   if (INTEREST_ONLY_TYPES.has(type)) return SmartInvestRepaymentEnum.interest_only as string;
   if (PRINCIPAL_AND_INTEREST_TYPES.has(type)) return SmartInvestRepaymentEnum.principal_and_interest as string;
-  if (type === "bullet" || type === "bullet_at_maturity") return SmartInvestRepaymentEnum.at_maturity as string;
+  if (AT_MATURITY_TYPES.has(type)) return SmartInvestRepaymentEnum.at_maturity as string;
   return null;
 }
 
