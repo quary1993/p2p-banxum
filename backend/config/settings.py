@@ -85,6 +85,7 @@ MIDDLEWARE = [
     "backend.apps.platform_core.middleware.SoftwareIpNoticeMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "backend.apps.platform_core.middleware.QaEnvironmentGuardMiddleware",
+    "backend.apps.platform_core.middleware.requested_email_middleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

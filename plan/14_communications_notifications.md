@@ -178,6 +178,8 @@ Owner: Garanta operations / technology / security.
 Decision:
 Failed emails should retry automatically a few times. If delivery still fails after retry attempts, the platform creates an admin notification/task or visible admin portal notice.
 
+Requested email should not wait for the five-minute send job. After the database commits, BANXUM starts delivery of password reset links, security notices, newsletter confirmations, support receipts and transaction confirmations. The web request does not wait for the email provider. If the sender is busy or the provider fails, the email stays in the outbox for retry. An expired, used or replaced reset link is not sent. The 24-hour assisted-recovery wait and the schedules for reminders and newsletter digests do not change. Provider acceptance does not confirm inbox delivery.
+
 Admin does not need a manual resend function at launch.
 
 The platform stores full email content for sent emails, not only metadata/template version/data snapshot. Delivery metadata, provider message id, template version, dynamic data snapshot, recipient, timestamps, and delivery/failure status should also be stored where available.

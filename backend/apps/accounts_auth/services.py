@@ -2117,7 +2117,16 @@ SECURITY_LINK_SECRET_TYPES = frozenset(
 def delivery_secret_for_security_link(secret_type: str, ref: str) -> str:
     """18.5: the single-use token of a security email link, for the email provider only."""
     if secret_type in {"password_reset_link", "assisted_recovery_link"}:
-        token = PasswordResetToken.objects.get(id=ref)
+        purpose = "password_reset" if secret_type == "password_reset_link" else "assisted_recovery"
+        token = PasswordResetToken.objects.filter(
+            id=ref,
+            purpose=purpose,
+            used_at__isnull=True,
+            superseded_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).first()
+        if token is None:
+            return ""
         return decrypt_delivery_secret(token.encrypted_token)
     if secret_type == "assisted_recovery_dispute_link":
         case = AssistedRecoveryCase.objects.get(id=ref)

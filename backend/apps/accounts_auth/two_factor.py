@@ -1153,10 +1153,11 @@ def change_password(
     )
 
 
+@transaction.atomic
 def request_password_reset(*, email: str, ip_address: str | None = None) -> str:
     """Send the reset link when the account exists and can sign in. Returns the raw token for
     tests (the API never returns it)."""
-    user = User.objects.filter(email=str(email or "").strip().lower()).first()
+    user = User.objects.select_for_update().filter(email=str(email or "").strip().lower()).first()
     if user is None or not user.can_login or user.account_type not in INVESTOR_ACCOUNT_TYPES:
         return ""
     now = _now()

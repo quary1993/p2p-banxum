@@ -433,6 +433,42 @@ test("A-37: a legacy claim purchase after Reprice uses a new acceptance and key 
   expect(calls.purchases[1].idempotency_key).not.toBe(calls.purchases[0].idempotency_key);
 }, 30_000);
 
+test("Review & sign opens missing declarations and enables confirmation after an unblocked submission", async () => {
+  let declaration: Record<string, unknown> | null = null;
+  const status = () => ({
+    declaration, declaration_subject: "person", review_open: false, review_status: null, review_message: "",
+    reverification_due_date: null, investment_block: declaration ? null : "declaration_missing",
+    investment_block_message: declaration ? "" : "Complete your declarations (Settings > Declarations) before your next investment."
+  });
+  server.use(
+    http.get("*/api/v1/kyc/declarations/", () => HttpResponse.json(status())),
+    http.post("*/api/v1/kyc/declarations/", async ({ request }) => {
+      declaration = { ...(await request.json() as Record<string, unknown>), version: 1, submitted_at: "2026-11-25T08:00:00Z" };
+      return HttpResponse.json(status(), { status: 201 });
+    }),
+    ...investorShellHandlers(calls),
+    ...primaryOrderHandlers(directLoan({ sandbox_notice: null }), () => ({}))
+  );
+  renderLiveApp(App, `/marketplace/${LOAN_ID}/invest`);
+  await applyAmount("1500");
+  acceptBoth();
+  const link = await screen.findByRole("link", { name: "Complete your declarations" }, SERVER_WAIT);
+  expect(screen.getByRole("button", { name: "Confirm investment" })).toBeDisabled();
+  fireEvent.click(link);
+  const form = await screen.findByRole("form", { name: "Declarations" }, SERVER_WAIT);
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Salary" }));
+  const pep = within(form).getByRole("group", { name: /politically exposed person/ });
+  fireEvent.click(within(pep).getByRole("radio", { name: "No" }));
+  fireEvent.change(within(form).getByRole("combobox", { name: "Expected yearly investment volume" }), { target: { value: "10k_50k" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Save declarations" }));
+  expect(await screen.findByText("Your declarations are saved.", {}, SERVER_WAIT)).toBeInTheDocument();
+  window.history.back();
+  await applyAmount("1500");
+  acceptBoth();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm investment" })).toBeEnabled(), SERVER_WAIT);
+  expect(calls.orders).toHaveLength(0);
+}, 30_000);
+
 test("audit S7-7: the confirmation stays off when the compliance status cannot be loaded", async () => {
   server.use(
     http.get("*/api/v1/kyc/declarations/", () => HttpResponse.json({ detail: "down" }, { status: 503 })),

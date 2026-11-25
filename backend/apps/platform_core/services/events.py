@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from backend.apps.platform_core.models import DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
+from backend.apps.platform_core.services.prompt_email import schedule_prompt_email
 
 RETRY_DELAYS = (
     timedelta(minutes=1),
@@ -66,10 +67,17 @@ def record_domain_event(command: DomainEventCommand) -> DomainEvent:
 
 @transaction.atomic
 def enqueue_outbox_message(command: OutboxCommand) -> OutboxMessage:
-    message, _created = OutboxMessage.objects.get_or_create(
+    message, created = OutboxMessage.objects.get_or_create(
         idempotency_key=command.idempotency_key,
         defaults={"topic": command.topic, "payload": command.payload},
     )
+    if created:
+        schedule_prompt_email(
+            message.pk,
+            command.idempotency_key,
+            command.topic,
+            template_key=command.payload.get("template_key"),
+        )
     return message
 
 
