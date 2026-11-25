@@ -203,7 +203,15 @@ export function requestErrorText(error: unknown) {
   return "Request failed. Retry once the connection is restored.";
 }
 
-/** The password rules per field: the message for "Password" and the one for "Repeat password". */
+/** Leave link and factor errors on the form, not on the new password field. */
+export function serverNewPasswordProblem(error: unknown): string | undefined {
+  if (!(error instanceof ApiClientError) || !error.payload || typeof error.payload !== "object") return;
+  const { code, detail, new_password } = error.payload as Record<string, unknown>;
+  if (Array.isArray(new_password)) return new_password.filter((value) => typeof value === "string").join(" ") || undefined;
+  const policyCodes = ["password_too_short", "password_too_long", "password_is_email", "password_common", "password_breached", "password_unchanged"];
+  if (typeof detail === "string" && typeof code === "string" && policyCodes.includes(code)) return detail;
+}
+
 export function passwordFieldProblems(password: string, repeat: string, email = ""): { password?: string; repeat?: string } {
   const found: { password?: string; repeat?: string } = {};
   const problem = passwordProblem(password, null, email);

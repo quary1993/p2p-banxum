@@ -20,7 +20,7 @@ import { takeSecurityLinkToken } from "../../../../magicLinkToken";
 import { usePortalNav } from "../../../components";
 import { supportMailto } from "../accountLinks";
 import { AuthCard, AuthLayout, CaCodeField, CaError, CaIcon } from "./AuthLayout";
-import { passwordFieldProblems, registerFlowStorageKey, requestErrorText, resumedRegisterStateForUser, writeStoredObject } from "./authState";
+import { passwordFieldProblems, registerFlowStorageKey, requestErrorText, resumedRegisterStateForUser, serverNewPasswordProblem, writeStoredObject } from "./authState";
 import { AuthPasswordField } from "./secondFactor";
 
 type PasswordErrors = { password?: string; repeat?: string };
@@ -112,7 +112,6 @@ export function ResetPasswordScreen() {
     const problems = passwordFieldProblems(password, repeat);
     setPasswordErrors(problems);
     if (problems.password || problems.repeat) {
-      setError(passwordSummary(problems, t));
       focusPasswordField(problems);
       return;
     }
@@ -135,8 +134,14 @@ export function ResetPasswordScreen() {
     })
       .then(() => setDone(true))
       .catch((failure: unknown) => {
-        setCode("");
-        setError(requestErrorText(failure));
+        const problem = serverNewPasswordProblem(failure);
+        if (problem) {
+          setPasswordErrors({ password: problem });
+          focusPasswordField({ password: problem });
+        } else {
+          setCode("");
+          setError(requestErrorText(failure));
+        }
       })
       .finally(() => setBusy(false));
   };
@@ -182,7 +187,7 @@ export function ResetPasswordScreen() {
             )
           ) : null}
           <NewPasswordFields errors={passwordErrors} onPassword={(value) => { setPassword(value); setPasswordErrors((current) => ({ ...current, password: undefined })); }} onRepeat={(value) => { setRepeat(value); setPasswordErrors((current) => ({ ...current, repeat: undefined })); }} password={password} repeat={repeat} />
-          <CaError>{error || null}</CaError>
+          <CaError>{error || passwordSummary(passwordErrors, t) || null}</CaError>
           <button className="ca-primary" disabled={busy} type="submit">
             {busy ? t("Saving...") : t("Save new password")}
             <CaIcon name="right" />
@@ -233,7 +238,6 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
     const problems = passwordFieldProblems(password, repeat);
     setPasswordErrors(problems);
     if (problems.password || problems.repeat) {
-      setError(passwordSummary(problems, t));
       focusPasswordField(problems);
       return;
     }
@@ -255,7 +259,13 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
         // The investor portal asks for the new second factor before anything else.
         nav.go("dashboard");
       })
-      .catch((failure: unknown) => setError(requestErrorText(failure)))
+      .catch((failure: unknown) => {
+        const problem = serverNewPasswordProblem(failure);
+        if (problem) {
+          setPasswordErrors({ password: problem });
+          focusPasswordField({ password: problem });
+        } else setError(requestErrorText(failure));
+      })
       .finally(() => setBusy(false));
   };
 
@@ -275,7 +285,7 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
       <AuthCard intro={t("Choose a new password. Then you set up your new second factor.")} title={t("Finish the recovery of your account")}>
         <form data-testid="account-recovery-form" noValidate onSubmit={submit}>
           <NewPasswordFields errors={passwordErrors} onPassword={(value) => { setPassword(value); setPasswordErrors((current) => ({ ...current, password: undefined })); }} onRepeat={(value) => { setRepeat(value); setPasswordErrors((current) => ({ ...current, repeat: undefined })); }} password={password} repeat={repeat} />
-          <CaError>{error || null}</CaError>
+          <CaError>{error || passwordSummary(passwordErrors, t) || null}</CaError>
           <button className="ca-primary" disabled={busy} type="submit">
             {busy ? t("Saving...") : t("Continue")}
             <CaIcon name="right" />

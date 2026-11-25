@@ -105,6 +105,9 @@ test("the forgotten-password link asks for the second factor and a new password,
     }),
     http.post("*/api/v1/auth/password/reset/complete/", async ({ request }) => {
       calls.resetCompletes.push((await request.json()) as Record<string, unknown>);
+      if (calls.resetCompletes.length === 1) {
+        return HttpResponse.json({ code: "password_breached", detail: "Choose a different password." }, { status: 400 });
+      }
       return HttpResponse.json({ status: "password_reset" });
     })
   );
@@ -121,11 +124,18 @@ test("the forgotten-password link asks for the second factor and a new password,
   expect(screen.getByText("Use at least 12 characters.")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("New password"), { target: { value: PASSWORD } });
   fireEvent.change(screen.getByLabelText("Repeat password"), { target: { value: PASSWORD } });
+  expect(screen.queryByText(/Use at least 12 characters\./)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save new password" }));
+  await waitFor(() => expect(screen.getByLabelText("New password")).toHaveAccessibleDescription(/Choose a different password/));
+  const replacement = PASSWORD + "-replacement";
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: replacement } });
+  fireEvent.change(screen.getByLabelText("Repeat password"), { target: { value: replacement } });
   fireEvent.click(screen.getByRole("button", { name: "Save new password" }));
 
   expect(await screen.findByRole("heading", { name: "Password changed" })).toBeInTheDocument();
   expect(calls.resetCompletes).toEqual([
-    { token: "reset-token-123", new_password: PASSWORD, challenge_id: "22222222-2222-4222-8222-222222222222", code: "135790" }
+    { token: "reset-token-123", new_password: PASSWORD, challenge_id: "22222222-2222-4222-8222-222222222222", code: "135790" },
+    { token: "reset-token-123", new_password: replacement, challenge_id: "22222222-2222-4222-8222-222222222222", code: "135790" }
   ]);
 }, 30_000);
 

@@ -10,6 +10,7 @@ provider. It prints no secret: no token, no link and no email body. It changes n
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.apps import apps
@@ -22,16 +23,21 @@ from backend.apps.platform_core.services.scheduled_jobs import EMAIL_OUTBOX_DISP
 
 # The investor sign-in reset (accounts_auth.two_factor.request_password_reset) sends only to these.
 INVESTOR_ACCOUNT_TYPES = {"natural_person_lender", "legal_entity_lender_representative"}
-BLOCKED_STATUSES = {"restricted", "locked", "closed"}
 
 
 def _when(value: Any) -> str:
     return value.isoformat(timespec="seconds") if value else "-"
 
 
-def _short(text: str, limit: int = 200) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+def _safe_error(value: str) -> str:
+    # Exceptions can contain provider responses, addresses and reset URLs.
+    if re.fullmatch(
+        r"(?:SendGrid|Twilio Email) (?:returned HTTP [1-5][0-9]{2}|provider is not configured"
+        r"|request failed|returned an invalid response|response did not include an operation id)\.",
+        value,
+    ):
+        return value
+    return "Details withheld."
 
 
 class Command(BaseCommand):
@@ -40,6 +46,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser) -> None:  # type: ignore[no-untyped-def]
         parser.add_argument("--email", required=True)
         parser.add_argument("--limit", type=int, default=10)
+        parser.add_argument("--reset-only", action="store_true", help="Show only password resets.")
 
     def handle(self, *args, **options) -> None:  # type: ignore[no-untyped-def]
         email = str(options["email"]).strip().lower()
@@ -47,8 +54,8 @@ class Command(BaseCommand):
         write = self.stdout.write
 
         write(f"Email provider: {settings.COMMUNICATIONS_EMAIL_PROVIDER}")
-        if str(settings.COMMUNICATIONS_EMAIL_PROVIDER) == "mock":
-            write("  The mock provider sends nothing outside the platform.")
+        if str(settings.COMMUNICATIONS_EMAIL_PROVIDER) in {"mock", "local"}:
+            write("  This provider sends nothing outside the platform.")
 
         user_model = apps.get_model("accounts_auth", "User")
         user = user_model.objects.filter(email=email).first()
@@ -64,7 +71,7 @@ class Command(BaseCommand):
             account = user
             account_type = str(account.account_type)
             status = str(account.status)
-            can_sign_in = bool(account.is_active) and status not in BLOCKED_STATUSES
+            can_sign_in = account.can_login
             write(f"  Type: {account_type}; status: {status}; active: {account.is_active}")
             if account_type not in INVESTOR_ACCOUNT_TYPES:
                 write(
@@ -78,7 +85,10 @@ class Command(BaseCommand):
             else:
                 write("  Password reset: can be sent.")
             token_model = apps.get_model("accounts_auth", "PasswordResetToken")
-            tokens = token_model.objects.filter(user=account).order_by("-created_at")[:limit]
+            tokens = token_model.objects.filter(user=account)
+            if options["reset_only"]:
+                tokens = tokens.filter(purpose="password_reset")
+            tokens = tokens.order_by("-created_at", "-pk")[:limit]
             write("")
             write("Reset requests (newest first)")
             if not tokens:
@@ -94,9 +104,10 @@ class Command(BaseCommand):
         match = Q(payload__email=email)
         if user is not None:
             match |= Q(payload__user_id=str(user.pk))
-        messages = outbox_model.objects.filter(match, topic__startswith="email.").order_by(
-            "-created_at"
-        )[:limit]
+        messages = outbox_model.objects.filter(match, topic__startswith="email.")
+        if options["reset_only"]:
+            messages = messages.filter(topic="email.password_reset")
+        messages = messages.order_by("-created_at", "-pk")[:limit]
         write("")
         write("Queued emails (outbox, newest first)")
         if not messages:
@@ -108,12 +119,13 @@ class Command(BaseCommand):
                 f"processed {_when(message.processed_at)}"
             )
             if message.last_error:
-                write(f"    Last error: {_short(message.last_error)}")
+                write(f"    Last error: {_safe_error(message.last_error)}")
 
         record_model = apps.get_model("communications", "EmailDeliveryRecord")
-        records = record_model.objects.filter(recipient_email__iexact=email).order_by(
-            "-created_at"
-        )[:limit]
+        records = record_model.objects.filter(recipient_email__iexact=email)
+        if options["reset_only"]:
+            records = records.filter(topic="email.password_reset")
+        records = records.order_by("-created_at", "-attempt_number", "-pk")[:limit]
         write("")
         write("Delivery attempts (newest first)")
         if not records:
@@ -122,10 +134,11 @@ class Command(BaseCommand):
             write(
                 f"  {_when(record.created_at)} {record.topic}: {record.status} via "
                 f"{record.provider}, attempt {record.attempt_number}, "
-                f"sent {_when(record.sent_at)}, provider id {record.provider_message_id or '-'}"
+                f"sent {_when(record.sent_at)}, provider reference "
+                f"{'present' if record.provider_message_id else 'absent'}"
             )
             if record.error:
-                write(f"    Error: {_short(record.error)}")
+                write(f"    Error: {_safe_error(record.error)}")
 
         last_run = ScheduledJobRun.objects.filter(job_name=EMAIL_OUTBOX_DISPATCH_JOB).first()
         last_success = ScheduledJobRun.objects.filter(
@@ -134,12 +147,9 @@ class Command(BaseCommand):
         write("")
         write("Email job (email_outbox_dispatch)")
         if last_run is None:
-            write(
-                "  It never ran here: queued emails stay queued. Install its cron line "
-                "(docs/runbooks/server-deployment.md, every 5 minutes)."
-            )
+            write("  No scheduled run recorded. Check the five-minute cron entry.")
         else:
             write(f"  Last run: {_when(last_run.started_at)} ({last_run.status})")
             write(f"  Last success: {_when(last_success.started_at if last_success else None)}")
             if last_run.error:
-                write(f"  Error: {_short(last_run.error)}")
+                write(f"  Error: {_safe_error(last_run.error)}")

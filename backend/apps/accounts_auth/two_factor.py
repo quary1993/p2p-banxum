@@ -1109,14 +1109,22 @@ def invalidate_unfinished_authorizations(user: User) -> None:
 # --- Password -------------------------------------------------------------------------------
 
 
-def set_password(user: User, password: str) -> None:
+def _check_new_password(user: User, password: str) -> None:
     try:
         validate_new_password(password, email=str(user.email))
     except PasswordPolicyError as exc:
         raise TwoFactorError(str(exc), code=exc.code) from exc
+
+
+def _save_validated_password(user: User, password: str) -> None:
     user.set_password(password)
     user.password_changed_at = _now()
     user.save(update_fields=["password", "password_changed_at"])
+
+
+def set_password(user: User, password: str) -> None:
+    _check_new_password(user, password)
+    _save_validated_password(user, password)
 
 
 @transaction.atomic
@@ -1246,6 +1254,8 @@ def complete_password_reset(
     with transaction.atomic():
         token = _reset_token(raw_token, purpose="password_reset")
         user = token.user
+    # A rejected password must not use up a one-time SMS, app or recovery code.
+    _check_new_password(user, new_password)
     if factor_kind(user):
         challenge, _used = _check_challenge(
             challenge_id=challenge_id,
@@ -1260,7 +1270,7 @@ def complete_password_reset(
             raise TwoFactorError("Start again from the link.", code="challenge_expired")
     with transaction.atomic():
         token = _reset_token(raw_token, purpose="password_reset")
-        set_password(user, new_password)
+        _save_validated_password(user, new_password)
         token.used_at = _now()
         token.save(update_fields=["used_at", "updated_at"])
         ended = end_sessions(user, reason="password_reset")

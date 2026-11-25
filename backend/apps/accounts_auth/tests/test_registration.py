@@ -252,6 +252,19 @@ def _post_registration(client: Client, body: dict[str, Any], ip: str) -> Any:
 
 
 @pytest.mark.django_db
+def test_registration_policy_error_names_the_password_field(client: Client, settings: Any) -> None:
+    email = "policy@example.test"
+    response = _post_registration(
+        client,
+        _registration_body(settings, email=email, phone_number="+41790000001", password=email),
+        "192.0.2.15",
+    )
+    assert response.status_code == 400
+    assert response.json()["password"] == ["Do not use your email address."]
+    assert not User.objects.filter(email=email).exists()
+
+
+@pytest.mark.django_db
 def test_repeated_registration_never_changes_an_unfinished_account(settings: Any) -> None:
     # Audit A-50: an unauthenticated repeat registration rewrote name and phone.
     first = register_natural_person_lender(

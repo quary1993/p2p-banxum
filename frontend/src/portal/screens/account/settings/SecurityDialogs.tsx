@@ -23,7 +23,7 @@ import { isFixturePreview } from "../../../../investorPortal/data";
 import { pinErrorText } from "../../../../investorPortal/pinFlows";
 import { brandDisplayName } from "../../../brand";
 import { Dialog } from "../../../components";
-import { passwordFieldProblems } from "../auth/authState";
+import { passwordFieldProblems, serverNewPasswordProblem } from "../auth/authState";
 import { DialogResult } from "../parts/PinDialogs";
 import { CodeField, DialogActions, Notice, PasswordField } from "../parts/ui";
 
@@ -137,7 +137,14 @@ function NewPassword({ confirmationId, onDone, onCancel }: { confirmationId: str
       onDone();
       return;
     }
-    mutation.mutate({ data: { new_password: password, confirmation_id: confirmationId } }, { onSuccess: onDone, onError: (failure) => setError(pinErrorText(failure)) });
+    mutation.mutate({ data: { new_password: password, confirmation_id: confirmationId } }, {
+      onSuccess: onDone,
+      onError: (failure) => {
+        const problem = serverNewPasswordProblem(failure);
+        if (problem) setFieldErrors({ password: problem });
+        else setError(pinErrorText(failure));
+      }
+    });
   };
   return (
     <form noValidate onSubmit={submit}>
