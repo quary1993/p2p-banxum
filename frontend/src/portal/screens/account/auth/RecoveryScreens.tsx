@@ -20,17 +20,51 @@ import { takeSecurityLinkToken } from "../../../../magicLinkToken";
 import { usePortalNav } from "../../../components";
 import { supportMailto } from "../accountLinks";
 import { AuthCard, AuthLayout, CaCodeField, CaError, CaIcon } from "./AuthLayout";
-import { passwordProblem, registerFlowStorageKey, requestErrorText, resumedRegisterStateForUser, writeStoredObject } from "./authState";
+import { passwordFieldProblems, registerFlowStorageKey, requestErrorText, resumedRegisterStateForUser, serverNewPasswordProblem, writeStoredObject } from "./authState";
 import { AuthPasswordField } from "./secondFactor";
 
-function NewPasswordFields({ password, repeat, onPassword, onRepeat }: { password: string; repeat: string; onPassword: (value: string) => void; onRepeat: (value: string) => void }) {
+type PasswordErrors = { password?: string; repeat?: string };
+
+function NewPasswordFields({
+  password,
+  repeat,
+  onPassword,
+  onRepeat,
+  errors = {}
+}: {
+  password: string;
+  repeat: string;
+  onPassword: (value: string) => void;
+  onRepeat: (value: string) => void;
+  errors?: PasswordErrors;
+}) {
   const t = useT();
   return (
     <div className="ca-fields">
-      <AuthPasswordField autoComplete="new-password" hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")} id="new-password" label={t("New password")} onChange={onPassword} value={password} />
-      <AuthPasswordField autoComplete="new-password" id="new-password-repeat" label={t("Repeat password")} onChange={onRepeat} value={repeat} />
+      <AuthPasswordField
+        autoComplete="new-password"
+        error={errors.password ? t(errors.password) : undefined}
+        hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")}
+        id="new-password"
+        label={t("New password")}
+        onChange={onPassword}
+        value={password}
+      />
+      <AuthPasswordField autoComplete="new-password" error={errors.repeat ? t(errors.repeat) : undefined} id="new-password-repeat" label={t("Repeat password")} onChange={onRepeat} value={repeat} />
     </div>
   );
+}
+
+/** The summary above the button names the fields with a problem ("New password: ..."). */
+function passwordSummary(errors: PasswordErrors, t: (text: string) => string) {
+  return [errors.password ? `${t("New password")}: ${t(errors.password)}` : "", errors.repeat ? `${t("Repeat password")}: ${t(errors.repeat)}` : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function focusPasswordField(errors: PasswordErrors) {
+  const id = errors.password ? "new-password" : errors.repeat ? "new-password-repeat" : "";
+  if (id) window.setTimeout(() => document.getElementById(id)?.focus(), 0);
 }
 
 function LinkNotValid({ title }: { title: string }) {
@@ -62,6 +96,7 @@ export function ResetPasswordScreen() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [passwordErrors, setPasswordErrors] = useState<PasswordErrors>({});
   const started = useRef(false);
   useEffect(() => {
     if (!token || isFixturePreview || started.current) return;
@@ -74,9 +109,10 @@ export function ResetPasswordScreen() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    const problem = passwordProblem(password, repeat);
-    if (problem) {
-      setError(t(problem));
+    const problems = passwordFieldProblems(password, repeat);
+    setPasswordErrors(problems);
+    if (problems.password || problems.repeat) {
+      focusPasswordField(problems);
       return;
     }
     const needsFactor = step?.status === "factor_required";
@@ -98,8 +134,14 @@ export function ResetPasswordScreen() {
     })
       .then(() => setDone(true))
       .catch((failure: unknown) => {
-        setCode("");
-        setError(requestErrorText(failure));
+        const problem = serverNewPasswordProblem(failure);
+        if (problem) {
+          setPasswordErrors({ password: problem });
+          focusPasswordField({ password: problem });
+        } else {
+          setCode("");
+          setError(requestErrorText(failure));
+        }
       })
       .finally(() => setBusy(false));
   };
@@ -144,8 +186,8 @@ export function ResetPasswordScreen() {
               <CaCodeField autoFocus id="reset-code" label={sms ? t("SMS code") : t("Authenticator code")} onChange={setCode} value={code} />
             )
           ) : null}
-          <NewPasswordFields onPassword={setPassword} onRepeat={setRepeat} password={password} repeat={repeat} />
-          <CaError>{error || null}</CaError>
+          <NewPasswordFields errors={passwordErrors} onPassword={(value) => { setPassword(value); setPasswordErrors((current) => ({ ...current, password: undefined })); }} onRepeat={(value) => { setRepeat(value); setPasswordErrors((current) => ({ ...current, repeat: undefined })); }} password={password} repeat={repeat} />
+          <CaError>{error || passwordSummary(passwordErrors, t) || null}</CaError>
           <button className="ca-primary" disabled={busy} type="submit">
             {busy ? t("Saving...") : t("Save new password")}
             <CaIcon name="right" />
@@ -176,6 +218,7 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
   const [repeat, setRepeat] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [passwordErrors, setPasswordErrors] = useState<PasswordErrors>({});
   const started = useRef(false);
   useEffect(() => {
     if (!notMe || !token || started.current) return;
@@ -192,9 +235,10 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    const problem = passwordProblem(password, repeat);
-    if (problem) {
-      setError(t(problem));
+    const problems = passwordFieldProblems(password, repeat);
+    setPasswordErrors(problems);
+    if (problems.password || problems.repeat) {
+      focusPasswordField(problems);
       return;
     }
     if (isFixturePreview) {
@@ -215,7 +259,13 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
         // The investor portal asks for the new second factor before anything else.
         nav.go("dashboard");
       })
-      .catch((failure: unknown) => setError(requestErrorText(failure)))
+      .catch((failure: unknown) => {
+        const problem = serverNewPasswordProblem(failure);
+        if (problem) {
+          setPasswordErrors({ password: problem });
+          focusPasswordField({ password: problem });
+        } else setError(requestErrorText(failure));
+      })
       .finally(() => setBusy(false));
   };
 
@@ -234,8 +284,8 @@ export function AccountRecoveryScreen({ notMe = false }: { notMe?: boolean }) {
     content = (
       <AuthCard intro={t("Choose a new password. Then you set up your new second factor.")} title={t("Finish the recovery of your account")}>
         <form data-testid="account-recovery-form" noValidate onSubmit={submit}>
-          <NewPasswordFields onPassword={setPassword} onRepeat={setRepeat} password={password} repeat={repeat} />
-          <CaError>{error || null}</CaError>
+          <NewPasswordFields errors={passwordErrors} onPassword={(value) => { setPassword(value); setPasswordErrors((current) => ({ ...current, password: undefined })); }} onRepeat={(value) => { setRepeat(value); setPasswordErrors((current) => ({ ...current, repeat: undefined })); }} password={password} repeat={repeat} />
+          <CaError>{error || passwordSummary(passwordErrors, t) || null}</CaError>
           <button className="ca-primary" disabled={busy} type="submit">
             {busy ? t("Saving...") : t("Continue")}
             <CaIcon name="right" />

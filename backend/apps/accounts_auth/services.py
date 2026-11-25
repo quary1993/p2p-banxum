@@ -576,7 +576,9 @@ class BootstrapEnvSuperadminResult:
 
 
 class InvalidRegistrationDataError(AccountsAuthError):
-    pass
+    def __init__(self, message: str, *, field: str) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 def _record_repeated_registration(
@@ -619,7 +621,7 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
     try:
         phone_number = normalize_e164_phone_number(command.phone_number)
     except InvalidPhoneNumberError as exc:
-        raise InvalidRegistrationDataError(str(exc)) from exc
+        raise InvalidRegistrationDataError(str(exc), field="phone_number") from exc
     terms_version, terms_hash = _registration_terms_evidence_values(command)
     current_risk_template = _validate_registration_risk_disclosure(command)
     # Checked for every request (also for an existing address), so the answer does not
@@ -627,7 +629,7 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Reg
     try:
         validate_new_password(command.password, email=email)
     except PasswordPolicyError as exc:
-        raise InvalidRegistrationDataError(str(exc)) from exc
+        raise InvalidRegistrationDataError(str(exc), field="password") from exc
 
     user = User.objects.select_for_update().filter(email=email).first()
     if user is not None:

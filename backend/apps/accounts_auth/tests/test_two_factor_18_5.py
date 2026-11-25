@@ -600,6 +600,18 @@ def test_forgotten_password_needs_the_email_link_and_the_factor(client: Client) 
 
     step = post_json(client, "/api/v1/auth/password/reset/start/", {"token": raw}).json()
     assert step["status"] == "factor_required"
+    rejected = post_json(
+        client,
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "token": raw,
+            "new_password": user.email,
+            "challenge_id": step["challenge_id"],
+            "code": sms_code_for_challenge(step["challenge_id"]),
+        },
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["code"] == "password_is_email"
     wrong = post_json(
         client,
         "/api/v1/auth/password/reset/complete/",

@@ -147,7 +147,11 @@ class NaturalPersonRegistrationView(APIView):
                     password=str(data["password"]),
                 )
             )
-        except (InvalidTermsAcceptanceError, InvalidRegistrationDataError) as exc:
+        except InvalidRegistrationDataError as exc:
+            return Response(
+                {"detail": str(exc), exc.field: [str(exc)]}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except InvalidTermsAcceptanceError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         # The link that confirms the email address goes out with the registration, so the

@@ -2130,7 +2130,7 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
   expect(screen.getByRole("link", { name: "Documents" })).toBeInTheDocument();
 });
 
-test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
+test("registration KYC handoff reflects Didit plus Garanta evidence retention", async () => {
   renderApp();
 
   // The design's public home has no sign-up band: Log in, then "Create an account".
@@ -2152,7 +2152,15 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   // 18.5: a password of at least 12 characters, typed twice.
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  expect(screen.getByText("Use at least 12 characters.")).toBeInTheDocument();
+  // The message is under the field it belongs to, and the summary names the fields.
+  expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByLabelText("Password")).toHaveAccessibleDescription(/Use at least 12 characters\./);
+  expect(screen.getByLabelText("Repeat password")).toHaveAccessibleDescription("Type the password again.");
+  const summary = screen.getByText("Correct these fields:").closest(".ca-error") as HTMLElement;
+  expect(summary).toHaveTextContent("Password: Use at least 12 characters.");
+  expect(summary).toHaveTextContent("Repeat password: Type the password again.");
+  fireEvent.click(within(summary).getByRole("button", { name: "Password" }));
+  await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus());
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "quiet-harbour-lantern-47" } });
   fireEvent.change(screen.getByLabelText("Repeat password"), { target: { value: "quiet-harbour-lantern-47" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
