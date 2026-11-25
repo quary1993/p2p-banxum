@@ -1186,6 +1186,8 @@ def _resolve_secret_link(payload: dict[str, Any], *, redact: bool) -> str:
     secret = auth.delivery_secret_for_security_link(
         secret_type, str(payload.get("delivery_secret_ref", ""))
     )
+    if not secret:
+        raise EmailNotNeededError("The security link is no longer usable.")
     return template.replace("{secret}", urllib.parse.quote(secret, safe=""))
 
 
@@ -1405,13 +1407,18 @@ def _due_email_message_ids(*, limit: int, now: Any) -> list[int]:
 
 
 @transaction.atomic
-def _dispatch_one_email_message(message_id: int, *, provider: EmailProvider, now: Any) -> bool:
-    message = (
+def _dispatch_one_email_message(
+    message_id: int, *, provider: EmailProvider, now: Any, expected_key: str | None = None
+) -> bool:
+    rows = (
         OutboxMessage.objects.select_for_update()
         .filter(id=message_id, status=OutboxStatus.PENDING)
         .filter(_email_topic_filter())
-        .first()
     )
+    # A QA restore can reuse a numeric row ID while a background send is waiting.
+    if expected_key is not None:
+        rows = rows.filter(idempotency_key=expected_key)
+    message = rows.first()
     if message is None:
         return False
     if message.next_attempt_at is not None and message.next_attempt_at > now:
@@ -1507,7 +1514,7 @@ def dispatch_due_email_outbox_messages(
     )
 
 
-def dispatch_email_outbox_message_now(message_id: int) -> bool:
+def dispatch_email_outbox_message_now(message_id: int, *, expected_key: str | None = None) -> bool:
     """Dispatch one queued email immediately.
 
     Auth and step-up emails are time-sensitive. They still go through the
@@ -1515,7 +1522,9 @@ def dispatch_email_outbox_message_now(message_id: int) -> bool:
     transaction commits so the scheduled dispatcher is only the retry fallback.
     """
     provider = _email_provider()
-    return _dispatch_one_email_message(message_id, provider=provider, now=timezone.now())
+    return _dispatch_one_email_message(
+        message_id, provider=provider, now=timezone.now(), expected_key=expected_key
+    )
 
 
 def read_notification_message_ids(

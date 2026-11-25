@@ -6,6 +6,7 @@ from collections.abc import Callable
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from backend.apps.platform_core.services.impersonation import READONLY_IMPERSONATION_HEADER
+from backend.apps.platform_core.services.prompt_email import prompt_email_request
 from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_environment_guard
 
 SOFTWARE_IP_HEADER = "X-BANXUM-Software-IP"
@@ -40,6 +41,18 @@ class QaEnvironmentGuardMiddleware:
             response = JsonResponse({"detail": str(exc)}, status=503)
             response["Retry-After"] = "5"
             return response
+
+
+def requested_email_middleware(
+    get_response: Callable[[HttpRequest], HttpResponse],
+) -> Callable[[HttpRequest], HttpResponse]:
+    def handle(request: HttpRequest) -> HttpResponse:
+        if request.path.startswith("/api/v1/qa/dev-mode/"):
+            return get_response(request)
+        with prompt_email_request():
+            return get_response(request)
+
+    return handle
 
 
 class SoftwareIpNoticeMiddleware:
