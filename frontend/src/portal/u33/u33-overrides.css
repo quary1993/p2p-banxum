@@ -358,3 +358,16 @@ html.bxu .u33-step-help .r34-help-body h3 {
    no auto margin); our link is the real path /marketplace/:loanId. */
 html.bxu .rid-actions li:has([href^="/marketplace/"]) { order: -1; margin-right: auto; }
 html.bxu[data-edition="refined"] body.bxm-app .r71-view .rid-actions li:has([href^="/marketplace/"]) { margin-right: 0; }
+
+/* Create account and sign-in forms: the message of one field under the field, a red border on the
+   field, and the summary above the button that names the fields (buttons move the focus). */
+html.bxu .u04-account .ca-field-error { margin: 6px 0 0; color: var(--error); font-size: 12.5px; line-height: 1.5; font-weight: 500; }
+html.bxu .u04-account .ca-field input[aria-invalid="true"],
+html.bxu .u04-account .ca-field select[aria-invalid="true"] { border-color: var(--error); }
+html.bxu .u04-account .ca-phone-input:has(input[aria-invalid="true"]) { border-color: var(--error); }
+html.bxu .u04-account .ca-phone-input input[aria-invalid="true"] { border-color: transparent; border-left-color: var(--line); }
+html.bxu .u04-account .ca-agreements.is-invalid .ca-checkbox:not(.ca-optional) input { outline: 1px solid var(--error); outline-offset: 1px; }
+html.bxu .u04-account .ca-agreements > .ca-field-error { margin: -4px 0 4px 27px; }
+html.bxu .u04-account .ca-error .ca-error-title { margin: 0 0 4px; font-weight: 600; }
+html.bxu .u04-account .ca-error .ca-error-list { margin: 0; padding-left: 18px; }
+html.bxu .u04-account .ca-error .ca-error-list button { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }

@@ -23,7 +23,7 @@ import { isFixturePreview } from "../../../../investorPortal/data";
 import { pinErrorText } from "../../../../investorPortal/pinFlows";
 import { brandDisplayName } from "../../../brand";
 import { Dialog } from "../../../components";
-import { passwordProblem } from "../auth/authState";
+import { passwordFieldProblems } from "../auth/authState";
 import { DialogResult } from "../parts/PinDialogs";
 import { CodeField, DialogActions, Notice, PasswordField } from "../parts/ui";
 
@@ -125,13 +125,14 @@ function NewPassword({ confirmationId, onDone, onCancel }: { confirmationId: str
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ password?: string; repeat?: string }>({});
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const problem = passwordProblem(password, repeat);
-    if (problem) {
-      setError(t(problem));
-      return;
-    }
+    setError("");
+    // The message goes under the field it belongs to.
+    const problems = passwordFieldProblems(password, repeat);
+    setFieldErrors(problems);
+    if (problems.password || problems.repeat) return;
     if (isFixturePreview) {
       onDone();
       return;
@@ -140,8 +141,22 @@ function NewPassword({ confirmationId, onDone, onCancel }: { confirmationId: str
   };
   return (
     <form noValidate onSubmit={submit}>
-      <PasswordField autoComplete="new-password" autoFocus hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")} label={t("New password")} onChange={setPassword} value={password} />
-      <PasswordField autoComplete="new-password" label={t("Repeat password")} onChange={setRepeat} value={repeat} />
+      <PasswordField
+        autoComplete="new-password"
+        autoFocus
+        error={fieldErrors.password ? t(fieldErrors.password) : undefined}
+        hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")}
+        label={t("New password")}
+        onChange={(value) => { setPassword(value); setFieldErrors((current) => ({ ...current, password: undefined })); }}
+        value={password}
+      />
+      <PasswordField
+        autoComplete="new-password"
+        error={fieldErrors.repeat ? t(fieldErrors.repeat) : undefined}
+        label={t("Repeat password")}
+        onChange={(value) => { setRepeat(value); setFieldErrors((current) => ({ ...current, repeat: undefined })); }}
+        value={repeat}
+      />
       {error ? <Notice title={error} tone="danger" /> : null}
       <DialogActions onCancel={onCancel} primaryDisabled={mutation.isPending} primaryLabel={mutation.isPending ? t("Saving...") : t("Change password")} primaryType="submit" />
     </form>

@@ -203,6 +203,16 @@ export function requestErrorText(error: unknown) {
   return "Request failed. Retry once the connection is restored.";
 }
 
+/** The password rules per field: the message for "Password" and the one for "Repeat password". */
+export function passwordFieldProblems(password: string, repeat: string, email = ""): { password?: string; repeat?: string } {
+  const found: { password?: string; repeat?: string } = {};
+  const problem = passwordProblem(password, null, email);
+  if (problem) found.password = problem;
+  if (!repeat) found.repeat = "Type the password again.";
+  else if (repeat !== password) found.repeat = "The passwords do not match.";
+  return found;
+}
+
 /** NIST SP 800-63B-4 in one line, as the server checks it (passwords.py). */
 export function passwordProblem(password: string, repeat: string | null, email = "") {
   if (password.length < 12) return "Use at least 12 characters.";

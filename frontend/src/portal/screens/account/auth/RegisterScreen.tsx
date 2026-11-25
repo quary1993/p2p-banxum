@@ -41,7 +41,63 @@ import {
   type RegisterFlowState,
   type RegisterPreviewDefaults
 } from "./authState";
-import { AuthenticatorSetup, AuthPasswordField, FactorChoice, RecoveryCodesStep } from "./secondFactor";
+import { AuthenticatorSetup, AuthPasswordField, FactorChoice, FieldError, RecoveryCodesStep } from "./secondFactor";
+
+/** The fields of step 1 that can carry their own message. */
+type DetailsField = "first" | "last" | "email" | "password" | "repeat" | "phone" | "agreements";
+type DetailsErrors = Partial<Record<DetailsField, string>>;
+
+/** The element that gets the focus for a field (the first box for the agreements). */
+const DETAILS_FIELD_IDS: Record<DetailsField, string> = {
+  first: "register-first",
+  last: "register-last",
+  email: "register-email",
+  password: "register-password",
+  repeat: "register-password-repeat",
+  phone: "register-phone",
+  agreements: "register-agreement-0"
+};
+const DETAILS_FIELD_LABELS: Record<DetailsField, string> = {
+  first: "First name",
+  last: "Last name",
+  email: "Email address",
+  password: "Password",
+  repeat: "Repeat password",
+  phone: "Mobile number",
+  agreements: "Agreements"
+};
+const DETAILS_FIELD_ORDER: DetailsField[] = ["first", "last", "email", "password", "repeat", "phone", "agreements"];
+/** Server field names of the registration API → the form fields. */
+const SERVER_DETAILS_FIELDS: Record<string, DetailsField> = {
+  email: "email",
+  password: "password",
+  phone_number: "phone",
+  full_name: "first"
+};
+
+function apiText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(apiText).join(" ");
+  return "";
+}
+
+/** The field messages in a registration API error ({"password": ["..."]}); empty when there are none. */
+function serverDetailsErrors(error: unknown): DetailsErrors {
+  if (!(error instanceof ApiClientError) || !error.payload || typeof error.payload !== "object") return {};
+  const found: DetailsErrors = {};
+  for (const [key, value] of Object.entries(error.payload as Record<string, unknown>)) {
+    const field = SERVER_DETAILS_FIELDS[key];
+    const text = apiText(value).trim();
+    if (field && text) found[field] = text;
+  }
+  return found;
+}
+
+function focusDetailsField(field: DetailsField) {
+  const element = document.getElementById(DETAILS_FIELD_IDS[field]);
+  element?.focus();
+  element?.scrollIntoView?.({ block: "center" });
+}
 
 const registrationTermsVersion = import.meta.env.VITE_REGISTRATION_TERMS_VERSION ?? "registration-v1";
 const registrationTermsHash =
@@ -119,6 +175,20 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
   const [editingPhone, setEditingPhone] = useState(false);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [error, setError] = useState("");
+  // Step 1: a message under each field with a problem; the summary above "Continue" names them.
+  const [fieldErrors, setFieldErrors] = useState<DetailsErrors>({});
+  const clearFieldError = (field: DetailsField) =>
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  const showFieldErrors = (found: DetailsErrors) => {
+    setFieldErrors(found);
+    const first = DETAILS_FIELD_ORDER.find((field) => found[field]);
+    if (first) window.setTimeout(() => focusDetailsField(first), 0);
+  };
   // Preview mode only: the Didit hand-off and result are simulated on this screen.
   const [previewKyc, setPreviewKyc] = useState<"not_started" | "pending" | "approved">("not_started");
   const registerMutation = useV1AuthRegisterNaturalPersonCreate();
@@ -217,26 +287,29 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
 
   // ---- Step 1: details and agreements --------------------------------------------------------
 
+  const detailsProblems = (): DetailsErrors => {
+    const found: DetailsErrors = {};
+    if (!firstName.trim()) found.first = t("Enter your first name.");
+    if (!lastName.trim()) found.last = t("Enter your last name.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) found.email = t("Enter a valid email address.");
+    const passwordText = passwordProblem(password, null, email);
+    if (passwordText) found.password = t(passwordText);
+    if (!passwordRepeat) found.repeat = t("Type the password again.");
+    else if (passwordRepeat !== password) found.repeat = t("The passwords do not match.");
+    if (!phoneNumber || phoneNumber.replace(/\D/g, "").length < 6) found.phone = t("Enter a valid mobile number.");
+    if (!allRegistrationTermsAccepted || !risk) found.agreements = t("Accept the required agreements.");
+    return found;
+  };
+
   const submitDetails = (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!firstName.trim() || !lastName.trim() || !allRegistrationTermsAccepted || !risk) {
-      setError(t("Complete your details and accept the required agreements."));
+    const problems = detailsProblems();
+    if (Object.keys(problems).length > 0) {
+      showFieldErrors(problems);
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError(t("Enter a valid email address."));
-      return;
-    }
-    if (!phoneNumber || phoneNumber.replace(/\D/g, "").length < 6) {
-      setError(t("Enter a valid mobile number."));
-      return;
-    }
-    const problem = passwordProblem(password, passwordRepeat, email);
-    if (problem) {
-      setError(t(problem));
-      return;
-    }
+    setFieldErrors({});
     if (isFixturePreview) {
       goToStep(1);
       setEmailLoginSent(true);
@@ -279,7 +352,13 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
           setEmailLoginSent(response.email_login_sent);
           setEmailCooldownUntil(response.email_login_sent ? Date.now() + 60_000 : 0);
         },
-        onError: (mutationError) => setError(requestErrorText(mutationError))
+        onError: (mutationError) => {
+          // A field problem found by the server (for example a password in a breach list) goes
+          // under its field; anything else stays a message above the button.
+          const found = serverDetailsErrors(mutationError);
+          if (Object.keys(found).length > 0) showFieldErrors(found);
+          else setError(requestErrorText(mutationError));
+        }
       }
     );
   };
@@ -480,26 +559,81 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
           <div className="ca-fields">
             <div className="ca-field">
               <label htmlFor="register-first">{t("First name")}</label>
-              <input autoComplete="given-name" id="register-first" maxLength={120} onChange={(event) => setFirstName(event.target.value)} value={firstName} />
+              <input
+                aria-describedby={fieldErrors.first ? "register-first-error" : undefined}
+                aria-invalid={fieldErrors.first ? true : undefined}
+                autoComplete="given-name"
+                id="register-first"
+                maxLength={120}
+                onChange={(event) => { setFirstName(event.target.value); clearFieldError("first"); }}
+                value={firstName}
+              />
+              {fieldErrors.first ? <FieldError id="register-first-error">{fieldErrors.first}</FieldError> : null}
             </div>
             <div className="ca-field">
               <label htmlFor="register-last">{t("Last name")}</label>
-              <input autoComplete="family-name" id="register-last" maxLength={120} onChange={(event) => setLastName(event.target.value)} value={lastName} />
+              <input
+                aria-describedby={fieldErrors.last ? "register-last-error" : undefined}
+                aria-invalid={fieldErrors.last ? true : undefined}
+                autoComplete="family-name"
+                id="register-last"
+                maxLength={120}
+                onChange={(event) => { setLastName(event.target.value); clearFieldError("last"); }}
+                value={lastName}
+              />
+              {fieldErrors.last ? <FieldError id="register-last-error">{fieldErrors.last}</FieldError> : null}
             </div>
             <div className="ca-field ca-wide">
               <label htmlFor="register-email">{t("Email address")}</label>
-              <input autoComplete="email" id="register-email" maxLength={120} onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
+              <input
+                aria-describedby={fieldErrors.email ? "register-email-error" : undefined}
+                aria-invalid={fieldErrors.email ? true : undefined}
+                autoComplete="email"
+                id="register-email"
+                maxLength={120}
+                onChange={(event) => { setEmail(event.target.value); clearFieldError("email"); }}
+                type="email"
+                value={email}
+              />
+              {fieldErrors.email ? <FieldError id="register-email-error">{fieldErrors.email}</FieldError> : null}
             </div>
-            <AuthPasswordField autoComplete="new-password" hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")} id="register-password" label={t("Password")} onChange={setPassword} value={password} />
-            <AuthPasswordField autoComplete="new-password" id="register-password-repeat" label={t("Repeat password")} onChange={setPasswordRepeat} value={passwordRepeat} />
+            <AuthPasswordField
+              autoComplete="new-password"
+              error={fieldErrors.password}
+              hint={t("At least 12 characters. A few unrelated words are easy to remember and hard to guess.")}
+              id="register-password"
+              label={t("Password")}
+              onChange={(value) => { setPassword(value); clearFieldError("password"); }}
+              value={password}
+            />
+            <AuthPasswordField
+              autoComplete="new-password"
+              error={fieldErrors.repeat}
+              id="register-password-repeat"
+              label={t("Repeat password")}
+              onChange={(value) => { setPasswordRepeat(value); clearFieldError("repeat"); }}
+              value={passwordRepeat}
+            />
             <div className="ca-field ca-phone-field">
               <label htmlFor="register-phone">{t("Mobile number")}</label>
               <div className="ca-phone-input">
                 <select aria-label={t("Country prefix")} onChange={(event) => setPhoneCountryCode(event.target.value)} value={phoneCountryCode}>
                   {registrationCountries.map((country) => <option key={`${country.iso2}-${country.callingCode}`} value={country.callingCode}>{country.iso2} {country.callingCode}</option>)}
                 </select>
-                <input autoComplete="tel-national" id="register-phone" inputMode="tel" maxLength={24} onChange={(event) => setPhoneNationalNumber(event.target.value.replace(/[^\d\s().-]/g, ""))} placeholder="79 000 00 00" type="tel" value={phoneNationalNumber} />
+                <input
+                  aria-describedby={fieldErrors.phone ? "register-phone-error" : undefined}
+                  aria-invalid={fieldErrors.phone ? true : undefined}
+                  autoComplete="tel-national"
+                  id="register-phone"
+                  inputMode="tel"
+                  maxLength={24}
+                  onChange={(event) => { setPhoneNationalNumber(event.target.value.replace(/[^\d\s().-]/g, "")); clearFieldError("phone"); }}
+                  placeholder="79 000 00 00"
+                  type="tel"
+                  value={phoneNationalNumber}
+                />
               </div>
+              {fieldErrors.phone ? <FieldError id="register-phone-error">{fieldErrors.phone}</FieldError> : null}
             </div>
             <div className="ca-field ca-country-field">
               <label htmlFor="register-country">{t("Country of residence")}</label>
@@ -508,23 +642,32 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
               </select>
             </div>
           </div>
-          <div className="ca-agreements">
+          <div className={`ca-agreements${fieldErrors.agreements ? " is-invalid" : ""}`}>
             {isFixturePreview || registrationLabels.length === 0 ? (
               <label className="ca-checkbox">
-                <input checked={terms} onChange={(event) => setTerms(event.target.checked)} type="checkbox" />
+                <input
+                  aria-describedby={fieldErrors.agreements ? "register-agreements-error" : undefined}
+                  checked={terms}
+                  id="register-agreement-0"
+                  onChange={(event) => { setTerms(event.target.checked); clearFieldError("agreements"); }}
+                  type="checkbox"
+                />
                 <span>
                   {t("I have read, understood and accept the")} <DocumentLink category="registration">{t("General Terms and Conditions / User Agreement")}</DocumentLink>
                   {t(", including its integral annexes.")}
                 </span>
               </label>
             ) : (
-              registrationLabels.map((label) => (
+              registrationLabels.map((label, index) => (
                 <label className="ca-checkbox" key={label}>
                   <input
+                    aria-describedby={fieldErrors.agreements ? "register-agreements-error" : undefined}
                     checked={registrationAcceptedLabels.includes(label)}
-                    onChange={(event) =>
-                      setRegistrationAcceptedLabels((current) => (event.target.checked ? Array.from(new Set([...current, label])) : current.filter((item) => item !== label)))
-                    }
+                    id={`register-agreement-${index}`}
+                    onChange={(event) => {
+                      setRegistrationAcceptedLabels((current) => (event.target.checked ? Array.from(new Set([...current, label])) : current.filter((item) => item !== label)));
+                      clearFieldError("agreements");
+                    }}
                     type="checkbox"
                   />
                   <span>{label} <DocumentLink category="registration">{t("Read the document")}</DocumentLink></span>
@@ -532,13 +675,20 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
               ))
             )}
             <label className="ca-checkbox">
-              <input checked={risk} onChange={(event) => setRisk(event.target.checked)} type="checkbox" />
+              <input
+                aria-describedby={fieldErrors.agreements ? "register-agreements-error" : undefined}
+                checked={risk}
+                id="register-risk"
+                onChange={(event) => { setRisk(event.target.checked); clearFieldError("agreements"); }}
+                type="checkbox"
+              />
               <span>
                 {riskLabels.length === 1 ? <>{riskLabels[0]} <DocumentLink category="risk_disclosure">{t("Read the risk disclosure")}</DocumentLink></> : (
                   <>{t("I acknowledge the")} <DocumentLink category="risk_disclosure">{t("risk disclosure")}</DocumentLink>{t(" and possible capital loss.")}</>
                 )}
               </span>
             </label>
+            {fieldErrors.agreements ? <FieldError id="register-agreements-error">{fieldErrors.agreements}</FieldError> : null}
             <label className="ca-checkbox ca-optional">
               <input checked={marketing} onChange={(event) => setMarketing(event.target.checked)} type="checkbox" />
               <span>{t("I agree to optional marketing communications.")}</span>
@@ -546,7 +696,20 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
           </div>
           {!isFixturePreview && registrationTermsQuery.isError ? <CaError>{t("The current lender user agreement could not be loaded. Retry before registering.")}</CaError> : null}
           {!isFixturePreview && riskDisclosureQuery.isError ? <CaError>{t("The current lender risk disclosure could not be loaded. Retry before registering.")}</CaError> : null}
-          <CaError>{error || null}</CaError>
+          <CaError id="register-details-summary">
+            {Object.keys(fieldErrors).length > 0 ? (
+              <>
+                <p className="ca-error-title">{Object.keys(fieldErrors).length === 1 ? t("Correct this field:") : t("Correct these fields:")}</p>
+                <ul className="ca-error-list">
+                  {DETAILS_FIELD_ORDER.filter((field) => fieldErrors[field]).map((field) => (
+                    <li key={field}>
+                      <button onClick={() => focusDetailsField(field)} type="button">{t(DETAILS_FIELD_LABELS[field])}</button>: {fieldErrors[field]}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : error || null}
+          </CaError>
           <button
             className="ca-primary"
             disabled={registerMutation.isPending || (!isFixturePreview && (!registrationTermsQuery.data || !riskDisclosureQuery.data))}

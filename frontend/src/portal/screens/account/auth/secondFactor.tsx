@@ -29,7 +29,8 @@ export function AuthPasswordField({
   autoComplete = "current-password",
   autoFocus = false,
   hint,
-  aside
+  aside,
+  error
 }: {
   id: string;
   label: string;
@@ -39,6 +40,8 @@ export function AuthPasswordField({
   autoFocus?: boolean;
   hint?: ReactNode;
   aside?: ReactNode;
+  /** The problem of this field, shown under it and linked to the input (aria-describedby). */
+  error?: string;
 }) {
   const t = useT();
   const [shown, setShown] = useState(false);
@@ -54,6 +57,8 @@ export function AuthPasswordField({
         </span>
       </div>
       <input
+        aria-describedby={[hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ") || undefined}
+        aria-invalid={error ? true : undefined}
         autoComplete={autoComplete}
         autoFocus={autoFocus}
         id={id}
@@ -63,8 +68,18 @@ export function AuthPasswordField({
         type={shown ? "text" : "password"}
         value={value}
       />
-      {hint ? <p className="ca-field-note acc-password-hint">{hint}</p> : null}
+      {error ? <FieldError id={`${id}-error`}>{error}</FieldError> : null}
+      {hint ? <p className="ca-field-note acc-password-hint" id={`${id}-hint`}>{hint}</p> : null}
     </div>
+  );
+}
+
+/** The message of one form field, under the field (the summary above the button names the field). */
+export function FieldError({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <p className="ca-field-error" id={id}>
+      {children}
+    </p>
   );
 }
 
