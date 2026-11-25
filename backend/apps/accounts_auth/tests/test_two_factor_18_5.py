@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import timedelta
 from importlib import import_module
@@ -221,6 +222,26 @@ def test_totp_matches_the_rfc_6238_test_vectors() -> None:
     assert step == 1
     # The same code is refused once used.
     assert totp.verify(secret, "287082", last_used_step=step, now=59) is None
+
+
+def test_authenticator_provisioning_uri_round_trips_the_account_and_settings() -> None:
+    secret = totp.new_secret()
+    account = "test+enrollment@example.test"
+    uri = urllib.parse.urlsplit(
+        totp.provisioning_uri(secret=secret, account_name=account, issuer="BANXUM")
+    )
+    assert (uri.scheme, uri.netloc, urllib.parse.unquote(uri.path)) == (
+        "otpauth",
+        "totp",
+        f"/BANXUM:{account}",
+    )
+    assert urllib.parse.parse_qs(uri.query) == {
+        "secret": [secret],
+        "issuer": ["BANXUM"],
+        "algorithm": ["SHA1"],
+        "digits": ["6"],
+        "period": ["30"],
+    }
 
 
 @pytest.mark.django_db

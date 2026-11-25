@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.apps.accounts_auth.models import AuthenticatorApp
+from backend.apps.platform_core.domain.access import has_admin_role
 
 FACTOR_APP = "app"
 FACTOR_SMS = "sms"
@@ -35,8 +36,11 @@ def factor_kind(user: Any) -> str:
         user_id=user.pk, confirmed_at__isnull=False, disabled_at__isnull=True
     ).exists():
         return FACTOR_APP
-    if getattr(user, "phone_verified_at", None) is not None and bool(
-        getattr(user, "phone_number", None)
+    # A verified contact phone is not a sign-in factor for an administrator.
+    if (
+        not has_admin_role(user)
+        and getattr(user, "phone_verified_at", None) is not None
+        and bool(getattr(user, "phone_number", None))
     ):
         return FACTOR_SMS
     return ""

@@ -6,6 +6,7 @@ import pytest
 from django.apps import apps
 from django.contrib.auth.hashers import make_password
 from django.test import Client, override_settings
+from django.utils import timezone
 
 from backend.apps.accounts_auth.models import (
     AccountStatus,
@@ -36,6 +37,7 @@ from backend.apps.accounts_auth.two_factor import (
     TwoFactorError,
     complete_admin_enrollment,
     complete_admin_sign_in,
+    reset_admin_authenticator,
     start_admin_sign_in,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
@@ -240,6 +242,57 @@ def test_first_admin_sign_in_sets_up_the_app_with_the_email_code(
     assert second.status == "factor_required"
     assert SensitiveActionCode.objects.count() == codes_before
     assert complete_admin_sign_in(challenge_id=second.challenge_id, code=app_code(admin_user))
+
+
+@pytest.mark.django_db
+def test_admin_setup_email_exhaustion_is_not_an_account_or_app_lock(admin_user: User) -> None:
+    step = start_admin_sign_in(email=admin_user.email, password="AdminPass123!")
+    assert step.enrollment
+    record = SensitiveActionCode.objects.get(pk=step.code_id)
+    actual = delivery_secret_for_sensitive_action_code(record)
+    wrong = "000000" if actual != "000000" else "111111"
+    for attempt in range(1, record.max_attempts + 1):
+        with pytest.raises(TwoFactorError) as exc:
+            complete_admin_enrollment(
+                code_id=step.code_id,
+                email_code=wrong,
+                enrollment_id=step.enrollment["enrollment_id"],
+                code=enrollment_code(step.enrollment["secret"]),
+            )
+        assert exc.value.code == (
+            "enrollment_email_exhausted" if attempt == record.max_attempts else "email_code_invalid"
+        )
+    admin_user.refresh_from_db()
+    assert admin_user.can_login
+    app = AuthenticatorApp.objects.get(pk=step.enrollment["enrollment_id"])
+    assert app.confirmed_at is None and app.locked_until is None
+
+
+@pytest.mark.django_db
+def test_admin_reset_retires_unfinished_setup_and_allows_fresh_setup(
+    admin_user: User, superadmin: User
+) -> None:
+    admin_user.phone_number = "+41790000001"
+    admin_user.phone_verified_at = timezone.now()
+    admin_user.save(update_fields=["phone_number", "phone_verified_at"])
+    old = start_admin_sign_in(email=admin_user.email, password="AdminPass123!")
+    assert old.enrollment
+    reset_admin_authenticator(actor=superadmin, admin_user_id=str(admin_user.pk))
+    assert AuthenticatorApp.objects.get(pk=old.enrollment["enrollment_id"]).disabled_at is not None
+    assert SensitiveActionCode.objects.get(pk=old.code_id).superseded_at is not None
+    new = start_admin_sign_in(email=admin_user.email, password="AdminPass123!")
+    assert new.status == "enrollment_required" and new.enrollment
+    assert new.enrollment["secret"] != old.enrollment["secret"]
+    assert new.code_id != old.code_id
+    authenticated = complete_admin_enrollment(
+        code_id=new.code_id,
+        email_code=delivery_secret_for_sensitive_action_code(
+            SensitiveActionCode.objects.get(pk=new.code_id)
+        ),
+        enrollment_id=new.enrollment["enrollment_id"],
+        code=enrollment_code(new.enrollment["secret"]),
+    )
+    assert authenticated.pk == admin_user.pk
 
 
 @pytest.mark.django_db
