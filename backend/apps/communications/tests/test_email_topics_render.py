@@ -92,6 +92,9 @@ def _producer_sites() -> list[ProducerSite]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
+            # A queryset filter reads a topic; it does not produce an email or a payload.
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "filter":
+                continue
             topic = next((kw.value for kw in node.keywords if kw.arg == "topic"), None)
             if not (
                 isinstance(topic, ast.Constant)
