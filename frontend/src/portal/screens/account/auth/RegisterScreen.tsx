@@ -763,7 +763,7 @@ export function RegisterScreen({ previewDefaults }: { previewDefaults?: Register
     );
   } else if (step === 2 && securityStage === "app") {
     content = (
-      <AuthCard icon="shield" intro={t("Scan the code with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password), then enter the 6-digit code.")} title={t("Protect your account")}>
+      <AuthCard icon="shield" intro={t("Install an authenticator app, scan the code with it, then enter the 6-digit code.")} title={t("Protect your account")}>
         <AuthenticatorSetup onDone={appDone} />
         <div className="ca-action-row">
           <button className="ca-text-button" onClick={() => setFactorStage("choose")} type="button">{t("Choose another method")}</button>

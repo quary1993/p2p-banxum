@@ -3,8 +3,9 @@
 import QRCode from "qrcode";
 
 import "./adminStyles";
+import { AuthenticatorApps, AuthenticatorStep } from "../portal/screens/account/parts/AuthenticatorApps";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import type {
   AdminDashboardQueueItem,
   AdminDashboardQueues
@@ -450,6 +451,8 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [emailCode, setEmailCode] = useState("");
+  const setupEmailInput = useRef<HTMLInputElement>(null);
+  const setupAppInput = useRef<HTMLInputElement>(null);
   const [challengeId, setChallengeId] = useState("");
   const [enrollment, setEnrollment] = useState<{ codeId: string; enrollmentId: string; secret: string; uri: string; expiresAt: string | null } | null>(null);
   const [showSessionExpired] = useState(hasSessionExpiredNotice);
@@ -504,10 +507,28 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
 
   function submitEnrollment(event: FormEvent) {
     event.preventDefault();
-    if (!enrollment) return;
+    if (!enrollment || enrollLogin.isPending || emailCode.length !== 6 || code.length !== 6) return;
     enrollLogin.mutate(
       { data: { code_id: enrollment.codeId, email_code: emailCode, enrollment_id: enrollment.enrollmentId, code } },
-      { onSuccess: finish, onError: () => setCode("") }
+      {
+        onSuccess: finish,
+        onError: (failure) => {
+          const payload = failure instanceof ApiClientError ? failure.payload : null;
+          const reason = payload && typeof payload === "object" && "code" in payload ? payload.code : null;
+          if (reason === "enrollment_email_exhausted" || reason === "enrollment_not_found") {
+            setEnrollment(null);
+            setEmailCode("");
+            setCode("");
+          } else if (reason === "email_code_invalid") {
+            setEmailCode("");
+            setCode("");
+            setupEmailInput.current?.focus();
+          } else if (reason === "authenticator_code_invalid") {
+            setCode("");
+            setupAppInput.current?.focus();
+          }
+        }
+      }
     );
   }
 
@@ -517,12 +538,20 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
     setEmailCode("");
     setChallengeId("");
     setEnrollment(null);
+    startLogin.reset();
+    confirmLogin.reset();
+    enrollLogin.reset();
   }
 
-  const codeInput = (label: string, value: string, onChange: (value: string) => void, hint: string) => (
+  const codeInput = (
+    label: string, value: string, onChange: (value: string) => void, hint: string,
+    ref?: Ref<HTMLInputElement>, autoComplete = "one-time-code"
+  ) => (
     <Field hint={hint} label={label}>
       <input
-        autoComplete="one-time-code"
+        className="input"
+        ref={ref}
+        autoComplete={autoComplete}
         inputMode="numeric"
         maxLength={6}
         onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -560,9 +589,10 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
           </Banner>
         ) : null}
         {step === "credentials" ? (
-          <form className="col gap-14" onSubmit={submitCredentials}>
+          <form className="col gap-16" onSubmit={submitCredentials}>
             <Field label="Admin email">
               <input
+                className="input"
                 autoComplete="username"
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="admin@banxum.com"
@@ -573,6 +603,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             </Field>
             <Field label="Password">
               <input
+                className="input"
                 autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Admin password"
@@ -591,7 +622,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             </Button>
           </form>
         ) : step === "code" ? (
-          <form className="col gap-14" onSubmit={submitCode}>
+          <form className="col gap-16" onSubmit={submitCode}>
             {codeInput("Authenticator code", code, setCode, isFixturePreview ? "Preview accepts any 6 digits." : "The 6-digit code shown in your authenticator app.")}
             {confirmLogin.error ? (
               <Banner tone="bad" title="Code confirmation failed">
@@ -608,13 +639,22 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             </div>
             <p className="muted" style={{ fontSize: 11.5 }}>Lost your phone? Ask a super admin to reset your authenticator app.</p>
           </form>
-        ) : (
-          <form className="col gap-14" onSubmit={submitEnrollment}>
-            <Banner tone="info" title="Set up your authenticator app">
-              Admins sign in with an authenticator app. Scan the code (or type the key), then enter the email code we sent and the first code from the app.
+        ) : !enrollment ? (
+          <div className="col gap-14">
+            <Banner tone="bad" title="Restart authenticator setup">
+              {errorMessage(enrollLogin.error)} Discard the previous setup key. Scan only the new QR code.
             </Banner>
+            <Button onClick={returnToCredentials} variant="primary">Restart setup</Button>
+          </div>
+        ) : (
+          <form className="col gap-16" onSubmit={submitEnrollment}>
+            <Banner tone="info" title="Set up your authenticator app">
+              Admins sign in with an authenticator app. Install one, scan the code (or type the key), then enter the email code we sent and the first code from the app.
+            </Banner>
+            <AuthenticatorApps />
+            <AuthenticatorStep number={2} title="Scan this code with the app" />
             {enrollment ? (
-              <div className="row gap-14" style={{ alignItems: "center" }}>
+              <div className="row gap-16" style={{ alignItems: "center" }}>
                 <AdminLoginQr uri={enrollment.uri} />
                 <div className="col" style={{ gap: 4 }}>
                   <span className="muted" style={{ fontSize: 11.5 }}>Or enter this key</span>
@@ -622,8 +662,8 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
                 </div>
               </div>
             ) : null}
-            {codeInput("Email code", emailCode, setEmailCode, enrollment?.expiresAt ? `Sent to your admin email. Expires ${formatDateTime(enrollment.expiresAt)}.` : "Sent to your admin email.")}
-            {codeInput("Code from the app", code, setCode, "The 6 digits shown in your authenticator app.")}
+            {codeInput("Email code", emailCode, setEmailCode, enrollment.expiresAt ? `Use the newest setup email. Expires ${formatDateTime(enrollment.expiresAt)}.` : "Use the newest setup email.", setupEmailInput)}
+            {codeInput("Code from the app", code, setCode, "The current 6 digits for the QR code shown above.", setupAppInput, "off")}
             {enrollLogin.error ? (
               <Banner tone="bad" title="Set-up failed">
                 {errorMessage(enrollLogin.error)}

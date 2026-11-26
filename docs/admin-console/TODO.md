@@ -1,5 +1,10 @@
 # Admin Console UI/UX TODO
 
+## 2026-11-25: Authenticator setup
+
+- The form identifies which code needs correction. An exhausted email code leads back to password entry for a new setup.
+- Manual check (important): test a new admin on a phone with email-code autofill enabled. The email suggestion must not populate the authenticator field. A restart must not keep the previous QR code on screen.
+
 ## 2026-11-24: Forms during session and data checks
 
 - Admin sign-in, open tasks, and loan status settings keep unsaved input during background checks.

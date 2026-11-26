@@ -1,0 +1,42 @@
+/* IP of Webby-Soft SRL.
+   "1 Install an authenticator app" with the three apps and their official store links, then
+   "2 Scan this code" (AuthenticatorApps.tsx). Loaded with the component, so it styles the same in
+   the investor area (U33) and the admin console. ":root" keeps these rules above the skins' link and
+   heading rules. */
+html:root .aa-apps { --aa-ink: #111214; --aa-muted: #69737d; --aa-line: #e6e8eb; --aa-soft: #f5f6f7; --aa-tile: #fff; margin: 18px 0 0; padding: 16px; border: 1px solid var(--aa-line); border-radius: 18px; background: var(--aa-soft); }
+html[data-theme="dark"]:root .aa-apps, html[data-theme="dark"]:root .aa-head-step { --aa-ink: #f3f5f4; --aa-muted: #a9b0b6; --aa-line: #343a40; --aa-soft: #23272c; --aa-tile: #191c20; }
+html:root .aa-head { display: flex; align-items: flex-start; gap: 12px; }
+html:root .aa-head h3 { margin: 1px 0 0; color: var(--aa-ink, #111214); font-size: 14.5px; font-weight: 600; line-height: 1.45; letter-spacing: -0.1px; }
+html:root .aa-head p { margin: 2px 0 0; color: var(--aa-muted); font-size: 12.5px; line-height: 1.5; }
+html:root .aa-step { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px; background: var(--aa-ink, #111214); color: #fff; font-size: 12px; font-weight: 600; line-height: 1; }
+html[data-theme="dark"]:root .aa-step { color: #111315; }
+html:root .aa-head-step { --aa-ink: #111214; --aa-muted: #69737d; margin: 22px 0 12px; }
+
+html:root .aa-list { container-type: inline-size; display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+html:root .aa-app { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border: 1px solid var(--aa-line); border-radius: 14px; background: var(--aa-tile); }
+html:root .aa-icon { display: inline-grid; place-items: center; width: 40px; height: 40px; overflow: hidden; border: 1px solid var(--aa-line); border-radius: 11px; background: var(--aa-soft); color: var(--aa-ink); font-size: 13px; font-weight: 700; letter-spacing: .2px; }
+html:root .aa-icon.has-image { border-color: transparent; background: transparent; }
+html:root .aa-icon img { display: block; width: 40px; height: 40px; object-fit: cover; }
+html:root .aa-name { display: grid; min-width: 0; }
+html:root .aa-name strong { overflow: hidden; color: var(--aa-ink); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+html:root .aa-name small { color: var(--aa-muted); font-size: 12px; }
+html:root .aa-list .aa-stores { display: flex; gap: 6px; }
+html:root .aa-list .aa-store { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 10px 5px 12px; border-radius: 10px; background: var(--aa-ink); color: #fff; text-decoration: none; transition: opacity .15s, transform .15s; }
+html[data-theme="dark"]:root .aa-list .aa-store { color: #111315; }
+html:root .aa-list .aa-store:hover { opacity: .88; color: #fff; text-decoration: none; }
+html[data-theme="dark"]:root .aa-list .aa-store:hover { color: #111315; }
+html:root .aa-list .aa-store:focus-visible { outline: 2px solid var(--aa-ink); outline-offset: 2px; }
+html:root .aa-list .aa-store-text { display: grid; line-height: 1.1; text-align: left; }
+html:root .aa-list .aa-store-text small { font-size: 9.5px; font-weight: 500; opacity: .75; letter-spacing: .1px; }
+html:root .aa-list .aa-store-text strong { font-size: 13px; font-weight: 600; }
+html:root .aa-list .aa-store svg { flex: none; opacity: .8; }
+
+/* A narrow list (the registration card, phones): the two store buttons go on their own row. */
+@container (max-width: 470px) {
+  html:root .aa-app { grid-template-columns: 40px minmax(0, 1fr); row-gap: 10px; }
+  html:root .aa-list .aa-stores { grid-column: 1 / -1; }
+  html:root .aa-list .aa-store { flex: 1 1 0; justify-content: space-between; }
+}
+@media (max-width: 520px) {
+  html:root .aa-apps { padding: 14px; }
+}
