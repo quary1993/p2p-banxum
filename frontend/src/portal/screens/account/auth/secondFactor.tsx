@@ -17,6 +17,7 @@ import {
 import { useT } from "../../../../i18n";
 import { isFixturePreview } from "../../../../investorPortal/data";
 import { brandDisplayName } from "../../../brand";
+import { AuthenticatorApps, AuthenticatorStep } from "../parts/AuthenticatorApps";
 import { CaCodeField, CaError, CaIcon } from "./AuthLayout";
 import { requestErrorText } from "./authState";
 
@@ -196,6 +197,8 @@ export function AuthenticatorSetup({
 
   return (
     <form className="acc-app-setup" data-form="authenticator" noValidate onSubmit={submit}>
+      <AuthenticatorApps />
+      <AuthenticatorStep number={2} title={t("Scan this code with the app")} />
       <div className="acc-app-qr">
         {qr ? <img alt={t("QR code for your authenticator app")} height={164} src={qr} width={164} /> : <span className="acc-app-qr-wait" aria-hidden="true" />}
         <div>

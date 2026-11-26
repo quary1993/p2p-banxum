@@ -2217,6 +2217,12 @@ test("an investor who chooses the authenticator app at registration sets no PIN 
   fireEvent.click(screen.getByRole("button", { name: "Prototype: open the link" }));
 
   fireEvent.click(screen.getByRole("button", { name: /^Authenticator app/ }));
+  // Step 1 lists the apps with their official store links; step 2 is the QR code.
+  for (const app of ["Google Authenticator", "Microsoft Authenticator", "1Password"]) {
+    expect(screen.getByRole("link", { name: `${app} on App Store (opens in a new tab)` })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: `${app} on Google Play (opens in a new tab)` })).toHaveAttribute("href", expect.stringMatching(/^https:\/\/play\.google\.com\/store\/apps\/details\?id=/));
+  }
+  expect(screen.getByRole("heading", { name: "Scan this code with the app" })).toBeInTheDocument();
   expect(screen.getByText("Or enter this key")).toBeInTheDocument();
   expect(screen.getByText("JBSW Y3DP EHPK 3PXP")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Code from the app"), { target: { value: "123456" } });

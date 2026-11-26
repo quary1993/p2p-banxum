@@ -24,6 +24,7 @@ import { pinErrorText } from "../../../../investorPortal/pinFlows";
 import { brandDisplayName } from "../../../brand";
 import { Dialog } from "../../../components";
 import { passwordFieldProblems, serverNewPasswordProblem } from "../auth/authState";
+import { AuthenticatorApps, AuthenticatorStep } from "../parts/AuthenticatorApps";
 import { DialogResult } from "../parts/PinDialogs";
 import { CodeField, DialogActions, Notice, PasswordField } from "../parts/ui";
 
@@ -215,7 +216,9 @@ function NewAuthenticator({ confirmationId, onDone, onCancel }: { confirmationId
   };
   return (
     <form noValidate onSubmit={submit}>
-      <p className="p73-intro">{t("Scan the code with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password), then enter the 6-digit code. The app replaces your current second factor; investments and withdrawals then need the app code instead of a PIN.")}</p>
+      <p className="p73-intro">{t("Install an authenticator app, scan the code with it, then enter the 6-digit code. The app replaces your current second factor; investments and withdrawals then need the app code instead of a PIN.")}</p>
+      <AuthenticatorApps />
+      <AuthenticatorStep number={2} title={t("Scan this code with the app")} />
       <div className="acc-app-qr-row">
         {qr ? <img alt={t("QR code for your authenticator app")} height={164} src={qr} width={164} /> : <span className="acc-app-qr-wait" aria-hidden="true" />}
         <div>

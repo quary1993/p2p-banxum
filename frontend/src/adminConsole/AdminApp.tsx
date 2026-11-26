@@ -3,6 +3,7 @@
 import QRCode from "qrcode";
 
 import "./adminStyles";
+import { AuthenticatorApps, AuthenticatorStep } from "../portal/screens/account/parts/AuthenticatorApps";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
@@ -522,6 +523,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
   const codeInput = (label: string, value: string, onChange: (value: string) => void, hint: string) => (
     <Field hint={hint} label={label}>
       <input
+        className="input"
         autoComplete="one-time-code"
         inputMode="numeric"
         maxLength={6}
@@ -560,9 +562,10 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
           </Banner>
         ) : null}
         {step === "credentials" ? (
-          <form className="col gap-14" onSubmit={submitCredentials}>
+          <form className="col gap-16" onSubmit={submitCredentials}>
             <Field label="Admin email">
               <input
+                className="input"
                 autoComplete="username"
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="admin@banxum.com"
@@ -573,6 +576,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             </Field>
             <Field label="Password">
               <input
+                className="input"
                 autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Admin password"
@@ -591,7 +595,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             </Button>
           </form>
         ) : step === "code" ? (
-          <form className="col gap-14" onSubmit={submitCode}>
+          <form className="col gap-16" onSubmit={submitCode}>
             {codeInput("Authenticator code", code, setCode, isFixturePreview ? "Preview accepts any 6 digits." : "The 6-digit code shown in your authenticator app.")}
             {confirmLogin.error ? (
               <Banner tone="bad" title="Code confirmation failed">
@@ -609,12 +613,14 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             <p className="muted" style={{ fontSize: 11.5 }}>Lost your phone? Ask a super admin to reset your authenticator app.</p>
           </form>
         ) : (
-          <form className="col gap-14" onSubmit={submitEnrollment}>
+          <form className="col gap-16" onSubmit={submitEnrollment}>
             <Banner tone="info" title="Set up your authenticator app">
-              Admins sign in with an authenticator app. Scan the code (or type the key), then enter the email code we sent and the first code from the app.
+              Admins sign in with an authenticator app. Install one, scan the code (or type the key), then enter the email code we sent and the first code from the app.
             </Banner>
+            <AuthenticatorApps />
+            <AuthenticatorStep number={2} title="Scan this code with the app" />
             {enrollment ? (
-              <div className="row gap-14" style={{ alignItems: "center" }}>
+              <div className="row gap-16" style={{ alignItems: "center" }}>
                 <AdminLoginQr uri={enrollment.uri} />
                 <div className="col" style={{ gap: 4 }}>
                   <span className="muted" style={{ fontSize: 11.5 }}>Or enter this key</span>

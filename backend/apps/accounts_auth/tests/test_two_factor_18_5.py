@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import timedelta
 from importlib import import_module
@@ -221,6 +222,32 @@ def test_totp_matches_the_rfc_6238_test_vectors() -> None:
     assert step == 1
     # The same code is refused once used.
     assert totp.verify(secret, "287082", last_used_step=step, now=59) is None
+
+
+def test_the_qr_address_uses_the_codes_that_every_listed_app_supports() -> None:
+    # The set-up lists Google Authenticator, Microsoft Authenticator and 1Password. Microsoft
+    # Authenticator makes only SHA-1, 6-digit, 30-second codes for non-Microsoft accounts and
+    # ignores other values, so the QR address must ask for exactly these, as the backend checks.
+
+    secret = totp.new_secret()
+    uri = urllib.parse.urlsplit(
+        totp.provisioning_uri(secret=secret, account_name="investor@example.test", issuer="Banxum")
+    )
+    query = dict(urllib.parse.parse_qsl(uri.query))
+
+    assert (uri.scheme, uri.netloc) == ("otpauth", "totp")
+    assert urllib.parse.unquote(uri.path) == "/Banxum:investor@example.test"
+    assert query == {
+        "secret": secret,
+        "issuer": "Banxum",
+        "algorithm": "SHA1",
+        "digits": "6",
+        "period": "30",
+    }
+    assert (totp.DIGITS, totp.STEP_SECONDS) == (6, 30)
+    # 160-bit base32 secret without padding: 32 characters, A-Z and 2-7.
+    assert len(secret) == 32
+    assert set(secret) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
 
 
 @pytest.mark.django_db

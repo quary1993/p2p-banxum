@@ -128,7 +128,7 @@ export function FactorGateScreen({
     step === "codes"
       ? t("Use one of these codes if you lose your phone. Each code works once. Store them where only you can find them.")
       : step === "app"
-        ? t("Scan the code with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password), then enter the 6-digit code.")
+        ? t("Install an authenticator app, scan the code with it, then enter the 6-digit code.")
         : step === "sms"
           ? t("Your phone becomes the second factor of your account.")
           : t("Two-factor authentication is required. You need it to sign in, to invest and to change your bank account.");
