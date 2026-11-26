@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from importlib import import_module
 from typing import Any
@@ -290,7 +290,7 @@ def confirm_authenticator_enrollment(
         _consume_security_confirmation(user, security_confirmation_id)
     app = (
         AuthenticatorApp.objects.select_for_update()
-        .filter(id=enrollment_id, user=user, confirmed_at__isnull=True)
+        .filter(id=enrollment_id, user=user, confirmed_at__isnull=True, disabled_at__isnull=True)
         .first()
     )
     if app is None:
@@ -858,6 +858,24 @@ def complete_admin_sign_in(
     return user
 
 
+def _check_admin_setup_email(
+    command: accounts_services.SensitiveActionCodeConsumeCommand,
+) -> SensitiveActionCode:
+    try:
+        return accounts_services.consume_sensitive_action_code(command)
+    except accounts_services.TooManyCodeAttemptsError as exc:
+        raise TwoFactorError(
+            "Too many incorrect email codes. Restart setup to get a new email and QR code.",
+            code="enrollment_email_exhausted",
+        ) from exc
+    except accounts_services.AccountsAuthError as exc:
+        raise TwoFactorError(
+            "The email code is incorrect or no longer valid. Use the newest setup email. "
+            "If it has expired, restart setup.",
+            code="email_code_invalid",
+        ) from exc
+
+
 def complete_admin_enrollment(
     *,
     code_id: str,
@@ -869,36 +887,21 @@ def complete_admin_enrollment(
 ) -> User:
     """Check the email code (not yet used up), then the new app code; then use the email code
     and activate the app. A wrong app code leaves the email code usable."""
-    try:
-        code_record = accounts_services.consume_sensitive_action_code(
-            accounts_services.SensitiveActionCodeConsumeCommand(
-                code_id=code_id,
-                raw_code=email_code,
-                expected_action=SensitiveAction.ADMIN_LOGIN,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                consume=False,
-            )
-        )
-    except accounts_services.AccountsAuthError as exc:
-        raise TwoFactorError(str(exc), code="email_code_invalid") from exc
-    user = code_record.user
-    if not is_admin_actor(user) or not user.can_login:
-        raise TwoFactorError("Admin credentials are invalid.", code="invalid_credentials")
+    email_check = accounts_services.SensitiveActionCodeConsumeCommand(
+        code_id=code_id,
+        raw_code=email_code,
+        expected_action=SensitiveAction.ADMIN_LOGIN,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        consume=False,
+    )
+    code_record = _check_admin_setup_email(email_check)
     with transaction.atomic():
+        user = User.objects.select_for_update().get(pk=code_record.user_id)
+        if not is_admin_actor(user) or not user.can_login:
+            raise TwoFactorError("Admin credentials are invalid.", code="invalid_credentials")
         confirm_authenticator_enrollment(user=user, enrollment_id=enrollment_id, code=code)
-        try:
-            accounts_services.consume_sensitive_action_code(
-                accounts_services.SensitiveActionCodeConsumeCommand(
-                    code_id=code_id,
-                    raw_code=email_code,
-                    expected_action=SensitiveAction.ADMIN_LOGIN,
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                )
-            )
-        except accounts_services.AccountsAuthError as exc:
-            raise TwoFactorError(str(exc), code="email_code_invalid") from exc
+        _check_admin_setup_email(replace(email_check, consume=True))
     _audit(user, "auth.admin_login_completed", {"method": "password_app", "enrolled": True})
     return user
 
@@ -911,7 +914,7 @@ def reset_admin_authenticator(*, actor: Any, admin_user_id: str) -> None:
         raise TwoFactorError(
             "Only a super admin can reset an authenticator app.", code="forbidden", http_status=403
         )
-    target = User.objects.filter(id=admin_user_id).first()
+    target = User.objects.select_for_update().filter(id=admin_user_id).first()
     if target is None or not is_admin_actor(target):
         raise TwoFactorError("Choose an admin account.", code="not_found", http_status=404)
     if str(target.pk) == str(actor.pk):
@@ -924,6 +927,18 @@ def reset_admin_authenticator(*, actor: Any, admin_user_id: str) -> None:
     AuthenticatorApp.objects.filter(user=target, disabled_at__isnull=True).update(
         disabled_at=now, disabled_reason="reset_by_super_admin"
     )
+    SensitiveActionCode.objects.filter(
+        user=target,
+        action=SensitiveAction.ADMIN_LOGIN,
+        consumed_at__isnull=True,
+        superseded_at__isnull=True,
+    ).update(superseded_at=now)
+    LoginChallenge.objects.filter(
+        user=target,
+        purpose=LoginChallenge.Purpose.ADMIN_SIGN_IN,
+        completed_at__isnull=True,
+        cancelled_at__isnull=True,
+    ).update(cancelled_at=now)
     end_sessions(target, reason="authenticator_reset")
     event = record_audit_event(
         AuditCommand(

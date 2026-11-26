@@ -250,6 +250,26 @@ def test_the_qr_address_uses_the_codes_that_every_listed_app_supports() -> None:
     assert set(secret) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
 
 
+def test_authenticator_provisioning_uri_round_trips_the_account_and_settings() -> None:
+    secret = totp.new_secret()
+    account = "test+enrollment@example.test"
+    uri = urllib.parse.urlsplit(
+        totp.provisioning_uri(secret=secret, account_name=account, issuer="BANXUM")
+    )
+    assert (uri.scheme, uri.netloc, urllib.parse.unquote(uri.path)) == (
+        "otpauth",
+        "totp",
+        f"/BANXUM:{account}",
+    )
+    assert urllib.parse.parse_qs(uri.query) == {
+        "secret": [secret],
+        "issuer": ["BANXUM"],
+        "algorithm": ["SHA1"],
+        "digits": ["6"],
+        "period": ["30"],
+    }
+
+
 @pytest.mark.django_db
 def test_five_wrong_app_codes_lock_the_app_for_thirty_minutes() -> None:
     user = _investor()
